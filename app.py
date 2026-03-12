@@ -16,8 +16,7 @@ import json
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify
 import gspread
-from google.oauth2.credentials import Credentials
-from google.auth.transport.requests import Request
+from google.oauth2 import service_account
 from googleapiclient.discovery import build as google_build
 
 from roster_scraper import (
@@ -32,8 +31,11 @@ from roster_scraper import (
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-TOKEN_FILE      = os.environ.get("GOOGLE_TOKEN_FILE", "token.json")
 DRIVE_FOLDER_ID = "1LE_lwaDLnoPD7ORvn3ha-ZUlB9dmJMiW"  # Jake's "Roster Sheets" folder
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
+]
 
 app = Flask(__name__)
 
@@ -95,19 +97,13 @@ def scrape():
 
 # ── Google auth helper ────────────────────────────────────────────────────────
 
-def _get_creds() -> Credentials:
-    """Load Jake's OAuth2 token, refreshing it if expired."""
-    token_json = os.environ.get("GOOGLE_TOKEN_JSON")
-    if token_json:
-        creds = Credentials.from_authorized_user_info(json.loads(token_json))
-    else:
-        creds = Credentials.from_authorized_user_file(TOKEN_FILE)
-    if creds.expired and creds.refresh_token:
-        creds.refresh(Request())
-        if not token_json:
-            with open(TOKEN_FILE, "w") as f:
-                f.write(creds.to_json())
-    return creds
+def _get_creds():
+    """Load service account credentials (never expire)."""
+    sa_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
+    if sa_json:
+        info = json.loads(sa_json)
+        return service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
+    return service_account.Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
 
 
 # ── Google Sheets helper ──────────────────────────────────────────────────────
