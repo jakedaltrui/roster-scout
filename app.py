@@ -155,7 +155,16 @@ def _create_and_share(hitters: list[dict], pitchers: list[dict], team_label: str
         "parents": [DRIVE_FOLDER_ID],
     }
     created = drive.files().create(body=file_meta, fields="id").execute()
-    spreadsheet = gc.open_by_key(created["id"])
+    file_id = created["id"]
+
+    # Transfer ownership to Jake so the file counts against his quota, not the service account
+    drive.permissions().create(
+        fileId=file_id,
+        body={"type": "user", "role": "owner", "emailAddress": "daltruibaseball@gmail.com"},
+        transferOwnership=True,
+    ).execute()
+
+    spreadsheet = gc.open_by_key(file_id)
 
     # Rename the default Sheet1 tab to Hitters, add Pitchers tab
     default_ws = spreadsheet.sheet1
