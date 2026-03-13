@@ -21,12 +21,8 @@ from google.auth.transport.requests import Request
 from googleapiclient.discovery import build as google_build
 
 from roster_scraper import (
-    get_roster_url,
-    get_stats_url,
-    get_team_label,
-    scrape_roster,
-    scrape_stats,
-    merge,
+    scrape_by_team_name,
+    scrape_juco_by_name,
     split_roster,
 )
 
@@ -46,37 +42,27 @@ def index():
 
 @app.route("/scrape", methods=["POST"])
 def scrape():
-    body = request.get_json(silent=True) or {}
-    url   = (body.get("url")   or "").strip()
-    email = (body.get("email") or "").strip()
+    body      = request.get_json(silent=True) or {}
+    team      = (body.get("team")      or "").strip()
+    email     = (body.get("email")     or "").strip()
+    division  = (body.get("division")  or "").strip().lower()  # "d1" | "juco" | ""
 
-    if not url:
-        return jsonify({"error": "Please enter a team URL."}), 400
+    if not team:
+        return jsonify({"error": "Please enter a team name."}), 400
     if not email or not re.match(r"[^@]+@[^@]+\.[^@]+", email):
         return jsonify({"error": "Please enter a valid email address."}), 400
 
     try:
-        roster_url = get_roster_url(url)
-        stats_url  = get_stats_url(roster_url)
-        team_label = get_team_label(roster_url)
-
-        # Scrape roster
-        roster = scrape_roster(roster_url)
-        if not roster:
-            return jsonify({
-                "error": (
-                    "No players found on that page. "
-                    "Try pasting the exact roster page URL "
-                    "(e.g. .../sports/baseball/roster). "
-                    "Some sites load players via JavaScript — contact Jake if this keeps happening."
-                )
-            }), 422
-
-        # Scrape stats (optional — won't fail if unavailable)
-        stats = scrape_stats(stats_url)
-
-        # Merge + split into hitters / pitchers
-        rows = merge(roster, stats)
+        if division == "juco":
+            rows, team_label = scrape_juco_by_name(team)
+        elif division == "d1":
+            rows, team_label = scrape_by_team_name(team)
+        else:
+            # Auto-detect: try D1 first, fall back to JUCO
+            try:
+                rows, team_label = scrape_by_team_name(team)
+            except ValueError:
+                rows, team_label = scrape_juco_by_name(team)
         hitters, pitchers = split_roster(rows)
 
         # Write to Sheets + share

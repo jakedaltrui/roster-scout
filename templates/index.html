@@ -96,7 +96,7 @@
     }
     .field { margin-bottom: 20px; }
 
-    input[type="url"],
+    input[type="text"],
     input[type="email"] {
       width: 100%;
       background: var(--input-bg);
@@ -109,9 +109,9 @@
       outline: none;
       transition: border-color 0.15s;
     }
-    input[type="url"]::placeholder,
+    input[type="text"]::placeholder,
     input[type="email"]::placeholder { color: #4a5568; }
-    input[type="url"]:focus,
+    input[type="text"]:focus,
     input[type="email"]:focus { border-color: var(--blue-lt); }
 
     .hint {
@@ -234,6 +234,36 @@
     .step.done-text  { color: var(--text); }
     .step.active-text { color: var(--white); font-weight: 600; }
 
+    /* ── Division toggle ── */
+    .div-toggle {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 20px;
+    }
+    .div-btn {
+      flex: 1;
+      padding: 9px 0;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+      background: var(--input-bg);
+      color: var(--gray);
+      font-family: inherit;
+      font-size: 0.85rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .div-btn.active {
+      background: var(--blue);
+      border-color: var(--blue);
+      color: var(--white);
+    }
+    .div-btn:not(.active):hover {
+      border-color: var(--blue-lt);
+      color: var(--text);
+    }
+
     /* ── Footer ── */
     .footer {
       margin-top: 28px;
@@ -256,21 +286,29 @@
     <div id="state-form" class="state active">
       <div class="card-title">Build a roster sheet</div>
       <p class="card-sub">
-        Paste any college baseball team URL. We'll pull their full roster and batting stats
+        Enter any NCAA or JUCO baseball team name. We'll pull their current roster and stats
         and drop it in a Google Sheet — sent straight to your email.
       </p>
 
       <form id="scout-form" novalidate>
         <div class="field">
-          <label for="url-input">Team URL</label>
+          <label>Division</label>
+          <div class="div-toggle">
+            <button type="button" class="div-btn active" data-div="d1">NCAA D1</button>
+            <button type="button" class="div-btn" data-div="juco">JUCO</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="team-input">Team Name</label>
           <input
-            type="url"
-            id="url-input"
-            placeholder="https://gofighters.com/sports/baseball/roster"
+            type="text"
+            id="team-input"
+            placeholder="e.g. Auburn, LSU, Vanderbilt"
             autocomplete="off"
             required
           />
-          <p class="hint">Any page from the team's official website works.</p>
+          <p class="hint" id="team-hint">NCAA D1 program. Just type the school name.</p>
         </div>
 
         <div class="field">
@@ -301,11 +339,11 @@
         <div class="steps" id="step-list">
           <div class="step active-text" id="step-roster">
             <div class="step-dot active" id="dot-roster"></div>
-            Fetching roster
+            Finding team on NCAA stats
           </div>
           <div class="step" id="step-stats">
             <div class="step-dot" id="dot-stats"></div>
-            Pulling stats
+            Pulling current season stats
           </div>
           <div class="step" id="step-sheet">
             <div class="step-dot" id="dot-sheet"></div>
@@ -351,6 +389,25 @@
 
   <script>
     const STATES = ['form', 'loading', 'success', 'error'];
+    let selectedDiv = 'd1';
+
+    // Division toggle
+    document.querySelectorAll('.div-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.div-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        selectedDiv = btn.dataset.div;
+        const input = document.getElementById('team-input');
+        const hint  = document.getElementById('team-hint');
+        if (selectedDiv === 'juco') {
+          input.placeholder = 'e.g. Chipola College, Crowder College';
+          hint.textContent  = 'NJCAA program. Just type the school name.';
+        } else {
+          input.placeholder = 'e.g. Auburn, LSU, Vanderbilt';
+          hint.textContent  = 'NCAA D1 program. Just type the school name.';
+        }
+      });
+    });
 
     function show(name) {
       STATES.forEach(s => {
@@ -377,10 +434,10 @@
     document.getElementById('scout-form').addEventListener('submit', async (e) => {
       e.preventDefault();
 
-      const url   = document.getElementById('url-input').value.trim();
+      const team  = document.getElementById('team-input').value.trim();
       const email = document.getElementById('email-input').value.trim();
 
-      if (!url || !email) return;
+      if (!team || !email) return;
 
       document.getElementById('submit-btn').disabled = true;
       show('loading');
@@ -401,7 +458,7 @@
         const resp = await fetch('/scrape', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url, email }),
+          body: JSON.stringify({ team, email, division: selectedDiv }),
         });
         const data = await resp.json();
         clearInterval(stepTimer);
