@@ -249,12 +249,18 @@ def _fetch_sidearm_player(base_url: str, rp_id: str, sport: str, year: str):
     er      = pitching.get("earned_runs_allowed", "0")
     has_pitching = pitching and _parse_ip(ip) > 0
 
+    pos = bio.get("position", "")
+    if not pos or pos.lower() == "p":
+        throws = bio.get("throws", "").strip().upper()
+        if throws == "R":
+            pos = "RHP"
+        elif throws == "L":
+            pos = "LHP"
+
     bio_fields = {
         "Name":        f"{bio.get('first_name', '')} {bio.get('last_name', '')}".strip(),
         "#":           bio.get("jersey_number", ""),
-        "Position":    bio.get("position", ""),
-        "Height":      bio.get("height", ""),
-        "Weight":      bio.get("weight", ""),
+        "Position":    pos,
         "Class":       class_raw,
         "Grad Year":   class_to_grad_year(class_raw),
         "Hometown":    bio.get("hometown", ""),
@@ -1289,16 +1295,16 @@ def merge(roster: list[dict], stats: dict) -> list[dict]:
 
 # Columns to include in each sheet (bio fields shared, stats differ)
 HITTER_COLS = [
-    "Name", "#", "Position", "Height", "Weight", "Class",
+    "Name", "#", "Position", "Class",
     "AVG", "OBP", "SLG", "AB", "H", "2B", "HR", "RBI", "R", "BB", "H_SO", "SB",
 ]
 PITCHER_COLS = [
-    "Name", "#", "Position", "Height", "Weight", "Class",
+    "Name", "#", "Position", "Class",
     "ERA", "WHIP", "W", "L", "SV", "IP", "P_H", "ER", "P_BB", "P_SO",
 ]
 # Friendly display names for the header row
-HITTER_HEADERS  = HITTER_COLS[:6]  + ["AVG","OBP","SLG","AB","H","2B","HR","RBI","R","BB","SO","SB"]
-PITCHER_HEADERS = PITCHER_COLS[:6] + ["ERA","WHIP","W","L","SV","IP","H","ER","BB","SO"]
+HITTER_HEADERS  = HITTER_COLS[:4]  + ["AVG","OBP","SLG","AB","H","2B","HR","RBI","R","BB","SO","SB"]
+PITCHER_HEADERS = PITCHER_COLS[:4] + ["ERA","WHIP","W","L","SV","IP","H","ER","BB","SO"]
 
 
 def split_roster(players: list[dict]) -> tuple:
