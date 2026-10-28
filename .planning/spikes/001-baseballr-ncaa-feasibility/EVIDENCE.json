@@ -1,0 +1,52 @@
+{
+  "verdict": "INVALIDATED",
+  "runtime": {
+    "r": "4.5.2",
+    "baseballr": "2.0.0",
+    "baseballr_release_commit": "7f7a0e1",
+    "chromote": "0.5.1",
+    "chrome": "156.0.8078.73",
+    "platform": "linux/amd64 on Docker Desktop ARM64 emulation"
+  },
+  "lookup_2026": {
+    "total_package_rows": 15928,
+    "division_1_teams": 305,
+    "division_2_teams": 242,
+    "division_3_teams": 370
+  },
+  "public_function_matrix": {
+    "required_calls": 12,
+    "non_empty_calls": 0,
+    "duration_seconds": 79.281,
+    "d1_team": "Florida St. (234 / 614606)",
+    "d2_team": "Tampa (689 / 615087)",
+    "d3_team": "Salisbury (622 / 615347)"
+  },
+  "exact_user_page": {
+    "season_team_id": 615349,
+    "team_id": 633,
+    "team_name": "Scranton",
+    "division": 3,
+    "year": 2026,
+    "result": "Akamai interstitial remained after baseballr browser fallback"
+  },
+  "route_diagnostic": {
+    "modern_routes_tested": 16,
+    "modern_routes_blocked": 16,
+    "duration_seconds": 606.721,
+    "legacy_roster_body_bytes": 18932,
+    "legacy_roster_table_count": 0
+  },
+  "compatibility_probe": {
+    "aligned_user_agent": "Chrome/156.0.0.0",
+    "direct_browser_duration_seconds": 55.78,
+    "direct_browser_html_bytes": 0,
+    "public_function_duration_seconds": 38.03,
+    "public_function_rows": 0
+  },
+  "resources": {
+    "image_bytes": 4810617803,
+    "observed_peak_memory": "approximately 1.02 GiB",
+    "configured_limit": "4 GiB memory / 2 CPUs"
+  }
+}
