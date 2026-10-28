@@ -21,6 +21,8 @@ from google.auth.transport.requests import Request
 from googleapiclient.discovery import build as google_build
 
 from roster_scraper import (
+    NcaaError,
+    scrape_ncaa_by_name,
     scrape_by_team_name,
     scrape_juco_by_name,
     split_roster,
@@ -45,7 +47,7 @@ def scrape():
     body      = request.get_json(silent=True) or {}
     team      = (body.get("team")      or "").strip()
     email     = (body.get("email")     or "").strip()
-    division  = (body.get("division")  or "").strip().lower()  # "d1" | "juco" | ""
+    division  = (body.get("division")  or "").strip().lower()
 
     if not team:
         return jsonify({"error": "Please enter a team name."}), 400
@@ -55,14 +57,31 @@ def scrape():
     try:
         if division == "juco":
             rows, team_label = scrape_juco_by_name(team)
-        elif division == "d1":
-            rows, team_label = scrape_by_team_name(team)
-        else:
-            # Auto-detect: try D1 first, fall back to JUCO
+        elif division in {"d1", "d2", "d3"}:
             try:
-                rows, team_label = scrape_by_team_name(team)
-            except ValueError:
-                rows, team_label = scrape_juco_by_name(team)
+                rows, team_label = scrape_ncaa_by_name(team, division=division)
+            except NcaaError as ncaa_exc:
+                if division != "d1":
+                    raise
+                # D1Baseball remains a useful D1-only fallback when NCAA is
+                # challenged or has not posted a usable table yet.
+                try:
+                    rows, team_label = scrape_by_team_name(team)
+                except ValueError:
+                    raise ncaa_exc
+        else:
+            # Backwards-compatible auto-detect for older clients that do not
+            # send a division. NCAA lookup covers D1/D2/D3 before JUCO.
+            try:
+                rows, team_label = scrape_ncaa_by_name(team)
+            except NcaaError as ncaa_exc:
+                try:
+                    rows, team_label = scrape_by_team_name(team)
+                except ValueError:
+                    try:
+                        rows, team_label = scrape_juco_by_name(team)
+                    except ValueError:
+                        raise ncaa_exc
         hitters, pitchers = split_roster(rows)
 
         # Write to Sheets + share

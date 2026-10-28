@@ -6,3 +6,4 @@ gspread
 google-auth
 google-auth-oauthlib
 google-api-python-client
+playwright==1.56.0

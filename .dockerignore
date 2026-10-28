@@ -1,0 +1,11 @@
+.git
+.planning
+.cache
+__pycache__
+*.pyc
+.env
+.DS_Store
+credentials.json
+oauth_credentials.json
+token.json
+tests

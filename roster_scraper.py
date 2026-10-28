@@ -15,11 +15,19 @@ Usage:
 import re
 import json
 import argparse
+import csv
+import hashlib
+import os
+import tempfile
+import threading
+import time
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
+from difflib import SequenceMatcher
+from pathlib import Path
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -31,6 +39,42 @@ HEADERS = {
 }
 
 NCAA_BASE = "https://stats.ncaa.org"
+NCAA_TEAM_LOOKUP_URL = (
+    "https://raw.githubusercontent.com/sportsdataverse/baseballr-data/"
+    "main/ncaa/teams_info/ncaa_team_lookup.csv"
+)
+NCAA_SEASON_LOOKUP_URL = (
+    "https://raw.githubusercontent.com/sportsdataverse/baseballr-data/"
+    "main/ncaa/seasons_info/ncaa_season_id_lu.csv"
+)
+NCAA_BLOCK_MARKERS = (
+    "access denied", "reference&#32;#", "reference #",
+    "pardon our interruption", "bm-verify", "akamai_validation",
+    "triggerinterstitialchallenge", "/_sec/verify", "request_quota_reached",
+)
+NCAA_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+}
+
+_NCAA_CACHE_VERSION = 1
+_NCAA_CACHE_LOCK = threading.Lock()
+_NCAA_BROWSER_LOCK = threading.Lock()
+_NCAA_TEAM_ROWS = None
+_NCAA_SEASON_ROWS = None
 
 CURRENT_YEAR = datetime.now().year
 CLASS_TO_GRAD = {
@@ -1096,38 +1140,568 @@ def _scrape_d1bb_pitching(slug: str) -> list[dict]:
     return []
 
 
-# ── Legacy NCAA stubs (kept for reference; stats.ncaa.org is WAF-blocked) ─────
+# ── NCAA stats.ncaa.org workflow ──────────────────────────────────────────────
+# This follows baseballr's open-source NCAA model in Python: use the maintained
+# SportsDataverse lookup tables for franchise/season IDs, request the modern
+# season-team stat grids, and fall back to a verified browser render only when
+# NCAA's Akamai edge blocks the normal HTTP path.
 
-def search_ncaa_team(name: str) -> list[dict]:
-    """
-    Stub — stats.ncaa.org blocks programmatic access.
-    Use scrape_by_team_name() which routes to d1baseball.com instead.
-    """
-    resp = requests.get(
-        f"{NCAA_BASE}/teams/search",
-        params={"q": name, "sport_code": "MBA"},
-        headers=HEADERS,
-        timeout=15,
+
+class NcaaError(ValueError):
+    """Base class for user-facing NCAA workflow failures."""
+
+
+class NcaaTeamNotFound(NcaaError):
+    """Raised when a school cannot be resolved unambiguously."""
+
+
+class NcaaAccessError(NcaaError):
+    """Raised when NCAA blocks or withholds a requested stats page."""
+
+
+def _ncaa_cache_dir() -> Path:
+    configured = os.environ.get("ROSTER_SCOUT_CACHE_DIR")
+    path = Path(configured) if configured else Path(__file__).resolve().parent / ".cache"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _atomic_write(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _NCAA_CACHE_LOCK:
+        handle = tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=path.parent, delete=False
+        )
+        try:
+            with handle:
+                handle.write(content)
+            os.replace(handle.name, path)
+        except Exception:
+            try:
+                os.unlink(handle.name)
+            except OSError:
+                pass
+            raise
+
+
+def _cache_fresh(path: Path, ttl_seconds: int) -> bool:
+    try:
+        return path.is_file() and time.time() - path.stat().st_mtime < ttl_seconds
+    except OSError:
+        return False
+
+
+def _read_json_cache(key: str, ttl_seconds: int):
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
+    path = _ncaa_cache_dir() / f"result-{digest}.json"
+    if not _cache_fresh(path, ttl_seconds):
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if payload.get("cache_version") != _NCAA_CACHE_VERSION:
+        return None
+    return payload
+
+
+def _write_json_cache(key: str, payload: dict) -> None:
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
+    path = _ncaa_cache_dir() / f"result-{digest}.json"
+    body = dict(payload)
+    body["cache_version"] = _NCAA_CACHE_VERSION
+    body["cached_at"] = datetime.now().isoformat(timespec="seconds")
+    _atomic_write(path, json.dumps(body, separators=(",", ":")))
+
+
+def _load_csv_rows(url: str, filename: str, required_columns: set[str]) -> list[dict]:
+    ttl = int(os.environ.get("NCAA_LOOKUP_CACHE_TTL_SECONDS", "86400"))
+    path = _ncaa_cache_dir() / filename
+    text = None
+
+    if _cache_fresh(path, ttl):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            text = None
+
+    if text is None:
+        try:
+            response = requests.get(url, headers=HEADERS, timeout=20)
+            response.raise_for_status()
+            text = response.text
+            header = next(csv.reader(text.splitlines()), [])
+            if not required_columns.issubset(set(header)):
+                raise NcaaAccessError(f"Unexpected NCAA lookup schema from {url}")
+            _atomic_write(path, text)
+        except Exception as exc:
+            # A stale lookup is safer than failing every request during a brief
+            # GitHub outage. It is only used for IDs and is revalidated later.
+            if path.is_file():
+                text = path.read_text(encoding="utf-8")
+            else:
+                raise NcaaAccessError(f"Could not load NCAA team metadata: {exc}") from exc
+
+    reader = csv.DictReader(text.splitlines())
+    if not required_columns.issubset(set(reader.fieldnames or [])):
+        raise NcaaAccessError("Cached NCAA lookup has an unexpected schema.")
+    return list(reader)
+
+
+def _load_ncaa_team_rows() -> list[dict]:
+    global _NCAA_TEAM_ROWS
+    if _NCAA_TEAM_ROWS is None:
+        _NCAA_TEAM_ROWS = _load_csv_rows(
+            NCAA_TEAM_LOOKUP_URL,
+            "ncaa-team-lookup.csv",
+            {"team_id", "team_name", "division", "year", "season_id", "season_team_id"},
+        )
+    return _NCAA_TEAM_ROWS
+
+
+def _load_ncaa_season_rows() -> list[dict]:
+    global _NCAA_SEASON_ROWS
+    if _NCAA_SEASON_ROWS is None:
+        _NCAA_SEASON_ROWS = _load_csv_rows(
+            NCAA_SEASON_LOOKUP_URL,
+            "ncaa-season-lookup.csv",
+            {"season", "id", "batting_id", "pitching_id"},
+        )
+    return _NCAA_SEASON_ROWS
+
+
+def _current_ncaa_year() -> int:
+    override = os.environ.get("NCAA_SEASON_YEAR")
+    if override:
+        try:
+            return int(override)
+        except ValueError as exc:
+            raise NcaaError("NCAA_SEASON_YEAR must be a four-digit year.") from exc
+    now = datetime.now()
+    return now.year if now.month >= 2 else now.year - 1
+
+
+def _parse_division(division) -> int | None:
+    if division in (None, "", "ncaa"):
+        return None
+    value = str(division).lower().strip().replace("ncaa", "").replace("d", "")
+    if value not in {"1", "2", "3"}:
+        raise NcaaError("NCAA division must be D1, D2, or D3.")
+    return int(value)
+
+
+def _normalize_school_name(value: str) -> str:
+    value = value.lower().replace("&", " and ")
+    value = re.sub(r"\b(university|college|the)\b", " ", value)
+    value = re.sub(r"[^a-z0-9]+", " ", value)
+    return " ".join(value.split())
+
+
+def _find_ncaa_team(team_name: str, division=None, year: int | None = None) -> dict:
+    year = year or _current_ncaa_year()
+    division_num = _parse_division(division)
+    rows = [
+        row for row in _load_ncaa_team_rows()
+        if row.get("year") == str(year)
+        and row.get("team_id")
+        and row.get("season_team_id")
+        and (division_num is None or row.get("division") == str(division_num))
+    ]
+    if not rows:
+        suffix = f" in D{division_num}" if division_num else ""
+        raise NcaaTeamNotFound(f"No NCAA baseball teams are available for {year}{suffix}.")
+
+    query = _normalize_school_name(team_name)
+    exact = [row for row in rows if _normalize_school_name(row["team_name"]) == query]
+    if len(exact) == 1:
+        return exact[0]
+    if len(exact) > 1:
+        divisions = ", ".join(sorted({f"D{row['division']}" for row in exact}))
+        raise NcaaTeamNotFound(
+            f"'{team_name}' matches more than one NCAA team ({divisions}). Choose a division."
+        )
+
+    ranked = [
+        (
+            SequenceMatcher(None, query, _normalize_school_name(row["team_name"])).ratio(),
+            row,
+        )
+        for row in rows
+    ]
+    ranked.sort(key=lambda item: item[0])
+    score, best = ranked[-1]
+    if score < 0.64:
+        suffix = f" in D{division_num}" if division_num else ""
+        raise NcaaTeamNotFound(
+            f"No NCAA baseball team found matching '{team_name}'{suffix}. Try the full school name."
+        )
+    if len(ranked) > 1 and ranked[-2][0] >= score - 0.025:
+        candidates = [ranked[-1][1]["team_name"], ranked[-2][1]["team_name"]]
+        raise NcaaTeamNotFound(
+            f"'{team_name}' is ambiguous. Try one of: {', '.join(candidates)}."
+        )
+    return best
+
+
+def search_ncaa_team(name: str, division=None, year: int | None = None) -> list[dict]:
+    """Return the best NCAA lookup match in the historical public shape."""
+    team = _find_ncaa_team(name, division=division, year=year)
+    return [{
+        "name": team["team_name"],
+        "org_id": team["team_id"],
+        "season_team_id": team["season_team_id"],
+        "division": team["division"],
+        "year": team["year"],
+    }]
+
+
+def _find_ncaa_season(year: int) -> dict:
+    for row in _load_ncaa_season_rows():
+        if row.get("season") == str(year):
+            return row
+    raise NcaaAccessError(f"NCAA stat category IDs are unavailable for {year}.")
+
+
+def _is_ncaa_blocked(html: str) -> bool:
+    lowered = (html or "").lower()
+    return any(marker in lowered for marker in NCAA_BLOCK_MARKERS)
+
+
+def _has_ncaa_stat_grid(html: str) -> bool:
+    if not html or _is_ncaa_blocked(html):
+        return False
+    soup = BeautifulSoup(html, "html.parser")
+    return soup.select_one("#stat_grid") is not None
+
+
+def _fetch_ncaa_http(url: str, session: requests.Session) -> str:
+    last_response = None
+    for attempt in range(3):
+        response = session.get(url, headers=NCAA_HEADERS, timeout=20, allow_redirects=True)
+        last_response = response
+        if response.status_code not in (429, 503):
+            break
+        time.sleep(2 ** attempt)
+
+    delay = float(os.environ.get("NCAA_REQUEST_DELAY_SECONDS", "1"))
+    if delay > 0:
+        time.sleep(delay)
+
+    if last_response is None:
+        raise NcaaAccessError("NCAA did not return a response.")
+    if last_response.status_code == 403 or _is_ncaa_blocked(last_response.text):
+        raise NcaaAccessError("NCAA returned an Akamai verification page.")
+    if last_response.status_code != 200:
+        raise NcaaAccessError(f"NCAA returned HTTP {last_response.status_code}.")
+    if not _has_ncaa_stat_grid(last_response.text):
+        raise NcaaAccessError("NCAA returned a page without the expected stats table.")
+    return last_response.text
+
+
+def _playwright_launch_options() -> dict:
+    options = {
+        "headless": os.environ.get("NCAA_BROWSER_HEADLESS", "1") != "0",
+        "args": [
+            "--disable-blink-features=AutomationControlled",
+            "--disable-dev-shm-usage",
+            "--no-sandbox",
+        ],
+    }
+    executable = os.environ.get("NCAA_BROWSER_EXECUTABLE_PATH")
+    channel = os.environ.get("NCAA_BROWSER_CHANNEL")
+    proxy = os.environ.get("NCAA_BROWSER_PROXY")
+    if executable:
+        options["executable_path"] = executable
+    elif channel:
+        options["channel"] = channel
+    if proxy:
+        options["proxy"] = {"server": proxy}
+    return options
+
+
+def _fetch_ncaa_browser_pages(urls: dict[str, str]) -> dict[str, str]:
+    # A persistent Chromium profile cannot be opened by two processes at once.
+    # Gunicorn uses one process for this app, so this lock safely serializes the
+    # rare browser fallback while normal HTTP and cache hits remain concurrent.
+    with _NCAA_BROWSER_LOCK:
+        return _fetch_ncaa_browser_pages_locked(urls)
+
+
+def _fetch_ncaa_browser_pages_locked(urls: dict[str, str]) -> dict[str, str]:
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as exc:
+        raise NcaaAccessError(
+            "NCAA requires browser verification, but Playwright is not installed."
+        ) from exc
+
+    timeout_seconds = int(os.environ.get("NCAA_BROWSER_VERIFY_TIMEOUT_SECONDS", "45"))
+    # A persistent profile retains Akamai cookies and browser-managed state that
+    # Playwright's storage_state export does not cover. It also gives a headed
+    # local run a durable, one-time human verification path without touching the
+    # user's normal Chrome profile.
+    configured_profile = os.environ.get("NCAA_BROWSER_PROFILE_DIR")
+    profile_path = (
+        Path(configured_profile)
+        if configured_profile
+        else _ncaa_cache_dir() / "ncaa-browser-profile"
     )
-    resp.raise_for_status()
-    soup = BeautifulSoup(resp.text, "html.parser")
+    profile_path.mkdir(parents=True, exist_ok=True)
+    headless = os.environ.get("NCAA_BROWSER_HEADLESS", "1") != "0"
+    rendered = {}
 
-    teams = []
-    seen_ids = set()
-    for a in soup.find_all("a", href=re.compile(r"/team/\d+")):
-        href = a.get("href", "")
-        m = re.search(r"/team/(\d+)", href)
-        if not m:
-            continue
-        org_id = m.group(1)
-        if org_id in seen_ids:
-            continue
-        seen_ids.add(org_id)
-        label = a.get_text(strip=True)
-        if label and not label.isdigit():
-            teams.append({"name": label, "org_id": org_id})
+    try:
+        with sync_playwright() as playwright:
+            context_options = _playwright_launch_options()
+            context_options.update({
+                "locale": "en-US",
+                "timezone_id": "America/Chicago",
+                "viewport": {"width": 1365, "height": 900},
+            })
+            context = playwright.chromium.launch_persistent_context(
+                str(profile_path), **context_options
+            )
+            context.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+                window.chrome = window.chrome || {runtime: {}};
+            """)
+            page = context.pages[0] if context.pages else context.new_page()
 
-    return teams
+            for key, url in urls.items():
+                page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                deadline = time.monotonic() + timeout_seconds
+                html = page.content()
+                while time.monotonic() < deadline:
+                    html = page.content()
+                    if _has_ncaa_stat_grid(html):
+                        break
+                    page.wait_for_timeout(1000)
+                if not _has_ncaa_stat_grid(html):
+                    guidance = (
+                        "Run locally with NCAA_BROWSER_HEADLESS=0 and complete "
+                        "the NCAA prompt in the opened browser."
+                        if headless else
+                        "NCAA rejected the verified browser session; retry later "
+                        "or use a network that NCAA accepts."
+                    )
+                    raise NcaaAccessError(
+                        "NCAA browser verification did not produce the expected stats table. "
+                        + guidance
+                    )
+                rendered[key] = html
+
+            context.close()
+    except NcaaAccessError:
+        raise
+    except Exception as exc:
+        raise NcaaAccessError(f"NCAA browser fallback failed: {exc}") from exc
+
+    return rendered
+
+
+def _fetch_ncaa_pages(urls: dict[str, str]) -> dict[str, str]:
+    direct = {}
+    blocked = {}
+    session = requests.Session()
+    for key, url in urls.items():
+        try:
+            direct[key] = _fetch_ncaa_http(url, session)
+        except NcaaAccessError:
+            blocked[key] = url
+
+    if blocked:
+        if os.environ.get("NCAA_BROWSER_FALLBACK", "1") == "0":
+            raise NcaaAccessError(
+                "NCAA blocked the direct request and browser fallback is disabled."
+            )
+        direct.update(_fetch_ncaa_browser_pages(blocked))
+    return direct
+
+
+def _unique_headers(headers: list[str]) -> list[str]:
+    seen = {}
+    output = []
+    for index, header in enumerate(headers):
+        header = header.strip() or f"column_{index + 1}"
+        count = seen.get(header, 0) + 1
+        seen[header] = count
+        output.append(header if count == 1 else f"{header}_{count}")
+    return output
+
+
+def _parse_ncaa_stat_table(html: str) -> list[dict]:
+    if not _has_ncaa_stat_grid(html):
+        raise NcaaAccessError("NCAA stats table is missing or blocked.")
+    soup = BeautifulSoup(html, "html.parser")
+    table = soup.select_one("#stat_grid")
+    header_rows = table.select("thead tr")
+    header_row = header_rows[-1] if header_rows else table.find("tr")
+    headers = _unique_headers([
+        cell.get_text(" ", strip=True)
+        for cell in header_row.find_all(["th", "td"], recursive=False)
+    ])
+    rows = []
+    body_rows = table.select("tbody tr") or table.find_all("tr")[1:]
+    for tr in body_rows:
+        cells = tr.find_all(["th", "td"], recursive=False)
+        if len(cells) != len(headers):
+            continue
+        values = [cell.get_text(" ", strip=True) for cell in cells]
+        row = dict(zip(headers, values))
+        player_key = next((key for key in row if key.lower() == "player"), None)
+        if not player_key:
+            continue
+        name = re.sub(r"^x\s+", "", row[player_key], flags=re.IGNORECASE).strip()
+        if not name or name.lower() in {"totals", "total", "team"}:
+            continue
+        row[player_key] = name
+        player_link = tr.find("a", href=re.compile(r"/players/\d+"))
+        if player_link:
+            match = re.search(r"/players/(\d+)", player_link.get("href", ""))
+            row["_player_id"] = match.group(1) if match else ""
+        else:
+            row["_player_id"] = ""
+        rows.append(row)
+    return rows
+
+
+def _stat(row: dict, *keys: str) -> str:
+    lowered = {key.lower(): value for key, value in row.items()}
+    for key in keys:
+        value = lowered.get(key.lower())
+        if value not in (None, "", "-"):
+            return str(value).strip()
+    return ""
+
+
+def _rate(value: str) -> str:
+    if not value:
+        return ""
+    try:
+        return _fmt(float(value))
+    except (TypeError, ValueError):
+        return value
+
+
+def _normalize_ncaa_players(batting: list[dict], pitching: list[dict]) -> list[dict]:
+    def player_key(row: dict) -> str:
+        player_id = row.get("_player_id")
+        if player_id:
+            return f"id:{player_id}"
+        return f"name:{_normalize_school_name(_stat(row, 'Player'))}"
+
+    bat_by_key = {player_key(row): row for row in batting}
+    pit_by_key = {player_key(row): row for row in pitching}
+    keys = list(bat_by_key) + [key for key in pit_by_key if key not in bat_by_key]
+    players = []
+
+    for key in keys:
+        bat = bat_by_key.get(key, {})
+        pit = pit_by_key.get(key, {})
+        common = bat or pit
+        name = _stat(common, "Player") or _stat(pit, "Player")
+        jersey = _stat(common, "Jersey", "#") or _stat(pit, "Jersey", "#")
+        position = _stat(common, "Pos", "Position") or _stat(pit, "Pos", "Position")
+        year = _stat(common, "Yr", "Class") or _stat(pit, "Yr", "Class")
+        ab = _stat(bat, "AB")
+        hits = _stat(bat, "H")
+        doubles = _stat(bat, "2B")
+        triples = _stat(bat, "3B")
+        home_runs = _stat(bat, "HR")
+        walks = _stat(bat, "BB")
+        hbp = _stat(bat, "HBP")
+        sf = _stat(bat, "SF")
+        ip = _stat(pit, "IP")
+        pitching_hits = _stat(pit, "H")
+        earned_runs = _stat(pit, "ER")
+        pitching_walks = _stat(pit, "BB")
+
+        players.append({
+            "Name": name,
+            "#": jersey,
+            "Position": position,
+            "Height": _stat(common, "Ht", "Height") or _stat(pit, "Ht", "Height"),
+            "Weight": "",
+            "Class": year,
+            "Grad Year": class_to_grad_year(year) if year else "",
+            "Hometown": "",
+            "High School": "",
+            "AVG": _rate(_stat(bat, "BA", "AVG")) or calc_avg(hits, ab),
+            "OBP": _rate(_stat(bat, "OBPct", "OBP")) or calc_obp(hits, walks, hbp, ab, sf),
+            "SLG": _rate(_stat(bat, "SlgPct", "SLG")) or calc_slg(hits, doubles, triples, home_runs, ab),
+            "AB": ab,
+            "H": hits,
+            "2B": doubles,
+            "HR": home_runs,
+            "RBI": _stat(bat, "RBI"),
+            "R": _stat(bat, "R"),
+            "BB": walks,
+            "H_SO": _stat(bat, "K", "SO"),
+            "SB": _stat(bat, "SB"),
+            "ERA": _stat(pit, "ERA") or calc_era(earned_runs, ip),
+            "WHIP": _stat(pit, "WHIP") or calc_whip(pitching_walks, pitching_hits, ip),
+            "W": _stat(pit, "W"),
+            "L": _stat(pit, "L"),
+            "SV": _stat(pit, "SV"),
+            "IP": ip,
+            "P_H": pitching_hits,
+            "ER": earned_runs,
+            "P_BB": pitching_walks,
+            "P_SO": _stat(pit, "SO", "K"),
+            "_has_hitting": bool(bat),
+            "_has_pitching": bool(pit),
+            "_pos": position,
+        })
+    return players
+
+
+def scrape_ncaa_by_name(
+    team_name: str,
+    division=None,
+    year: int | None = None,
+    force_refresh: bool = False,
+) -> tuple:
+    """Resolve and scrape an NCAA D1/D2/D3 team through stats.ncaa.org."""
+    year = year or _current_ncaa_year()
+    team = _find_ncaa_team(team_name, division=division, year=year)
+    label = team["team_name"]
+    cache_key = f"ncaa:{year}:{team['division']}:{team['team_id']}"
+    ttl = int(os.environ.get("NCAA_RESULT_CACHE_TTL_SECONDS", "21600"))
+
+    if not force_refresh:
+        cached = _read_json_cache(cache_key, ttl)
+        if cached and cached.get("players"):
+            return cached["players"], cached.get("team_label", label)
+
+    season = _find_ncaa_season(year)
+    season_team_id = team["season_team_id"]
+    base_url = f"{NCAA_BASE}/teams/{season_team_id}/season_to_date_stats"
+    urls = {
+        "batting": f"{base_url}?year_stat_category_id={season['batting_id']}",
+        "pitching": f"{base_url}?year_stat_category_id={season['pitching_id']}",
+    }
+    pages = _fetch_ncaa_pages(urls)
+    batting = _parse_ncaa_stat_table(pages["batting"])
+    pitching = _parse_ncaa_stat_table(pages["pitching"])
+    if not batting and not pitching:
+        raise NcaaAccessError(
+            f"Found '{label}' but NCAA has no batting or pitching rows for {year}."
+        )
+
+    players = _normalize_ncaa_players(batting, pitching)
+    if not players:
+        raise NcaaAccessError(f"NCAA returned stats for '{label}', but no players could be parsed.")
+
+    _write_json_cache(cache_key, {
+        "team_label": label,
+        "team_id": team["team_id"],
+        "season_team_id": season_team_id,
+        "division": team["division"],
+        "year": year,
+        "players": players,
+    })
+    return players, label
 
 
 def scrape_by_team_name(team_name: str) -> tuple:

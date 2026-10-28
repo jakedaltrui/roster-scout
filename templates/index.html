@@ -294,7 +294,9 @@
         <div class="field">
           <label>Division</label>
           <div class="div-toggle">
-            <button type="button" class="div-btn active" data-div="d1">NCAA D1</button>
+            <button type="button" class="div-btn active" data-div="d1">D1</button>
+            <button type="button" class="div-btn" data-div="d2">D2</button>
+            <button type="button" class="div-btn" data-div="d3">D3</button>
             <button type="button" class="div-btn" data-div="juco">JUCO</button>
           </div>
         </div>
@@ -334,7 +336,7 @@
       <div class="spinner-wrap">
         <div class="spinner"></div>
         <div class="loading-title">Building your roster sheet…</div>
-        <p class="loading-sub">Scraping roster &amp; stats.<br>Usually takes 10–20 seconds.</p>
+        <p class="loading-sub">Scraping roster &amp; stats.<br>First requests may take up to a minute; repeats are cached.</p>
 
         <div class="steps" id="step-list">
           <div class="step active-text" id="step-roster">
@@ -403,8 +405,13 @@
           input.placeholder = 'e.g. Chipola College, Crowder College';
           hint.textContent  = 'NJCAA program. Just type the school name.';
         } else {
-          input.placeholder = 'e.g. Auburn, LSU, Vanderbilt';
-          hint.textContent  = 'NCAA D1 program. Just type the school name.';
+          const examples = {
+            d1: 'e.g. Auburn, LSU, Vanderbilt',
+            d2: 'e.g. Tampa, Angelo State',
+            d3: 'e.g. Scranton, Salisbury',
+          };
+          input.placeholder = examples[selectedDiv];
+          hint.textContent  = `NCAA ${selectedDiv.toUpperCase()} program. Just type the school name.`;
         }
       });
     });
