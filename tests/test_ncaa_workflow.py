@@ -45,6 +45,23 @@ class NcaaWorkflowTests(unittest.TestCase):
         self.assertEqual(rs._find_ncaa_team("Tampa", "d2", 2026)["team_id"], "689")
         self.assertEqual(rs._find_ncaa_team("Scranton", "d3", 2026)["season_team_id"], "615349")
 
+    def test_selector_catalog_and_exact_id_resolution(self):
+        d2 = rs.list_ncaa_teams("d2", year=2026)
+        self.assertEqual([team["name"] for team in d2], ["Tampa"])
+        self.assertEqual(d2[0]["season_team_id"], "615087")
+        resolved = rs._find_ncaa_team_by_season_id("615087", "d2", year=2026)
+        self.assertEqual(resolved["team_name"], "Tampa")
+        with self.assertRaises(rs.NcaaTeamNotFound):
+            rs._find_ncaa_team_by_season_id("615087", "d3", year=2026)
+
+    def test_validates_entire_catalog_in_one_pass(self):
+        report = rs.validate_ncaa_team_catalog(year=2026)
+        self.assertTrue(report["valid"])
+        self.assertEqual(report["rows"], 3)
+        self.assertEqual(report["selectable"], 3)
+        self.assertEqual(report["counts"], {"d1": 1, "d2": 1, "d3": 1})
+        self.assertEqual(report["errors"], [])
+
     def test_parses_and_normalizes_all_three_divisions(self):
         for division in (1, 2, 3):
             batting = rs._parse_ncaa_stat_table(fixture(f"d{division}_batting.html"))

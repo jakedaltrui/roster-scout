@@ -96,7 +96,8 @@
     }
     .field { margin-bottom: 20px; }
 
-    input[type="text"] {
+    input[type="text"],
+    select {
       width: 100%;
       background: var(--input-bg);
       border: 1px solid var(--border);
@@ -109,7 +110,9 @@
       transition: border-color 0.15s;
     }
     input[type="text"]::placeholder { color: #4a5568; }
-    input[type="text"]:focus { border-color: var(--blue-lt); }
+    input[type="text"]:focus,
+    select:focus { border-color: var(--blue-lt); }
+    select:disabled { opacity: 0.6; }
 
     .hint {
       font-size: 0.75rem;
@@ -283,8 +286,8 @@
     <div id="state-form" class="state active">
       <div class="card-title">Build a roster sheet</div>
       <p class="card-sub">
-        Enter any NCAA or JUCO baseball team name. We'll pull their current roster and stats
-        into an Excel workbook that downloads directly to your computer.
+        Choose an NCAA team from the verified catalog, or enter a JUCO team name. We'll pull
+        the current roster and stats into an Excel workbook that downloads directly.
       </p>
 
       <form id="scout-form" novalidate>
@@ -298,16 +301,23 @@
           </div>
         </div>
 
-        <div class="field">
+        <div class="field" id="ncaa-team-field">
+          <label for="team-select">Team</label>
+          <select id="team-select" required disabled>
+            <option value="">Loading D1 teams…</option>
+          </select>
+          <p class="hint" id="catalog-hint">Loading the current NCAA catalog…</p>
+        </div>
+
+        <div class="field" id="juco-team-field" hidden>
           <label for="team-input">Team Name</label>
           <input
             type="text"
             id="team-input"
-            placeholder="e.g. Auburn, LSU, Vanderbilt"
+            placeholder="e.g. Chipola College, Crowder College"
             autocomplete="off"
-            required
           />
-          <p class="hint" id="team-hint">NCAA D1 program. Just type the school name.</p>
+          <p class="hint">NJCAA program. Type the school name.</p>
         </div>
 
         <button type="submit" class="btn btn-primary" id="submit-btn">
@@ -326,7 +336,7 @@
         <div class="steps" id="step-list">
           <div class="step active-text" id="step-roster">
             <div class="step-dot active" id="dot-roster"></div>
-            Finding team on NCAA stats
+            Opening the selected team
           </div>
           <div class="step" id="step-stats">
             <div class="step-dot" id="dot-stats"></div>
@@ -379,26 +389,58 @@
     let selectedDiv = 'd1';
     let lastDownloadUrl = null;
     let lastDownloadName = null;
+    let catalogRequestId = 0;
+
+    async function loadNcaaTeams(division) {
+      const requestId = ++catalogRequestId;
+      const select = document.getElementById('team-select');
+      const hint = document.getElementById('catalog-hint');
+      const submit = document.getElementById('submit-btn');
+      select.disabled = true;
+      submit.disabled = true;
+      select.innerHTML = `<option value="">Loading ${division.toUpperCase()} teams…</option>`;
+      hint.textContent = 'Loading the current NCAA catalog…';
+
+      try {
+        const response = await fetch(`/api/teams?division=${encodeURIComponent(division)}`);
+        const data = await response.json();
+        if (requestId !== catalogRequestId) return;
+        if (!response.ok) throw new Error(data.error || 'Team catalog could not be loaded.');
+
+        select.innerHTML = '<option value="">Select a team…</option>';
+        data.teams.forEach(team => {
+          const option = document.createElement('option');
+          option.value = team.season_team_id;
+          option.textContent = team.name;
+          select.appendChild(option);
+        });
+        select.disabled = false;
+        submit.disabled = false;
+        hint.textContent = `${data.teams.length} NCAA ${division.toUpperCase()} teams available for ${data.year}.`;
+      } catch (error) {
+        if (requestId !== catalogRequestId) return;
+        select.innerHTML = '<option value="">Catalog unavailable</option>';
+        hint.textContent = error.message;
+      }
+    }
 
     // Division toggle
     document.querySelectorAll('.div-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', async () => {
         document.querySelectorAll('.div-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         selectedDiv = btn.dataset.div;
-        const input = document.getElementById('team-input');
-        const hint  = document.getElementById('team-hint');
+        const ncaaField = document.getElementById('ncaa-team-field');
+        const jucoField = document.getElementById('juco-team-field');
         if (selectedDiv === 'juco') {
-          input.placeholder = 'e.g. Chipola College, Crowder College';
-          hint.textContent  = 'NJCAA program. Just type the school name.';
+          catalogRequestId++;
+          ncaaField.hidden = true;
+          jucoField.hidden = false;
+          document.getElementById('submit-btn').disabled = false;
         } else {
-          const examples = {
-            d1: 'e.g. Auburn, LSU, Vanderbilt',
-            d2: 'e.g. Tampa, Angelo State',
-            d3: 'e.g. Scranton, Salisbury',
-          };
-          input.placeholder = examples[selectedDiv];
-          hint.textContent  = `NCAA ${selectedDiv.toUpperCase()} program. Just type the school name.`;
+          ncaaField.hidden = false;
+          jucoField.hidden = true;
+          await loadNcaaTeams(selectedDiv);
         }
       });
     });
@@ -443,9 +485,13 @@
     document.getElementById('scout-form').addEventListener('submit', async (e) => {
       e.preventDefault();
 
-      const team = document.getElementById('team-input').value.trim();
+      const select = document.getElementById('team-select');
+      const seasonTeamId = selectedDiv === 'juco' ? '' : select.value;
+      const team = selectedDiv === 'juco'
+        ? document.getElementById('team-input').value.trim()
+        : select.options[select.selectedIndex]?.textContent || '';
 
-      if (!team) return;
+      if (!team || (selectedDiv !== 'juco' && !seasonTeamId)) return;
 
       document.getElementById('submit-btn').disabled = true;
       show('loading');
@@ -466,7 +512,7 @@
         const resp = await fetch('/scrape', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ team, division: selectedDiv }),
+          body: JSON.stringify({ team, division: selectedDiv, season_team_id: seasonTeamId }),
         });
         clearInterval(stepTimer);
 
@@ -506,6 +552,8 @@
         show('error');
       }
     });
+
+    loadNcaaTeams(selectedDiv);
   </script>
 </body>
 </html>

@@ -63,6 +63,13 @@ Run deterministic tests:
 python -m unittest discover -s tests -v
 ```
 
+Validate the complete current-season team selector catalog without contacting
+every NCAA stats page:
+
+```bash
+python scripts/validate_ncaa_catalog.py
+```
+
 Run the credential-free live smoke matrix:
 
 ```bash

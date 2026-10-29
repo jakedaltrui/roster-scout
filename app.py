@@ -17,8 +17,10 @@ from roster_scraper import (
     HITTER_HEADERS,
     PITCHER_HEADERS,
     NcaaError,
+    list_ncaa_teams,
     scrape_by_team_name,
     scrape_juco_by_name,
+    scrape_ncaa_by_id,
     scrape_ncaa_by_name,
     split_roster,
 )
@@ -39,13 +41,25 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/api/teams")
+def teams():
+    division = (request.args.get("division") or "").strip().lower()
+    try:
+        catalog = list_ncaa_teams(division)
+        year = catalog[0]["year"] if catalog else None
+        return jsonify({"division": division, "year": year, "teams": catalog})
+    except NcaaError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
 @app.route("/scrape", methods=["POST"])
 def scrape():
     body = request.get_json(silent=True) or {}
     team = (body.get("team") or "").strip()
     division = (body.get("division") or "").strip().lower()
+    season_team_id = str(body.get("season_team_id") or "").strip()
 
-    if not team:
+    if not team and not season_team_id:
         return jsonify({"error": "Please enter a team name."}), 400
 
     try:
@@ -53,7 +67,13 @@ def scrape():
             rows, team_label = scrape_juco_by_name(team)
         elif division in {"d1", "d2", "d3"}:
             try:
-                rows, team_label = scrape_ncaa_by_name(team, division=division)
+                if season_team_id:
+                    rows, team_label = scrape_ncaa_by_id(
+                        season_team_id,
+                        division=division,
+                    )
+                else:
+                    rows, team_label = scrape_ncaa_by_name(team, division=division)
             except NcaaError as ncaa_exc:
                 if division != "d1":
                     raise

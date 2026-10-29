@@ -44,17 +44,27 @@ class AppRouteTests(unittest.TestCase):
         self.assertNotIn(b"email-input", response.data)
         self.assertNotIn(b"Google Sheets", response.data)
 
-    def test_d2_request_downloads_workbook_without_email_or_google(self):
+    def test_team_catalog_endpoint_returns_exact_selector_ids(self):
+        catalog = [{
+            "name": "Tampa", "team_id": "689", "season_team_id": "615087",
+            "division": "d2", "year": 2026,
+        }]
+        with patch.object(app_module, "list_ncaa_teams", return_value=catalog):
+            response = self.client.get("/api/teams?division=d2")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["teams"], catalog)
+
+    def test_d2_selector_id_downloads_workbook_without_fuzzy_matching(self):
         with patch.object(
             app_module,
-            "scrape_ncaa_by_name",
+            "scrape_ncaa_by_id",
             return_value=([SAMPLE_PLAYER], "Tampa"),
         ) as scrape:
             response = self.client.post("/scrape", json={
-                "team": "Tampa", "division": "d2",
+                "team": "Tampa", "division": "d2", "season_team_id": "615087",
             })
         self.assert_excel_download(response, "Tampa")
-        scrape.assert_called_once_with("Tampa", division="d2")
+        scrape.assert_called_once_with("615087", division="d2")
 
     def test_d1_uses_existing_fallback_when_ncaa_is_blocked(self):
         with patch.object(

@@ -8,7 +8,7 @@ Roster Scout is an independent Flask app that turns an NCAA or JUCO baseball tea
 |---|---|
 | `CONTEXT.md` | Runtime flow, system boundaries, and change-impact map |
 | `app.py` | HTTP routes, validation, and Excel workbook download creation |
-| `roster_scraper.py` | Team discovery, source-specific scraping, normalization, and hitter/pitcher output columns |
+| `roster_scraper.py` | Team catalog, exact-ID selection, source-specific scraping, normalization, and hitter/pitcher output columns |
 | `templates/index.html` | Browser UI and the `/scrape` request/response contract |
 | `Procfile`, `requirements.txt` | Render process and Python dependencies |
 
@@ -17,6 +17,7 @@ Roster Scout is an independent Flask app that turns an NCAA or JUCO baseball tea
 | If you are changing | Open first | Also inspect |
 |---|---|---|
 | Browser form or progress states | `templates/index.html` | `app.py` route payloads |
+| NCAA team selector or catalog validation | `roster_scraper.py`, `app.py` | `templates/index.html`, `scripts/validate_ncaa_catalog.py` |
 | API validation or workbook delivery | `app.py` | `templates/index.html`, `roster_scraper.py` exports |
 | NCAA, JUCO, Sidearm, or fallback scraping | `roster_scraper.py` | `app.py` dispatch |
 | Workbook columns or player classification | `roster_scraper.py` | `app.py` worksheet writer |

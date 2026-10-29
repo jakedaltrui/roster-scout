@@ -70,7 +70,7 @@ NCAA_HEADERS = {
     "Upgrade-Insecure-Requests": "1",
 }
 
-_NCAA_CACHE_VERSION = 1
+_NCAA_CACHE_VERSION = 2
 _NCAA_CACHE_LOCK = threading.Lock()
 _NCAA_BROWSER_LOCK = threading.Lock()
 _NCAA_TEAM_ROWS = None
@@ -1343,6 +1343,129 @@ def _find_ncaa_team(team_name: str, division=None, year: int | None = None) -> d
     return best
 
 
+def list_ncaa_teams(division, year: int | None = None) -> list[dict]:
+    """Return the deterministic selector catalog for one NCAA division."""
+    year = year or _current_ncaa_year()
+    division_num = _parse_division(division)
+    if division_num is None:
+        raise NcaaError("Choose D1, D2, or D3 to list NCAA teams.")
+    teams = [
+        {
+            "name": row["team_name"],
+            "team_id": row.get("team_id", ""),
+            "season_team_id": row["season_team_id"],
+            "division": f"d{division_num}",
+            "year": year,
+        }
+        for row in _load_ncaa_team_rows()
+        if row.get("year") == str(year)
+        and row.get("division") == str(division_num)
+        and row.get("team_name")
+        and row.get("season_team_id", "").isdigit()
+    ]
+    teams.sort(key=lambda team: team["name"].casefold())
+    return teams
+
+
+def _find_ncaa_team_by_season_id(
+    season_team_id: str,
+    division=None,
+    year: int | None = None,
+) -> dict:
+    """Resolve an exact current-season NCAA team ID with no fuzzy matching."""
+    year = year or _current_ncaa_year()
+    division_num = _parse_division(division)
+    identifier = str(season_team_id or "").strip()
+    if not identifier.isdigit():
+        raise NcaaTeamNotFound("Choose a team from the NCAA team selector.")
+    matches = [
+        row for row in _load_ncaa_team_rows()
+        if row.get("year") == str(year)
+        and row.get("season_team_id") == identifier
+        and (division_num is None or row.get("division") == str(division_num))
+    ]
+    if len(matches) != 1:
+        suffix = f" in D{division_num}" if division_num else ""
+        raise NcaaTeamNotFound(
+            f"NCAA team ID {identifier} is not available for {year}{suffix}."
+        )
+    return matches[0]
+
+
+def validate_ncaa_team_catalog(year: int | None = None) -> dict:
+    """Validate the complete current-season selector catalog in one local pass."""
+    year = year or _current_ncaa_year()
+    rows = [row for row in _load_ncaa_team_rows() if row.get("year") == str(year)]
+    season = _find_ncaa_season(year)
+    errors = []
+    warnings = []
+    required = ("team_name", "division", "year", "season_id", "season_team_id")
+    valid_rows = []
+
+    for index, row in enumerate(rows, start=2):
+        missing = [field for field in required if not str(row.get(field, "")).strip()]
+        if missing:
+            errors.append({"row": index, "type": "missing_fields", "fields": missing})
+            continue
+        if row["division"] not in {"1", "2", "3"}:
+            errors.append({"row": index, "type": "invalid_division", "value": row["division"]})
+            continue
+        if not row["season_team_id"].isdigit():
+            errors.append({"row": index, "type": "invalid_season_team_id", "value": row["season_team_id"]})
+            continue
+        if row["season_id"] != season.get("id"):
+            errors.append({"row": index, "type": "season_id_mismatch", "value": row["season_id"]})
+            continue
+        valid_rows.append(row)
+
+    def duplicates(key_func):
+        grouped = {}
+        for row in valid_rows:
+            grouped.setdefault(key_func(row), []).append(row)
+        return {key: values for key, values in grouped.items() if len(values) > 1}
+
+    for identifier, duplicate_rows in duplicates(lambda row: row["season_team_id"]).items():
+        errors.append({
+            "type": "duplicate_season_team_id",
+            "value": identifier,
+            "teams": [row["team_name"] for row in duplicate_rows],
+        })
+    for selector_key, duplicate_rows in duplicates(
+        lambda row: (row["division"], _normalize_school_name(row["team_name"]))
+    ).items():
+        errors.append({
+            "type": "duplicate_selector_name",
+            "value": selector_key[1],
+            "division": f"d{selector_key[0]}",
+            "teams": [row["team_name"] for row in duplicate_rows],
+        })
+
+    missing_stable_ids = [
+        row for row in valid_rows
+        if not row.get("team_id", "").isdigit()
+    ]
+    if missing_stable_ids:
+        warnings.append({
+            "type": "missing_stable_team_id",
+            "count": len(missing_stable_ids),
+            "note": "These teams remain selectable by their unique season_team_id.",
+        })
+
+    counts = {
+        f"d{division}": sum(row["division"] == division for row in valid_rows)
+        for division in ("1", "2", "3")
+    }
+    return {
+        "valid": not errors,
+        "year": year,
+        "rows": len(rows),
+        "selectable": len(valid_rows),
+        "counts": counts,
+        "errors": errors,
+        "warnings": warnings,
+    }
+
+
 def search_ncaa_team(name: str, division=None, year: int | None = None) -> list[dict]:
     """Return the best NCAA lookup match in the historical public shape."""
     team = _find_ncaa_team(name, division=division, year=year)
@@ -1677,17 +1800,11 @@ def _normalize_ncaa_players(batting: list[dict], pitching: list[dict]) -> list[d
     return players
 
 
-def scrape_ncaa_by_name(
-    team_name: str,
-    division=None,
-    year: int | None = None,
-    force_refresh: bool = False,
-) -> tuple:
-    """Resolve and scrape an NCAA D1/D2/D3 team through stats.ncaa.org."""
-    year = year or _current_ncaa_year()
-    team = _find_ncaa_team(team_name, division=division, year=year)
+def _scrape_ncaa_team(team: dict, year: int, force_refresh: bool = False) -> tuple:
+    """Scrape one already-resolved NCAA catalog row."""
     label = team["team_name"]
-    cache_key = f"ncaa:{year}:{team['division']}:{team['team_id']}"
+    season_team_id = team["season_team_id"]
+    cache_key = f"ncaa:{year}:{season_team_id}"
     ttl = int(os.environ.get("NCAA_RESULT_CACHE_TTL_SECONDS", "21600"))
 
     if not force_refresh:
@@ -1703,7 +1820,6 @@ def scrape_ncaa_by_name(
                 return cached_players, cached.get("team_label", label)
 
     season = _find_ncaa_season(year)
-    season_team_id = team["season_team_id"]
     base_url = f"{NCAA_BASE}/teams/{season_team_id}/season_to_date_stats"
     urls = {
         "batting": f"{base_url}?year_stat_category_id={season['batting_id']}",
@@ -1730,6 +1846,34 @@ def scrape_ncaa_by_name(
         "players": players,
     })
     return players, label
+
+
+def scrape_ncaa_by_name(
+    team_name: str,
+    division=None,
+    year: int | None = None,
+    force_refresh: bool = False,
+) -> tuple:
+    """Resolve a name and scrape NCAA D1/D2/D3 stats (compatibility path)."""
+    year = year or _current_ncaa_year()
+    team = _find_ncaa_team(team_name, division=division, year=year)
+    return _scrape_ncaa_team(team, year, force_refresh=force_refresh)
+
+
+def scrape_ncaa_by_id(
+    season_team_id: str,
+    division=None,
+    year: int | None = None,
+    force_refresh: bool = False,
+) -> tuple:
+    """Scrape an exact selector ID without invoking fuzzy name matching."""
+    year = year or _current_ncaa_year()
+    team = _find_ncaa_team_by_season_id(
+        season_team_id,
+        division=division,
+        year=year,
+    )
+    return _scrape_ncaa_team(team, year, force_refresh=force_refresh)
 
 
 def scrape_by_team_name(team_name: str) -> tuple:
