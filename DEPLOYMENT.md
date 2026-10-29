@@ -55,10 +55,18 @@ permits this public-data use. Roster Scout sends both the initial HTTP attempt
 and the Chrome fallback through it, while keeping all successful results in the
 persistent cache. A credentialed URL is supported, for example
 `http://USER:PASSWORD@HOST:PORT`; URL-encode special characters in credentials.
+Decodo's generated `HOST:PORT:USER:PASSWORD` format is also accepted directly.
 Store it as the `NCAA_BROWSER_PROXY` Fly secret—never in `fly.toml`, source
 control, or a command that will remain in shell history. The Fly dashboard's
 Secrets page is the simplest safe place to set it. `NCAA_HTTP_PROXY` may be set
 separately when a provider gives different HTTP and browser endpoints.
+
+The October 29, 2026 live test reached both Decodo's US residential endpoint
+and its rotating residential gateway successfully, but NCAA returned Akamai
+`Access Denied` from both exit pools. Treat Decodo residential proxies as
+incompatible unless Decodo support confirms an NCAA-capable product or route.
+Rotate any proxy credential that appears in an application error or diagnostic
+transcript before further use.
 
 Deploy from the repository root:
 

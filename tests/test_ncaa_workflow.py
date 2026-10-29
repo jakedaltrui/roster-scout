@@ -5,6 +5,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import requests
+
 import roster_scraper as rs
 
 
@@ -139,13 +141,34 @@ class NcaaWorkflowTests(unittest.TestCase):
         })
         self.assertEqual(pages, {"batting": "ok"})
         session = fetch.call_args.args[1]
-        self.assertEqual(session.proxies["https"], proxy_url)
+        self.assertEqual(
+            session.proxies["https"],
+            "http://user-session:secret%40word@proxy.example:7000",
+        )
 
     def test_proxy_without_scheme_defaults_to_http(self):
         self.assertEqual(
             rs._playwright_proxy_options("proxy.example:7000"),
             {"server": "http://proxy.example:7000"},
         )
+
+    def test_decodo_colon_format_is_supported_without_echoing_credentials(self):
+        proxy = "us.example.com:10001:user-name:secret-password"
+        self.assertEqual(rs._playwright_proxy_options(proxy), {
+            "server": "http://us.example.com:10001",
+            "username": "user-name",
+            "password": "secret-password",
+        })
+        self.assertEqual(
+            rs._requests_proxy_url(proxy),
+            "http://user-name:secret-password@us.example.com:10001",
+        )
+
+        session = MagicMock()
+        session.get.side_effect = requests.exceptions.InvalidURL(proxy)
+        with self.assertRaises(rs.NcaaAccessError) as raised:
+            rs._fetch_ncaa_http("https://stats.ncaa.org/test", session)
+        self.assertNotIn("secret-password", str(raised.exception))
 
     def test_terms_page_is_accepted_before_retrying_stats_url(self):
         target = "https://stats.ncaa.org/teams/615236/season_to_date_stats"

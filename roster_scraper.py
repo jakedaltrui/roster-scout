@@ -23,7 +23,7 @@ import threading
 import time
 import requests
 from bs4 import BeautifulSoup
-from urllib.parse import unquote, urlparse
+from urllib.parse import quote, unquote, urlparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from difflib import SequenceMatcher
@@ -1500,7 +1500,14 @@ def _has_ncaa_stat_grid(html: str) -> bool:
 def _fetch_ncaa_http(url: str, session: requests.Session) -> str:
     last_response = None
     for attempt in range(3):
-        response = session.get(url, headers=NCAA_HEADERS, timeout=20, allow_redirects=True)
+        try:
+            response = session.get(
+                url, headers=NCAA_HEADERS, timeout=20, allow_redirects=True
+            )
+        except requests.RequestException as exc:
+            raise NcaaAccessError(
+                "NCAA request could not reach the configured network path."
+            ) from exc
         last_response = response
         if response.status_code not in (429, 503):
             break
@@ -1540,6 +1547,16 @@ def _playwright_launch_options() -> dict:
 
 def _playwright_proxy_options(proxy_url: str) -> dict:
     """Convert a credentialed proxy URL into Patchright's proxy shape."""
+    if "://" not in proxy_url and proxy_url.count(":") >= 3:
+        host, port, username, password = proxy_url.split(":", 3)
+        if not host or not port or not username or not password:
+            raise NcaaAccessError("NCAA_BROWSER_PROXY is not a valid proxy URL.")
+        return {
+            "server": f"http://{host}:{port}",
+            "username": unquote(username),
+            "password": unquote(password),
+        }
+
     candidate = proxy_url if "://" in proxy_url else f"http://{proxy_url}"
     parsed = urlparse(candidate)
     if not parsed.hostname:
@@ -1554,6 +1571,20 @@ def _playwright_proxy_options(proxy_url: str) -> dict:
     if parsed.password is not None:
         options["password"] = unquote(parsed.password)
     return options
+
+
+def _requests_proxy_url(proxy_url: str) -> str:
+    """Return a requests-compatible URL without logging proxy credentials."""
+    options = _playwright_proxy_options(proxy_url)
+    username = options.get("username")
+    password = options.get("password")
+    if username is None and password is None:
+        return options["server"]
+    return (
+        f"{options['server'].split('://', 1)[0]}://"
+        f"{quote(username or '', safe='')}:{quote(password or '', safe='')}@"
+        f"{options['server'].split('://', 1)[1]}"
+    )
 
 
 def _accept_ncaa_terms(page, target_url: str) -> None:
@@ -1651,6 +1682,11 @@ def _fetch_ncaa_browser_pages_locked(urls: dict[str, str]) -> dict[str, str]:
     except NcaaAccessError:
         raise
     except Exception as exc:
+        if os.environ.get("NCAA_BROWSER_PROXY"):
+            raise NcaaAccessError(
+                "NCAA browser proxy connection failed. Check the proxy endpoint "
+                "and credentials."
+            ) from exc
         raise NcaaAccessError(f"NCAA browser fallback failed: {exc}") from exc
 
     return rendered
@@ -1664,7 +1700,8 @@ def _fetch_ncaa_pages(urls: dict[str, str]) -> dict[str, str]:
         "NCAA_BROWSER_PROXY"
     )
     if http_proxy:
-        session.proxies.update({"http": http_proxy, "https": http_proxy})
+        normalized_proxy = _requests_proxy_url(http_proxy)
+        session.proxies.update({"http": normalized_proxy, "https": normalized_proxy})
     for key, url in urls.items():
         try:
             direct[key] = _fetch_ncaa_http(url, session)
