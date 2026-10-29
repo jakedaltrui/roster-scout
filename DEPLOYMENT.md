@@ -2,14 +2,14 @@
 
 ## Recommended on macOS: native local runner
 
-This is the free, no-cold-start option that works with NCAA on a Mac. NCAA
-rejects ordinary HTTP, headless browsers, and the Linux browser bundled in the
-Docker image, but the native runner can use installed Google Chrome through
-Patchright.
+The local runner uses the same Browserless NCAA workflow as the hosted app. It
+does not open or control the Mac's installed Chrome.
 
 1. Run `scripts/setup_local.sh` once.
-2. Run `scripts/run_local.sh`.
-3. Open `http://localhost:5050`.
+2. Run `scripts/set_browserless_token.sh` once and paste the token when prompted.
+   Input is hidden and saved to the Git-ignored `.browserless-token` file.
+3. Run `scripts/run_local.sh`.
+4. Open `http://localhost:5050`.
 
 No Google account, OAuth token, or cloud storage is required. Each successful
 request downloads a two-tab Excel workbook directly in the browser.
@@ -18,11 +18,10 @@ The ignored project `.cache/` directory persists:
 
 - baseballr's NCAA team and season lookup CSVs;
 - successful normalized team results (six-hour default);
-- a dedicated NCAA browser profile and its verification state.
+- successful Browserless-backed NCAA results.
 
-The first uncached NCAA request can briefly open Chrome while the dedicated
-profile accepts NCAA's statistics terms. Later requests reuse that profile and
-successful team results.
+The first uncached NCAA request uses Browserless to accept NCAA's statistics
+terms and retrieve both tables. Later requests reuse successful cached results.
 
 ## Docker and hosted deployment
 
