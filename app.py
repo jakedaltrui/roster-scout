@@ -16,6 +16,7 @@ import json
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify
 import gspread
+from dotenv import load_dotenv
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build as google_build
@@ -29,6 +30,8 @@ from roster_scraper import (
 )
 
 # ── Config ────────────────────────────────────────────────────────────────────
+
+load_dotenv()
 
 TOKEN_FILE      = os.environ.get("GOOGLE_TOKEN_FILE", "token.json")
 DRIVE_FOLDER_ID = "1LE_lwaDLnoPD7ORvn3ha-ZUlB9dmJMiW"  # Jake's "Roster Sheets" folder

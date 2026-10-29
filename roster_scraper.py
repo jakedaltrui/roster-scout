@@ -1401,11 +1401,7 @@ def _fetch_ncaa_http(url: str, session: requests.Session) -> str:
 def _playwright_launch_options() -> dict:
     options = {
         "headless": os.environ.get("NCAA_BROWSER_HEADLESS", "1") != "0",
-        "args": [
-            "--disable-blink-features=AutomationControlled",
-            "--disable-dev-shm-usage",
-            "--no-sandbox",
-        ],
+        "args": ["--disable-dev-shm-usage"],
     }
     executable = os.environ.get("NCAA_BROWSER_EXECUTABLE_PATH")
     channel = os.environ.get("NCAA_BROWSER_CHANNEL")
@@ -1419,6 +1415,29 @@ def _playwright_launch_options() -> dict:
     return options
 
 
+def _accept_ncaa_terms(page, target_url: str) -> None:
+    """Accept NCAA's stats terms screen and retry the requested stats page."""
+    if not page.url.rstrip("/").endswith("/stats_terms"):
+        return
+
+    checkbox = page.locator("#terms_accepted")
+    button = page.locator("#stats-access-button")
+    if checkbox.count() != 1 or button.count() != 1:
+        raise NcaaAccessError("NCAA returned an unrecognized terms verification page.")
+
+    # NCAA rejects immediate synthetic submissions. A short dwell before and
+    # after the real browser input matches the site's intended interaction and
+    # preserves the accepted state in the dedicated browser profile.
+    dwell_ms = int(os.environ.get("NCAA_TERMS_DWELL_MILLISECONDS", "8000"))
+    page.wait_for_timeout(max(dwell_ms, 0))
+    checkbox.check()
+    page.wait_for_timeout(2000)
+    button.click()
+    page.wait_for_load_state("domcontentloaded", timeout=60000)
+    page.wait_for_timeout(2000)
+    page.goto(target_url, wait_until="domcontentloaded", timeout=60000)
+
+
 def _fetch_ncaa_browser_pages(urls: dict[str, str]) -> dict[str, str]:
     # A persistent Chromium profile cannot be opened by two processes at once.
     # Gunicorn uses one process for this app, so this lock safely serializes the
@@ -1429,10 +1448,10 @@ def _fetch_ncaa_browser_pages(urls: dict[str, str]) -> dict[str, str]:
 
 def _fetch_ncaa_browser_pages_locked(urls: dict[str, str]) -> dict[str, str]:
     try:
-        from playwright.sync_api import sync_playwright
+        from patchright.sync_api import sync_playwright
     except ImportError as exc:
         raise NcaaAccessError(
-            "NCAA requires browser verification, but Playwright is not installed."
+            "NCAA requires browser verification, but Patchright is not installed."
         ) from exc
 
     timeout_seconds = int(os.environ.get("NCAA_BROWSER_VERIFY_TIMEOUT_SECONDS", "45"))
@@ -1456,20 +1475,16 @@ def _fetch_ncaa_browser_pages_locked(urls: dict[str, str]) -> dict[str, str]:
             context_options.update({
                 "locale": "en-US",
                 "timezone_id": "America/Chicago",
-                "viewport": {"width": 1365, "height": 900},
+                "no_viewport": True,
             })
             context = playwright.chromium.launch_persistent_context(
                 str(profile_path), **context_options
             )
-            context.add_init_script("""
-                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
-                window.chrome = window.chrome || {runtime: {}};
-            """)
             page = context.pages[0] if context.pages else context.new_page()
 
             for key, url in urls.items():
                 page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                _accept_ncaa_terms(page, url)
                 deadline = time.monotonic() + timeout_seconds
                 html = page.content()
                 while time.monotonic() < deadline:
@@ -1482,8 +1497,8 @@ def _fetch_ncaa_browser_pages_locked(urls: dict[str, str]) -> dict[str, str]:
                         "Run locally with NCAA_BROWSER_HEADLESS=0 and complete "
                         "the NCAA prompt in the opened browser."
                         if headless else
-                        "NCAA rejected the verified browser session; retry later "
-                        "or use a network that NCAA accepts."
+                        "NCAA rejected this browser build. On macOS, run "
+                        "scripts/run_local.sh so Roster Scout can use installed Chrome."
                     )
                     raise NcaaAccessError(
                         "NCAA browser verification did not produce the expected stats table. "

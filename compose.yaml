@@ -2,11 +2,11 @@ services:
   roster-scout:
     build: .
     ports:
-      - "5000:5000"
+      - "5050:5000"
     environment:
       GOOGLE_TOKEN_JSON: ${GOOGLE_TOKEN_JSON:-}
       ROSTER_SCOUT_CACHE_DIR: /var/cache/roster-scout
-      NCAA_BROWSER_HEADLESS: "1"
+      NCAA_BROWSER_HEADLESS: "0"
       NCAA_BROWSER_FALLBACK: "1"
     volumes:
       - roster-scout-cache:/var/cache/roster-scout

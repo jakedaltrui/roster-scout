@@ -4,14 +4,18 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     ROSTER_SCOUT_CACHE_DIR=/var/cache/roster-scout \
-    NCAA_BROWSER_HEADLESS=1
+    NCAA_BROWSER_HEADLESS=0
 
 WORKDIR /app
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt \
-    && python -m playwright install --with-deps chromium \
+    && python -m patchright install --with-deps chromium \
     && chmod -R a+rX /ms-playwright
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends xauth \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY . .
 
@@ -23,4 +27,4 @@ USER roster-scout
 
 EXPOSE 5000
 
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "4", "--timeout", "180", "app:app"]
+CMD ["xvfb-run", "-a", "gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "4", "--timeout", "180", "app:app"]

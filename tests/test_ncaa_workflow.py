@@ -3,7 +3,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import roster_scraper as rs
 
@@ -102,6 +102,28 @@ class NcaaWorkflowTests(unittest.TestCase):
         browser_fetch.assert_called_once_with({"pitching": "pit-url"})
         self.assertEqual(pages["batting"], d1_batting)
         self.assertEqual(pages["pitching"], d1_pitching)
+
+    def test_terms_page_is_accepted_before_retrying_stats_url(self):
+        target = "https://stats.ncaa.org/teams/615236/season_to_date_stats"
+        checkbox = MagicMock()
+        checkbox.count.return_value = 1
+        button = MagicMock()
+        button.count.return_value = 1
+        page = MagicMock()
+        page.url = "https://stats.ncaa.org/stats_terms"
+        page.locator.side_effect = lambda selector: {
+            "#terms_accepted": checkbox,
+            "#stats-access-button": button,
+        }[selector]
+
+        with patch.dict(os.environ, {"NCAA_TERMS_DWELL_MILLISECONDS": "0"}):
+            rs._accept_ncaa_terms(page, target)
+
+        checkbox.check.assert_called_once_with()
+        button.click.assert_called_once_with()
+        page.goto.assert_called_once_with(
+            target, wait_until="domcontentloaded", timeout=60000
+        )
 
     def test_failures_are_not_cached(self):
         with patch.object(rs, "_fetch_ncaa_pages", side_effect=rs.NcaaAccessError("blocked")):
