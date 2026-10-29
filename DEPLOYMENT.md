@@ -61,12 +61,24 @@ control, or a command that will remain in shell history. The Fly dashboard's
 Secrets page is the simplest safe place to set it. `NCAA_HTTP_PROXY` may be set
 separately when a provider gives different HTTP and browser endpoints.
 
+Managed Site Unblocker endpoints may terminate TLS with a provider-managed
+certificate. Set `NCAA_PROXY_TLS_VERIFY=0` only for that deployment. Roster
+Scout then disables certificate verification solely on the NCAA session that
+has `NCAA_BROWSER_PROXY` configured; normal application HTTPS remains verified.
+
 The October 29, 2026 live test reached both Decodo's US residential endpoint
 and its rotating residential gateway successfully, but NCAA returned Akamai
 `Access Denied` from both exit pools. Treat Decodo residential proxies as
 incompatible unless Decodo support confirms an NCAA-capable product or route.
 Rotate any proxy credential that appears in an application error or diagnostic
 transcript before further use.
+
+A later Site Unblocker test successfully reached NCAA's real `/stats_terms`
+page with scoped TLS verification disabled. After accepting the terms, the
+Tampa stats URL still remained on NCAA's timed `bm-verify`/Akamai validation
+shell and never returned `#stat_grid`. Site Unblocker therefore remains
+unverified for live team stats until Decodo supplies a target configuration
+that resolves that exact URL in its API Playground.
 
 Deploy from the repository root:
 
@@ -96,7 +108,9 @@ healthy-looking deployment cannot return NCAA failures to users.
 | `NCAA_BROWSER_CHANNEL` | unset; `chrome` in local runner | Patchright browser channel |
 | `NCAA_BROWSER_PROFILE_DIR` | cache directory | Dedicated persistent browser profile; do not point this at a personal Chrome profile |
 | `NCAA_BROWSER_PROXY` | unset | Credentialed proxy URL used by Chrome and, unless overridden, direct HTTP |
+| `NCAA_BROWSER_PREFLIGHT_TERMS` | `0`; `1` on Fly Site Unblocker deployment | Accept NCAA's terms page before the first proxied stats URL |
 | `NCAA_HTTP_PROXY` | `NCAA_BROWSER_PROXY` | Optional separate proxy URL for the direct HTTP attempt |
+| `NCAA_PROXY_TLS_VERIFY` | `1`; `0` on Fly Site Unblocker deployment | Verify TLS certificates on proxied NCAA HTTP and browser requests |
 | `NCAA_SEASON_YEAR` | current NCAA season | Override the requested season |
 
 Only successful parsed team results are cached. Blocks, empty pages, and parser failures are never cached.

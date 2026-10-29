@@ -170,12 +170,32 @@ class NcaaWorkflowTests(unittest.TestCase):
             rs._fetch_ncaa_http("https://stats.ncaa.org/test", session)
         self.assertNotIn("secret-password", str(raised.exception))
 
+    def test_proxy_tls_bypass_is_scoped_to_configured_proxy(self):
+        proxy = "unblock.example:60000:user:password"
+        with patch.dict(os.environ, {
+            "NCAA_BROWSER_PROXY": proxy,
+            "NCAA_PROXY_TLS_VERIFY": "0",
+        }):
+            options = rs._playwright_launch_options()
+            with patch.object(rs, "_fetch_ncaa_http", return_value="ok") as fetch:
+                rs._fetch_ncaa_pages({"batting": "bat-url"})
+
+        self.assertTrue(options["ignore_https_errors"])
+        self.assertIn("--ignore-certificate-errors", options["args"])
+        self.assertFalse(fetch.call_args.args[1].verify)
+
+        with patch.dict(os.environ, {
+            "NCAA_PROXY_TLS_VERIFY": "0",
+        }, clear=True):
+            self.assertNotIn("ignore_https_errors", rs._playwright_launch_options())
+
     def test_terms_page_is_accepted_before_retrying_stats_url(self):
         target = "https://stats.ncaa.org/teams/615236/season_to_date_stats"
         checkbox = MagicMock()
         checkbox.count.return_value = 1
         button = MagicMock()
         button.count.return_value = 1
+        button.is_enabled.return_value = True
         page = MagicMock()
         page.url = "https://stats.ncaa.org/stats_terms"
         page.locator.side_effect = lambda selector: {
@@ -188,6 +208,33 @@ class NcaaWorkflowTests(unittest.TestCase):
 
         checkbox.check.assert_called_once_with()
         button.click.assert_called_once_with()
+        page.goto.assert_called_once_with(
+            target, wait_until="domcontentloaded", timeout=60000
+        )
+
+    def test_terms_form_submits_when_unblocker_leaves_button_disabled(self):
+        target = "https://stats.ncaa.org/teams/615087/season_to_date_stats"
+        checkbox = MagicMock()
+        checkbox.count.return_value = 1
+        button = MagicMock()
+        button.count.return_value = 1
+        button.is_enabled.return_value = False
+        form = MagicMock()
+        form.count.return_value = 1
+        page = MagicMock()
+        page.url = "https://stats.ncaa.org/stats_terms"
+        page.locator.side_effect = lambda selector: {
+            "#terms_accepted": checkbox,
+            "#stats-access-button": button,
+            "form[action='/stats_terms']": form,
+        }[selector]
+
+        with patch.dict(os.environ, {"NCAA_TERMS_DWELL_MILLISECONDS": "0"}):
+            rs._accept_ncaa_terms(page, target)
+
+        checkbox.check.assert_called_once_with()
+        button.click.assert_not_called()
+        form.evaluate.assert_called_once_with("form => form.submit()")
         page.goto.assert_called_once_with(
             target, wait_until="domcontentloaded", timeout=60000
         )

@@ -1542,7 +1542,16 @@ def _playwright_launch_options() -> dict:
         options["channel"] = channel
     if proxy:
         options["proxy"] = _playwright_proxy_options(proxy)
+        if not _proxy_tls_verification_enabled():
+            # Managed unblockers may terminate TLS with their own certificate.
+            # This exception is scoped to the dedicated proxied NCAA context.
+            options["ignore_https_errors"] = True
+            options["args"].append("--ignore-certificate-errors")
     return options
+
+
+def _proxy_tls_verification_enabled() -> bool:
+    return os.environ.get("NCAA_PROXY_TLS_VERIFY", "1") != "0"
 
 
 def _playwright_proxy_options(proxy_url: str) -> dict:
@@ -1604,7 +1613,17 @@ def _accept_ncaa_terms(page, target_url: str) -> None:
     page.wait_for_timeout(max(dwell_ms, 0))
     checkbox.check()
     page.wait_for_timeout(2000)
-    button.click()
+    if button.is_enabled():
+        button.click()
+    else:
+        # Site Unblocker's rendered response can arrive after NCAA's
+        # DOMContentLoaded listener would normally enable the button. The form
+        # is otherwise complete and the checked field carries NCAA's signed
+        # value, so submit that native form directly.
+        form = page.locator("form[action='/stats_terms']")
+        if form.count() != 1:
+            raise NcaaAccessError("NCAA returned an unrecognized terms form.")
+        form.evaluate("form => form.submit()")
     page.wait_for_load_state("domcontentloaded", timeout=60000)
     page.wait_for_timeout(2000)
     page.goto(target_url, wait_until="domcontentloaded", timeout=60000)
@@ -1653,25 +1672,56 @@ def _fetch_ncaa_browser_pages_locked(urls: dict[str, str]) -> dict[str, str]:
                 str(profile_path), **context_options
             )
             page = context.pages[0] if context.pages else context.new_page()
+            preloaded_url = None
+
+            if (
+                urls
+                and os.environ.get("NCAA_BROWSER_PREFLIGHT_TERMS", "0") == "1"
+            ):
+                first_url = next(iter(urls.values()))
+                page.goto(
+                    f"{NCAA_BASE}/stats_terms",
+                    wait_until="domcontentloaded",
+                    timeout=60000,
+                )
+                _accept_ncaa_terms(page, first_url)
+                preloaded_url = first_url
 
             for key, url in urls.items():
-                page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                if url != preloaded_url:
+                    page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                preloaded_url = None
                 _accept_ncaa_terms(page, url)
                 deadline = time.monotonic() + timeout_seconds
-                html = page.content()
+                html = ""
                 while time.monotonic() < deadline:
-                    html = page.content()
+                    try:
+                        html = page.content()
+                    except Exception:
+                        # Akamai uses timed meta/JavaScript redirects. Content
+                        # is temporarily unavailable while Chrome commits the
+                        # next document, which is a normal verification state.
+                        page.wait_for_timeout(1000)
+                        continue
                     if _has_ncaa_stat_grid(html):
                         break
                     page.wait_for_timeout(1000)
                 if not _has_ncaa_stat_grid(html):
-                    guidance = (
-                        "Run locally with NCAA_BROWSER_HEADLESS=0 and complete "
-                        "the NCAA prompt in the opened browser."
-                        if headless else
-                        "NCAA rejected this browser build. On macOS, run "
-                        "scripts/run_local.sh so Roster Scout can use installed Chrome."
-                    )
+                    if os.environ.get("NCAA_BROWSER_PROXY"):
+                        guidance = (
+                            "NCAA verification did not complete through the "
+                            "configured proxy."
+                        )
+                    elif headless:
+                        guidance = (
+                            "Run locally with NCAA_BROWSER_HEADLESS=0 and complete "
+                            "the NCAA prompt in the opened browser."
+                        )
+                    else:
+                        guidance = (
+                            "NCAA rejected this browser build. On macOS, run "
+                            "scripts/run_local.sh so Roster Scout can use installed Chrome."
+                        )
                     raise NcaaAccessError(
                         "NCAA browser verification did not produce the expected stats table. "
                         + guidance
@@ -1702,6 +1752,7 @@ def _fetch_ncaa_pages(urls: dict[str, str]) -> dict[str, str]:
     if http_proxy:
         normalized_proxy = _requests_proxy_url(http_proxy)
         session.proxies.update({"http": normalized_proxy, "https": normalized_proxy})
+        session.verify = _proxy_tls_verification_enabled()
     for key, url in urls.items():
         try:
             direct[key] = _fetch_ncaa_http(url, session)
