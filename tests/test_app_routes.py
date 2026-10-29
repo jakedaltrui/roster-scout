@@ -41,6 +41,8 @@ class AppRouteTests(unittest.TestCase):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Download Roster Workbook", response.data)
+        self.assertIn(b'id="team-combobox"', response.data)
+        self.assertIn(b'role="listbox"', response.data)
         self.assertNotIn(b"email-input", response.data)
         self.assertNotIn(b"Google Sheets", response.data)
 

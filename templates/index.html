@@ -96,8 +96,7 @@
     }
     .field { margin-bottom: 20px; }
 
-    input[type="text"],
-    select {
+    input[type="text"] {
       width: 100%;
       background: var(--input-bg);
       border: 1px solid var(--border);
@@ -110,9 +109,57 @@
       transition: border-color 0.15s;
     }
     input[type="text"]::placeholder { color: #4a5568; }
-    input[type="text"]:focus,
-    select:focus { border-color: var(--blue-lt); }
-    select:disabled { opacity: 0.6; }
+    input[type="text"]:focus { border-color: var(--blue-lt); }
+    input[type="text"]:disabled { opacity: 0.6; }
+
+    .combobox { position: relative; }
+    .team-results {
+      position: absolute;
+      z-index: 20;
+      top: calc(100% + 6px);
+      left: 0;
+      right: 0;
+      max-height: 260px;
+      overflow-y: auto;
+      background: #101c2e;
+      border: 1px solid rgba(148,163,184,0.3);
+      border-radius: 9px;
+      box-shadow: 0 18px 40px rgba(0,0,0,0.45);
+      padding: 6px;
+    }
+    .team-results[hidden] { display: none; }
+    .team-result {
+      display: block;
+      width: 100%;
+      padding: 10px 11px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.88rem;
+      text-align: left;
+      cursor: pointer;
+    }
+    .team-result:hover,
+    .team-result.active {
+      background: var(--blue);
+      color: var(--white);
+    }
+    .team-result-meta {
+      display: block;
+      margin-top: 2px;
+      color: var(--gray);
+      font-size: 0.7rem;
+      font-weight: 500;
+    }
+    .team-result:hover .team-result-meta,
+    .team-result.active .team-result-meta { color: #dbeafe; }
+    .team-empty {
+      padding: 11px;
+      color: var(--gray);
+      font-size: 0.82rem;
+    }
 
     .hint {
       font-size: 0.75rem;
@@ -302,10 +349,21 @@
         </div>
 
         <div class="field" id="ncaa-team-field">
-          <label for="team-select">Team</label>
-          <select id="team-select" required disabled>
-            <option value="">Loading D1 teams…</option>
-          </select>
+          <label for="team-combobox">Team</label>
+          <div class="combobox" id="team-combobox-wrap">
+            <input
+              type="text"
+              id="team-combobox"
+              placeholder="Loading D1 teams…"
+              autocomplete="off"
+              role="combobox"
+              aria-autocomplete="list"
+              aria-controls="team-results"
+              aria-expanded="false"
+              disabled
+            />
+            <div id="team-results" class="team-results" role="listbox" hidden></div>
+          </div>
           <p class="hint" id="catalog-hint">Loading the current NCAA catalog…</p>
         </div>
 
@@ -390,15 +448,104 @@
     let lastDownloadUrl = null;
     let lastDownloadName = null;
     let catalogRequestId = 0;
+    let teamCatalog = [];
+    let selectedTeam = null;
+    let visibleTeams = [];
+    let activeTeamIndex = -1;
+
+    const teamCombobox = document.getElementById('team-combobox');
+    const teamResults = document.getElementById('team-results');
+    const catalogHint = document.getElementById('catalog-hint');
+
+    function closeTeamResults() {
+      teamResults.hidden = true;
+      teamCombobox.setAttribute('aria-expanded', 'false');
+      teamCombobox.removeAttribute('aria-activedescendant');
+      activeTeamIndex = -1;
+    }
+
+    function selectTeam(team) {
+      selectedTeam = team;
+      teamCombobox.value = team.name;
+      teamCombobox.setAttribute('aria-invalid', 'false');
+      catalogHint.textContent = `Selected ${team.name} — exact NCAA team ID ${team.season_team_id}.`;
+      closeTeamResults();
+    }
+
+    function updateActiveTeam(nextIndex) {
+      const options = [...teamResults.querySelectorAll('.team-result')];
+      if (!options.length) return;
+      activeTeamIndex = (nextIndex + options.length) % options.length;
+      options.forEach((option, index) => {
+        const isActive = index === activeTeamIndex;
+        option.classList.toggle('active', isActive);
+        option.setAttribute('aria-selected', String(isActive));
+      });
+      const active = options[activeTeamIndex];
+      teamCombobox.setAttribute('aria-activedescendant', active.id);
+      active.scrollIntoView({ block: 'nearest' });
+    }
+
+    function renderTeamResults() {
+      const query = teamCombobox.value.trim().toLocaleLowerCase();
+      teamResults.replaceChildren();
+      activeTeamIndex = -1;
+
+      if (!query) {
+        closeTeamResults();
+        return;
+      }
+
+      visibleTeams = teamCatalog
+        .filter(team => team.name.toLocaleLowerCase().includes(query))
+        .sort((a, b) => {
+          const aName = a.name.toLocaleLowerCase();
+          const bName = b.name.toLocaleLowerCase();
+          const aRank = aName === query ? 0 : aName.startsWith(query) ? 1 : 2;
+          const bRank = bName === query ? 0 : bName.startsWith(query) ? 1 : 2;
+          return aRank - bRank || a.name.localeCompare(b.name);
+        })
+        .slice(0, 12);
+
+      if (!visibleTeams.length) {
+        const empty = document.createElement('div');
+        empty.className = 'team-empty';
+        empty.textContent = `No ${selectedDiv.toUpperCase()} teams match “${teamCombobox.value.trim()}”.`;
+        teamResults.appendChild(empty);
+      } else {
+        visibleTeams.forEach((team, index) => {
+          const option = document.createElement('button');
+          option.type = 'button';
+          option.id = `team-option-${index}`;
+          option.className = 'team-result';
+          option.setAttribute('role', 'option');
+          option.setAttribute('aria-selected', 'false');
+          option.textContent = team.name;
+          const meta = document.createElement('span');
+          meta.className = 'team-result-meta';
+          meta.textContent = `${team.division.toUpperCase()} • ${team.year}`;
+          option.appendChild(meta);
+          option.addEventListener('mousedown', event => event.preventDefault());
+          option.addEventListener('click', () => selectTeam(team));
+          teamResults.appendChild(option);
+        });
+      }
+
+      teamResults.hidden = false;
+      teamCombobox.setAttribute('aria-expanded', 'true');
+    }
 
     async function loadNcaaTeams(division) {
       const requestId = ++catalogRequestId;
-      const select = document.getElementById('team-select');
       const hint = document.getElementById('catalog-hint');
       const submit = document.getElementById('submit-btn');
-      select.disabled = true;
+      teamCatalog = [];
+      selectedTeam = null;
+      teamCombobox.value = '';
+      teamCombobox.disabled = true;
+      teamCombobox.placeholder = `Loading ${division.toUpperCase()} teams…`;
+      closeTeamResults();
       submit.disabled = true;
-      select.innerHTML = `<option value="">Loading ${division.toUpperCase()} teams…</option>`;
       hint.textContent = 'Loading the current NCAA catalog…';
 
       try {
@@ -407,22 +554,42 @@
         if (requestId !== catalogRequestId) return;
         if (!response.ok) throw new Error(data.error || 'Team catalog could not be loaded.');
 
-        select.innerHTML = '<option value="">Select a team…</option>';
-        data.teams.forEach(team => {
-          const option = document.createElement('option');
-          option.value = team.season_team_id;
-          option.textContent = team.name;
-          select.appendChild(option);
-        });
-        select.disabled = false;
+        teamCatalog = data.teams;
+        teamCombobox.disabled = false;
+        teamCombobox.placeholder = `Type a ${division.toUpperCase()} team name…`;
         submit.disabled = false;
-        hint.textContent = `${data.teams.length} NCAA ${division.toUpperCase()} teams available for ${data.year}.`;
+        hint.textContent = `Type to search ${data.teams.length} NCAA ${division.toUpperCase()} teams, then choose a match.`;
       } catch (error) {
         if (requestId !== catalogRequestId) return;
-        select.innerHTML = '<option value="">Catalog unavailable</option>';
+        teamCombobox.placeholder = 'Team catalog unavailable';
         hint.textContent = error.message;
       }
     }
+
+    teamCombobox.addEventListener('input', () => {
+      selectedTeam = null;
+      teamCombobox.setAttribute('aria-invalid', 'false');
+      catalogHint.textContent = `Choose a match from the verified ${selectedDiv.toUpperCase()} catalog.`;
+      renderTeamResults();
+    });
+    teamCombobox.addEventListener('focus', renderTeamResults);
+    teamCombobox.addEventListener('blur', () => setTimeout(closeTeamResults, 120));
+    teamCombobox.addEventListener('keydown', event => {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        if (teamResults.hidden) renderTeamResults();
+        updateActiveTeam(activeTeamIndex + 1);
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        if (teamResults.hidden) renderTeamResults();
+        updateActiveTeam(activeTeamIndex - 1);
+      } else if (event.key === 'Enter' && activeTeamIndex >= 0) {
+        event.preventDefault();
+        selectTeam(visibleTeams[activeTeamIndex]);
+      } else if (event.key === 'Escape') {
+        closeTeamResults();
+      }
+    });
 
     // Division toggle
     document.querySelectorAll('.div-btn').forEach(btn => {
@@ -485,13 +652,18 @@
     document.getElementById('scout-form').addEventListener('submit', async (e) => {
       e.preventDefault();
 
-      const select = document.getElementById('team-select');
-      const seasonTeamId = selectedDiv === 'juco' ? '' : select.value;
+      const seasonTeamId = selectedDiv === 'juco' ? '' : selectedTeam?.season_team_id || '';
       const team = selectedDiv === 'juco'
         ? document.getElementById('team-input').value.trim()
-        : select.options[select.selectedIndex]?.textContent || '';
+        : selectedTeam?.name || '';
 
-      if (!team || (selectedDiv !== 'juco' && !seasonTeamId)) return;
+      if (selectedDiv !== 'juco' && (!team || !seasonTeamId)) {
+        teamCombobox.setAttribute('aria-invalid', 'true');
+        catalogHint.textContent = 'Type a team name and choose one of the matching results.';
+        teamCombobox.focus();
+        return;
+      }
+      if (!team) return;
 
       document.getElementById('submit-btn').disabled = true;
       show('loading');
