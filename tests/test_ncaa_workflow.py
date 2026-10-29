@@ -189,6 +189,141 @@ class NcaaWorkflowTests(unittest.TestCase):
         }, clear=True):
             self.assertNotIn("ignore_https_errors", rs._playwright_launch_options())
 
+    def test_site_unblocker_uses_one_random_session_and_forced_cookies(self):
+        with patch.dict(os.environ, {"NCAA_SITE_UNBLOCKER": "1"}):
+            with patch.object(rs, "_fetch_ncaa_http", return_value="ok") as fetch:
+                rs._fetch_ncaa_pages({"batting": "bat-url", "pitching": "pit-url"})
+
+        first_session = fetch.call_args_list[0].args[1]
+        second_session = fetch.call_args_list[1].args[1]
+        self.assertIs(first_session, second_session)
+        self.assertEqual(first_session.headers["X-SU-Force-Cookies"], "1")
+        self.assertRegex(first_session.headers["X-SU-Session-Id"], r"^[0-9a-f]{32}$")
+
+    def test_site_unblocker_accepts_terms_then_retries_original_stats_url(self):
+        target = "https://stats.ncaa.org/teams/615087/season_to_date_stats"
+        blocked = MagicMock(
+            status_code=200,
+            text="<html><meta http-equiv='refresh' content='bm-verify'></html>",
+        )
+        terms = MagicMock(
+            status_code=200,
+            url="https://stats.ncaa.org/stats_terms",
+            text="""
+                <form action="/stats_terms" method="post">
+                  <input name="utf8" value="✓">
+                  <input name="authenticity_token" value="token-now">
+                  <input name="nonce" value="nonce-now">
+                  <input name="terms_accepted" value="terms-now">
+                </form>
+            """,
+        )
+        accepted = MagicMock(status_code=200)
+        stats = MagicMock(status_code=200, text=fixture("d2_batting.html"))
+        session = MagicMock()
+        session._ncaa_terms_accepted = False
+        session.get.side_effect = [blocked, terms, stats]
+        session.post.return_value = accepted
+
+        with patch.dict(os.environ, {
+            "NCAA_SITE_UNBLOCKER": "1",
+            "NCAA_REQUEST_DELAY_SECONDS": "0",
+        }):
+            html = rs._fetch_ncaa_http(target, session)
+
+        self.assertTrue(rs._has_ncaa_stat_grid(html))
+        self.assertEqual(session.get.call_args_list[0].args[0], target)
+        self.assertEqual(session.get.call_args_list[1].args[0], rs.NCAA_BASE + "/stats_terms")
+        self.assertEqual(session.get.call_args_list[2].args[0], target)
+        post = session.post.call_args
+        self.assertEqual(post.args[0], rs.NCAA_BASE + "/stats_terms")
+        self.assertEqual(post.kwargs["headers"]["X-SU-Force-Headers"], "1")
+        self.assertEqual(post.kwargs["headers"]["X-SU-Force-Cookies"], "1")
+        self.assertFalse(post.kwargs["allow_redirects"])
+        self.assertEqual(post.kwargs["data"], {
+            "utf8": "✓",
+            "authenticity_token": "token-now",
+            "nonce": "nonce-now",
+            "terms_accepted": "terms-now",
+        })
+
+    def test_site_unblocker_retries_faulted_terms_post(self):
+        terms = MagicMock(
+            status_code=200,
+            url=rs.NCAA_BASE + "/stats_terms",
+            text="""
+                <form action="/stats_terms" method="post">
+                  <input name="authenticity_token" value="token-now">
+                  <input name="nonce" value="nonce-now">
+                  <input name="terms_accepted" value="terms-now">
+                </form>
+            """,
+        )
+        faulted = MagicMock(status_code=550)
+        accepted = MagicMock(status_code=200)
+        session = MagicMock()
+        session.get.return_value = terms
+        session.post.side_effect = [faulted, accepted]
+
+        with patch.dict(os.environ, {"NCAA_HTTP_TIMEOUT_SECONDS": "1"}):
+            with patch.object(rs.time, "sleep") as sleep:
+                rs._accept_ncaa_terms_http(session)
+
+        self.assertEqual(session.post.call_count, 2)
+        sleep.assert_called_once_with(1)
+
+    def test_site_unblocker_accepts_ncaa_terms_redirect(self):
+        terms = MagicMock(
+            status_code=200,
+            url=rs.NCAA_BASE + "/stats_terms",
+            text="""
+                <form action="/stats_terms" method="post">
+                  <input name="authenticity_token" value="token-now">
+                  <input name="nonce" value="nonce-now">
+                  <input name="terms_accepted" value="terms-now">
+                </form>
+            """,
+        )
+        session = MagicMock()
+        session.get.return_value = terms
+        session.post.return_value = MagicMock(status_code=302)
+
+        rs._accept_ncaa_terms_http(session)
+
+        self.assertEqual(session.post.call_count, 1)
+
+    def test_site_unblocker_posts_terms_from_initial_stats_response(self):
+        target = "https://stats.ncaa.org/teams/615087/season_to_date_stats"
+        terms = MagicMock(
+            status_code=200,
+            url=target,
+            text="""
+                <form action="/stats_terms" method="post">
+                  <input name="authenticity_token" value="token-now">
+                  <input name="nonce" value="nonce-now">
+                  <input name="terms_accepted" value="terms-now">
+                </form>
+            """,
+        )
+        accepted = MagicMock(status_code=200)
+        stats = MagicMock(status_code=200, text=fixture("d2_batting.html"))
+        session = MagicMock()
+        session._ncaa_terms_accepted = False
+        session.get.side_effect = [terms, stats]
+        session.post.return_value = accepted
+
+        with patch.dict(os.environ, {
+            "NCAA_SITE_UNBLOCKER": "1",
+            "NCAA_REQUEST_DELAY_SECONDS": "0",
+        }):
+            html = rs._fetch_ncaa_http(target, session)
+
+        self.assertTrue(rs._has_ncaa_stat_grid(html))
+        self.assertEqual(session.get.call_count, 2)
+        self.assertEqual(session.get.call_args_list[0].args[0], target)
+        self.assertEqual(session.get.call_args_list[1].args[0], target)
+        self.assertEqual(session.post.call_args.args[0], rs.NCAA_BASE + "/stats_terms")
+
     def test_terms_page_is_accepted_before_retrying_stats_url(self):
         target = "https://stats.ncaa.org/teams/615236/season_to_date_stats"
         checkbox = MagicMock()

@@ -21,9 +21,10 @@ import os
 import tempfile
 import threading
 import time
+import uuid
 import requests
 from bs4 import BeautifulSoup
-from urllib.parse import quote, unquote, urlparse
+from urllib.parse import quote, unquote, urljoin, urlparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from difflib import SequenceMatcher
@@ -1497,12 +1498,13 @@ def _has_ncaa_stat_grid(html: str) -> bool:
     return soup.select_one("#stat_grid") is not None
 
 
-def _fetch_ncaa_http(url: str, session: requests.Session) -> str:
+def _request_ncaa_http(url: str, session: requests.Session):
     last_response = None
+    timeout = int(os.environ.get("NCAA_HTTP_TIMEOUT_SECONDS", "60"))
     for attempt in range(3):
         try:
             response = session.get(
-                url, headers=NCAA_HEADERS, timeout=20, allow_redirects=True
+                url, headers=NCAA_HEADERS, timeout=timeout, allow_redirects=True
             )
         except requests.RequestException as exc:
             raise NcaaAccessError(
@@ -1512,6 +1514,111 @@ def _fetch_ncaa_http(url: str, session: requests.Session) -> str:
         if response.status_code not in (429, 503):
             break
         time.sleep(2 ** attempt)
+    return last_response
+
+
+def _accept_ncaa_terms_http(
+    session: requests.Session,
+    terms_response=None,
+) -> None:
+    """Accept NCAA terms while preserving Site Unblocker and NCAA sessions."""
+    timeout = int(os.environ.get("NCAA_HTTP_TIMEOUT_SECONDS", "60"))
+    terms_url = f"{NCAA_BASE}/stats_terms"
+    response = terms_response
+    form = None
+    if response is not None and response.status_code == 200:
+        form = BeautifulSoup(response.text, "html.parser").select_one(
+            "form[action='/stats_terms']"
+        )
+
+    if form is None:
+        try:
+            response = session.get(
+                terms_url,
+                headers=NCAA_HEADERS,
+                timeout=timeout,
+                allow_redirects=True,
+            )
+        except requests.RequestException as exc:
+            raise NcaaAccessError("NCAA terms page could not be reached.") from exc
+
+        if response.status_code != 200:
+            raise NcaaAccessError(
+                f"NCAA terms page returned HTTP {response.status_code}."
+            )
+
+        form = BeautifulSoup(response.text, "html.parser").select_one(
+            "form[action='/stats_terms']"
+        )
+    if form is None:
+        raise NcaaAccessError("NCAA returned an unrecognized terms page.")
+
+    required = ("authenticity_token", "nonce", "terms_accepted")
+    data = {}
+    utf8 = form.select_one("input[name='utf8']")
+    if utf8 is not None:
+        data["utf8"] = utf8.get("value", "✓")
+    for name in required:
+        field = form.select_one(f"[name='{name}']")
+        value = field.get("value") if field is not None else None
+        if not value:
+            raise NcaaAccessError(
+                f"NCAA terms page did not include {name}."
+            )
+        data[name] = value
+
+    headers = {
+        **NCAA_HEADERS,
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Origin": NCAA_BASE,
+        "Referer": response.url,
+        # Site Unblocker may otherwise replace request headers with its own
+        # browser profile. NCAA's CSRF-protected form requires these exact
+        # headers and the response cookie from the terms GET.
+        "X-SU-Force-Headers": "1",
+        "X-SU-Force-Cookies": "1",
+    }
+    accepted = None
+    for attempt in range(3):
+        try:
+            accepted = session.post(
+                urljoin(response.url, form.get("action")),
+                data=data,
+                headers=headers,
+                timeout=timeout,
+                allow_redirects=False,
+            )
+        except requests.RequestException as exc:
+            raise NcaaAccessError("NCAA terms acceptance failed.") from exc
+        if accepted.status_code != 550:
+            break
+        time.sleep(2 ** attempt)
+    if accepted.status_code not in (200, 302, 303):
+        raise NcaaAccessError(
+            f"NCAA terms acceptance returned HTTP {accepted.status_code}."
+        )
+
+
+def _fetch_ncaa_http(url: str, session: requests.Session) -> str:
+    last_response = _request_ncaa_http(url, session)
+
+    needs_terms_flow = (
+        os.environ.get("NCAA_SITE_UNBLOCKER", "0") == "1"
+        and not getattr(session, "_ncaa_terms_accepted", False)
+        and last_response is not None
+        and (
+            last_response.status_code == 403
+            or _is_ncaa_blocked(last_response.text)
+            or (
+                last_response.status_code == 200
+                and not _has_ncaa_stat_grid(last_response.text)
+            )
+        )
+    )
+    if needs_terms_flow:
+        _accept_ncaa_terms_http(session, last_response)
+        session._ncaa_terms_accepted = True
+        last_response = _request_ncaa_http(url, session)
 
     delay = float(os.environ.get("NCAA_REQUEST_DELAY_SECONDS", "1"))
     if delay > 0:
@@ -1753,6 +1860,11 @@ def _fetch_ncaa_pages(urls: dict[str, str]) -> dict[str, str]:
         normalized_proxy = _requests_proxy_url(http_proxy)
         session.proxies.update({"http": normalized_proxy, "https": normalized_proxy})
         session.verify = _proxy_tls_verification_enabled()
+    if os.environ.get("NCAA_SITE_UNBLOCKER", "0") == "1":
+        session.headers.update({
+            "X-SU-Session-Id": uuid.uuid4().hex,
+            "X-SU-Force-Cookies": "1",
+        })
     for key, url in urls.items():
         try:
             direct[key] = _fetch_ncaa_http(url, session)

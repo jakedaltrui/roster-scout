@@ -6,7 +6,7 @@ This is a minimal ICM system map. The repository is small enough that this file 
 
 1. `templates/index.html` loads the exact current-season NCAA selector from `GET /api/teams`, then sends `team`, `division`, and `season_team_id` to `POST /scrape`. JUCO remains free text.
 2. `app.py` validates the request and dispatches selected D1/D2/D3 IDs to the deterministic NCAA workflow or JUCO to its existing workflow in `roster_scraper.py`. Name matching remains available only for older API clients.
-3. The NCAA workflow resolves baseballr-maintained team/season IDs, checks its successful-result cache, requests batting and pitching grids directly, and uses a dedicated persistent Patchright profile on a headed browser/virtual display when NCAA blocks HTTP. Hosted deployments can route both paths through a credentialed residential proxy because NCAA denies Fly data-center IPs. It handles NCAA's statistics-terms screen before retrying the grid. D1Baseball remains a D1-only fallback.
+3. The NCAA workflow resolves baseballr-maintained team/season IDs, checks its successful-result cache, and requests batting and pitching grids directly. Site Unblocker deployments keep a random provider session ID, forced cookies, NCAA tokens, forced CSRF headers for the terms POST, and the stats retry in one HTTP session. A dedicated persistent Patchright profile on a headed browser/virtual display remains the fallback when HTTP is blocked. D1Baseball remains a D1-only fallback.
 4. `roster_scraper.py` normalizes player rows and splits hitters from pitchers.
 5. `app.py` creates an in-memory `.xlsx` with Hitters and Pitchers worksheets and returns it as a browser download.
 

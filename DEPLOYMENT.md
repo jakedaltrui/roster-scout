@@ -65,6 +65,14 @@ Managed Site Unblocker endpoints may terminate TLS with a provider-managed
 certificate. Set `NCAA_PROXY_TLS_VERIFY=0` only for that deployment. Roster
 Scout then disables certificate verification solely on the NCAA session that
 has `NCAA_BROWSER_PROXY` configured; normal application HTTPS remains verified.
+With `NCAA_SITE_UNBLOCKER=1`, each scrape creates one random
+`X-SU-Session-Id`, enables `X-SU-Force-Cookies: 1`, and keeps the initial stats
+GET, live terms-token POST, and stats retry in the same HTTP session. The terms
+POST also forces its CSRF-sensitive headers and retries provider HTTP 550 faults.
+When the initial stats GET is itself the NCAA terms page, its form is posted
+directly without making a redundant second terms GET.
+Roster Scout does not follow a terms POST redirect automatically; it accepts a
+successful 200/302/303 response and performs the final stats GET itself.
 
 The October 29, 2026 live test reached both Decodo's US residential endpoint
 and its rotating residential gateway successfully, but NCAA returned Akamai
@@ -111,6 +119,7 @@ healthy-looking deployment cannot return NCAA failures to users.
 | `NCAA_BROWSER_PREFLIGHT_TERMS` | `0`; `1` on Fly Site Unblocker deployment | Accept NCAA's terms page before the first proxied stats URL |
 | `NCAA_HTTP_PROXY` | `NCAA_BROWSER_PROXY` | Optional separate proxy URL for the direct HTTP attempt |
 | `NCAA_PROXY_TLS_VERIFY` | `1`; `0` on Fly Site Unblocker deployment | Verify TLS certificates on proxied NCAA HTTP and browser requests |
+| `NCAA_SITE_UNBLOCKER` | `0`; `1` on Fly Site Unblocker deployment | Enable sticky provider session headers and direct NCAA terms acceptance |
 | `NCAA_SEASON_YEAR` | current NCAA season | Override the requested season |
 
 Only successful parsed team results are cached. Blocks, empty pages, and parser failures are never cached.
