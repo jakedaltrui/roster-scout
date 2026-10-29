@@ -1,0 +1,44 @@
+app = "axis-roster-scout"
+primary_region = "ord"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "5000"
+  ROSTER_SCOUT_CACHE_DIR = "/data"
+  NCAA_BROWSER_FALLBACK = "1"
+  NCAA_BROWSER_HEADLESS = "0"
+  NCAA_BROWSER_CHANNEL = "chrome"
+  NCAA_RESULT_CACHE_TTL_SECONDS = "21600"
+  NCAA_LOOKUP_CACHE_TTL_SECONDS = "86400"
+
+[[mounts]]
+  source = "roster_scout_cache"
+  destination = "/data"
+  initial_size = "3gb"
+
+[http_service]
+  internal_port = 5000
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 8
+    hard_limit = 12
+
+  [[http_service.checks]]
+    grace_period = "30s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/healthz"
+
+[[vm]]
+  memory = "1gb"
+  cpu_kind = "shared"
+  cpus = 1

@@ -36,6 +36,43 @@ free deployment.
 
 Free hosted services commonly suspend inactive containers. Docker solves packaging and browser consistency, but it does not prevent a provider-imposed cold start. The local Compose service avoids that tradeoff.
 
+## Fly.io hosted deployment
+
+`fly.toml` defines the initial hosted shape:
+
+- one always-on shared CPU machine in Chicago with 1 GB RAM;
+- a 3 GB persistent volume mounted at `/data` for result caches and the NCAA browser profile;
+- official Google Chrome under Xvfb, one Gunicorn worker, and HTTPS health checks;
+- no database or additional paid service.
+
+The October 29, 2026 feasibility run confirmed that the 1 GB machine, Chrome,
+Xvfb, selector API, persistent volume, and health check all work. NCAA returned
+an Akamai `Access Denied` page specifically to Fly's data-center IP. More RAM or
+a different container browser does not fix that network-level rejection.
+
+For live NCAA requests, configure an ethically sourced residential proxy that
+permits this public-data use. Roster Scout sends both the initial HTTP attempt
+and the Chrome fallback through it, while keeping all successful results in the
+persistent cache. A credentialed URL is supported, for example
+`http://USER:PASSWORD@HOST:PORT`; URL-encode special characters in credentials.
+Store it as the `NCAA_BROWSER_PROXY` Fly secret—never in `fly.toml`, source
+control, or a command that will remain in shell history. The Fly dashboard's
+Secrets page is the simplest safe place to set it. `NCAA_HTTP_PROXY` may be set
+separately when a provider gives different HTTP and browser endpoints.
+
+Deploy from the repository root:
+
+```bash
+fly auth login
+fly launch --copy-config --no-deploy
+fly deploy
+```
+
+Before treating the URL as public, run the live NCAA smoke matrix through the
+configured proxy and inspect memory usage. If Chrome exceeds 1 GB, increase the
+machine to 2 GB. Keep the machine stopped until the proxy is configured so a
+healthy-looking deployment cannot return NCAA failures to users.
+
 ## Relevant environment variables
 
 | Variable | Default | Purpose |
@@ -50,7 +87,8 @@ Free hosted services commonly suspend inactive containers. Docker solves packagi
 | `NCAA_BROWSER_EXECUTABLE_PATH` | unset | Use a specific Chromium/Chrome executable |
 | `NCAA_BROWSER_CHANNEL` | unset; `chrome` in local runner | Patchright browser channel |
 | `NCAA_BROWSER_PROFILE_DIR` | cache directory | Dedicated persistent browser profile; do not point this at a personal Chrome profile |
-| `NCAA_BROWSER_PROXY` | unset | Optional browser proxy server URL |
+| `NCAA_BROWSER_PROXY` | unset | Credentialed proxy URL used by Chrome and, unless overridden, direct HTTP |
+| `NCAA_HTTP_PROXY` | `NCAA_BROWSER_PROXY` | Optional separate proxy URL for the direct HTTP attempt |
 | `NCAA_SEASON_YEAR` | current NCAA season | Override the requested season |
 
 Only successful parsed team results are cached. Blocks, empty pages, and parser failures are never cached.

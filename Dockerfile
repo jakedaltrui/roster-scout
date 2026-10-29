@@ -2,19 +2,22 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     ROSTER_SCOUT_CACHE_DIR=/var/cache/roster-scout \
-    NCAA_BROWSER_HEADLESS=0
+    NCAA_BROWSER_HEADLESS=0 \
+    NCAA_BROWSER_CHANNEL=chrome
 
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt \
-    && python -m patchright install --with-deps chromium \
-    && chmod -R a+rX /ms-playwright
+RUN pip install --no-cache-dir -r requirements.txt
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends xauth \
+    && apt-get install -y --no-install-recommends ca-certificates curl xauth xvfb \
+    && curl --fail --silent --show-error --location \
+        https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
+        --output /tmp/google-chrome.deb \
+    && apt-get install -y --no-install-recommends /tmp/google-chrome.deb \
+    && rm -f /tmp/google-chrome.deb \
     && rm -rf /var/lib/apt/lists/*
 
 COPY . .

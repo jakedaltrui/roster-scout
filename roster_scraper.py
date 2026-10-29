@@ -23,7 +23,7 @@ import threading
 import time
 import requests
 from bs4 import BeautifulSoup
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from difflib import SequenceMatcher
@@ -1534,7 +1534,25 @@ def _playwright_launch_options() -> dict:
     elif channel:
         options["channel"] = channel
     if proxy:
-        options["proxy"] = {"server": proxy}
+        options["proxy"] = _playwright_proxy_options(proxy)
+    return options
+
+
+def _playwright_proxy_options(proxy_url: str) -> dict:
+    """Convert a credentialed proxy URL into Patchright's proxy shape."""
+    candidate = proxy_url if "://" in proxy_url else f"http://{proxy_url}"
+    parsed = urlparse(candidate)
+    if not parsed.hostname:
+        raise NcaaAccessError("NCAA_BROWSER_PROXY is not a valid proxy URL.")
+
+    server = f"{parsed.scheme or 'http'}://{parsed.hostname}"
+    if parsed.port:
+        server += f":{parsed.port}"
+    options = {"server": server}
+    if parsed.username is not None:
+        options["username"] = unquote(parsed.username)
+    if parsed.password is not None:
+        options["password"] = unquote(parsed.password)
     return options
 
 
@@ -1642,6 +1660,11 @@ def _fetch_ncaa_pages(urls: dict[str, str]) -> dict[str, str]:
     direct = {}
     blocked = {}
     session = requests.Session()
+    http_proxy = os.environ.get("NCAA_HTTP_PROXY") or os.environ.get(
+        "NCAA_BROWSER_PROXY"
+    )
+    if http_proxy:
+        session.proxies.update({"http": http_proxy, "https": http_proxy})
     for key, url in urls.items():
         try:
             direct[key] = _fetch_ncaa_http(url, session)

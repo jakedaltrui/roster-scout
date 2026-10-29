@@ -125,6 +125,28 @@ class NcaaWorkflowTests(unittest.TestCase):
         self.assertEqual(pages["batting"], d1_batting)
         self.assertEqual(pages["pitching"], d1_pitching)
 
+    def test_proxy_url_is_used_for_http_and_browser_with_decoded_credentials(self):
+        proxy_url = "http://user%2Dsession:secret%40word@proxy.example:7000"
+        with patch.dict(os.environ, {"NCAA_BROWSER_PROXY": proxy_url}):
+            options = rs._playwright_launch_options()
+            with patch.object(rs, "_fetch_ncaa_http", return_value="ok") as fetch:
+                pages = rs._fetch_ncaa_pages({"batting": "bat-url"})
+
+        self.assertEqual(options["proxy"], {
+            "server": "http://proxy.example:7000",
+            "username": "user-session",
+            "password": "secret@word",
+        })
+        self.assertEqual(pages, {"batting": "ok"})
+        session = fetch.call_args.args[1]
+        self.assertEqual(session.proxies["https"], proxy_url)
+
+    def test_proxy_without_scheme_defaults_to_http(self):
+        self.assertEqual(
+            rs._playwright_proxy_options("proxy.example:7000"),
+            {"server": "http://proxy.example:7000"},
+        )
+
     def test_terms_page_is_accepted_before_retrying_stats_url(self):
         target = "https://stats.ncaa.org/teams/615236/season_to_date_stats"
         checkbox = MagicMock()

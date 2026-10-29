@@ -6,13 +6,13 @@ This is a minimal ICM system map. The repository is small enough that this file 
 
 1. `templates/index.html` loads the exact current-season NCAA selector from `GET /api/teams`, then sends `team`, `division`, and `season_team_id` to `POST /scrape`. JUCO remains free text.
 2. `app.py` validates the request and dispatches selected D1/D2/D3 IDs to the deterministic NCAA workflow or JUCO to its existing workflow in `roster_scraper.py`. Name matching remains available only for older API clients.
-3. The NCAA workflow resolves baseballr-maintained team/season IDs, checks its successful-result cache, requests batting and pitching grids directly, and uses a dedicated persistent Patchright profile on a headed browser/virtual display when NCAA blocks HTTP. It handles NCAA's statistics-terms screen before retrying the grid. D1Baseball remains a D1-only fallback.
+3. The NCAA workflow resolves baseballr-maintained team/season IDs, checks its successful-result cache, requests batting and pitching grids directly, and uses a dedicated persistent Patchright profile on a headed browser/virtual display when NCAA blocks HTTP. Hosted deployments can route both paths through a credentialed residential proxy because NCAA denies Fly data-center IPs. It handles NCAA's statistics-terms screen before retrying the grid. D1Baseball remains a D1-only fallback.
 4. `roster_scraper.py` normalizes player rows and splits hitters from pitchers.
 5. `app.py` creates an in-memory `.xlsx` with Hitters and Pitchers worksheets and returns it as a browser download.
 
 ## Universes
 
-- **Live:** `app.py`, `roster_scraper.py`, `templates/index.html`, `Procfile`, `requirements.txt`, `Dockerfile`, `compose.yaml`, and the scripts in `scripts/`.
+- **Live:** `app.py`, `roster_scraper.py`, `templates/index.html`, `Procfile`, `requirements.txt`, `Dockerfile`, `compose.yaml`, `fly.toml`, and the scripts in `scripts/`.
 - **Local-only:** the ignored `.cache/` directory containing NCAA lookup data, successful results, and the dedicated browser profile.
 - **Leftover:** none verified.
 - **Ghost:** none verified. A file is not live merely because it exists; it must be imported, invoked, or named by the deployment process.
@@ -29,6 +29,7 @@ This is a minimal ICM system map. The repository is small enough that this file 
 | Workbook layout or number types | `_create_workbook()` and `_write_worksheet()` | Browser progress animation |
 | Download filename or response headers | `/scrape` in `app.py` and the browser download handler | Scraper source adapters |
 | Python imports or entry point | `requirements.txt`, `Procfile`, and import sites | Cached NCAA data |
+| Fly sizing, health checks, or persistent cache | `fly.toml`, `Dockerfile`, `/healthz`, and `DEPLOYMENT.md` | Local native runner |
 
 ## Checks
 
@@ -41,4 +42,7 @@ Run from the repository root:
 5. Run `python3 scripts/validate_ncaa_catalog.py` to validate every current-season D1/D2/D3 selector record in one pass.
 6. Confirm `git diff --check` passes.
 
-External boundaries not represented in this tree: hosting-provider configuration and upstream sports websites/Akamai policy.
+External boundaries not represented in this tree: hosting-provider configuration,
+proxy account/credentials, and upstream sports websites/Akamai policy. The
+October 29, 2026 Fly feasibility run verified the app infrastructure but also
+verified that unproxied Fly egress receives NCAA `Access Denied` responses.

@@ -10,7 +10,7 @@ Roster Scout is an independent Flask app that turns an NCAA or JUCO baseball tea
 | `app.py` | HTTP routes, validation, and Excel workbook download creation |
 | `roster_scraper.py` | Team catalog, exact-ID selection, source-specific scraping, normalization, and hitter/pitcher output columns |
 | `templates/index.html` | Browser UI and the `/scrape` request/response contract |
-| `Procfile`, `requirements.txt` | Render process and Python dependencies |
+| `Procfile`, `requirements.txt`, `Dockerfile`, `fly.toml` | Hosted process, dependencies, and Fly.io deployment |
 
 ## Route by task
 

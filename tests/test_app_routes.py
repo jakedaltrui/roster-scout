@@ -46,6 +46,11 @@ class AppRouteTests(unittest.TestCase):
         self.assertNotIn(b"email-input", response.data)
         self.assertNotIn(b"Google Sheets", response.data)
 
+    def test_health_check_does_not_touch_external_services(self):
+        response = self.client.get("/healthz")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json(), {"status": "ok"})
+
     def test_team_catalog_endpoint_returns_exact_selector_ids(self):
         catalog = [{
             "name": "Tampa", "team_id": "689", "season_team_id": "615087",

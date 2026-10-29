@@ -41,6 +41,11 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/healthz")
+def healthz():
+    return jsonify({"status": "ok"})
+
+
 @app.route("/api/teams")
 def teams():
     division = (request.args.get("division") or "").strip().lower()
