@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Baseball Roster & Stats Scraper
-Scrapes NCAA college baseball team data and exports to Google Sheets.
+Scrapes and normalizes NCAA college baseball team data for workbook export.
 
 Supports:
   - NCAA stats.ncaa.org (primary — search by team name, all D1/D2/D3)
@@ -1545,6 +1545,12 @@ def _unique_headers(headers: list[str]) -> list[str]:
     return output
 
 
+def _is_ncaa_aggregate_name(name: str) -> bool:
+    """Identify NCAA summary rows that appear inside the player table body."""
+    normalized = re.sub(r"\s+", " ", str(name or "").strip().lower())
+    return bool(re.fullmatch(r"(?:(?:team|opponent)\s+)?totals?", normalized))
+
+
 def _parse_ncaa_stat_table(html: str) -> list[dict]:
     if not _has_ncaa_stat_grid(html):
         raise NcaaAccessError("NCAA stats table is missing or blocked.")
@@ -1568,7 +1574,7 @@ def _parse_ncaa_stat_table(html: str) -> list[dict]:
         if not player_key:
             continue
         name = re.sub(r"^x\s+", "", row[player_key], flags=re.IGNORECASE).strip()
-        if not name or name.lower() in {"totals", "total", "team"}:
+        if not name or name.lower() == "team" or _is_ncaa_aggregate_name(name):
             continue
         row[player_key] = name
         player_link = tr.find("a", href=re.compile(r"/players/\d+"))
@@ -1687,7 +1693,14 @@ def scrape_ncaa_by_name(
     if not force_refresh:
         cached = _read_json_cache(cache_key, ttl)
         if cached and cached.get("players"):
-            return cached["players"], cached.get("team_label", label)
+            cached_players = [
+                player for player in cached["players"]
+                if not _is_ncaa_aggregate_name(player.get("Name", ""))
+            ]
+            if cached_players:
+                if len(cached_players) != len(cached["players"]):
+                    _write_json_cache(cache_key, {**cached, "players": cached_players})
+                return cached_players, cached.get("team_label", label)
 
     season = _find_ncaa_season(year)
     season_team_id = team["season_team_id"]

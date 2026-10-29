@@ -67,6 +67,11 @@ class NcaaWorkflowTests(unittest.TestCase):
         self.assertIn("D One Two Way", {row["Name"] for row in hitters})
         self.assertIn("D One Two Way", {row["Name"] for row in pitchers})
 
+    def test_identifies_ncaa_aggregate_rows(self):
+        for name in ("Total", "Totals", "Team Totals", "Opponent Totals"):
+            self.assertTrue(rs._is_ncaa_aggregate_name(name))
+        self.assertFalse(rs._is_ncaa_aggregate_name("Tommy Totalson"))
+
     def test_successful_result_is_cached_and_skips_repeat_fetch(self):
         pages = {
             "batting": fixture("d3_batting.html"),

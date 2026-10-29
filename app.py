@@ -1,44 +1,38 @@
 #!/usr/bin/env python3
-"""
-Axis Baseball — Roster Scout Web App
-Flask backend: accepts team URL + email, scrapes roster/stats,
-creates a Google Sheet in Jake's account, shares it with the requester.
+"""Axis Baseball Roster Scout web app.
 
-Run:
-    python3 app.py
-
-Then open http://localhost:5000
+Accept a team and division, collect the roster and season statistics, and
+return a formatted Excel workbook containing Hitters and Pitchers worksheets.
 """
 
+import io
 import os
 import re
-import json
-from datetime import datetime
-from flask import Flask, render_template, request, jsonify
-import gspread
-from dotenv import load_dotenv
-from google.oauth2.credentials import Credentials
-from google.auth.transport.requests import Request
-from googleapiclient.discovery import build as google_build
+from datetime import date
+
+import xlsxwriter
+from flask import Flask, jsonify, render_template, request, send_file
 
 from roster_scraper import (
+    HITTER_HEADERS,
+    PITCHER_HEADERS,
     NcaaError,
-    scrape_ncaa_by_name,
     scrape_by_team_name,
     scrape_juco_by_name,
+    scrape_ncaa_by_name,
     split_roster,
 )
 
-# ── Config ────────────────────────────────────────────────────────────────────
-
-load_dotenv()
-
-TOKEN_FILE      = os.environ.get("GOOGLE_TOKEN_FILE", "token.json")
-DRIVE_FOLDER_ID = "1LE_lwaDLnoPD7ORvn3ha-ZUlB9dmJMiW"  # Jake's "Roster Sheets" folder
 
 app = Flask(__name__)
 
-# ── Routes ────────────────────────────────────────────────────────────────────
+_INTEGER_COLUMNS = {
+    "#", "AB", "H", "2B", "HR", "RBI", "R", "BB", "SO", "SB",
+    "W", "L", "SV", "ER",
+}
+_THREE_DECIMAL_COLUMNS = {"AVG", "OBP", "SLG"}
+_TWO_DECIMAL_COLUMNS = {"ERA", "WHIP"}
+
 
 @app.route("/")
 def index():
@@ -47,15 +41,12 @@ def index():
 
 @app.route("/scrape", methods=["POST"])
 def scrape():
-    body      = request.get_json(silent=True) or {}
-    team      = (body.get("team")      or "").strip()
-    email     = (body.get("email")     or "").strip()
-    division  = (body.get("division")  or "").strip().lower()
+    body = request.get_json(silent=True) or {}
+    team = (body.get("team") or "").strip()
+    division = (body.get("division") or "").strip().lower()
 
     if not team:
         return jsonify({"error": "Please enter a team name."}), 400
-    if not email or not re.match(r"[^@]+@[^@]+\.[^@]+", email):
-        return jsonify({"error": "Please enter a valid email address."}), 400
 
     try:
         if division == "juco":
@@ -66,15 +57,12 @@ def scrape():
             except NcaaError as ncaa_exc:
                 if division != "d1":
                     raise
-                # D1Baseball remains a useful D1-only fallback when NCAA is
-                # challenged or has not posted a usable table yet.
                 try:
                     rows, team_label = scrape_by_team_name(team)
                 except ValueError:
                     raise ncaa_exc
         else:
-            # Backwards-compatible auto-detect for older clients that do not
-            # send a division. NCAA lookup covers D1/D2/D3 before JUCO.
+            # Backwards-compatible auto-detection for clients that omit a division.
             try:
                 rows, team_label = scrape_ncaa_by_name(team)
             except NcaaError as ncaa_exc:
@@ -85,112 +73,119 @@ def scrape():
                         rows, team_label = scrape_juco_by_name(team)
                     except ValueError:
                         raise ncaa_exc
+
         hitters, pitchers = split_roster(rows)
+        workbook_bytes = _create_workbook(hitters, pitchers)
+        filename = f"{_safe_filename(team_label)}_Baseball_{date.today().isoformat()}.xlsx"
 
-        # Write to Sheets + share
-        sheet_url = _create_and_share(hitters, pitchers, team_label, email)
-
-        return jsonify({
-            "success":   True,
-            "sheet_url": sheet_url,
-            "team":      team_label,
-            "players":   len(rows),
-        })
+        response = send_file(
+            workbook_bytes,
+            as_attachment=True,
+            download_name=filename,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            max_age=0,
+        )
+        response.headers["X-Roster-Scout-Players"] = str(len(rows))
+        response.headers["X-Roster-Scout-Hitters"] = str(len(hitters))
+        response.headers["X-Roster-Scout-Pitchers"] = str(len(pitchers))
+        return response
 
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
 
-# ── Google auth helper ────────────────────────────────────────────────────────
-
-def _get_creds() -> Credentials:
-    """Load Jake's OAuth2 token, refreshing it if expired."""
-    token_json = os.environ.get("GOOGLE_TOKEN_JSON")
-    if token_json:
-        creds = Credentials.from_authorized_user_info(json.loads(token_json))
-    else:
-        creds = Credentials.from_authorized_user_file(TOKEN_FILE)
-    if creds.expired and creds.refresh_token:
-        creds.refresh(Request())
-        if not token_json:
-            with open(TOKEN_FILE, "w") as f:
-                f.write(creds.to_json())
-    return creds
+def _safe_filename(value: str) -> str:
+    """Return a readable filename component without path or shell characters."""
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", value.strip()).strip("._")
+    return cleaned or "Roster"
 
 
-# ── Google Sheets helper ──────────────────────────────────────────────────────
-
-def _write_tab(spreadsheet, title: str, data: list[dict]):
-    """Write one tab into an existing spreadsheet."""
-    if not data:
-        return
+def _excel_value(header: str, value):
+    """Convert stat strings to useful Excel number types where semantics allow."""
+    if value is None or value == "":
+        return ""
+    text = str(value).strip()
     try:
-        ws = spreadsheet.worksheet(title)
-        ws.clear()
-    except gspread.WorksheetNotFound:
-        ws = spreadsheet.add_worksheet(title=title, rows=300, cols=30)
-
-    col_headers = list(data[0].keys())
-    rows = [[p.get(h, "") for h in col_headers] for p in data]
-    ws.update([col_headers] + rows)
-
-    ws.format("1:1", {
-        "textFormat": {
-            "bold": True,
-            "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0},
-        },
-        "backgroundColor": {"red": 0.145, "green": 0.388, "blue": 0.922},
-    })
-
-    try:
-        spreadsheet.batch_update({"requests": [{"autoResizeDimensions": {"dimensions": {
-            "sheetId": ws.id, "dimension": "COLUMNS",
-            "startIndex": 0, "endIndex": len(col_headers),
-        }}}]})
-    except Exception:
+        if header in _INTEGER_COLUMNS and re.fullmatch(r"-?\d+", text):
+            return int(text)
+        if header in _THREE_DECIMAL_COLUMNS | _TWO_DECIMAL_COLUMNS:
+            return float(text)
+    except ValueError:
         pass
+    # IP intentionally remains text: 7.2 means seven and two-thirds innings.
+    return text
 
 
-def _create_and_share(hitters: list[dict], pitchers: list[dict], team_label: str, email: str) -> str:
-    """Create a new Google Sheet in Jake's Drive with two tabs, share with user."""
-    creds = _get_creds()
-    gc    = gspread.authorize(creds)
+def _write_worksheet(workbook, title: str, rows: list[dict], headers: list[str]):
+    worksheet = workbook.add_worksheet(title)
+    worksheet.hide_gridlines(2)
+    worksheet.freeze_panes(1, 0)
 
-    month_year = datetime.now().strftime("%b %Y")
-    sheet_name = f"{team_label} Baseball — {month_year}"
+    header_format = workbook.add_format({
+        "bold": True,
+        "font_color": "#FFFFFF",
+        "bg_color": "#1E3A5F",
+        "align": "center",
+        "valign": "vcenter",
+    })
+    text_format = workbook.add_format({"valign": "vcenter"})
+    integer_format = workbook.add_format({"num_format": "0", "valign": "vcenter"})
+    three_decimal_format = workbook.add_format({"num_format": "0.000", "valign": "vcenter"})
+    two_decimal_format = workbook.add_format({"num_format": "0.00", "valign": "vcenter"})
 
-    # Create inside Jake's Drive folder
-    drive = google_build("drive", "v3", credentials=creds)
-    file_meta = {
-        "name": sheet_name,
-        "mimeType": "application/vnd.google-apps.spreadsheet",
-        "parents": [DRIVE_FOLDER_ID],
-    }
-    created = drive.files().create(body=file_meta, fields="id").execute()
-    spreadsheet = gc.open_by_key(created["id"])
+    worksheet.set_row(0, 24)
+    for col, header in enumerate(headers):
+        worksheet.write(0, col, header, header_format)
 
-    # Rename the default Sheet1 tab to Hitters, add Pitchers tab
-    default_ws = spreadsheet.sheet1
-    default_ws.update_title("Hitters")
-    _write_tab(spreadsheet, "Hitters",  hitters)
-    _write_tab(spreadsheet, "Pitchers", pitchers)
+    for row_index, player in enumerate(rows, start=1):
+        for col_index, header in enumerate(headers):
+            value = _excel_value(header, player.get(header, ""))
+            cell_format = text_format
+            if header in _INTEGER_COLUMNS and isinstance(value, int):
+                cell_format = integer_format
+            elif header in _THREE_DECIMAL_COLUMNS and isinstance(value, float):
+                cell_format = three_decimal_format
+            elif header in _TWO_DECIMAL_COLUMNS and isinstance(value, float):
+                cell_format = two_decimal_format
+            worksheet.write(row_index, col_index, value, cell_format)
 
-    total = len(hitters) + len(pitchers)
-    spreadsheet.share(
-        email,
-        perm_type="user",
-        role="writer",
-        notify=True,
-        email_message=(
-            f"Your {team_label} baseball scouting sheet is ready — "
-            f"{len(hitters)} hitters, {len(pitchers)} pitchers. Compiled by Axis Baseball."
-        ),
-    )
+    if rows:
+        worksheet.add_table(0, 0, len(rows), len(headers) - 1, {
+            "columns": [{"header": header} for header in headers],
+            "style": "Table Style Medium 2",
+        })
+    else:
+        worksheet.autofilter(0, 0, 0, len(headers) - 1)
 
-    return f"https://docs.google.com/spreadsheets/d/{spreadsheet.id}"
+    for col_index, header in enumerate(headers):
+        content_width = max(
+            [len(header)] + [len(str(player.get(header, "") or "")) for player in rows]
+        )
+        if header == "Name":
+            width = min(max(content_width + 2, 20), 34)
+        elif header in {"Position", "Class"}:
+            width = min(max(content_width + 2, 10), 18)
+        else:
+            width = min(max(content_width + 2, 7), 12)
+        worksheet.set_column(col_index, col_index, width)
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
+def _create_workbook(hitters: list[dict], pitchers: list[dict]) -> io.BytesIO:
+    """Build the two-tab Roster Scout workbook entirely in memory."""
+    output = io.BytesIO()
+    workbook = xlsxwriter.Workbook(output, {"in_memory": True})
+    workbook.set_properties({
+        "title": "Axis Baseball Roster Scout",
+        "subject": "Baseball roster and season statistics",
+        "author": "Axis Baseball",
+        "company": "Axis Baseball",
+    })
+    _write_worksheet(workbook, "Hitters", hitters, HITTER_HEADERS)
+    _write_worksheet(workbook, "Pitchers", pitchers, PITCHER_HEADERS)
+    workbook.close()
+    output.seek(0)
+    return output
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))

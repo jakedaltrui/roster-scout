@@ -2,9 +2,5 @@ flask
 gunicorn
 requests
 beautifulsoup4
-gspread
-google-auth
-google-auth-oauthlib
-google-api-python-client
 patchright==1.64.3
-python-dotenv==1.2.1
+xlsxwriter==3.2.9

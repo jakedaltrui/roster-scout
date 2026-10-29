@@ -96,8 +96,7 @@
     }
     .field { margin-bottom: 20px; }
 
-    input[type="text"],
-    input[type="email"] {
+    input[type="text"] {
       width: 100%;
       background: var(--input-bg);
       border: 1px solid var(--border);
@@ -109,10 +108,8 @@
       outline: none;
       transition: border-color 0.15s;
     }
-    input[type="text"]::placeholder,
-    input[type="email"]::placeholder { color: #4a5568; }
-    input[type="text"]:focus,
-    input[type="email"]:focus { border-color: var(--blue-lt); }
+    input[type="text"]::placeholder { color: #4a5568; }
+    input[type="text"]:focus { border-color: var(--blue-lt); }
 
     .hint {
       font-size: 0.75rem;
@@ -287,7 +284,7 @@
       <div class="card-title">Build a roster sheet</div>
       <p class="card-sub">
         Enter any NCAA or JUCO baseball team name. We'll pull their current roster and stats
-        and drop it in a Google Sheet — sent straight to your email.
+        into an Excel workbook that downloads directly to your computer.
       </p>
 
       <form id="scout-form" novalidate>
@@ -313,20 +310,8 @@
           <p class="hint" id="team-hint">NCAA D1 program. Just type the school name.</p>
         </div>
 
-        <div class="field">
-          <label for="email-input">Your Email</label>
-          <input
-            type="email"
-            id="email-input"
-            placeholder="you@email.com"
-            autocomplete="email"
-            required
-          />
-          <p class="hint">We'll share the Google Sheet directly to this address.</p>
-        </div>
-
         <button type="submit" class="btn btn-primary" id="submit-btn">
-          Build Roster Sheet →
+          Download Roster Workbook →
         </button>
       </form>
     </div>
@@ -349,7 +334,7 @@
           </div>
           <div class="step" id="step-sheet">
             <div class="step-dot" id="dot-sheet"></div>
-            Creating &amp; sharing sheet
+            Building Excel workbook
           </div>
         </div>
       </div>
@@ -367,9 +352,9 @@
 
       <hr class="divider" />
 
-      <a id="sheet-link" href="#" target="_blank" rel="noopener" class="btn btn-success">
-        Open in Google Sheets →
-      </a>
+      <button id="download-again" type="button" class="btn btn-success">
+        Download again
+      </button>
       <button class="btn btn-ghost" onclick="resetForm()">Scout another team</button>
     </div>
 
@@ -392,6 +377,8 @@
   <script>
     const STATES = ['form', 'loading', 'success', 'error'];
     let selectedDiv = 'd1';
+    let lastDownloadUrl = null;
+    let lastDownloadName = null;
 
     // Division toggle
     document.querySelectorAll('.div-btn').forEach(btn => {
@@ -438,13 +425,27 @@
       dot.className = 'step-dot' + (status === 'done' ? ' done' : status === 'active' ? ' active' : '');
     }
 
+    function downloadFile(url, filename) {
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    }
+
+    document.getElementById('download-again').addEventListener('click', () => {
+      if (lastDownloadUrl && lastDownloadName) {
+        downloadFile(lastDownloadUrl, lastDownloadName);
+      }
+    });
+
     document.getElementById('scout-form').addEventListener('submit', async (e) => {
       e.preventDefault();
 
-      const team  = document.getElementById('team-input').value.trim();
-      const email = document.getElementById('email-input').value.trim();
+      const team = document.getElementById('team-input').value.trim();
 
-      if (!team || !email) return;
+      if (!team) return;
 
       document.getElementById('submit-btn').disabled = true;
       show('loading');
@@ -465,23 +466,36 @@
         const resp = await fetch('/scrape', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ team, email, division: selectedDiv }),
+          body: JSON.stringify({ team, division: selectedDiv }),
         });
-        const data = await resp.json();
         clearInterval(stepTimer);
 
-        if (!resp.ok || data.error) {
+        if (!resp.ok) {
+          const data = await resp.json().catch(() => ({}));
           document.getElementById('error-msg').textContent = data.error || 'Unknown error. Please try again.';
           show('error');
           return;
         }
 
+        const workbook = await resp.blob();
+        const disposition = resp.headers.get('Content-Disposition') || '';
+        const encodedMatch = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+        const plainMatch = disposition.match(/filename="?([^";]+)"?/i);
+        const filename = encodedMatch
+          ? decodeURIComponent(encodedMatch[1])
+          : plainMatch ? plainMatch[1] : 'roster-scout.xlsx';
+        const players = resp.headers.get('X-Roster-Scout-Players');
+
+        if (lastDownloadUrl) URL.revokeObjectURL(lastDownloadUrl);
+        lastDownloadUrl = URL.createObjectURL(workbook);
+        lastDownloadName = filename;
+        downloadFile(lastDownloadUrl, lastDownloadName);
+
         // Mark all steps done briefly before showing success
         stepOrder.forEach(s => setStep(s, 'done'));
         setTimeout(() => {
           document.getElementById('success-msg').textContent =
-            `${data.players} players found for ${data.team}. Sheet shared to ${email}.`;
-          document.getElementById('sheet-link').href = data.sheet_url;
+            `${players || 'Roster'} players found for ${team}. Your Excel workbook was downloaded.`;
           show('success');
         }, 400);
 

@@ -7,10 +7,12 @@ rejects ordinary HTTP, headless browsers, and the Linux browser bundled in the
 Docker image, but the native runner can use installed Google Chrome through
 Patchright.
 
-1. Put `GOOGLE_TOKEN_JSON` in the ignored `.env` file as one line.
-2. Run `scripts/setup_local.sh` once.
-3. Run `scripts/run_local.sh`.
-4. Open `http://localhost:5050`.
+1. Run `scripts/setup_local.sh` once.
+2. Run `scripts/run_local.sh`.
+3. Open `http://localhost:5050`.
+
+No Google account, OAuth token, or cloud storage is required. Each successful
+request downloads a two-tab Excel workbook directly in the browser.
 
 The ignored project `.cache/` directory persists:
 
@@ -24,7 +26,7 @@ successful team results.
 
 ## Docker and hosted deployment
 
-The included `Dockerfile` can run on Render, Fly.io, Railway, or another Docker host. Configure `GOOGLE_TOKEN_JSON` as a secret and expose port 5000. A small instance should use one worker because Chromium can require roughly 1 GB while NCAA verification is active.
+The included `Dockerfile` can run on Render, Fly.io, Railway, or another Docker host. Expose port 5000. A small instance should use one worker because Chromium can require roughly 1 GB while NCAA verification is active.
 
 Docker remains useful for consistent packaging and for cached results, but its
 Linux browser is currently rejected by NCAA from this network. Treat live
