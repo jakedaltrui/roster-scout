@@ -120,6 +120,10 @@ healthy-looking deployment cannot return NCAA failures to users.
 | `NCAA_HTTP_PROXY` | `NCAA_BROWSER_PROXY` | Optional separate proxy URL for the direct HTTP attempt |
 | `NCAA_PROXY_TLS_VERIFY` | `1`; `0` on Fly Site Unblocker deployment | Verify TLS certificates on proxied NCAA HTTP and browser requests |
 | `NCAA_SITE_UNBLOCKER` | `0`; `1` on Fly Site Unblocker deployment | Enable sticky provider session headers and direct NCAA terms acceptance |
+| `NCAA_BROWSER_PROVIDER` | unset; `browserless` on Fly | Route the complete hosted NCAA browser session through Browserless |
+| `BROWSERLESS_TOKEN` | unset | Browserless API token; configure as a Fly secret, never in `fly.toml` |
+| `BROWSERLESS_PROXY` | `residential` | Browserless proxy network for NCAA sessions |
+| `BROWSERLESS_PROXY_COUNTRY` | `us` | Browserless residential exit country |
 | `NCAA_SEASON_YEAR` | current NCAA season | Override the requested season |
 
 Only successful parsed team results are cached. Blocks, empty pages, and parser failures are never cached.

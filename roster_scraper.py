@@ -24,7 +24,7 @@ import time
 import uuid
 import requests
 from bs4 import BeautifulSoup
-from urllib.parse import quote, unquote, urljoin, urlparse
+from urllib.parse import quote, unquote, urlencode, urljoin, urlparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from difflib import SequenceMatcher
@@ -1849,7 +1849,125 @@ def _fetch_ncaa_browser_pages_locked(urls: dict[str, str]) -> dict[str, str]:
     return rendered
 
 
+def _fetch_ncaa_browserless_pages(urls: dict[str, str]) -> dict[str, str]:
+    """Fetch NCAA grids inside one Browserless residential browser session."""
+    token = os.environ.get("BROWSERLESS_TOKEN")
+    if not token:
+        raise NcaaAccessError("Browserless is configured without an API token.")
+    if not urls:
+        return {}
+
+    try:
+        from patchright.sync_api import sync_playwright
+    except ImportError as exc:
+        raise NcaaAccessError(
+            "Browserless requires Patchright, but it is not installed."
+        ) from exc
+
+    first_url = next(iter(urls.values()))
+    endpoint = os.environ.get(
+        "BROWSERLESS_UNBLOCK_ENDPOINT",
+        "https://production-sfo.browserless.io/chromium/unblock",
+    )
+    timeout_ms = int(os.environ.get("BROWSERLESS_TIMEOUT_MILLISECONDS", "120000"))
+    query = urlencode({
+        "token": token,
+        "proxy": os.environ.get("BROWSERLESS_PROXY", "residential"),
+        "proxyCountry": os.environ.get("BROWSERLESS_PROXY_COUNTRY", "us"),
+        "proxySticky": "true",
+        "timeout": str(timeout_ms),
+        "emulationOs": os.environ.get("BROWSERLESS_EMULATION_OS", "windows"),
+    })
+    try:
+        response = requests.post(
+            f"{endpoint}?{query}",
+            json={
+                "url": first_url,
+                "browserWSEndpoint": True,
+                "cookies": True,
+                "content": True,
+                "screenshot": False,
+                "ttl": 60000,
+            },
+            timeout=(timeout_ms / 1000) + 30,
+        )
+    except requests.RequestException as exc:
+        raise NcaaAccessError("Browserless could not start the NCAA session.") from exc
+    if response.status_code != 200:
+        raise NcaaAccessError(
+            f"Browserless session creation returned HTTP {response.status_code}."
+        )
+    try:
+        payload = response.json()
+        ws_endpoint = payload["browserWSEndpoint"]
+    except (KeyError, TypeError, ValueError) as exc:
+        raise NcaaAccessError("Browserless returned an invalid session response.") from exc
+
+    rendered = {}
+    browser = None
+    playwright = None
+    try:
+        playwright = sync_playwright().start()
+        authenticated_ws = (
+            ws_endpoint
+            + ("&" if "?" in ws_endpoint else "?")
+            + "token="
+            + quote(token, safe="")
+        )
+        browser = playwright.chromium.connect_over_cdp(
+            authenticated_ws,
+            timeout=30000,
+        )
+        pages = [
+            page
+            for context in browser.contexts
+            for page in context.pages
+        ]
+        if not pages:
+            raise NcaaAccessError("Browserless returned a session without a page.")
+        page = next(
+            (candidate for candidate in pages if "stats.ncaa.org" in candidate.url),
+            pages[0],
+        )
+
+        _accept_ncaa_terms(page, first_url)
+        verify_seconds = int(
+            os.environ.get("NCAA_BROWSER_VERIFY_TIMEOUT_SECONDS", "45")
+        )
+        for key, url in urls.items():
+            if page.url != url:
+                page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            _accept_ncaa_terms(page, url)
+            deadline = time.monotonic() + verify_seconds
+            html = ""
+            while time.monotonic() < deadline:
+                html = page.content()
+                if _has_ncaa_stat_grid(html):
+                    break
+                page.wait_for_timeout(1000)
+            if not _has_ncaa_stat_grid(html):
+                raise NcaaAccessError(
+                    "Browserless did not produce the expected NCAA stats table."
+                )
+            rendered[key] = html
+    except NcaaAccessError:
+        raise
+    except Exception as exc:
+        # Do not include Browserless exception text: WebSocket failures can
+        # contain the authenticated endpoint.
+        raise NcaaAccessError("Browserless NCAA browser session failed.") from exc
+    finally:
+        if browser is not None:
+            browser.close()
+        if playwright is not None:
+            playwright.stop()
+    return rendered
+
+
 def _fetch_ncaa_pages(urls: dict[str, str]) -> dict[str, str]:
+    if os.environ.get("NCAA_BROWSER_PROVIDER") == "browserless":
+        return _fetch_ncaa_browserless_pages(urls)
+
     direct = {}
     blocked = {}
     session = requests.Session()

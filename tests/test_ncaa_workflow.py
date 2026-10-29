@@ -127,6 +127,22 @@ class NcaaWorkflowTests(unittest.TestCase):
         self.assertEqual(pages["batting"], d1_batting)
         self.assertEqual(pages["pitching"], d1_pitching)
 
+    def test_browserless_provider_owns_the_complete_ncaa_session(self):
+        urls = {"batting": "bat-url", "pitching": "pit-url"}
+        expected = {"batting": "bat-html", "pitching": "pit-html"}
+        with patch.dict(os.environ, {
+            "NCAA_BROWSER_PROVIDER": "browserless",
+            "BROWSERLESS_TOKEN": "secret-token",
+        }):
+            with patch.object(
+                rs, "_fetch_ncaa_browserless_pages", return_value=expected
+            ) as browserless, patch.object(rs, "_fetch_ncaa_http") as direct:
+                pages = rs._fetch_ncaa_pages(urls)
+
+        self.assertEqual(pages, expected)
+        browserless.assert_called_once_with(urls)
+        direct.assert_not_called()
+
     def test_proxy_url_is_used_for_http_and_browser_with_decoded_credentials(self):
         proxy_url = "http://user%2Dsession:secret%40word@proxy.example:7000"
         with patch.dict(os.environ, {"NCAA_BROWSER_PROXY": proxy_url}):
