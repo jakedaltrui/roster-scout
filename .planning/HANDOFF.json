@@ -1,0 +1,71 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-10-29T21:33:59.437Z",
+  "phase": null,
+  "phase_name": "hosted-launch-hardening",
+  "phase_dir": ".planning/spikes/001-baseballr-ncaa-feasibility",
+  "plan": 1,
+  "task": 2,
+  "total_tasks": 4,
+  "status": "paused",
+  "completed_tasks": [
+    {
+      "id": 1,
+      "name": "Build and deploy Browserless NCAA workflow",
+      "status": "done",
+      "commit": "7ee10b3"
+    },
+    {
+      "id": 2,
+      "name": "Verify hosted D1, D2, and D3 workbook generation",
+      "status": "done",
+      "commit": "7ee10b3"
+    }
+  ],
+  "remaining_tasks": [
+    {
+      "id": 3,
+      "name": "Activate Fly billing and verify the machine is no longer forcibly stopped after five minutes",
+      "status": "not_started"
+    },
+    {
+      "id": 4,
+      "name": "Add Browserless concurrency and per-client rate limits before broad public sharing",
+      "status": "not_started"
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Fly trial forcibly stops the machine after five minutes, causing cold starts and potentially interrupting an active scrape with HTTP 502.",
+      "type": "human_action",
+      "workaround": "Add a payment method to Fly, then verify uninterrupted uptime beyond five minutes."
+    }
+  ],
+  "human_actions_pending": [
+    {
+      "action": "Add a payment method to the Fly account",
+      "context": "Required to remove the trial machine's forced five-minute shutdowns before public launch.",
+      "blocking": true
+    }
+  ],
+  "decisions": [
+    {
+      "decision": "Use baseballr's open-source data model and IDs without adding R as a runtime dependency.",
+      "rationale": "The pinned baseballr live runtime was invalidated, but its lookup data and approach remain useful.",
+      "phase": null
+    },
+    {
+      "decision": "Use Browserless as the hosted NCAA browser provider.",
+      "rationale": "A sticky residential Browserless session successfully accepts NCAA terms and returns stat_grid for D1, D2, and D3; Decodo Site Unblocker faults on the redirecting terms POST.",
+      "phase": null
+    },
+    {
+      "decision": "Return an in-memory XLSX download and cache successful normalized results.",
+      "rationale": "Avoids Google OAuth and duplicate Sheets while making repeat requests fast and inexpensive.",
+      "phase": null
+    }
+  ],
+  "uncommitted_files": [],
+  "next_action": "Add Fly billing, then verify the machine stays running beyond five minutes and rerun one uncached team; after that, implement concurrency and rate limits or begin the user's improvement list.",
+  "context_notes": "Core end-to-end workflow is complete and deployed. Live hosted tests succeeded for Florida State D1, Tampa D2, and Scranton D3. Tampa cached repeat returned in 0.18 seconds. The first Scranton attempt received 502 only because Fly stopped the trial machine at exactly five minutes; retry succeeded. Browserless token is stored as a Fly secret. NCAA_BROWSER_PROXY is now unused and can be removed after confidence soak."
+}
