@@ -9,11 +9,11 @@
       document.documentElement.dataset.theme = localStorage.getItem('roster-scout-theme') === 'dark' ? 'dark' : 'light';
     } catch (_) { /* Light mode remains available if storage is disabled. */ }
   </script>
-  <title>Roster Scout | Generate opponent stat sheets in seconds.</title>
-  <meta name="description" content="Generate opponent stat sheets in seconds." />
+  <title>Roster Scout | NCAA roster and stats to Excel</title>
+  <meta name="description" content="Turn a current NCAA baseball roster into a clean Excel workbook with separate hitter and pitcher stat sheets." />
   <meta property="og:type" content="website" />
   <meta property="og:title" content="Roster Scout" />
-  <meta property="og:description" content="Generate opponent stat sheets in seconds." />
+  <meta property="og:description" content="Turn a current NCAA baseball roster into a clean Excel workbook with separate hitter and pitcher stat sheets." />
   <meta property="og:url" content="https://roster-scout.fly.dev/" />
   <meta property="og:image" content="https://roster-scout.fly.dev/static/brand/roster-scout-social.png" />
   <meta property="og:image:width" content="1734" />
@@ -28,28 +28,42 @@
     *, *::before, *::after { box-sizing: border-box; }
     :root { color-scheme: light; --ink:#182a23; --muted:#69766e; --line:#d6dcd2; --green:#214d3b; --paper:#f3f1e9; --white:#fffefa; }
     body { margin:0; background:var(--paper); color:var(--ink); font-family:"DM Sans",sans-serif; -webkit-font-smoothing:antialiased; }
-    button,input { font:inherit; } button { cursor:pointer; } [hidden] { display:none !important; }
+    button,input { font:inherit; } button { cursor:pointer; } button,a { touch-action:manipulation; } [hidden] { display:none !important; }
+    .skip-link { position:fixed; z-index:100; top:12px; left:12px; padding:10px 14px; border-radius:8px; color:#171719; background:#f0f0ee; font-size:12px; font-weight:700; text-decoration:none; transform:translateY(-160%); transition:transform .2s; }
+    .skip-link:focus { transform:translateY(0); }
+    [id] { scroll-margin-top:96px; }
+    h1,h2,h3 { text-wrap:balance; }
     .shell { max-width:1440px; margin:auto; padding:0 5.5%; }
-    .header { height:89px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #d5d8ce; }
+    .header { position:sticky; z-index:30; top:14px; display:flex; align-items:center; justify-content:space-between; height:64px; margin-top:14px; padding:0 12px 0 10px; border:1px solid rgba(255,255,255,.12); border-radius:999px; background:rgba(18,18,20,.78); box-shadow:0 14px 38px rgba(0,0,0,.22),inset 0 1px 0 rgba(255,255,255,.08); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); transition:transform .32s cubic-bezier(.22,1,.36,1),background-color .2s,border-color .2s; }
+    .header.is-hidden { transform:translateY(calc(-100% - 24px)); }
     .brand { display:flex; align-items:center; gap:4px; font-weight:700; font-size:19px; letter-spacing:-.06em; }
-    .brand-mark { width:42px; height:42px; object-fit:contain; }
+    .brand-mark { width:40px; height:40px; object-fit:contain; }
     .header-note { font-size:11px; letter-spacing:.13em; text-transform:uppercase; color:#627169; font-weight:700; }
-    .hero { display:grid; grid-template-columns:minmax(0,1fr) minmax(400px, 510px); gap:8%; align-items:center; min-height:calc(100vh - 89px); padding:65px 0 85px; }
+    .brand { color:inherit; text-decoration:none; }
+    .header-actions { display:flex; align-items:center; gap:7px; }
+    .header-nav { display:flex; align-items:center; gap:2px; }
+    .header-nav a { padding:9px 12px; border-radius:999px; color:#a3a3a7; font-size:11px; font-weight:600; text-decoration:none; transition:color .2s,background-color .2s; }
+    .header-nav a:hover { color:#f3f3f1; background:rgba(255,255,255,.08); }
+    .hero { display:grid; grid-template-columns:minmax(0,1fr) minmax(400px, 510px); gap:8%; align-items:center; min-height:calc(100vh - 78px); padding:65px 0 85px; }
     .intro { max-width:630px; }
     .eyebrow { display:flex; align-items:center; gap:11px; color:#536f5f; font-size:11px; font-weight:700; letter-spacing:.15em; text-transform:uppercase; }
     .eyebrow:before { content:""; width:26px; height:1px; background:#779485; }
     h1 { font:400 clamp(58px,6vw,88px)/.99 "DM Serif Display",Georgia,serif; letter-spacing:-.048em; margin:28px 0 25px; }
     h1 em { color:#688c74; font-weight:400; }
+    .headline-line { display:block; }
     .intro-copy { color:#617069; font-size:16px; line-height:1.75; max-width:440px; margin:0; }
     .intro-meta { display:flex; gap:34px; margin-top:64px; padding-top:23px; border-top:1px solid #d2d8ce; max-width:440px; }
     .meta-label { color:#78877e; font-size:10px; letter-spacing:.13em; font-weight:700; text-transform:uppercase; }
     .meta-value { margin-top:8px; font-size:13px; font-weight:600; }
-    .card { background:var(--white); border:1px solid #dce0d6; border-radius:5px; box-shadow:0 22px 65px rgba(37,58,44,.07); padding:38px 40px 35px; min-height:465px; }
-    .card-top { display:flex; justify-content:space-between; align-items:center; color:#819087; font-size:10px; font-weight:700; letter-spacing:.13em; text-transform:uppercase; padding-bottom:22px; border-bottom:1px solid #e8ebe4; }
-    .card-top .number { font-family:Georgia,serif; font-size:14px; font-weight:400; letter-spacing:0; }
-    .card-title, .state-title { font:400 30px/1.1 "DM Serif Display",Georgia,serif; letter-spacing:-.02em; margin:28px 0 8px; }
+    .card { background:var(--white); border:1px solid #dce0d6; border-radius:5px; box-shadow:0 22px 65px rgba(37,58,44,.07); padding:38px 40px; }
+    .card-title, .state-title { font:400 30px/1.1 "DM Serif Display",Georgia,serif; letter-spacing:-.02em; }
+    .card-title { margin:0 0 8px; }
+    .state-title { margin:28px 0 8px; }
     .card-sub, .state-msg, .loading-sub { color:var(--muted); font-size:13px; line-height:1.65; margin:0 0 28px; }
     label, .field-label { display:block; color:#35483d; font-size:11px; font-weight:700; margin-bottom:10px; }
+    #scout-form { display:grid; gap:22px; }
+    #scout-form .field { margin:0; }
+    #scout-form .btn { margin-top:2px; }
     .field { margin-bottom:23px; }
     .div-toggle { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; }
     .div-btn { height:43px; border:1px solid #dfe5dc; background:#fafbf7; color:#697970; border-radius:3px; font-size:12px; font-weight:700; transition:.15s ease; }
@@ -87,7 +101,7 @@
     .footer span:last-child { letter-spacing:.09em; text-transform:uppercase; font-size:10px; }
     :focus-visible { outline:3px solid #8aa98d; outline-offset:3px; }
     @media(max-width:850px) { .hero { grid-template-columns:1fr; gap:44px; min-height:0; padding:65px 0 72px; } .intro { max-width:600px; } h1 { font-size:clamp(54px,10vw,76px); } .intro-meta { margin-top:36px; } .card { max-width:600px; width:100%; } }
-    @media(max-width:480px) { .shell { padding:0 20px; } .header { height:72px; } .header-note { font-size:9px; } .hero { padding:47px 0 55px; gap:35px; } h1 { margin:22px 0; font-size:53px; } .intro-copy { font-size:14px; } .intro-meta { gap:24px; } .card { padding:28px 24px; min-height:0; } .footer { gap:15px; } .footer span:last-child { text-align:right; } }
+    @media(max-width:480px) { .shell { padding:0 20px; } .header { top:10px; height:56px; margin-top:10px; padding-right:8px; } .brand-mark { width:36px; height:36px; } .header-note { font-size:9px; } .hero { padding:47px 0 55px; gap:35px; } h1 { margin:22px 0; font-size:53px; } .intro-copy { font-size:14px; } .intro-meta { gap:24px; } .card { padding:28px 24px; } #scout-form { gap:20px; } .footer { gap:15px; } .footer span:last-child { text-align:right; } }
     /* EasyUI-inspired quiet surfaces, rounded controls, and restrained motion. */
     :root { color-scheme:dark; --ink:#f0f0ee; --muted:#a1a1a4; --line:#303034; --green:#eceeeb; --paper:#09090b; --white:#171719; }
     body { background:#09090b; }
@@ -102,7 +116,6 @@
     .intro-copy { color:#a1a1a5; }
     .intro-meta { border-color:#303034; }
     .card { background:#171719; border-color:#28282b; border-radius:22px; box-shadow:0 24px 70px rgba(0,0,0,.25); }
-    .card-top { border-color:#303034; color:#88888c; }
     .card-title,.state-title { font:600 28px/1.15 "DM Sans",sans-serif; letter-spacing:-.045em; }
     label,.field-label { color:#c9c9ca; }
     .div-toggle { background:#101012; padding:4px; gap:3px; border:1px solid #2c2c2f; border-radius:12px; }
@@ -142,6 +155,78 @@
     @media(max-width:480px) { .guide-detail { min-height:155px; padding:25px 24px; } .guide-detail-text { max-width:88%; font-size:19px; } .guide-detail-number { font-size:105px; bottom:-27px; } }
     @media(max-width:850px) { .guide { grid-template-columns:1fr; gap:28px; padding:52px 0 65px; } }
     @media(max-width:480px) { .guide { padding:42px 0 52px; } .how-it-works { gap:8px; } .how-button { align-items:flex-start; font-size:11px; } .how-number { width:25px; height:25px; font-size:11px; } }
+    .output-section { display:grid; grid-template-columns:minmax(0,.82fr) minmax(460px,1.18fr); gap:8%; align-items:center; margin:0; padding:90px 7%; border-radius:28px; color:#f0f0ee; background:#171719; overflow:hidden; }
+    .output-section > * { min-width:0; }
+    .section-kicker { margin:0 0 20px; color:#929297; font-size:10px; font-weight:700; letter-spacing:.16em; text-transform:uppercase; }
+    .output-heading, .uses-heading, .faq-heading, .final-heading { margin:0; font-size:clamp(34px,4vw,54px); font-weight:600; line-height:1.03; letter-spacing:-.055em; }
+    .output-copy { max-width:460px; margin:23px 0 0; color:#aaaab0; font-size:15px; line-height:1.75; }
+    .output-list { display:grid; gap:15px; margin:31px 0 0; padding:0; list-style:none; }
+    .output-list li { display:grid; grid-template-columns:24px 1fr; gap:11px; align-items:start; color:#d4d4d1; font-size:13px; line-height:1.55; }
+    .output-list svg { width:18px; height:18px; margin-top:1px; color:#f0f0ee; }
+    .workbook-preview { --team-primary:#461d7c; --team-accent:#fdd023; --team-soft:#f1edf5; --team-hover:#f5edc7; --team-meta:#5a476c; position:relative; min-width:0; padding:15px; border:1px solid #3b3b3e; border-radius:20px; background:#202023; box-shadow:0 30px 70px rgba(0,0,0,.32); perspective:1000px; }
+    .workbook-bar { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:3px 4px 14px; color:#a4a4a8; font-size:10px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
+    .workbook-file { display:flex; align-items:center; gap:8px; min-width:0; }
+    .xlsx-file-type { position:relative; display:grid; place-items:center; flex:none; width:16px; height:16px; color:#16a34a; container-type:inline-size; }
+    .xlsx-file-type svg { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+    .xlsx-file-type-label { position:relative; z-index:1; margin-top:1.5px; color:#fff; font-size:3.25px; font-weight:800; letter-spacing:.025em; line-height:1; }
+    .workbook-file span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .sheet-window { min-width:0; overflow:hidden; border:1px solid #3b3b3f; border-radius:12px; background:#f8f8f5; color:#20211f; transition:opacity .18s ease,transform .18s ease; }
+    .sheet-window.is-changing { opacity:.48; transform:translateY(3px); }
+    .sample-team { display:flex; align-items:center; gap:18px; padding:18px 20px; border-bottom:3px solid var(--team-accent); background:#fff; }
+    .sample-team-main { display:flex; align-items:center; gap:12px; min-width:0; }
+    .sample-team-logo { display:block; flex:none; width:58px; height:42px; object-fit:contain; }
+    .sample-team-copy { min-width:0; }
+    .sample-team-name { display:block; overflow:hidden; color:var(--team-primary); font-size:15px; font-weight:800; letter-spacing:-.025em; text-overflow:ellipsis; white-space:nowrap; }
+    .sample-team-meta { display:block; margin-top:3px; color:var(--team-meta); font-size:9px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; }
+    .sheet-tabs { display:flex; align-items:flex-end; gap:4px; padding:9px 12px 0; border-bottom:1px solid #cfd2cc; background:linear-gradient(180deg,var(--team-soft),color-mix(in srgb,var(--team-soft) 72%,#dfe2db)); }
+    .sheet-tab { position:relative; display:flex; align-items:center; gap:8px; min-width:112px; height:36px; padding:0 14px; border:1px solid transparent; border-bottom:0; border-radius:10px 10px 0 0; color:#73776f; background:transparent; font-size:10px; font-weight:800; text-align:left; transition:color .2s,background-color .2s,border-color .2s,transform .2s cubic-bezier(.2,.8,.2,1),box-shadow .2s; }
+    .sheet-tab:hover { color:var(--team-primary); background:rgba(255,255,255,.5); }
+    .sheet-tab:active { transform:translateY(1px); }
+    .sheet-tab-icon { display:grid; place-items:center; flex:none; width:15px; height:15px; border-radius:3px; color:#fff; background:#8d9389; box-shadow:inset 0 0 0 1px rgba(0,0,0,.08); transition:background-color .2s; }
+    .sheet-tab-icon svg { width:9px; height:9px; }
+    .sheet-tab[aria-selected="true"] { z-index:1; color:var(--team-primary); border-color:#cfd2cc; background:#f8f8f5; box-shadow:0 -2px 7px rgba(35,40,34,.07); transform:translateY(1px); }
+    .sheet-tab[aria-selected="true"] .sheet-tab-icon { background:var(--team-primary); }
+    .sheet-tab[aria-selected="true"]::after { content:""; position:absolute; right:0; bottom:-2px; left:0; height:3px; background:#f8f8f5; }
+    .sheet-panel { background:#f8f8f5; }
+    .sheet-grid-wrap { width:100%; max-width:100%; overflow-x:auto; overscroll-behavior-inline:contain; scrollbar-color:#bcc1b9 #eceee9; scrollbar-width:thin; }
+    .sample-table { width:100%; min-width:650px; border-collapse:collapse; table-layout:auto; font-size:9px; font-variant-numeric:tabular-nums; }
+    .sample-table th, .sample-table td { padding:9px 10px; border-right:1px solid #e0e2dc; border-bottom:1px solid #e0e2dc; text-align:right; white-space:nowrap; }
+    .sample-table .column-letters th { padding:5px 10px; color:#8b8f87; background:#eef0eb; font-size:8px; font-weight:700; text-align:center; }
+    .sample-table .table-head th { color:#fff; background:var(--team-primary); font-size:8px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; }
+    .sample-table tbody tr:nth-child(even) { background:#f1f3ee; }
+    .sample-table tbody tr:hover { background:var(--team-hover); }
+    .sample-table th:first-child, .sample-table td:first-child { width:28px; padding-right:7px; padding-left:7px; color:#8a8e86; background:#eef0eb; text-align:center; }
+    .sample-table .player-cell, .sample-table .table-head .player-cell { min-width:122px; text-align:left; }
+    .sample-table .text-cell, .sample-table .table-head .text-cell { text-align:left; }
+    .sample-table tbody .player-cell { color:#292c27; font-weight:800; }
+    .sample-table tbody td { color:#555952; }
+    @media (prefers-reduced-motion:no-preference) { .sheet-panel:not([hidden]) { animation:sheet-in .22s cubic-bezier(.2,.8,.2,1) both; } }
+    @keyframes sheet-in { from { opacity:.4; transform:translateY(4px); } to { opacity:1; transform:translateY(0); } }
+    .uses-section { padding:100px 0 92px; }
+    .section-heading-row { display:flex; align-items:end; justify-content:space-between; gap:40px; margin-bottom:42px; }
+    .section-heading-row p { max-width:390px; margin:0; color:#777a74; font-size:14px; line-height:1.65; }
+    .uses-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+    .use-card { min-height:220px; padding:29px; border:1px solid #dedfd9; border-radius:16px; background:rgba(255,255,255,.45); }
+    .use-number { display:grid; place-items:center; width:32px; height:32px; margin-bottom:43px; border:1px solid #ced0c9; border-radius:50%; color:#6f726c; font-size:10px; font-weight:700; }
+    .use-card h3 { margin:0 0 11px; font-size:20px; letter-spacing:-.035em; }
+    .use-card p { margin:0; color:#777a74; font-size:13px; line-height:1.65; }
+    .faq-section { display:grid; grid-template-columns:minmax(240px,.75fr) minmax(0,1.25fr); gap:8%; padding:90px 0; border-top:1px solid #deded9; }
+    .faq-intro { max-width:330px; }
+    .faq-intro p { margin:18px 0 0; color:#777a74; font-size:14px; line-height:1.65; }
+    .faq-list { border-top:1px solid #d5d7d0; }
+    .faq-item { border-bottom:1px solid #d5d7d0; }
+    .faq-item summary { position:relative; padding:24px 42px 24px 0; cursor:pointer; list-style:none; font-size:15px; font-weight:700; letter-spacing:-.015em; }
+    .faq-item summary::-webkit-details-marker { display:none; }
+    .faq-item summary::after { content:"+"; position:absolute; right:2px; top:21px; color:#7c7f78; font-size:22px; font-weight:400; transition:transform .25s; }
+    .faq-item[open] summary::after { transform:rotate(45deg); }
+    .faq-item p { max-width:620px; margin:-5px 42px 24px 0; color:#777a74; font-size:13px; line-height:1.7; }
+    .final-cta { display:flex; align-items:center; justify-content:space-between; gap:40px; margin-bottom:88px; padding:54px 58px; border-radius:22px; color:#f0f0ee; background:#20211f; }
+    .final-copy p { margin:13px 0 0; color:#aaaDA7; font-size:14px; }
+    .cta-link { display:inline-flex; align-items:center; justify-content:center; flex:none; min-width:220px; min-height:52px; padding:0 24px; border-radius:11px; color:#171719; background:#f0f0ee; font-size:13px; font-weight:700; text-decoration:none; transition:background .22s, transform .22s; }
+    .cta-link:hover { background:#d5d5d3; transform:translateY(-1px); }
+    @media(max-width:900px) { .output-section { grid-template-columns:1fr; gap:48px; padding:68px 7%; } .uses-grid { grid-template-columns:1fr; } .use-card { min-height:0; } .use-number { margin-bottom:28px; } }
+    @media(max-width:700px) { .header-nav { display:none; } .section-heading-row, .final-cta { align-items:flex-start; flex-direction:column; } .faq-section { grid-template-columns:1fr; gap:38px; } .cta-link { width:100%; } }
+    @media(max-width:480px) { .header-actions { gap:5px; } .output-section { margin-left:-6px; margin-right:-6px; padding:52px 24px; border-radius:20px; } .workbook-preview { padding:10px; } .sample-team { padding:15px 14px; } .sample-team-logo { width:50px; height:38px; } .sheet-tabs { padding-right:8px; padding-left:8px; } .sheet-tab { min-width:104px; padding:0 11px; } .section-heading-row { margin-bottom:28px; } .uses-section { padding:70px 0 66px; } .faq-section { padding:66px 0; } .final-cta { margin-bottom:60px; padding:38px 28px; } }
     .btn { border-radius:11px; transition:background .22s,transform .22s cubic-bezier(.2,.8,.2,1),box-shadow .22s; }
     .btn-primary,.btn-success { background:#f0f0ee; color:#161618; }
     .btn-primary:hover,.btn-success:hover { background:#d5d5d3; transform:translateY(-1px); }
@@ -163,9 +248,8 @@
       .intro h1 { animation:page-in .65s cubic-bezier(.2,.8,.2,1) both; }
       .intro-copy { animation:page-in .65s .09s cubic-bezier(.2,.8,.2,1) both; }
       .hero .card { animation:page-in .65s .12s cubic-bezier(.2,.8,.2,1) both; }
-      .card-top { animation:page-in .48s .21s cubic-bezier(.2,.8,.2,1) both; }
-      #state-form.active .card-title, #state-form.active .card-sub { animation:page-in .48s .25s cubic-bezier(.2,.8,.2,1) both; }
-      #state-form.active form, #state-form.active .card-foot { animation:page-in .48s .30s cubic-bezier(.2,.8,.2,1) both; }
+      #state-form.active .card-title, #state-form.active .card-sub { animation:page-in .48s .21s cubic-bezier(.2,.8,.2,1) both; }
+      #state-form.active form, #state-form.active .card-foot { animation:page-in .48s .26s cubic-bezier(.2,.8,.2,1) both; }
       .guide.reveal-ready .guide-heading, .guide.reveal-ready .guide-intro,
       .guide.reveal-ready .how-it-works li, .guide.reveal-ready .guide-detail { opacity:0; transform:translateY(18px); transition:opacity .6s cubic-bezier(.2,.8,.2,1), transform .6s cubic-bezier(.2,.8,.2,1); }
       .guide.reveal-ready .guide-heading { transition-delay:.2s; }
@@ -181,11 +265,13 @@
     }
     html[data-theme="light"] { color-scheme:light; --ink:#20211f; --muted:#686b68; }
     html[data-theme="light"] body { background:#f6f6f3; }
-    html[data-theme="light"] .header, html[data-theme="light"] .footer { border-color:#deded9; }
+    html[data-theme="light"] .header { border-color:rgba(32,33,31,.12); background:rgba(255,255,253,.82); box-shadow:0 14px 38px rgba(25,25,20,.1),inset 0 1px 0 rgba(255,255,255,.9); }
+    html[data-theme="light"] .footer { border-color:#deded9; }
+    html[data-theme="light"] .header-nav a { color:#676a65; }
+    html[data-theme="light"] .header-nav a:hover { color:#20211f; background:rgba(0,0,0,.055); }
     html[data-theme="light"] h1 em { color:#8b8d88; }
     html[data-theme="light"] .intro-copy { color:#6f726f; }
     html[data-theme="light"] .card { background:#fff; border-color:#e3e4df; box-shadow:0 24px 70px rgba(25,25,20,.07); }
-    html[data-theme="light"] .card-top { border-color:#e9eae6; color:#858882; }
     html[data-theme="light"] label, html[data-theme="light"] .field-label { color:#424540; }
     html[data-theme="light"] .div-toggle { background:#f2f3f0; border-color:#e7e8e3; }
     html[data-theme="light"] .div-btn { color:#777a74; }
@@ -326,27 +412,35 @@
     html[data-theme="dark"] .guide-detail { background:#202023; border-color:#3a3a3e; color:#f0f0ee; box-shadow:0 4px 16px rgba(0,0,0,.15); }
     html[data-theme="dark"] .guide-detail-label { color:#99999d; }
     html[data-theme="dark"] .guide-detail-number { color:#303034; }
+    html[data-theme="dark"] .header-nav a { color:#99999d; }
+    html[data-theme="dark"] .header-nav a:hover { color:#f0f0ee; }
+    html[data-theme="dark"] .uses-heading, html[data-theme="dark"] .faq-heading { color:#f0f0ee; }
+    html[data-theme="dark"] .section-heading-row p, html[data-theme="dark"] .use-card p, html[data-theme="dark"] .faq-intro p, html[data-theme="dark"] .faq-item p { color:#a1a1a4; }
+    html[data-theme="dark"] .use-card { border-color:#303034; background:#171719; }
+    html[data-theme="dark"] .use-number { border-color:#444449; color:#aaaab0; }
+    html[data-theme="dark"] .faq-section, html[data-theme="dark"] .faq-list, html[data-theme="dark"] .faq-item { border-color:#303034; }
+    html[data-theme="dark"] .faq-item summary { color:#f0f0ee; }
     @media(prefers-reduced-motion:reduce) { *,*::before,*::after { animation-duration:.01ms !important; animation-iteration-count:1 !important; transition:none !important; } }
   </style>
 </head>
-<body>
+<body id="top">
+  <a class="skip-link" href="#main-content">Skip to content</a>
   <div class="shell">
-    <header class="header"><div class="brand"><img class="brand-mark" src="{{ url_for('static', filename='brand/roster-scout-dog-outlined.png') }}" alt="" /><span class="brand-name">roster scout</span></div><button type="button" class="theme-toggle" id="theme-toggle" aria-label="Switch to dark mode" title="Switch to dark mode"><svg class="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.9 13.1A9 9 0 0 1 10.9 3.1 9 9 0 1 0 20.9 13.1Z" /></svg><svg class="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" /></svg></button></header>
-    <main>
+    <header class="header"><a class="brand" href="#top" aria-label="Roster Scout home"><img class="brand-mark" src="{{ url_for('static', filename='brand/roster-scout-dog-outlined.png') }}" width="42" height="42" alt="" /><span class="brand-name">roster scout</span></a><div class="header-actions"><nav class="header-nav" aria-label="Page sections"><a href="#output">What you get</a><a href="#how-it-works">How it works</a><a href="#questions">Questions</a></nav><button type="button" class="theme-toggle" id="theme-toggle" aria-label="Switch to dark mode" title="Switch to dark mode"><svg class="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.9 13.1A9 9 0 0 1 10.9 3.1 9 9 0 1 0 20.9 13.1Z" /></svg><svg class="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" /></svg></button></div></header>
+    <main id="main-content">
       <div class="hero">
       <section class="intro" aria-labelledby="page-title">
-        <h1 id="page-title">Generate opponent<br /><em>stat sheets in seconds.</em></h1>
-        <p class="intro-copy">Pick a team to download its roster and season stats in an Excel file.</p>
+        <h1 id="page-title"><span class="headline-line">Generate NCAA</span><em class="headline-line">stat sheets in seconds.</em></h1>
+        <p class="intro-copy">Pick a team and download its roster and latest stats in an Excel file.</p>
       </section>
       <div class="builder-column">
-      <section class="card" aria-label="Roster Stat Sheet">
-        <div class="card-top"><span>Roster builder</span></div>
+      <section class="card" id="builder" aria-label="Roster Stat Sheet">
         <div id="state-form" class="state active">
           <h2 class="card-title">Find your team.</h2>
           <p class="card-sub">Choose a division, then select a school to build your stat sheet.</p>
           <form id="scout-form" novalidate>
             <div class="field"><span class="field-label" id="division-label">Division</span><div class="div-toggle" role="group" aria-labelledby="division-label"><button type="button" class="div-btn active" data-div="d1" aria-pressed="true">D1</button><button type="button" class="div-btn" data-div="d2" aria-pressed="false">D2</button><button type="button" class="div-btn" data-div="d3" aria-pressed="false">D3</button></div></div>
-            <div class="field" id="ncaa-team-field"><label for="team-combobox">School</label><div class="combobox" id="team-combobox-wrap"><input type="text" id="team-combobox" placeholder="Loading D1 teams…" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="team-results" aria-expanded="false" aria-describedby="catalog-hint" disabled /><div id="team-results" class="team-results" role="listbox" hidden></div></div><p class="hint" id="catalog-hint" aria-live="polite">Loading the current NCAA catalog…</p></div>
+            <div class="field" id="ncaa-team-field"><label for="team-combobox">School</label><div class="combobox" id="team-combobox-wrap"><input type="text" id="team-combobox" name="team" placeholder="Loading D1 teams…" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="team-results" aria-expanded="false" aria-describedby="catalog-hint" disabled /><div id="team-results" class="team-results" role="listbox" hidden></div></div><p class="hint" id="catalog-hint" aria-live="polite">Loading the current NCAA catalog…</p></div>
             <button type="submit" class="btn btn-primary" id="submit-btn">Download Roster Stat Sheet <span aria-hidden="true">↗</span></button>
           </form>
         </div>
@@ -356,7 +450,35 @@
       </section>
       </div>
       </div>
-      <section class="guide" aria-labelledby="guide-heading"><div><h2 class="guide-heading" id="guide-heading">How it works.</h2><p class="guide-intro">From school to spreadsheet in three steps.</p></div><div><ol class="how-it-works"><li><button type="button" class="how-button" data-guide="division" aria-pressed="true" aria-controls="guide-detail"><span class="how-number">1</span><span>Pick a division</span></button></li><li><button type="button" class="how-button" data-guide="team" aria-pressed="false" aria-controls="guide-detail"><span class="how-number">2</span><span>Choose a team</span></button></li><li><button type="button" class="how-button" data-guide="download" aria-pressed="false" aria-controls="guide-detail"><span class="how-number">3</span><span>Download the stats</span></button></li></ol><div class="guide-detail" id="guide-detail" aria-live="polite"><span class="guide-detail-label" id="guide-detail-label">Step 01</span><p class="guide-detail-text" id="guide-detail-text">Choose Division 1, 2, or 3.</p><span class="guide-detail-number" id="guide-detail-number" aria-hidden="true">01</span></div></div></section>
+      <section class="output-section" id="output" aria-labelledby="output-heading">
+        <div>
+          <p class="section-kicker">Inside every download</p>
+          <h2 class="output-heading" id="output-heading">One workbook. Zero sorting.</h2>
+          <p class="output-copy">Roster Scout turns scattered roster and season data into one consistent file you can filter, share, and take into prep.</p>
+          <ul class="output-list"><li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg><span>Hitters and pitchers are separated automatically.</span></li><li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg><span>Roster details and season stats stay together by player.</span></li><li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg><span>The finished .xlsx file downloads directly to your device.</span></li></ul>
+        </div>
+        <div class="workbook-preview" id="workbook-preview" aria-label="Interactive championship-team Excel workbook preview">
+          <div class="workbook-bar"><div class="workbook-file"><span class="xlsx-file-type" role="img" aria-label="XLSX file"><svg viewBox="0 0 40 40" aria-hidden="true"><path fill="currentColor" d="M7 2h19l8 8v26a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z"/><path fill="#fff" fill-opacity=".3" d="M26 2v8h8L26 2Z"/><path fill="#fff" fill-opacity=".18" d="m26 2 8 8h-6a2 2 0 0 1-2-2V2Z"/></svg><span class="xlsx-file-type-label">XLSX</span></span><span id="workbook-filename">Oklahoma_2026_Baseball.xlsx</span></div></div>
+          <div class="sheet-window" id="sheet-window">
+            <div class="sample-team"><div class="sample-team-main"><img class="sample-team-logo" id="workbook-team-logo" src="/api/team-logo/522" width="58" height="42" alt="Oklahoma" /><span class="sample-team-copy"><strong class="sample-team-name" id="workbook-team-name">University of Oklahoma</strong><span class="sample-team-meta" id="workbook-team-meta">2026 season</span></span></div></div>
+            <div class="sheet-tabs" role="tablist" aria-label="Workbook sheets"><button type="button" class="sheet-tab" id="hitters-tab" role="tab" aria-selected="true" aria-controls="hitters-sheet" tabindex="0"><span class="sheet-tab-icon" aria-hidden="true"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1"><path d="M1.5 1.5h9v9h-9zM1.5 4.5h9M4.5 1.5v9" /></svg></span><span>Hitters</span></button><button type="button" class="sheet-tab" id="pitchers-tab" role="tab" aria-selected="false" aria-controls="pitchers-sheet" tabindex="-1"><span class="sheet-tab-icon" aria-hidden="true"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1"><path d="M1.5 1.5h9v9h-9zM1.5 4.5h9M4.5 1.5v9" /></svg></span><span>Pitchers</span></button></div>
+            <div class="sheet-panel" id="hitters-sheet" role="tabpanel" aria-labelledby="hitters-tab">
+              <div class="sheet-grid-wrap" id="hitters-grid" tabindex="0" aria-label="Scroll through Oklahoma hitter statistics">
+                <table class="sample-table"><caption class="sr-only" id="hitters-caption">2026 Oklahoma hitter worksheet</caption><thead><tr class="column-letters" aria-hidden="true"><th></th><th>A</th><th>B</th><th>C</th><th>D</th><th>E</th><th>F</th><th>G</th><th>H</th><th>I</th><th>J</th></tr><tr class="table-head"><th></th><th class="player-cell" scope="col">Name</th><th scope="col">#</th><th class="text-cell" scope="col">Pos</th><th class="text-cell" scope="col">Class</th><th scope="col">AVG</th><th scope="col">OBP</th><th scope="col">SLG</th><th scope="col">HR</th><th scope="col">RBI</th><th scope="col">SB</th></tr></thead><tbody id="hitters-table-body"></tbody></table>
+              </div>
+            </div>
+            <div class="sheet-panel" id="pitchers-sheet" role="tabpanel" aria-labelledby="pitchers-tab" hidden>
+              <div class="sheet-grid-wrap" id="pitchers-grid" tabindex="0" aria-label="Scroll through Oklahoma pitcher statistics">
+                <table class="sample-table"><caption class="sr-only" id="pitchers-caption">2026 Oklahoma pitcher worksheet</caption><thead><tr class="column-letters" aria-hidden="true"><th></th><th>A</th><th>B</th><th>C</th><th>D</th><th>E</th><th>F</th><th>G</th><th>H</th><th>I</th><th>J</th><th>K</th></tr><tr class="table-head"><th></th><th class="player-cell" scope="col">Name</th><th scope="col">#</th><th class="text-cell" scope="col">Pos</th><th class="text-cell" scope="col">Class</th><th scope="col">ERA</th><th scope="col">WHIP</th><th scope="col">W</th><th scope="col">L</th><th scope="col">SV</th><th scope="col">IP</th><th scope="col">SO</th></tr></thead><tbody id="pitchers-table-body"></tbody></table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section class="guide" id="how-it-works" aria-labelledby="guide-heading"><div><h2 class="guide-heading" id="guide-heading">How it works.</h2><p class="guide-intro">From school to spreadsheet in three steps.</p></div><div><ol class="how-it-works"><li><button type="button" class="how-button" data-guide="division" aria-pressed="true" aria-controls="guide-detail"><span class="how-number">1</span><span>Pick a division</span></button></li><li><button type="button" class="how-button" data-guide="team" aria-pressed="false" aria-controls="guide-detail"><span class="how-number">2</span><span>Choose a team</span></button></li><li><button type="button" class="how-button" data-guide="download" aria-pressed="false" aria-controls="guide-detail"><span class="how-number">3</span><span>Download the stats</span></button></li></ol><div class="guide-detail" id="guide-detail" aria-live="polite"><span class="guide-detail-label" id="guide-detail-label">Step 01</span><p class="guide-detail-text" id="guide-detail-text">Choose Division 1, 2, or 3.</p><span class="guide-detail-number" id="guide-detail-number" aria-hidden="true">01</span></div></div></section>
+      <section class="uses-section" aria-labelledby="uses-heading"><div class="section-heading-row"><h2 class="uses-heading" id="uses-heading">Built for the work between games.</h2><p>Use the same clean structure every time you move from a team search to an opponent-prep file.</p></div><div class="uses-grid"><article class="use-card"><span class="use-number">01</span><h3>Start with the full roster.</h3><p>Names, numbers, positions, classes, and season production arrive in the same workbook.</p></article><article class="use-card"><span class="use-number">02</span><h3>Scan the right stats faster.</h3><p>Batting and pitching live on separate sheets, so each group is ready to filter and review.</p></article><article class="use-card"><span class="use-number">03</span><h3>Hand off one clean file.</h3><p>Download a standard Excel workbook that can move directly into your existing prep process.</p></article></div></section>
+      <section class="faq-section" id="questions" aria-labelledby="faq-heading"><div class="faq-intro"><p class="section-kicker">Quick answers</p><h2 class="faq-heading" id="faq-heading">Know what you’re downloading.</h2><p>No account setup or manual copy-and-paste. Choose a team and Roster Scout builds the workbook.</p></div><div class="faq-list"><details class="faq-item" open><summary>What is included in the workbook?</summary><p>Every download contains a Hitters worksheet and a Pitchers worksheet. Both include player identity fields, while each sheet adds the season statistics relevant to that group.</p></details><details class="faq-item"><summary>Which teams can I search?</summary><p>The selector covers the current NCAA baseball catalog for Division I, Division II, and Division III teams.</p></details><details class="faq-item"><summary>What file type will I receive?</summary><p>Roster Scout creates an .xlsx Excel workbook and names it for the selected team and download date.</p></details><details class="faq-item"><summary>What happens after I click download?</summary><p>The app verifies the selected team, gathers the roster and season statistics, organizes the player records, and prepares the workbook before your browser starts the download.</p></details></div></section>
+      <section class="final-cta" aria-labelledby="final-heading"><div class="final-copy"><h2 class="final-heading" id="final-heading">Your next opponent is a search away.</h2><p>Choose a division and build the workbook when you need it.</p></div><a class="cta-link" href="#builder">Find a team <span aria-hidden="true">&nbsp;↗</span></a></section>
     </main>
     <footer class="footer"><span>Roster Scout © 2026</span></footer>
   </div>
@@ -376,6 +498,250 @@
       updateThemeToggle();
     });
     updateThemeToggle();
+
+    const siteHeader = document.querySelector('.header');
+    let lastHeaderScrollY = window.scrollY;
+    let headerScrollFrame = null;
+    window.addEventListener('scroll', () => {
+      if (headerScrollFrame) return;
+      headerScrollFrame = window.requestAnimationFrame(() => {
+        const currentScrollY = window.scrollY;
+        const scrollingDown = currentScrollY > lastHeaderScrollY;
+        const keepVisible = currentScrollY < 80 || !scrollingDown || siteHeader.matches(':focus-within');
+        siteHeader.classList.toggle('is-hidden', !keepVisible);
+        lastHeaderScrollY = currentScrollY;
+        headerScrollFrame = null;
+      });
+    }, { passive:true });
+
+    const featuredTeams = [
+      {
+        school: 'University of Oklahoma', shortName: 'Oklahoma', year: '2026', filename: 'Oklahoma_2026_Baseball.xlsx', logo: '/api/team-logo/522',
+        colors: { primary:'#841617', accent:'#e8c893', soft:'#f7eeee', hover:'#f8e8e8', meta:'#7a3d3e' },
+        hitters: [
+          ['Dasan Harris','17','OF','Jr','.361','.415','.581','6','31','18'],
+          ['Deiten Lachance','48','C/1B','Jr','.327','.396','.609','18','69','2'],
+          ['Jaxon Willits','7','SS','Jr','.313','.407','.515','7','55','6'],
+          ['Brendan Brock','10','C/OF','Jr','.302','.399','.522','13','55','28'],
+          ['Camden Johnson','9','INF','Jr','.298','.403','.478','9','48','31'],
+        ],
+        pitchers: [
+          ['Nick Wesloski','37','RHP','Fr','3.65','1.16','2','1','0','37.0','36'],
+          ['Kadyn Leon','12','RHP','So','3.76','1.25','1','0','2','26.1','28'],
+          ['Cameron Johnson','31','LHP','Jr','4.36','1.55','6','1','0','53.2','72'],
+          ['LJ Mercurius','22','RHP','Jr','4.43','1.22','7','7','4','83.1','103'],
+          ['Cord Rager','99','LHP','Fr','4.74','1.04','7','3','0','76.0','94'],
+        ],
+      },
+      {
+        school: 'University of Tennessee', shortName: 'Tennessee', year: '2024', filename: 'Tennessee_2024_Baseball.xlsx', logo: '/api/team-logo/694',
+        colors: { primary:'#ff8200', accent:'#58595b', soft:'#fff0e2', hover:'#ffe5cc', meta:'#95500c' },
+        hitters: [
+          ['Blake Burke','25','1B','Jr','.379','.449','.702','20','61','11'],
+          ['Christian Moore','1','2B','Jr','.375','.451','.797','34','74','5'],
+          ['Dylan Dreiling','8','OF','So','.341','.459','.715','23','75','4'],
+          ['Kavares Tears','21','OF','Jr','.324','.427','.643','20','62','4'],
+          ['Billy Amick','11','3B','Jr','.306','.387','.639','23','65','3'],
+        ],
+        pitchers: [
+          ['Nate Snead','7','P','—','3.11','1.29','10','2','6','75.1','61'],
+          ['Zander Sechrist','48','P','—','3.12','1.18','6','1','0','78.0','76'],
+          ['Aaron Combs','28','P','—','3.35','1.25','3','1','6','45.2','66'],
+          ['Drew Beam','32','P','—','4.22','1.27','9','2','0','102.1','99'],
+          ['AJ Causey','18','P','—','4.43','1.26','13','3','1','91.1','125'],
+        ],
+      },
+      {
+        school: 'Louisiana State University', shortName: 'LSU', year: '2023', filename: 'LSU_2023_Baseball.xlsx', logo: '{{ url_for("static", filename="logos/lsu.svg") }}',
+        colors: { primary:'#461d7c', accent:'#fdd023', soft:'#f1edf5', hover:'#f5edc7', meta:'#5a476c' },
+        hitters: [
+          ['Dylan Crews','3','OF','Jr','.426','.567','.713','18','70','6'],
+          ['Tommy White','47','3B','So','.374','.432','.725','24','105','0'],
+          ['Cade Beloso','24','1B','Gr','.324','.462','.622','16','49','2'],
+          ['Tre’ Morgan','18','1B','Jr','.316','.418','.502','9','53','0'],
+          ['Jared Jones','22','1B/C','Fr','.304','.426','.640','14','45','2'],
+        ],
+        pitchers: [
+          ['Paul Skenes','20','RHP','Jr','1.69','0.75','13','2','0','122.2','209'],
+          ['Ty Floyd','9','RHP','Jr','4.35','1.18','7','0','1','91.0','120'],
+          ['Nate Ackenhausen','30','LHP','Jr','3.52','1.27','3','1','2','30.2','36'],
+          ['Gavin Guidry','1','RHP/INF','Fr','3.77','1.22','3','0','3','28.2','42'],
+          ['Thatcher Hurd','26','RHP','So','5.68','1.56','8','3','3','63.1','84'],
+        ],
+      },
+      {
+        school: 'University of Mississippi', shortName: 'Ole Miss', year: '2022', filename: 'Ole_Miss_2022_Baseball.xlsx', logo: '/api/team-logo/433',
+        colors: { primary:'#ce1126', accent:'#14213d', soft:'#eef2f7', hover:'#fce9eb', meta:'#7d2630' },
+        hitters: [
+          ['Kevin Graham','35','OF','Sr','.335','.371','.562','11','51','1'],
+          ['Justin Bench','8','INF','Sr','.316','.409','.438','4','42','4'],
+          ['Tim Elko','25','1B','Sr','.300','.407','.642','24','75','2'],
+          ['Kemp Alderman','12','OF','So','.286','.388','.522','11','45','2'],
+          ['Jacob Gonzalez','7','SS','So','.273','.405','.558','18','52','4'],
+        ],
+        pitchers: [
+          ['Josh Mallitz','23','P','—','1.45','1.00','1','0','2','31.0','48'],
+          ['Hunter Elliott','26','LHP','—','2.70','1.14','5','3','0','80.0','102'],
+          ['Mason Nichols','45','P','—','2.84','1.07','1','0','0','31.2','41'],
+          ['Jack Washburn','56','P','—','3.35','1.39','5','2','0','40.1','42'],
+          ['Dylan DeLucia','44','RHP','—','3.68','1.19','8','2','1','95.1','105'],
+        ],
+      },
+      {
+        school: 'Mississippi State University', shortName: 'Mississippi State', year: '2021', filename: 'Mississippi_State_2021_Baseball.xlsx', logo: '/api/team-logo/430',
+        colors: { primary:'#5d1725', accent:'#c5c6c8', soft:'#f4ecee', hover:'#f1e0e4', meta:'#70414a' },
+        hitters: [
+          ['Tanner Allen','5','OF','Sr','.383','.456','.621','11','66','11'],
+          ['Rowdey Jordan','4','OF','Sr','.323','.417','.546','10','45','9'],
+          ['Logan Tanner','19','C','So','.287','.382','.525','15','53','0'],
+          ['Scotty Dubrule','3','INF','Gr','.278','.384','.305','0','31','6'],
+          ['Kamren James','6','3B','So','.264','.354','.456','12','61','20'],
+        ],
+        pitchers: [
+          ['Landon Sims','23','RHP','—','1.44','0.78','5','0','13','56.1','100'],
+          ['Cade Smith','15','P','—','2.40','1.07','3','0','0','15.0','20'],
+          ['Houston Harding','48','P','—','3.05','1.15','7','2','0','62.0','67'],
+          ['Will Bednar','24','RHP','—','3.12','1.06','9','1','0','92.1','139'],
+          ['Preston Johnson','35','P','—','3.82','1.18','4','0','0','33.0','50'],
+        ],
+      },
+      {
+        school: 'Vanderbilt University', shortName: 'Vanderbilt', year: '2019', filename: 'Vanderbilt_2019_Baseball.xlsx', logo: '/api/team-logo/736',
+        colors: { primary:'#171717', accent:'#cfb53b', soft:'#f3efe3', hover:'#fbf4d8', meta:'#6c5c2b' },
+        hitters: [
+          ['Austin Martin','16','3B/OF','So','.392','.486','.604','10','46','18'],
+          ['JJ Bleday','51','OF','Jr','.347','.465','.701','27','72','1'],
+          ['Stephen Scott','19','C/OF','Sr','.325','.445','.583','14','61','5'],
+          ['Ethan Paul','10','2B','Sr','.315','.386','.497','9','73','11'],
+          ['Philip Clarke','5','C','Jr','.308','.388','.480','9','70','3'],
+        ],
+        pitchers: [
+          ['Mason Hickman','44','RHP','—','2.05','0.95','9','0','3','96.2','129'],
+          ['Tyler Brown','21','RHP','—','2.19','0.89','3','1','17','49.1','65'],
+          ['Jake Eder','39','LHP','—','2.97','1.12','2','0','4','39.1','41'],
+          ['Patrick Raby','29','RHP','—','3.08','1.59','10','1','0','76.0','81'],
+          ['Kumar Rocker','80','RHP','—','3.25','1.09','12','5','0','99.2','114'],
+        ],
+      },
+    ];
+
+    const workbookPreview = document.getElementById('workbook-preview');
+    const sheetWindow = document.getElementById('sheet-window');
+    const workbookFilename = document.getElementById('workbook-filename');
+    const workbookTeamLogo = document.getElementById('workbook-team-logo');
+    const workbookTeamName = document.getElementById('workbook-team-name');
+    const workbookTeamMeta = document.getElementById('workbook-team-meta');
+    const hitterBody = document.getElementById('hitters-table-body');
+    const pitcherBody = document.getElementById('pitchers-table-body');
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let activeFeaturedTeam = 0;
+    let workbookInView = true;
+    let teamRotationTimer = null;
+    let teamTransitionTimer = null;
+
+    function renderWorkbookRows(body, rows) {
+      const fragment = document.createDocumentFragment();
+      rows.forEach((row, rowIndex) => {
+        const tr = document.createElement('tr');
+        const rowNumber = document.createElement('th');
+        rowNumber.scope = 'row';
+        rowNumber.textContent = rowIndex + 1;
+        tr.append(rowNumber);
+        row.forEach((value, columnIndex) => {
+          const cell = document.createElement('td');
+          cell.textContent = value;
+          if (columnIndex === 0) cell.className = 'player-cell';
+          else if (columnIndex === 2 || columnIndex === 3) cell.className = 'text-cell';
+          tr.append(cell);
+        });
+        fragment.append(tr);
+      });
+      body.replaceChildren(fragment);
+    }
+
+    function applyFeaturedTeam(index) {
+      const team = featuredTeams[index];
+      activeFeaturedTeam = index;
+      workbookPreview.style.setProperty('--team-primary', team.colors.primary);
+      workbookPreview.style.setProperty('--team-accent', team.colors.accent);
+      workbookPreview.style.setProperty('--team-soft', team.colors.soft);
+      workbookPreview.style.setProperty('--team-hover', team.colors.hover);
+      workbookPreview.style.setProperty('--team-meta', team.colors.meta);
+      workbookPreview.setAttribute('aria-label', `Interactive view of ${team.shortName}'s ${team.year} Excel workbook`);
+      workbookFilename.textContent = team.filename;
+      workbookTeamLogo.src = team.logo;
+      workbookTeamLogo.alt = team.shortName;
+      workbookTeamName.textContent = team.school;
+      workbookTeamMeta.textContent = `${team.year} season`;
+      document.getElementById('hitters-grid').setAttribute('aria-label', `Scroll through ${team.shortName} hitter statistics`);
+      document.getElementById('pitchers-grid').setAttribute('aria-label', `Scroll through ${team.shortName} pitcher statistics`);
+      document.getElementById('hitters-caption').textContent = `${team.year} ${team.shortName} hitter worksheet`;
+      document.getElementById('pitchers-caption').textContent = `${team.year} ${team.shortName} pitcher worksheet`;
+      renderWorkbookRows(hitterBody, team.hitters);
+      renderWorkbookRows(pitcherBody, team.pitchers);
+      document.getElementById('hitters-grid').scrollLeft = 0;
+      document.getElementById('pitchers-grid').scrollLeft = 0;
+    }
+
+    function showFeaturedTeam(index, animate = true) {
+      window.clearTimeout(teamTransitionTimer);
+      sheetWindow.classList.remove('is-changing');
+      if (!animate || reducedMotion) {
+        applyFeaturedTeam(index);
+        return;
+      }
+      sheetWindow.classList.add('is-changing');
+      teamTransitionTimer = window.setTimeout(() => {
+        applyFeaturedTeam(index);
+        sheetWindow.classList.remove('is-changing');
+      }, 160);
+    }
+
+    function restartTeamRotation() {
+      window.clearInterval(teamRotationTimer);
+      if (reducedMotion) return;
+      teamRotationTimer = window.setInterval(() => {
+        if (workbookInView && !document.hidden) showFeaturedTeam((activeFeaturedTeam + 1) % featuredTeams.length);
+      }, 3000);
+    }
+    workbookPreview.addEventListener('mouseenter', () => window.clearInterval(teamRotationTimer));
+    workbookPreview.addEventListener('mouseleave', restartTeamRotation);
+    workbookPreview.addEventListener('focusin', () => window.clearInterval(teamRotationTimer));
+    workbookPreview.addEventListener('focusout', event => {
+      if (!workbookPreview.contains(event.relatedTarget)) restartTeamRotation();
+    });
+    if ('IntersectionObserver' in window) {
+      const workbookObserver = new IntersectionObserver(entries => {
+        workbookInView = entries.some(entry => entry.isIntersecting);
+      }, { threshold: 0.2 });
+      workbookObserver.observe(workbookPreview);
+    }
+    applyFeaturedTeam(0);
+    restartTeamRotation();
+
+    const workbookTabs = [...document.querySelectorAll('.sheet-tab')];
+    function showWorkbookSheet(tab) {
+      workbookTabs.forEach(item => {
+        const selected = item === tab;
+        item.setAttribute('aria-selected', String(selected));
+        item.tabIndex = selected ? 0 : -1;
+        document.getElementById(item.getAttribute('aria-controls')).hidden = !selected;
+      });
+    }
+    workbookTabs.forEach((tab, index) => {
+      tab.addEventListener('click', () => showWorkbookSheet(tab));
+      tab.addEventListener('keydown', event => {
+        let nextIndex = index;
+        if (event.key === 'ArrowRight') nextIndex = (index + 1) % workbookTabs.length;
+        else if (event.key === 'ArrowLeft') nextIndex = (index - 1 + workbookTabs.length) % workbookTabs.length;
+        else if (event.key === 'Home') nextIndex = 0;
+        else if (event.key === 'End') nextIndex = workbookTabs.length - 1;
+        else return;
+        event.preventDefault();
+        showWorkbookSheet(workbookTabs[nextIndex]);
+        workbookTabs[nextIndex].focus();
+      });
+    });
 
     if (window.matchMedia('(prefers-reduced-motion: no-preference)').matches && 'IntersectionObserver' in window) {
       const section = document.querySelector('.guide');
