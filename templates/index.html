@@ -242,7 +242,7 @@
     @supports (transition-timing-function:linear(0,1)) { .loading-progress::after { transition-timing-function:linear(0.0000, 0.2150, 0.4011, 0.5540, 0.6740, 0.7649, 0.8322, 0.8814, 0.9171, 0.9429, 0.9614, 0.9745, 0.9837, 0.9900, 0.9942, 0.9969, 0.9985, 0.9994, 0.9998, 1.0000, 1.0000), linear(0.0000, 0.2150, 0.4011, 0.5540, 0.6740, 0.7649, 0.8322, 0.8814, 0.9171, 0.9429, 0.9614, 0.9745, 0.9837, 0.9900, 0.9942, 0.9969, 0.9985, 0.9994, 0.9998, 1.0000, 1.0000), ease; } }
     .loading-progress.activity-running::after { opacity:1; }
     #state-loading .loading-activity.is-current { background:transparent; }
-    .loading-progress::before { content:""; position:absolute; left:13px; top:26px; bottom:26px; width:1px; background:#3c3c40; }
+    .loading-progress::before { content:""; position:absolute; left:13px; top:26px; bottom:var(--connector-bottom, 26px); width:1px; background:#3c3c40; }
     .loading-step { position:relative; min-height:56px; padding:0 12px 0 0; border-radius:11px; }
     .loading-step-icon { z-index:1; background:#171719; transition:background .3s, border-color .3s, color .3s; }
     .loading-step.is-current { background:#252528; }
@@ -339,14 +339,14 @@
         <div class="card-top"><span>Roster builder</span></div>
         <div id="state-form" class="state active">
           <h2 class="card-title">Find your team.</h2>
-          <p class="card-sub">Choose a division, then select a school to build your workbook.</p>
+          <p class="card-sub">Choose a division, then select a school to build your stat sheet.</p>
           <form id="scout-form" novalidate>
             <div class="field"><span class="field-label" id="division-label">Division</span><div class="div-toggle" role="group" aria-labelledby="division-label"><button type="button" class="div-btn active" data-div="d1" aria-pressed="true">D1</button><button type="button" class="div-btn" data-div="d2" aria-pressed="false">D2</button><button type="button" class="div-btn" data-div="d3" aria-pressed="false">D3</button></div></div>
             <div class="field" id="ncaa-team-field"><label for="team-combobox">School</label><div class="combobox" id="team-combobox-wrap"><input type="text" id="team-combobox" placeholder="Loading D1 teams…" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="team-results" aria-expanded="false" aria-describedby="catalog-hint" disabled /><div id="team-results" class="team-results" role="listbox" hidden></div></div><p class="hint" id="catalog-hint" aria-live="polite">Loading the current NCAA catalog…</p></div>
             <button type="submit" class="btn btn-primary" id="submit-btn">Download Roster Workbook <span aria-hidden="true">↗</span></button>
           </form>
         </div>
-        <div id="state-loading" class="state state-center" role="status" aria-live="polite"><div class="loading-orbit" aria-hidden="true"><span class="loading-orbit-core"></span></div><div class="loading-team" id="loading-team"></div><h2 class="state-title">Getting your roster.</h2><p class="loading-sub">We’re putting your workbook together. This animation illustrates the process; actual timing may vary.</p><div class="loading-viewport" tabindex="0" aria-label="Workbook preparation steps"><ol class="loading-progress"><li class="loading-step is-complete"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Team selected</span><span class="sr-only"> — complete</span></li><li class="loading-step loading-activity is-current" id="loading-build-step"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Finding the roster</span><span class="sr-only loading-activity-status"> — in progress</span></li><li class="loading-step loading-activity"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Gathering season stats</span><span class="sr-only loading-activity-status"></span></li><li class="loading-step loading-activity"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Organizing player records</span><span class="sr-only loading-activity-status"></span></li><li class="loading-step loading-activity"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Building your workbook</span><span class="sr-only loading-activity-status"></span></li><li class="loading-step loading-activity"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Formatting the stat sheets</span><span class="sr-only loading-activity-status"></span></li><li class="loading-step loading-activity"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Finalizing the workbook</span><span class="sr-only loading-activity-status"></span></li><li class="loading-step" id="loading-download-step"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Preparing your download</span><span class="sr-only" id="loading-download-status"> — waiting</span></li></ol></div><p class="hint">Keep this page open until your download starts.</p></div>
+        <div id="state-loading" class="state state-center" role="status" aria-live="polite"><div class="loading-orbit" aria-hidden="true"><span class="loading-orbit-core"></span></div><div class="loading-team" id="loading-team"></div><h2 class="state-title">Getting your roster.</h2><p class="loading-sub">We’re putting your stat sheet together. The steps below illustrate the process.</p><div class="loading-viewport" tabindex="0" aria-label="Workbook preparation steps"><ol class="loading-progress"><li class="loading-step is-complete"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Team selected</span><span class="sr-only"> — complete</span></li><li class="loading-step loading-activity is-current" id="loading-build-step"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Finding the roster</span><span class="sr-only loading-activity-status"> — in progress</span></li><li class="loading-step loading-activity"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Gathering season stats</span><span class="sr-only loading-activity-status"></span></li><li class="loading-step loading-activity"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Organizing player records</span><span class="sr-only loading-activity-status"></span></li><li class="loading-step loading-activity"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Building your workbook</span><span class="sr-only loading-activity-status"></span></li><li class="loading-step loading-activity" id="loading-download-step"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Preparing your download</span><span class="sr-only loading-activity-status" id="loading-download-status"> — waiting</span></li></ol></div><p class="hint">Keep this page open until your download starts.</p></div>
         <div id="state-success" class="state state-center" role="status" aria-live="polite"><div class="status-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></div><h2 class="state-title">Your roster is ready.</h2><p class="state-msg" id="success-msg"></p><button id="download-again" type="button" class="btn btn-success">Download again</button><button type="button" class="btn btn-ghost" onclick="resetForm()">Scout another team →</button></div>
         <div id="state-error" class="state state-center" role="alert"><div class="status-icon error"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></div><h2 class="state-title">We couldn’t finish that.</h2><p class="state-msg" id="error-msg"></p><button type="button" class="btn btn-success" onclick="resetForm()">Try again</button></div>
       </section>
@@ -605,8 +605,9 @@
     let loadingActivityTimer = null;
     let loadingHandoffTimer = null;
     let loadingScrollFrame = null;
+    let updateLoadingStage = () => {};
     function stopLoadingActivity() {
-      clearInterval(loadingActivityTimer);
+      clearTimeout(loadingActivityTimer);
       clearTimeout(loadingHandoffTimer);
       cancelAnimationFrame(loadingScrollFrame);
       loadingScrollFrame = null;
@@ -614,11 +615,28 @@
       loadingActivityTimer = null;
       loadingHandoffTimer = null;
     }
+    function recentRunTimes() {
+      try {
+        const saved = JSON.parse(localStorage.getItem('roster-scout-run-times') || '[]');
+        return Array.isArray(saved) ? saved.filter(ms => Number.isFinite(ms) && ms >= 1000 && ms <= 180000).slice(-5) : [];
+      } catch (_) { return []; }
+    }
+    function expectedRunTime() {
+      const times = recentRunTimes().sort((a, b) => a - b);
+      return times.length ? times[Math.floor(times.length / 2)] : 30000;
+    }
+    function recordRunTime(ms) {
+      if (ms < 1000 || ms > 180000) return;
+      try { localStorage.setItem('roster-scout-run-times', JSON.stringify([...recentRunTimes(), ms].slice(-5))); } catch (_) {}
+    }
     function startLoadingActivity() {
       stopLoadingActivity();
       const steps = Array.from(document.querySelectorAll('.loading-activity'));
       const progress = document.querySelector('.loading-progress');
       const viewport = document.querySelector('.loading-viewport');
+      // Reserve room below the final row so it can settle at the same position.
+      progress.style.paddingBottom = `${Math.max(8, (viewport.clientHeight - steps[steps.length - 1].offsetHeight) / 2)}px`;
+      progress.style.setProperty('--connector-bottom', `${parseFloat(progress.style.paddingBottom) + steps[steps.length - 1].offsetHeight / 2}px`);
       function moveHighlight(index) {
         progress.style.setProperty('--activity-top', `${steps[index].offsetTop}px`);
         progress.style.setProperty('--activity-height', `${steps[index].offsetHeight}px`);
@@ -647,29 +665,34 @@
         }
         loadingScrollFrame = requestAnimationFrame(scrollFrame);
       }
-      let current = 0;
-      moveHighlight(current);
-      progress.classList.add('activity-running');
-      steps.forEach((step, index) => {
+      let current = -1;
+      steps.forEach(step => {
         step.classList.remove('is-current', 'is-complete');
-        step.classList.toggle('is-current', index === 0);
-        step.querySelector('.loading-activity-status').textContent = index === 0 ? ' — in progress' : '';
+        step.querySelector('.loading-activity-status').textContent = '';
       });
-      loadingActivityTimer = setInterval(() => {
-        steps[current].classList.remove('is-current');
-        steps[current].classList.add('is-complete');
-        steps[current].querySelector('.loading-activity-status').textContent = ' — shown';
-        loadingHandoffTimer = setTimeout(() => {
-          current = (current + 1) % steps.length;
-          if (current === 0) steps.forEach(step => {
-            step.classList.remove('is-complete');
-            step.querySelector('.loading-activity-status').textContent = '';
-          });
-          moveHighlight(current);
-          steps[current].classList.add('is-current');
-          steps[current].querySelector('.loading-activity-status').textContent = ' — in progress';
-        }, 450);
-      }, 4000);
+      updateLoadingStage = index => {
+        if (index <= current) return;
+        current = index;
+        steps.forEach((step, position) => {
+          step.classList.toggle('is-current', position === index);
+          step.classList.toggle('is-complete', position < index);
+          step.querySelector('.loading-activity-status').textContent = position < index ? ' — step shown' : position === index ? ' — in progress' : '';
+        });
+        moveHighlight(index);
+      };
+      updateLoadingStage(0);
+      progress.classList.add('activity-running');
+      // Increasing tiers reach the final waiting step at 90% of the estimate.
+      const expected = expectedRunTime();
+      const delays = [.08, .15, .25, .42].map(fraction => expected * fraction);
+      function advance() {
+        if (current >= steps.length - 1) return;
+        loadingActivityTimer = setTimeout(() => {
+          updateLoadingStage(current + 1);
+          advance();
+        }, delays[current]);
+      }
+      advance();
     }
 
     function show(name) {
@@ -713,8 +736,9 @@
       }
       if (!team) return;
 
+      const runStarted = performance.now();
       document.getElementById('submit-btn').disabled = true;
-      document.getElementById('loading-download-step').className = 'loading-step';
+      document.getElementById('loading-download-step').className = 'loading-step loading-activity';
       document.getElementById('loading-download-status').textContent = ' — waiting';
       show('loading');
       startLoadingActivity();
@@ -735,15 +759,10 @@
           return;
         }
 
-        stopLoadingActivity();
-        document.querySelectorAll('.loading-activity').forEach(step => {
-          step.classList.remove('is-current');
-          step.classList.add('is-complete');
-          step.querySelector('.loading-activity-status').textContent = ' — complete';
-        });
-        document.getElementById('loading-download-step').className = 'loading-step is-current';
-        document.getElementById('loading-download-status').textContent = ' — in progress';
+        clearTimeout(loadingActivityTimer);
+        updateLoadingStage(4);
         const workbook = await resp.blob();
+        recordRunTime(performance.now() - runStarted);
         const disposition = resp.headers.get('Content-Disposition') || '';
         const encodedMatch = disposition.match(/filename\*=UTF-8''([^;]+)/i);
         const plainMatch = disposition.match(/filename="?([^";]+)"?/i);
@@ -771,7 +790,7 @@
     if (loadingPreview) {
       document.getElementById('loading-team').textContent = 'Preview';
       document.querySelector('#state-loading .loading-sub').textContent = 'Preview mode — no workbook is being requested.';
-      document.querySelector('#state-loading > .hint').textContent = 'The preview cycles until you exit.';
+      document.querySelector('#state-loading > .hint').textContent = 'Preview advances once, then waits at preparing your download.';
       const previewExit = document.createElement('a');
       previewExit.href = '/';
       previewExit.className = 'btn btn-ghost';
