@@ -20,7 +20,10 @@ RUN apt-get update \
     && rm -f /tmp/google-chrome.deb \
     && rm -rf /var/lib/apt/lists/*
 
-COPY . .
+COPY app.py roster_scraper.py usage_limits.py ./
+COPY templates/ ./templates/
+COPY data/ ./data/
+COPY static/ ./static/
 
 RUN useradd --create-home --uid 10001 roster-scout \
     && mkdir -p /var/cache/roster-scout \

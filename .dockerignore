@@ -5,6 +5,9 @@
 __pycache__
 *.pyc
 .env
+.env.*
+.browserless-token
+client_secrets.json
 .DS_Store
 credentials.json
 oauth_credentials.json
