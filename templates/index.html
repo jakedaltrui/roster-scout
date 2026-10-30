@@ -97,7 +97,7 @@
     @keyframes spin { to { transform:rotate(360deg); } }
     .loading-team { display:inline-block; color:#3b6550; background:#edf3eb; padding:8px 12px; font-size:12px; font-weight:600; border-radius:3px; margin-bottom:25px; }
     .state-msg { margin-bottom:24px; }
-    .footer { border-top:1px solid #d5d8ce; min-height:72px; display:flex; align-items:center; justify-content:space-between; color:#829087; font-size:11px; }
+    .footer { min-height:72px; display:flex; align-items:center; justify-content:space-between; color:#829087; font-size:11px; }
     .footer span:last-child { letter-spacing:.09em; text-transform:uppercase; font-size:10px; }
     :focus-visible { outline:3px solid #8aa98d; outline-offset:3px; }
     @media(max-width:850px) { .hero { grid-template-columns:1fr; gap:44px; min-height:0; padding:65px 0 72px; } .intro { max-width:600px; } h1 { font-size:clamp(54px,10vw,76px); } .intro-meta { margin-top:36px; } .card { max-width:600px; width:100%; } }
@@ -105,7 +105,7 @@
     /* EasyUI-inspired quiet surfaces, rounded controls, and restrained motion. */
     :root { color-scheme:dark; --ink:#f0f0ee; --muted:#a1a1a4; --line:#303034; --green:#eceeeb; --paper:#09090b; --white:#171719; }
     body { background:#09090b; }
-    .header,.footer { border-color:#262629; }
+    .header { border-color:#262629; }
     .brand { letter-spacing:-.045em; }
     .header-note,.footer,.eyebrow,.meta-label { color:#858589; }
     .eyebrow:before { background:#717174; }
@@ -118,10 +118,10 @@
     .card { background:#171719; border-color:#28282b; border-radius:22px; box-shadow:0 24px 70px rgba(0,0,0,.25); }
     .card-title,.state-title { font:600 28px/1.15 "DM Sans",sans-serif; letter-spacing:-.045em; }
     label,.field-label { color:#c9c9ca; }
-    .div-toggle { background:#101012; padding:4px; gap:3px; border:1px solid #2c2c2f; border-radius:12px; }
-    .div-btn { border:0; border-radius:8px; background:transparent; color:#98989c; transition:background .25s cubic-bezier(.2,.8,.2,1),color .25s; }
+    .div-toggle { --division-track:#101012; --division-border:#2c2c2f; --division-thumb:#3a3a3d; --division-thumb-shadow:0 2px 5px rgba(0,0,0,.2); background:var(--division-track); padding:4px; gap:3px; border:1px solid var(--division-border); border-radius:12px; transition:background-color .25s ease,border-color .25s ease; }
+    .div-btn { -webkit-appearance:none; appearance:none; border:0; border-radius:8px; background:transparent; color:#98989c; transition:color .25s ease; }
     .div-btn:hover { color:#f4f4f2; }
-    .div-btn.active { background:#3a3a3d; color:white; box-shadow:0 2px 5px rgba(0,0,0,.2); }
+    .div-btn.active { color:white; }
     input[type=text] { background:#111113; color:#f4f4f3; border-color:#39393d; border-radius:10px; transition:border-color .25s,box-shadow .25s; }
     input::placeholder { color:#737378; }
     input:focus { border-color:#8e8e93; box-shadow:0 0 0 3px rgba(255,255,255,.07); }
@@ -138,9 +138,9 @@
     .team-logo img { display:block; width:30px; height:30px; object-fit:contain; }
     .team-logo-fallback { color:#a5a5aa; font-size:10px; font-weight:700; letter-spacing:.02em; }
     .team-result-copy { min-width:0; }
-    .guide { display:grid; grid-template-columns:minmax(200px, 1fr) minmax(0, 1.3fr); gap:8%; align-items:start; border-top:1px solid #deded9; padding:72px 0 88px; }
+    .guide { display:grid; grid-template-columns:minmax(200px, 1fr) minmax(0, 1.3fr); gap:8%; align-items:start; margin-top:clamp(96px,9vw,128px); padding:0 0 clamp(72px,7vw,96px); }
     .guide-heading { margin:0; color:#20211f; font-size:clamp(28px,3.2vw,40px); line-height:1.1; font-weight:600; letter-spacing:-.045em; }
-    .guide-intro { color:#777a74; font-size:14px; line-height:1.6; margin:14px 0 0; }
+    .guide-intro { max-width:360px; color:#777a74; font-size:14px; line-height:1.65; margin:14px 0 0; }
     .how-it-works { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:0; padding:0; list-style:none; }
     .how-button { display:flex; gap:9px; align-items:center; width:100%; padding:7px 0; border:0; background:transparent; color:#777a74; text-align:left; font-size:12px; font-weight:600; line-height:1.35; transition:color .2s; }
     .how-button:hover, .how-button[aria-pressed="true"] { color:#20211f; }
@@ -148,30 +148,41 @@
     .how-number { position:relative; display:grid; place-items:center; flex:none; width:28px; height:28px; border:1px solid #c9cbc5; border-radius:50%; color:#777a74; background:#fff; font-size:12px; font-weight:700; transition:background .25s,border-color .25s,color .25s,transform .25s cubic-bezier(.2,.8,.2,1); }
     .how-button[aria-pressed="true"] .how-number { background:#20211f; border-color:#20211f; color:#fff; }
     .how-button[aria-pressed="true"] .how-number::after { content:""; position:absolute; inset:-5px; border:1px solid #c9cbc5; border-radius:50%; }
-    .guide-detail { position:relative; overflow:hidden; display:flex; flex-direction:column; justify-content:center; min-height:180px; margin:20px 0 0; padding:30px 32px; border:1px solid #dadcd5; border-radius:16px; color:#292c28; background:#fff; box-shadow:0 8px 30px rgba(25,25,20,.05); }
-    .guide-detail-label { position:relative; z-index:1; margin:0 0 15px; color:#888b84; font-size:10px; font-weight:700; letter-spacing:.15em; text-transform:uppercase; }
-    .guide-detail-text { position:relative; z-index:1; max-width:82%; margin:0; font-size:clamp(19px,2vw,24px); font-weight:600; letter-spacing:-.035em; line-height:1.3; }
+    .guide-detail { --guide-sweep:rgba(32,33,31,.08); position:relative; overflow:hidden; display:flex; flex-direction:column; justify-content:center; min-height:210px; margin:20px 0 0; padding:30px 32px; border:1px solid #dadcd5; border-radius:16px; color:#292c28; background:#fff; box-shadow:0 8px 30px rgba(25,25,20,.05); }
+    .guide-detail::after { content:""; position:absolute; z-index:0; top:0; bottom:0; left:-42%; width:34%; background:linear-gradient(90deg,transparent,var(--guide-sweep),transparent); opacity:0; pointer-events:none; transform:skewX(-12deg); }
+    .guide-detail-label { position:relative; z-index:1; margin:0 0 13px; color:#888b84; font-size:10px; font-weight:700; letter-spacing:.15em; text-transform:uppercase; }
+    .guide-detail-title { position:relative; z-index:1; max-width:82%; margin:0 0 10px; font-size:clamp(20px,2vw,25px); font-weight:650; letter-spacing:-.035em; line-height:1.2; }
+    .guide-detail-text { position:relative; z-index:1; max-width:82%; margin:0; color:#6f726c; font-size:14px; line-height:1.7; }
     .guide-detail-number { position:absolute; right:22px; bottom:-34px; color:#f2f3f0; font-size:130px; font-weight:700; line-height:1; letter-spacing:-.08em; pointer-events:none; user-select:none; }
-    @media(max-width:480px) { .guide-detail { min-height:155px; padding:25px 24px; } .guide-detail-text { max-width:88%; font-size:19px; } .guide-detail-number { font-size:105px; bottom:-27px; } }
-    @media(max-width:850px) { .guide { grid-template-columns:1fr; gap:28px; padding:52px 0 65px; } }
-    @media(max-width:480px) { .guide { padding:42px 0 52px; } .how-it-works { gap:8px; } .how-button { align-items:flex-start; font-size:11px; } .how-number { width:25px; height:25px; font-size:11px; } }
+    @keyframes guide-number-pop { 0% { transform:scale(1); } 44% { transform:scale(.88); } 72% { transform:scale(1.1); } 100% { transform:scale(1); } }
+    @keyframes guide-sweep-forward { 0% { left:108%; opacity:0; } 25% { opacity:1; } 100% { left:-42%; opacity:0; } }
+    @keyframes guide-sweep-backward { 0% { left:-42%; opacity:0; } 25% { opacity:1; } 100% { left:108%; opacity:0; } }
+    @media (prefers-reduced-motion:no-preference) {
+      .how-button.is-selecting .how-number { animation:guide-number-pop .48s cubic-bezier(.22,1,.36,1); }
+      .guide-detail.is-switching-forward::after { animation:guide-sweep-forward .56s cubic-bezier(.22,1,.36,1); }
+      .guide-detail.is-switching-backward::after { animation:guide-sweep-backward .56s cubic-bezier(.22,1,.36,1); }
+    }
+    @media(max-width:480px) { .guide-detail { min-height:190px; padding:25px 24px; } .guide-detail-title, .guide-detail-text { max-width:88%; } .guide-detail-title { font-size:20px; } .guide-detail-text { font-size:13px; } .guide-detail-number { font-size:105px; bottom:-27px; } }
+    @media(max-width:850px) { .guide { grid-template-columns:1fr; gap:28px; margin-top:88px; padding:0 0 64px; } }
+    @media(max-width:480px) { .guide { margin-top:72px; padding:0 0 56px; } .how-it-works { gap:8px; } .how-button { align-items:flex-start; font-size:11px; } .how-number { width:25px; height:25px; font-size:11px; } }
     .output-section { display:grid; grid-template-columns:minmax(0,.82fr) minmax(460px,1.18fr); gap:8%; align-items:center; margin:0; padding:90px 7%; border-radius:28px; color:#f0f0ee; background:#171719; overflow:hidden; }
     .output-section > * { min-width:0; }
     .section-kicker { margin:0 0 20px; color:#929297; font-size:10px; font-weight:700; letter-spacing:.16em; text-transform:uppercase; }
-    .output-heading, .uses-heading, .faq-heading, .final-heading { margin:0; font-size:clamp(34px,4vw,54px); font-weight:600; line-height:1.03; letter-spacing:-.055em; }
+    .output-heading, .faq-heading, .final-heading { margin:0; font-size:clamp(34px,4vw,54px); font-weight:600; line-height:1.03; letter-spacing:-.055em; }
     .output-copy { max-width:460px; margin:23px 0 0; color:#aaaab0; font-size:15px; line-height:1.75; }
     .output-list { display:grid; gap:15px; margin:31px 0 0; padding:0; list-style:none; }
     .output-list li { display:grid; grid-template-columns:24px 1fr; gap:11px; align-items:start; color:#d4d4d1; font-size:13px; line-height:1.55; }
     .output-list svg { width:18px; height:18px; margin-top:1px; color:#f0f0ee; }
-    .workbook-preview { --team-primary:#461d7c; --team-accent:#fdd023; --team-soft:#f1edf5; --team-hover:#f5edc7; --team-meta:#5a476c; position:relative; min-width:0; padding:15px; border:1px solid #3b3b3e; border-radius:20px; background:#202023; box-shadow:0 30px 70px rgba(0,0,0,.32); perspective:1000px; }
+    .workbook-preview { --team-primary:#461d7c; --team-accent:#fdd023; --team-soft:#f1edf5; --team-hover:#f5edc7; --team-meta:#5a476c; position:relative; min-width:0; overflow:hidden; padding:15px; border:1px solid #3b3b3e; border-radius:20px; background:#202023; box-shadow:0 30px 70px rgba(0,0,0,.32); perspective:1000px; }
     .workbook-bar { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:3px 4px 14px; color:#a4a4a8; font-size:10px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
-    .workbook-file { display:flex; align-items:center; gap:8px; min-width:0; }
+    .workbook-file { display:flex; align-items:center; gap:8px; min-width:0; transition:opacity .24s ease,transform .4s cubic-bezier(.22,1,.36,1); }
     .xlsx-file-type { position:relative; display:grid; place-items:center; flex:none; width:16px; height:16px; color:#16a34a; container-type:inline-size; }
     .xlsx-file-type svg { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
     .xlsx-file-type-label { position:relative; z-index:1; margin-top:1.5px; color:#fff; font-size:3.25px; font-weight:800; letter-spacing:.025em; line-height:1; }
     .workbook-file span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .sheet-window { min-width:0; overflow:hidden; border:1px solid #3b3b3f; border-radius:12px; background:#f8f8f5; color:#20211f; transition:opacity .18s ease,transform .18s ease; }
-    .sheet-window.is-changing { opacity:.48; transform:translateY(3px); }
+    .sheet-window { min-width:0; overflow:hidden; border:1px solid #3b3b3f; border-radius:12px; background:#f8f8f5; color:#20211f; transition:opacity .28s ease,transform .44s cubic-bezier(.22,1,.36,1); }
+    .workbook-preview.is-team-leaving .workbook-file, .workbook-preview.is-team-leaving .sheet-window { opacity:0; transform:translate3d(-44px,0,0); }
+    .workbook-preview.is-team-entering .workbook-file, .workbook-preview.is-team-entering .sheet-window { opacity:0; transform:translate3d(44px,0,0); transition:none; }
     .sample-team { display:flex; align-items:center; gap:18px; padding:18px 20px; border-bottom:3px solid var(--team-accent); background:#fff; }
     .sample-team-main { display:flex; align-items:center; gap:12px; min-width:0; }
     .sample-team-logo { display:block; flex:none; width:58px; height:42px; object-fit:contain; }
@@ -202,31 +213,25 @@
     .sample-table tbody td { color:#555952; }
     @media (prefers-reduced-motion:no-preference) { .sheet-panel:not([hidden]) { animation:sheet-in .22s cubic-bezier(.2,.8,.2,1) both; } }
     @keyframes sheet-in { from { opacity:.4; transform:translateY(4px); } to { opacity:1; transform:translateY(0); } }
-    .uses-section { padding:100px 0 92px; }
-    .section-heading-row { display:flex; align-items:end; justify-content:space-between; gap:40px; margin-bottom:42px; }
-    .section-heading-row p { max-width:390px; margin:0; color:#777a74; font-size:14px; line-height:1.65; }
-    .uses-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
-    .use-card { min-height:220px; padding:29px; border:1px solid #dedfd9; border-radius:16px; background:rgba(255,255,255,.45); }
-    .use-number { display:grid; place-items:center; width:32px; height:32px; margin-bottom:43px; border:1px solid #ced0c9; border-radius:50%; color:#6f726c; font-size:10px; font-weight:700; }
-    .use-card h3 { margin:0 0 11px; font-size:20px; letter-spacing:-.035em; }
-    .use-card p { margin:0; color:#777a74; font-size:13px; line-height:1.65; }
-    .faq-section { display:grid; grid-template-columns:minmax(240px,.75fr) minmax(0,1.25fr); gap:8%; padding:90px 0; border-top:1px solid #deded9; }
+    .faq-section { display:grid; grid-template-columns:minmax(240px,.75fr) minmax(0,1.25fr); gap:8%; padding:clamp(72px,7vw,96px) 0; }
     .faq-intro { max-width:330px; }
     .faq-intro p { margin:18px 0 0; color:#777a74; font-size:14px; line-height:1.65; }
-    .faq-list { border-top:1px solid #d5d7d0; }
-    .faq-item { border-bottom:1px solid #d5d7d0; }
-    .faq-item summary { position:relative; padding:24px 42px 24px 0; cursor:pointer; list-style:none; font-size:15px; font-weight:700; letter-spacing:-.015em; }
+    .faq-list { display:grid; gap:10px; }
+    .faq-item { border-radius:14px; background:rgba(255,255,255,.58); box-shadow:0 1px 0 rgba(24,25,22,.04); transition:background-color .22s,box-shadow .22s,transform .22s cubic-bezier(.2,.8,.2,1); }
+    .faq-item:hover { background:#fff; box-shadow:0 8px 24px rgba(25,25,20,.06); transform:translateY(-1px); }
+    .faq-item[open] { background:#fff; box-shadow:0 10px 30px rgba(25,25,20,.07); }
+    .faq-item summary { position:relative; padding:21px 52px 21px 22px; cursor:pointer; list-style:none; font-size:15px; font-weight:700; letter-spacing:-.015em; }
     .faq-item summary::-webkit-details-marker { display:none; }
-    .faq-item summary::after { content:"+"; position:absolute; right:2px; top:21px; color:#7c7f78; font-size:22px; font-weight:400; transition:transform .25s; }
+    .faq-item summary::after { content:"+"; position:absolute; right:20px; top:18px; color:#7c7f78; font-size:22px; font-weight:400; transition:transform .25s; }
     .faq-item[open] summary::after { transform:rotate(45deg); }
-    .faq-item p { max-width:620px; margin:-5px 42px 24px 0; color:#777a74; font-size:13px; line-height:1.7; }
+    .faq-item p { max-width:620px; margin:-3px 52px 22px 22px; color:#777a74; font-size:13px; line-height:1.7; }
     .final-cta { display:flex; align-items:center; justify-content:space-between; gap:40px; margin-bottom:88px; padding:54px 58px; border-radius:22px; color:#f0f0ee; background:#20211f; }
     .final-copy p { margin:13px 0 0; color:#aaaDA7; font-size:14px; }
     .cta-link { display:inline-flex; align-items:center; justify-content:center; flex:none; min-width:220px; min-height:52px; padding:0 24px; border-radius:11px; color:#171719; background:#f0f0ee; font-size:13px; font-weight:700; text-decoration:none; transition:background .22s, transform .22s; }
     .cta-link:hover { background:#d5d5d3; transform:translateY(-1px); }
-    @media(max-width:900px) { .output-section { grid-template-columns:1fr; gap:48px; padding:68px 7%; } .uses-grid { grid-template-columns:1fr; } .use-card { min-height:0; } .use-number { margin-bottom:28px; } }
-    @media(max-width:700px) { .header-nav { display:none; } .section-heading-row, .final-cta { align-items:flex-start; flex-direction:column; } .faq-section { grid-template-columns:1fr; gap:38px; } .cta-link { width:100%; } }
-    @media(max-width:480px) { .header-actions { gap:5px; } .output-section { margin-left:-6px; margin-right:-6px; padding:52px 24px; border-radius:20px; } .workbook-preview { padding:10px; } .sample-team { padding:15px 14px; } .sample-team-logo { width:50px; height:38px; } .sheet-tabs { padding-right:8px; padding-left:8px; } .sheet-tab { min-width:104px; padding:0 11px; } .section-heading-row { margin-bottom:28px; } .uses-section { padding:70px 0 66px; } .faq-section { padding:66px 0; } .final-cta { margin-bottom:60px; padding:38px 28px; } }
+    @media(max-width:900px) { .output-section { grid-template-columns:1fr; gap:48px; padding:68px 7%; } }
+    @media(max-width:700px) { .header-nav { display:none; } .final-cta { align-items:flex-start; flex-direction:column; } .faq-section { grid-template-columns:1fr; gap:38px; } .cta-link { width:100%; } }
+    @media(max-width:480px) { .header-actions { gap:5px; } .output-section { margin-left:-6px; margin-right:-6px; padding:52px 24px; border-radius:20px; } .workbook-preview { padding:10px; } .sample-team { padding:15px 14px; } .sample-team-logo { width:50px; height:38px; } .sheet-tabs { padding-right:8px; padding-left:8px; } .sheet-tab { min-width:104px; padding:0 11px; } .faq-section { padding:56px 0; } .final-cta { margin-bottom:60px; padding:38px 28px; } }
     .btn { border-radius:11px; transition:background .22s,transform .22s cubic-bezier(.2,.8,.2,1),box-shadow .22s; }
     .btn-primary,.btn-success { background:#f0f0ee; color:#161618; }
     .btn-primary:hover,.btn-success:hover { background:#d5d5d3; transform:translateY(-1px); }
@@ -238,45 +243,50 @@
     .loading-team { background:#303033; color:#dededc; border-radius:999px; }
     .state.active { animation:state-in .3s cubic-bezier(.2,.8,.2,1) both; }
     @keyframes state-in { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:translateY(0); } }
-    /* A short stagger gives the page an entrance without delaying interaction. */
+    /* One motion language, with a distinct entrance for each part of the story. */
     @keyframes page-in { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
-    @keyframes nav-in { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
+    @keyframes nav-in { from { opacity:0; transform:translateY(-7px); } to { opacity:1; transform:translateY(0); } }
+    @keyframes headline-in { from { opacity:0; clip-path:inset(0 0 100% 0); transform:translateY(24px); } to { opacity:1; clip-path:inset(0); transform:translateY(0); } }
+    @keyframes card-in { from { opacity:0; transform:translate3d(22px,16px,0) scale(.975); } to { opacity:1; transform:translate3d(0,0,0) scale(1); } }
     @media (prefers-reduced-motion: no-preference) {
       .header .brand-mark { animation:nav-in .55s cubic-bezier(.2,.8,.2,1) backwards; }
       .header .brand-name { animation:nav-in .55s .06s cubic-bezier(.2,.8,.2,1) backwards; }
-      .header .theme-toggle { animation:nav-in .55s .12s cubic-bezier(.2,.8,.2,1) backwards; }
-      .intro h1 { animation:page-in .65s cubic-bezier(.2,.8,.2,1) both; }
-      .intro-copy { animation:page-in .65s .09s cubic-bezier(.2,.8,.2,1) both; }
-      .hero .card { animation:page-in .65s .12s cubic-bezier(.2,.8,.2,1) both; }
-      #state-form.active .card-title, #state-form.active .card-sub { animation:page-in .48s .21s cubic-bezier(.2,.8,.2,1) both; }
-      #state-form.active form, #state-form.active .card-foot { animation:page-in .48s .26s cubic-bezier(.2,.8,.2,1) both; }
-      .guide.reveal-ready .guide-heading, .guide.reveal-ready .guide-intro,
-      .guide.reveal-ready .how-it-works li, .guide.reveal-ready .guide-detail { opacity:0; transform:translateY(18px); transition:opacity .6s cubic-bezier(.2,.8,.2,1), transform .6s cubic-bezier(.2,.8,.2,1); }
-      .guide.reveal-ready .guide-heading { transition-delay:.2s; }
-      .guide.reveal-ready .guide-intro { transition-delay:.28s; }
-      .guide.reveal-ready .how-it-works li:nth-child(1) { transition-delay:.3s; }
-      .guide.reveal-ready .how-it-works li:nth-child(2) { transition-delay:.37s; }
-      .guide.reveal-ready .how-it-works li:nth-child(3) { transition-delay:.44s; }
-      .guide.reveal-ready .guide-detail { transition-delay:.45s; }
-      .guide.reveal-ready.is-visible .guide-heading, .guide.reveal-ready.is-visible .guide-intro,
-      .guide.reveal-ready.is-visible .how-it-works li, .guide.reveal-ready.is-visible .guide-detail,
-      .guide.reveal-ready:focus-within .guide-heading, .guide.reveal-ready:focus-within .guide-intro,
-      .guide.reveal-ready:focus-within .how-it-works li, .guide.reveal-ready:focus-within .guide-detail { opacity:1; transform:translateY(0); }
+      .header-nav a:nth-child(1) { animation:nav-in .55s .09s cubic-bezier(.2,.8,.2,1) backwards; }
+      .header-nav a:nth-child(2) { animation:nav-in .55s .13s cubic-bezier(.2,.8,.2,1) backwards; }
+      .header-nav a:nth-child(3) { animation:nav-in .55s .17s cubic-bezier(.2,.8,.2,1) backwards; }
+      .header .theme-toggle { animation:nav-in .55s .21s cubic-bezier(.2,.8,.2,1) backwards; }
+      .headline-line:first-child { animation:headline-in .72s .04s cubic-bezier(.22,1,.36,1) both; }
+      .headline-line:last-child { animation:headline-in .72s .13s cubic-bezier(.22,1,.36,1) both; }
+      .intro-copy { animation:page-in .65s .23s cubic-bezier(.22,1,.36,1) both; }
+      .hero .card { animation:card-in .78s .16s cubic-bezier(.22,1,.36,1) both; }
+      #state-form.active .card-title, #state-form.active .card-sub { animation:page-in .48s .36s cubic-bezier(.22,1,.36,1) both; }
+      #state-form.active form, #state-form.active .card-foot { animation:page-in .48s .43s cubic-bezier(.22,1,.36,1) both; }
+
+      .reveal-ready [data-reveal] { opacity:0; filter:blur(3px); transform:var(--reveal-from,translate3d(0,22px,0)); transform-origin:center; transition:opacity .68s cubic-bezier(.22,1,.36,1),transform .78s cubic-bezier(.22,1,.36,1),filter .56s ease; transition-delay:var(--reveal-delay,0s); will-change:opacity,transform,filter; }
+      .reveal-ready [data-reveal="left"] { --reveal-from:translate3d(-26px,0,0); }
+      .reveal-ready [data-reveal="right"] { --reveal-from:translate3d(26px,0,0); }
+      .reveal-ready [data-reveal="check"] { --reveal-from:translate3d(-14px,8px,0) scale(.985); }
+      .reveal-ready [data-reveal="workbook"] { --reveal-from:translate3d(34px,20px,0) scale(.965) rotateY(-3deg); transform-origin:left center; }
+      .reveal-ready [data-reveal="step"] { --reveal-from:translate3d(0,18px,0) scale(.97); }
+      .reveal-ready [data-reveal="faq"] { --reveal-from:translate3d(24px,0,0) scale(.985); }
+      .reveal-ready [data-reveal="cta"] { --reveal-from:translate3d(20px,0,0) scale(.97); }
+      .reveal-ready [data-reveal="fade"] { --reveal-from:translate3d(0,8px,0); filter:blur(0); }
+      .reveal-ready.is-visible [data-reveal], .reveal-ready:focus-within [data-reveal] { opacity:1; filter:blur(0); transform:translate3d(0,0,0) scale(1) rotate(0); }
+      .reveal-ready.is-visible [data-reveal] { will-change:auto; }
     }
     html[data-theme="light"] { color-scheme:light; --ink:#20211f; --muted:#686b68; }
     html[data-theme="light"] body { background:#f6f6f3; }
     html[data-theme="light"] .header { border-color:rgba(32,33,31,.12); background:rgba(255,255,253,.82); box-shadow:0 14px 38px rgba(25,25,20,.1),inset 0 1px 0 rgba(255,255,255,.9); }
-    html[data-theme="light"] .footer { border-color:#deded9; }
     html[data-theme="light"] .header-nav a { color:#676a65; }
     html[data-theme="light"] .header-nav a:hover { color:#20211f; background:rgba(0,0,0,.055); }
     html[data-theme="light"] h1 em { color:#8b8d88; }
     html[data-theme="light"] .intro-copy { color:#6f726f; }
     html[data-theme="light"] .card { background:#fff; border-color:#e3e4df; box-shadow:0 24px 70px rgba(25,25,20,.07); }
     html[data-theme="light"] label, html[data-theme="light"] .field-label { color:#424540; }
-    html[data-theme="light"] .div-toggle { background:#f2f3f0; border-color:#e7e8e3; }
+    html[data-theme="light"] .div-toggle { --division-track:#f2f3f0; --division-border:#e7e8e3; --division-thumb:#fff; --division-thumb-shadow:0 2px 6px rgba(0,0,0,.1); }
     html[data-theme="light"] .div-btn { color:#777a74; }
     html[data-theme="light"] .div-btn:hover { color:#20211f; }
-    html[data-theme="light"] .div-btn.active { background:#fff; color:#20211f; box-shadow:0 2px 6px rgba(0,0,0,.1); }
+    html[data-theme="light"] .div-btn.active { color:#20211f; }
     html[data-theme="light"] input[type=text] { background:#fff; color:#20211f; border-color:#d9dbd5; }
     html[data-theme="light"] input:focus { border-color:#8a8c86; box-shadow:0 0 0 3px rgba(0,0,0,.06); }
     html[data-theme="light"] input:disabled { background:#f4f5f2; }
@@ -385,9 +395,8 @@
     html[data-theme="light"] .loading-step.is-current { background:#f4f5f2; }
     /* The selection travels between divisions while the labels stay in place. */
     .div-toggle { position:relative; isolation:isolate; --division-index:0; }
-    .div-toggle::before { content:""; position:absolute; z-index:-1; top:4px; bottom:4px; left:4px; width:calc((100% - 14px) / 3); border-radius:8px; background:#3a3a3d; box-shadow:0 2px 5px rgba(0,0,0,.2); transform:translateX(calc(var(--division-index) * (100% + 3px))); transition:transform .42s cubic-bezier(.22, 1, .36, 1), background-color .25s; }
+    .div-toggle::before { content:""; position:absolute; z-index:-1; top:4px; bottom:4px; left:4px; width:calc((100% - 14px) / 3); border-radius:8px; background:var(--division-thumb); box-shadow:var(--division-thumb-shadow); transform:translateX(calc(var(--division-index) * (100% + 3px))); transition:transform .42s cubic-bezier(.22,1,.36,1),background-color .25s ease,box-shadow .25s ease; }
     .div-btn, .div-btn.active, html[data-theme="light"] .div-btn.active { background:transparent; box-shadow:none; }
-    html[data-theme="light"] .div-toggle::before { background:#fff; box-shadow:0 2px 6px rgba(0,0,0,.1); }
     #submit-btn { position:relative; isolation:isolate; display:grid; grid-template-columns:minmax(0,1fr) 42px; align-items:center; gap:10px; overflow:hidden; padding:5px 5px 5px 18px; text-align:center; will-change:transform; }
     #submit-btn::before { content:""; position:absolute; z-index:0; top:-55%; bottom:-55%; left:-38%; width:28%; background:linear-gradient(90deg,transparent,rgba(24,24,26,.18),transparent); transform:skewX(-18deg) translateX(-180%); transition:transform .65s cubic-bezier(.22,1,.36,1); pointer-events:none; }
     #submit-btn:not(:disabled):hover::before { transform:skewX(-18deg) translateX(620%); }
@@ -420,16 +429,16 @@
     html[data-theme="dark"] .how-number { background:#171719; border-color:#55555a; color:#b5b5b8; }
     html[data-theme="dark"] .how-button[aria-pressed="true"] .how-number { background:#f0f0ee; border-color:#f0f0ee; color:#171719; }
     html[data-theme="dark"] .how-button[aria-pressed="true"] .how-number::after { border-color:#6d6d72; }
-    html[data-theme="dark"] .guide-detail { background:#202023; border-color:#3a3a3e; color:#f0f0ee; box-shadow:0 4px 16px rgba(0,0,0,.15); }
+    html[data-theme="dark"] .guide-detail { --guide-sweep:rgba(255,255,255,.09); background:#202023; border-color:#3a3a3e; color:#f0f0ee; box-shadow:0 4px 16px rgba(0,0,0,.15); }
     html[data-theme="dark"] .guide-detail-label { color:#99999d; }
+    html[data-theme="dark"] .guide-detail-text { color:#b3b3b7; }
     html[data-theme="dark"] .guide-detail-number { color:#303034; }
     html[data-theme="dark"] .header-nav a { color:#99999d; }
     html[data-theme="dark"] .header-nav a:hover { color:#f0f0ee; }
-    html[data-theme="dark"] .uses-heading, html[data-theme="dark"] .faq-heading { color:#f0f0ee; }
-    html[data-theme="dark"] .section-heading-row p, html[data-theme="dark"] .use-card p, html[data-theme="dark"] .faq-intro p, html[data-theme="dark"] .faq-item p { color:#a1a1a4; }
-    html[data-theme="dark"] .use-card { border-color:#303034; background:#171719; }
-    html[data-theme="dark"] .use-number { border-color:#444449; color:#aaaab0; }
-    html[data-theme="dark"] .faq-section, html[data-theme="dark"] .faq-list, html[data-theme="dark"] .faq-item { border-color:#303034; }
+    html[data-theme="dark"] .faq-heading { color:#f0f0ee; }
+    html[data-theme="dark"] .faq-intro p, html[data-theme="dark"] .faq-item p { color:#a1a1a4; }
+    html[data-theme="dark"] .faq-item { background:#171719; box-shadow:0 1px 0 rgba(255,255,255,.025); }
+    html[data-theme="dark"] .faq-item:hover, html[data-theme="dark"] .faq-item[open] { background:#202023; box-shadow:0 10px 30px rgba(0,0,0,.18); }
     html[data-theme="dark"] .faq-item summary { color:#f0f0ee; }
     html[data-theme="dark"] .sheet-window { border-color:#444449; background:#111113; color:#ededeb; }
     html[data-theme="dark"] .sample-team { background:#18181b; }
@@ -504,8 +513,7 @@
           </div>
         </div>
       </section>
-      <section class="guide" id="how-it-works" aria-labelledby="guide-heading"><div><h2 class="guide-heading" id="guide-heading">How it works.</h2><p class="guide-intro">From school to spreadsheet in three steps.</p></div><div><ol class="how-it-works"><li><button type="button" class="how-button" data-guide="division" aria-pressed="true" aria-controls="guide-detail"><span class="how-number">1</span><span>Pick a division</span></button></li><li><button type="button" class="how-button" data-guide="team" aria-pressed="false" aria-controls="guide-detail"><span class="how-number">2</span><span>Choose a team</span></button></li><li><button type="button" class="how-button" data-guide="download" aria-pressed="false" aria-controls="guide-detail"><span class="how-number">3</span><span>Download the stats</span></button></li></ol><div class="guide-detail" id="guide-detail" aria-live="polite"><span class="guide-detail-label" id="guide-detail-label">Step 01</span><p class="guide-detail-text" id="guide-detail-text">Choose Division 1, 2, or 3.</p><span class="guide-detail-number" id="guide-detail-number" aria-hidden="true">01</span></div></div></section>
-      <section class="uses-section" aria-labelledby="uses-heading"><div class="section-heading-row"><h2 class="uses-heading" id="uses-heading">Built for the work between games.</h2><p>Use the same clean structure every time you move from a team search to an opponent-prep file.</p></div><div class="uses-grid"><article class="use-card"><span class="use-number">01</span><h3>Start with the full roster.</h3><p>Names, numbers, positions, classes, and season production arrive in the same workbook.</p></article><article class="use-card"><span class="use-number">02</span><h3>Scan the right stats faster.</h3><p>Batting and pitching live on separate sheets, so each group is ready to filter and review.</p></article><article class="use-card"><span class="use-number">03</span><h3>Hand off one clean file.</h3><p>Download a standard Excel workbook that can move directly into your existing prep process.</p></article></div></section>
+      <section class="guide" id="how-it-works" aria-labelledby="guide-heading"><div><h2 class="guide-heading" id="guide-heading">How it works.</h2><p class="guide-intro">Find a team and download a clean workbook in three steps.</p></div><div><ol class="how-it-works"><li><button type="button" class="how-button" data-guide="division" aria-pressed="true" aria-controls="guide-detail"><span class="how-number">1</span><span>Find a team</span></button></li><li><button type="button" class="how-button" data-guide="team" aria-pressed="false" aria-controls="guide-detail"><span class="how-number">2</span><span>Review the roster</span></button></li><li><button type="button" class="how-button" data-guide="download" aria-pressed="false" aria-controls="guide-detail"><span class="how-number">3</span><span>Download the file</span></button></li></ol><div class="guide-detail" id="guide-detail" aria-live="polite"><span class="guide-detail-label" id="guide-detail-label">Step 01</span><h3 class="guide-detail-title" id="guide-detail-title">Find a team.</h3><p class="guide-detail-text" id="guide-detail-text">Choose a division, then search for a school.</p><span class="guide-detail-number" id="guide-detail-number" aria-hidden="true">01</span></div></div></section>
       <section class="faq-section" id="questions" aria-labelledby="faq-heading"><div class="faq-intro"><p class="section-kicker">Quick answers</p><h2 class="faq-heading" id="faq-heading">Know what you’re downloading.</h2><p>No account setup or manual copy-and-paste. Choose a team and Roster Scout builds the workbook.</p></div><div class="faq-list"><details class="faq-item" open><summary>What is included in the workbook?</summary><p>Every download contains a Hitters worksheet and a Pitchers worksheet. Both include player identity fields, while each sheet adds the season statistics relevant to that group.</p></details><details class="faq-item"><summary>Which teams can I search?</summary><p>The selector covers the current NCAA baseball catalog for Division I, Division II, and Division III teams.</p></details><details class="faq-item"><summary>What file type will I receive?</summary><p>Roster Scout creates an .xlsx Excel workbook and names it for the selected team and download date.</p></details><details class="faq-item"><summary>What happens after I click download?</summary><p>The app verifies the selected team, gathers the roster and season statistics, organizes the player records, and prepares the workbook before your browser starts the download.</p></details></div></section>
       <section class="final-cta" aria-labelledby="final-heading"><div class="final-copy"><h2 class="final-heading" id="final-heading">Your next opponent is a search away.</h2><p>Choose a division and build the workbook when you need it.</p></div><a class="cta-link" href="#builder">Find a team <span aria-hidden="true">&nbsp;↗</span></a></section>
     </main>
@@ -664,7 +672,7 @@
     const pitcherBody = document.getElementById('pitchers-table-body');
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     let activeFeaturedTeam = 0;
-    let workbookInView = true;
+    let workbookInView = false;
     let teamRotationTimer = null;
     let teamTransitionTimer = null;
 
@@ -714,26 +722,33 @@
 
     function showFeaturedTeam(index, animate = true) {
       window.clearTimeout(teamTransitionTimer);
-      sheetWindow.classList.remove('is-changing');
+      workbookPreview.classList.remove('is-team-leaving', 'is-team-entering');
       if (!animate || reducedMotion) {
         applyFeaturedTeam(index);
         return;
       }
-      sheetWindow.classList.add('is-changing');
+      workbookPreview.classList.add('is-team-leaving');
       teamTransitionTimer = window.setTimeout(() => {
         applyFeaturedTeam(index);
-        sheetWindow.classList.remove('is-changing');
-      }, 160);
+        workbookPreview.classList.remove('is-team-leaving');
+        workbookPreview.classList.add('is-team-entering');
+        window.requestAnimationFrame(() => {
+          window.requestAnimationFrame(() => workbookPreview.classList.remove('is-team-entering'));
+        });
+      }, 240);
     }
 
     function restartTeamRotation() {
-      window.clearInterval(teamRotationTimer);
-      if (reducedMotion) return;
-      teamRotationTimer = window.setInterval(() => {
-        if (workbookInView && !document.hidden) showFeaturedTeam((activeFeaturedTeam + 1) % featuredTeams.length);
+      window.clearTimeout(teamRotationTimer);
+      teamRotationTimer = null;
+      if (reducedMotion || !workbookInView || document.hidden) return;
+      teamRotationTimer = window.setTimeout(() => {
+        teamRotationTimer = null;
+        showFeaturedTeam((activeFeaturedTeam + 1) % featuredTeams.length);
+        restartTeamRotation();
       }, 3000);
     }
-    workbookPreview.addEventListener('mouseenter', () => window.clearInterval(teamRotationTimer));
+    workbookPreview.addEventListener('mouseenter', () => window.clearTimeout(teamRotationTimer));
     workbookPreview.addEventListener('mouseleave', restartTeamRotation);
     workbookPreview.addEventListener('focusin', () => window.clearInterval(teamRotationTimer));
     workbookPreview.addEventListener('focusout', event => {
@@ -741,12 +756,28 @@
     });
     if ('IntersectionObserver' in window) {
       const workbookObserver = new IntersectionObserver(entries => {
+        const wasInView = workbookInView;
         workbookInView = entries.some(entry => entry.isIntersecting);
+        if (!workbookInView) {
+          window.clearTimeout(teamRotationTimer);
+          teamRotationTimer = null;
+        } else if (!wasInView) {
+          restartTeamRotation();
+        }
       }, { threshold: 0.2 });
       workbookObserver.observe(workbookPreview);
+    } else {
+      workbookInView = true;
+      restartTeamRotation();
     }
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        window.clearTimeout(teamRotationTimer);
+        teamRotationTimer = null;
+      }
+      else if (workbookInView) restartTeamRotation();
+    });
     applyFeaturedTeam(0);
-    restartTeamRotation();
 
     const workbookTabs = [...document.querySelectorAll('.sheet-tab')];
     function showWorkbookSheet(tab) {
@@ -772,40 +803,163 @@
       });
     });
 
-    if (window.matchMedia('(prefers-reduced-motion: no-preference)').matches && 'IntersectionObserver' in window) {
-      const section = document.querySelector('.guide');
-      section.classList.add('reveal-ready');
-      const observer = new IntersectionObserver(entries => {
-        if (entries.some(entry => entry.isIntersecting)) {
-          section.classList.add('is-visible');
-          observer.disconnect();
-        }
-      }, { threshold: 0.12, rootMargin: '0px 0px -15% 0px' });
-      observer.observe(section);
+    const revealGroups = [
+      {
+        root: document.querySelector('.output-section'),
+        items: [
+          ['.section-kicker', 'left'],
+          ['.output-heading', 'left'],
+          ['.output-copy', 'left'],
+          ['.output-list li', 'check'],
+          ['.workbook-preview', 'workbook'],
+        ],
+      },
+      {
+        root: document.querySelector('.guide'),
+        items: [
+          ['.guide-heading', 'left'],
+          ['.guide-intro', 'left'],
+          ['.how-it-works li', 'step'],
+          ['.guide-detail', 'step'],
+        ],
+      },
+      {
+        root: document.querySelector('.faq-section'),
+        items: [
+          ['.faq-intro > *', 'left'],
+          ['.faq-item', 'faq'],
+        ],
+      },
+      {
+        root: document.querySelector('.final-cta'),
+        items: [
+          ['.final-copy > *', 'left'],
+          ['.cta-link', 'cta'],
+        ],
+      },
+      {
+        root: document.querySelector('.footer'),
+        items: [['span', 'fade']],
+      },
+    ];
+    if (!reducedMotion && 'IntersectionObserver' in window) {
+      const revealObserver = new IntersectionObserver(entries => {
+        entries.forEach(entry => {
+          if (!entry.isIntersecting) return;
+          entry.target.classList.add('is-visible');
+          revealObserver.unobserve(entry.target);
+        });
+      }, { threshold: 0.12, rootMargin: '0px 0px -4% 0px' });
+      revealGroups.forEach(group => {
+        let itemIndex = 0;
+        group.items.forEach(([selector, motion]) => {
+          group.root.querySelectorAll(selector).forEach(item => {
+            item.dataset.reveal = motion;
+            item.style.setProperty('--reveal-delay', `${Math.min(itemIndex * 65, 325)}ms`);
+            itemIndex += 1;
+          });
+        });
+        group.root.classList.add('reveal-ready');
+        revealObserver.observe(group.root);
+      });
     }
     const STATES = ['form', 'loading', 'success', 'error'];
     const guideDescriptions = {
-      division: 'Choose Division 1, 2, or 3.',
-      team: 'Select a school from the list.',
-      download: 'Download your complete stat sheet.',
+      division: {
+        title: 'Find a team.',
+        text: 'Choose a division, then search for a school.',
+      },
+      team: {
+        title: 'Review the roster.',
+        text: 'See player details and season stats on separate hitter and pitcher sheets.',
+      },
+      download: {
+        title: 'Download the file.',
+        text: 'Save one Excel workbook to review, share, or use for opponent prep.',
+      },
     };
-    const guideDetail = document.getElementById('guide-detail-text');
+    const guideDetailCard = document.getElementById('guide-detail');
+    const guideDetailTitle = document.getElementById('guide-detail-title');
+    const guideDetailText = document.getElementById('guide-detail-text');
     const guideDetailLabel = document.getElementById('guide-detail-label');
     const guideDetailNumber = document.getElementById('guide-detail-number');
-    document.querySelectorAll('.how-button').forEach(button => {
+    const guideButtons = [...document.querySelectorAll('.how-button')];
+    const guideMotionPieces = [guideDetailLabel, guideDetailTitle, guideDetailText, guideDetailNumber];
+    let guideContentIndex = 0;
+    let guideTransitionToken = 0;
+    let guideSwapTimer = null;
+    let guideSettleTimer = null;
+    let guideAnimations = [];
+
+    function renderGuideDetail(button) {
+      const guideDescription = guideDescriptions[button.dataset.guide];
+      const stepNumber = button.querySelector('.how-number').textContent.padStart(2, '0');
+      guideDetailTitle.textContent = guideDescription.title;
+      guideDetailText.textContent = guideDescription.text;
+      guideDetailLabel.textContent = `Step ${stepNumber}`;
+      guideDetailNumber.textContent = stepNumber;
+    }
+
+    guideButtons.forEach((button, nextIndex) => {
       button.addEventListener('click', () => {
-        document.querySelectorAll('.how-button').forEach(item => item.setAttribute('aria-pressed', 'false'));
+        if (button.getAttribute('aria-pressed') === 'true') return;
+        const direction = nextIndex > guideContentIndex ? 1 : -1;
+        guideButtons.forEach(item => item.setAttribute('aria-pressed', 'false'));
         button.setAttribute('aria-pressed', 'true');
-        guideDetail.textContent = guideDescriptions[button.dataset.guide];
-        const stepNumber = button.querySelector('.how-number').textContent.padStart(2, '0');
-        guideDetailLabel.textContent = `Step ${stepNumber}`;
-        guideDetailNumber.textContent = stepNumber;
-        if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-          guideDetail.animate(
-            [{ opacity: 0.55, transform: 'translateY(3px)' }, { opacity: 1, transform: 'translateY(0)' }],
-            { duration: 200, easing: 'cubic-bezier(.2,.8,.2,1)' },
-          );
+        button.classList.remove('is-selecting');
+        button.getBoundingClientRect();
+        button.classList.add('is-selecting');
+        window.setTimeout(() => button.classList.remove('is-selecting'), 520);
+
+        guideTransitionToken += 1;
+        const transitionToken = guideTransitionToken;
+        window.clearTimeout(guideSwapTimer);
+        window.clearTimeout(guideSettleTimer);
+        guideAnimations.forEach(animation => animation.cancel());
+        guideAnimations = [];
+        guideDetailCard.classList.remove('is-switching-forward', 'is-switching-backward');
+
+        if (reducedMotion) {
+          renderGuideDetail(button);
+          guideContentIndex = nextIndex;
+          return;
         }
+
+        guideDetailCard.getBoundingClientRect();
+        guideDetailCard.classList.add(direction > 0 ? 'is-switching-forward' : 'is-switching-backward');
+        guideAnimations = guideMotionPieces.map(piece => {
+          const distance = piece === guideDetailNumber ? 34 : 18;
+          return piece.animate(
+            [
+              { opacity:1, transform:'translate3d(0,0,0)' },
+              { opacity:0, transform:`translate3d(${-direction * distance}px,0,0)` },
+            ],
+            { duration:150, easing:'cubic-bezier(.4,0,1,1)', fill:'both' },
+          );
+        });
+
+        guideSwapTimer = window.setTimeout(() => {
+          if (transitionToken !== guideTransitionToken) return;
+          renderGuideDetail(button);
+          guideContentIndex = nextIndex;
+          guideAnimations.forEach(animation => animation.cancel());
+          guideAnimations = guideMotionPieces.map(piece => {
+            const distance = piece === guideDetailNumber ? 38 : 24;
+            return piece.animate(
+              [
+                { opacity:0, transform:`translate3d(${direction * distance}px,0,0)` },
+                { opacity:1, transform:'translate3d(0,0,0)' },
+              ],
+              { duration:430, easing:'cubic-bezier(.22,1,.36,1)', fill:'both' },
+            );
+          });
+          guideSettleTimer = window.setTimeout(() => {
+            if (transitionToken !== guideTransitionToken) return;
+            guideAnimations.forEach(animation => animation.cancel());
+            guideAnimations = [];
+            guideDetailCard.classList.remove('is-switching-forward', 'is-switching-backward');
+          }, 450);
+        }, 150);
       });
     });
     let selectedDiv = 'd1';
