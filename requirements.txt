@@ -4,3 +4,4 @@ requests
 beautifulsoup4
 patchright==1.64.3
 xlsxwriter==3.2.9
+Pillow>=11,<13

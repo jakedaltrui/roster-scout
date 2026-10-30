@@ -1344,12 +1344,67 @@ def _find_ncaa_team(team_name: str, division=None, year: int | None = None) -> d
     return best
 
 
+def _school_display_name(name: str) -> str:
+    """Keep the school's NCAA name without 'university' or 'college'."""
+    institution = r"(?:University|Colleges?|Univ\.)"
+    name = re.sub(rf"\b{institution}\s+(?:of|at)\s+", "", name, flags=re.IGNORECASE)
+    name = re.sub(rf"\b{institution}(?=\W|$)", "", name, flags=re.IGNORECASE)
+    name = re.sub(r"\s+([,-])", r"\1", name)
+    return re.sub(r"\s+", " ", name).strip(" ,-")
+
+
+def _ncaa_school_index_by_name() -> dict:
+    """Match NCAA.com's index by exact, unique stats display name only."""
+    path = Path(__file__).resolve().parent / "data" / "ncaa-schools-index.json"
+    try:
+        schools = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    matches = {}
+    for school in schools:
+        name = (school.get("name") or "").strip().casefold()
+        slug = school.get("slug") or ""
+        long_name = (school.get("long_name") or school.get("name") or "").strip()
+        if not name or not long_name or not re.fullmatch(r"[a-z0-9-]+", slug):
+            continue
+        if name in matches:
+            matches[name] = None
+        else:
+            matches[name] = {"display_name": _school_display_name(long_name), "logo_url": (
+                f"https://www.ncaa.com/sites/default/files/images/logos/schools/bgl/{slug}.svg"
+            )}
+    return matches
+
+
+def _ncaa_approved_school_aliases(division: str) -> dict:
+    """Resolve reviewed stats names against the NCAA index by its slug."""
+    data_dir = Path(__file__).resolve().parent / "data"
+    try:
+        aliases = json.loads((data_dir / "ncaa-school-aliases.json").read_text(encoding="utf-8"))
+        schools = json.loads((data_dir / "ncaa-schools-index.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    by_slug = {school.get("slug"): school for school in schools}
+    result = {}
+    for stats_name, slug in aliases.get(division, {}).items():
+        school = by_slug.get(slug)
+        if not school or not re.fullmatch(r"[a-z0-9-]+", slug):
+            continue
+        result[stats_name.casefold()] = {
+            "display_name": _school_display_name((school.get("long_name") or school.get("name") or "").strip()),
+            "logo_url": f"https://www.ncaa.com/sites/default/files/images/logos/schools/bgl/{slug}.svg",
+        }
+    return result
+
+
 def list_ncaa_teams(division, year: int | None = None) -> list[dict]:
     """Return the deterministic selector catalog for one NCAA division."""
     year = year or _current_ncaa_year()
     division_num = _parse_division(division)
     if division_num is None:
         raise NcaaError("Choose D1, D2, or D3 to list NCAA teams.")
+    school_index = _ncaa_school_index_by_name()
+    school_index.update(_ncaa_approved_school_aliases(f"d{division_num}"))
     teams = [
         {
             "name": row["team_name"],
@@ -1357,6 +1412,8 @@ def list_ncaa_teams(division, year: int | None = None) -> list[dict]:
             "season_team_id": row["season_team_id"],
             "division": f"d{division_num}",
             "year": year,
+            "display_name": _school_display_name(row["team_name"]),
+            **(school_index.get(row["team_name"].strip().casefold()) or {}),
         }
         for row in _load_ncaa_team_rows()
         if row.get("year") == str(year)
@@ -1364,7 +1421,81 @@ def list_ncaa_teams(division, year: int | None = None) -> list[dict]:
         and row.get("team_name")
         and row.get("season_team_id", "").isdigit()
     ]
-    teams.sort(key=lambda team: team["name"].casefold())
+    if division_num == 2:
+        display_overrides = {
+            "AUM": "Auburn-Montgomery", "Cal St. San Marcos": "Cal State-San Marcos",
+            "Okla. Baptist": "Oklahoma Baptist", "Georgia College": "Georgia College",
+            "Chico St.": "Chico State", "UVA Wise": "UVA Wise", "Wheeling": "Wheeling",
+        }
+        for team in teams:
+            if team["name"] in display_overrides:
+                team["display_name"] = display_overrides[team["name"]]
+            if team["name"] in {"Wayne St. (MI)", "Wayne St. (NE)"}:
+                team["disambiguation"] = "Michigan" if "(MI)" in team["name"] else "Nebraska"
+    if division_num == 3:
+        display_overrides = {
+            "SUNY Brockport": "SUNY Brockport",
+            "SUNY Cobleskill": "SUNY Cobleskill",
+            "Cortland": "SUNY Cortland",
+            "Fredonia": "SUNY Fredonia",
+            "Old Westbury": "SUNY Old Westbury",
+            "Oswego St.": "SUNY Oswego",
+            "Plattsburgh St.": "SUNY Plattsburgh",
+            "Purchase": "SUNY Purchase",
+            "Sewanee": "Sewanee",
+            "TCNJ": "TCNJ",
+            "Russell Sage": "Russell Sage",
+            "NYU": "NYU",
+            "Illinois Col.": "Illinois College",
+            "Washington Col.": "Washington College",
+            "Penn College": "Penn College",
+        }
+        for team in teams:
+            if team["name"] in display_overrides:
+                team["display_name"] = display_overrides[team["name"]]
+            if team["name"] in {"North Central (IL)", "North Central (MN)"}:
+                team["disambiguation"] = "Illinois" if "(IL)" in team["name"] else "Minnesota"
+            if team["name"] == "JWU Charlotte":
+                team["display_name"] = "Johnson and Wales"
+                team["disambiguation"] = "Charlotte"
+                team["logo_url"] = "https://www.ncaa.com/sites/default/files/images/logos/schools/bgl/johnson-wales-ri.svg"
+            elif team["name"] == "JWU (Providence)":
+                team["disambiguation"] = "Providence"
+    approved_logos = {
+        ("d2", "Jamestown"): "/static/logos/jamestown.png",
+        ("d2", "Point Park"): "/static/logos/point-park.png",
+        ("d3", "Regent"): "/static/logos/regent.png",
+        ("d3", "SUNY Brockport"): "/static/logos/brockport.svg",
+    }
+    for team in teams:
+        logo = approved_logos.get((team["division"], team["name"]))
+        if logo:
+            team["logo_url"] = logo
+    if division_num == 1:
+        display_overrides = {
+            "Hawaii": "Hawaii",
+            "Columbia": "Columbia",
+            "Indiana": "Indiana",
+            "Maryland": "Maryland",
+            "SIUE": "SIU Edwardsville",
+            "UIW": "Incarnate Word",
+            "Pacific": "Pacific",
+            "Tennessee Tech": "Tennessee Tech",
+            "Saint Mary's (CA)": "St. Mary's",
+            "St. Thomas (MN)": "St. Thomas",
+            "St. John's (NY)": "St. John's",
+            "SFA": "Stephen F. Austin",
+            "UT Martin": "UT Martin",
+            "Navy": "Navy",
+            "UT Arlington": "UT Arlington",
+            "UTSA": "UTSA",
+            "Milwaukee": "Milwaukee",
+            "Boston College": "Boston College",
+        }
+        for team in teams:
+            if team["name"] in display_overrides:
+                team["display_name"] = display_overrides[team["name"]]
+    teams.sort(key=lambda team: team.get("display_name", team["name"]).casefold())
     return teams
 
 
@@ -1966,7 +2097,9 @@ def _fetch_ncaa_browserless_pages(urls: dict[str, str]) -> dict[str, str]:
 
 def _fetch_ncaa_pages(urls: dict[str, str]) -> dict[str, str]:
     if os.environ.get("NCAA_BROWSER_PROVIDER") == "browserless":
-        return _fetch_ncaa_browserless_pages(urls)
+        from usage_limits import browserless_slot
+        with browserless_slot():
+            return _fetch_ncaa_browserless_pages(urls)
 
     direct = {}
     blocked = {}
@@ -2136,6 +2269,9 @@ def _normalize_ncaa_players(batting: list[dict], pitching: list[dict]) -> list[d
             "P_SO": _stat(pit, "SO", "K"),
             "_has_hitting": bool(bat),
             "_has_pitching": bool(pit),
+            "_batting_activity": any(_int(_stat(bat, key)) > 0 for key in (
+                "AB", "H", "R", "RBI", "BB", "HBP", "SF", "SH", "SB", "K", "SO",
+            )),
             "_pos": position,
         })
     return players
@@ -2402,8 +2538,8 @@ def split_roster(players: list[dict]) -> tuple:
     - Pitcher position (RHP/LHP/P/etc.) → pitchers sheet
     - Hitter position (C/INF/OF/etc.)   → hitters sheet
     - Has pitching stats (IP > 0)       → pitchers sheet (regardless of position)
-    - Has hitting stats (AB > 0)        → hitters sheet (regardless of position)
-    - Two-way / ambiguous               → both sheets
+    - Pitchers with batting activity or a hitter position → both sheets
+    - Unclassified players without pitching evidence → hitters sheet
     """
     hitters  = []
     pitchers = []
@@ -2414,6 +2550,14 @@ def split_roster(players: list[dict]) -> tuple:
         has_pitching = p.get("_has_pitching", bool(p.get("ERA") or p.get("IP")))
         is_p_pos     = _is_pitcher_pos(pos)
         is_h_pos     = _is_hitter_pos(pos)
+
+        # NCAA batting tables include zero-stat rows for pitchers.  Cached
+        # results can retain the old row-presence flag, so check the actual
+        # batting activity whenever the player is also classified as a pitcher.
+        if is_p_pos or has_pitching:
+            has_hitting = p.get("_batting_activity", False) or any(_int(p.get(key)) > 0 for key in (
+                "AB", "H", "2B", "HR", "RBI", "R", "BB", "H_SO", "SB",
+            ))
 
         # A position player with pitching stats → both
         # A pitcher with batting stats → both

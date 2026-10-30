@@ -9,9 +9,13 @@ import io
 import os
 import re
 from datetime import date
+from functools import lru_cache
 
+import requests
 import xlsxwriter
+from PIL import Image, ImageDraw, UnidentifiedImageError
 from flask import Flask, jsonify, render_template, request, send_file
+from usage_limits import BrowserCapacityExceeded, check_request_limit
 
 from roster_scraper import (
     HITTER_HEADERS,
@@ -57,6 +61,49 @@ def teams():
         return jsonify({"error": str(exc)}), 400
 
 
+@lru_cache(maxsize=1024)
+def _ncaa_logo_png(team_id):
+    url = f"https://web2.ncaa.org/ncaa_style/img/All_Logos/sm/{team_id}.gif"
+    response = requests.get(url, timeout=8, stream=True)
+    content = bytearray()
+    try:
+        response.raise_for_status()
+        for chunk in response.iter_content(16384):
+            content.extend(chunk)
+            if len(content) > 256_000:
+                raise ValueError("Logo is too large")
+    finally:
+        response.close()
+    image = Image.open(io.BytesIO(content))
+    if image.width * image.height > 1_000_000:
+        raise ValueError("Logo dimensions are too large")
+    image = image.convert("RGBA")
+    # Remove only the near-white region connected to the outside edge, so
+    # white details enclosed inside the actual school mark remain intact.
+    for x in range(image.width):
+        for y in (0, image.height - 1):
+            if min(image.getpixel((x, y))[:3]) >= 245:
+                ImageDraw.floodfill(image, (x, y), (255, 255, 255, 0), thresh=25)
+    for y in range(image.height):
+        for x in (0, image.width - 1):
+            if min(image.getpixel((x, y))[:3]) >= 245 and image.getpixel((x, y))[3]:
+                ImageDraw.floodfill(image, (x, y), (255, 255, 255, 0), thresh=25)
+    output = io.BytesIO()
+    image.save(output, format="PNG")
+    return output.getvalue()
+
+
+@app.route("/api/team-logo/<team_id>")
+def team_logo(team_id):
+    if not team_id.isascii() or not team_id.isdigit() or len(team_id) > 6:
+        return "", 404
+    try:
+        logo = _ncaa_logo_png(team_id)
+    except (requests.RequestException, OSError, ValueError, UnidentifiedImageError):
+        return "", 404
+    return send_file(io.BytesIO(logo), mimetype="image/png", max_age=86400)
+
+
 @app.route("/scrape", methods=["POST"])
 def scrape():
     body = request.get_json(silent=True) or {}
@@ -68,6 +115,15 @@ def scrape():
         return jsonify({"error": "Please enter a team name."}), 400
 
     try:
+        client = request.remote_addr or "unknown"
+        if os.environ.get("TRUST_FLY_CLIENT_IP") == "1":
+            client = request.headers.get("Fly-Client-IP", client)
+        retry_after = check_request_limit(client)
+        if retry_after:
+            response = jsonify({"error": "Too many requests. Please try again later."})
+            response.status_code = 429
+            response.headers["Retry-After"] = str(retry_after)
+            return response
         if division == "juco":
             rows, team_label = scrape_juco_by_name(team)
         elif division in {"d1", "d2", "d3"}:
@@ -115,6 +171,11 @@ def scrape():
         response.headers["X-Roster-Scout-Pitchers"] = str(len(pitchers))
         return response
 
+    except BrowserCapacityExceeded as exc:
+        response = jsonify({"error": str(exc)})
+        response.status_code = 503
+        response.headers["Retry-After"] = "30"
+        return response
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 

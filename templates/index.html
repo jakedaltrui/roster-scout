@@ -1,449 +1,244 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Roster Scout — Axis Baseball</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-
+  <meta name="theme-color" content="#f3f1e9" />
+  <title>Roster Scout — Baseball rosters, ready to work</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet" />
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-    :root {
-      --navy:    #0b1120;
-      --navy2:   #111827;
-      --navy3:   #1e2d45;
-      --blue:    #2563eb;
-      --blue-lt: #3b82f6;
-      --accent:  #f59e0b;
-      --white:   #ffffff;
-      --gray:    #94a3b8;
-      --text:    #e2e8f0;
-      --card-bg: #162032;
-      --input-bg: #0f1d30;
-      --border:  rgba(255,255,255,0.10);
-      --success: #22c55e;
-      --error:   #ef4444;
+    *, *::before, *::after { box-sizing: border-box; }
+    :root { color-scheme: light; --ink:#182a23; --muted:#69766e; --line:#d6dcd2; --green:#214d3b; --paper:#f3f1e9; --white:#fffefa; }
+    body { margin:0; background:var(--paper); color:var(--ink); font-family:"DM Sans",sans-serif; -webkit-font-smoothing:antialiased; }
+    button,input { font:inherit; } button { cursor:pointer; } [hidden] { display:none !important; }
+    .shell { max-width:1440px; margin:auto; padding:0 5.5%; }
+    .header { height:89px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #d5d8ce; }
+    .brand { display:flex; align-items:center; gap:11px; font-weight:700; font-size:19px; letter-spacing:-.06em; }
+    .brand-mark { width:30px; height:30px; background:var(--green); color:#f9faf3; display:grid; place-items:center; border-radius:50%; font-size:12px; letter-spacing:0; }
+    .header-note { font-size:11px; letter-spacing:.13em; text-transform:uppercase; color:#627169; font-weight:700; }
+    .hero { display:grid; grid-template-columns:minmax(0,1fr) minmax(400px, 510px); gap:8%; align-items:center; min-height:calc(100vh - 89px); padding:65px 0 85px; }
+    .intro { max-width:630px; }
+    .eyebrow { display:flex; align-items:center; gap:11px; color:#536f5f; font-size:11px; font-weight:700; letter-spacing:.15em; text-transform:uppercase; }
+    .eyebrow:before { content:""; width:26px; height:1px; background:#779485; }
+    h1 { font:400 clamp(58px,6vw,88px)/.99 "DM Serif Display",Georgia,serif; letter-spacing:-.048em; margin:28px 0 25px; }
+    h1 em { color:#688c74; font-weight:400; }
+    .intro-copy { color:#617069; font-size:16px; line-height:1.75; max-width:440px; margin:0; }
+    .intro-meta { display:flex; gap:34px; margin-top:64px; padding-top:23px; border-top:1px solid #d2d8ce; max-width:440px; }
+    .meta-label { color:#78877e; font-size:10px; letter-spacing:.13em; font-weight:700; text-transform:uppercase; }
+    .meta-value { margin-top:8px; font-size:13px; font-weight:600; }
+    .card { background:var(--white); border:1px solid #dce0d6; border-radius:5px; box-shadow:0 22px 65px rgba(37,58,44,.07); padding:38px 40px 35px; min-height:465px; }
+    .card-top { display:flex; justify-content:space-between; align-items:center; color:#819087; font-size:10px; font-weight:700; letter-spacing:.13em; text-transform:uppercase; padding-bottom:22px; border-bottom:1px solid #e8ebe4; }
+    .card-top .number { font-family:Georgia,serif; font-size:14px; font-weight:400; letter-spacing:0; }
+    .card-title, .state-title { font:400 30px/1.1 "DM Serif Display",Georgia,serif; letter-spacing:-.02em; margin:28px 0 8px; }
+    .card-sub, .state-msg, .loading-sub { color:var(--muted); font-size:13px; line-height:1.65; margin:0 0 28px; }
+    label, .field-label { display:block; color:#35483d; font-size:11px; font-weight:700; margin-bottom:10px; }
+    .field { margin-bottom:23px; }
+    .div-toggle { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; }
+    .div-btn { height:43px; border:1px solid #dfe5dc; background:#fafbf7; color:#697970; border-radius:3px; font-size:12px; font-weight:700; transition:.15s ease; }
+    .div-btn:hover { border-color:#7c9a86; color:var(--green); }
+    .div-btn.active { color:white; background:var(--green); border-color:var(--green); }
+    .combobox { position:relative; }
+    input[type=text] { width:100%; height:50px; border:1px solid #cfd9ce; border-radius:3px; background:#fff; padding:0 14px; color:var(--ink); outline:none; font-size:14px; }
+    input::placeholder { color:#a0aaa1; } input:focus { border-color:#547c62; box-shadow:0 0 0 3px rgba(84,124,98,.12); } input:disabled { background:#f6f7f3; }
+    input[aria-invalid=true] { border-color:#b75e53; }
+    .team-results { position:absolute; z-index:10; top:calc(100% + 5px); left:0; right:0; max-height:230px; overflow:auto; background:white; border:1px solid #d7dfd5; border-radius:3px; padding:5px; box-shadow:0 12px 28px rgba(31,54,37,.12); }
+    .team-result { display:block; width:100%; border:0; background:transparent; padding:10px; text-align:left; color:var(--ink); border-radius:2px; font-size:13px; }
+    .team-result:hover,.team-result.active { background:#eaf0e8; }
+    .team-result-meta { display:block; font-size:10px; color:#819087; margin-top:3px; }
+    .team-empty { padding:12px; font-size:12px; color:var(--muted); }
+    .hint { font-size:11px; color:#849087; line-height:1.5; margin:8px 0 0; min-height:17px; }
+    .btn { width:100%; min-height:52px; border:0; border-radius:3px; font-size:13px; font-weight:700; transition:background .15s, transform .15s; }
+    .btn-primary,.btn-success { background:var(--green); color:white; }
+    .btn-primary:hover,.btn-success:hover { background:#173d2d; }
+    .btn:active { transform:translateY(1px); } .btn:disabled { opacity:.5; cursor:not-allowed; }
+    .btn-ghost { background:transparent; color:#60766a; margin-top:7px; min-height:42px; }
+    .btn-ghost:hover { color:var(--ink); }
+    .card-foot { margin-top:21px; display:flex; align-items:center; justify-content:center; gap:8px; color:#89968d; font-size:11px; }
+    .card-foot svg { flex:none; }
+    .state { display:none; } .state.active { display:block; }
+    .state-center { text-align:center; padding:25px 0 0; }
+    .state-center .state-title { margin-top:20px; }
+    .status-icon { width:48px; height:48px; margin:0 auto; border-radius:50%; display:grid; place-items:center; color:var(--green); background:#eaf1e9; }
+    .status-icon.error { color:#a74f44; background:#f8eae6; }
+    .spinner { width:46px; height:46px; border:2px solid #e0e9de; border-top-color:var(--green); border-radius:50%; animation:spin 1s linear infinite; margin:0 auto; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    .loading-team { display:inline-block; color:#3b6550; background:#edf3eb; padding:8px 12px; font-size:12px; font-weight:600; border-radius:3px; margin-bottom:25px; }
+    .state-msg { margin-bottom:24px; }
+    .footer { border-top:1px solid #d5d8ce; min-height:72px; display:flex; align-items:center; justify-content:space-between; color:#829087; font-size:11px; }
+    .footer span:last-child { letter-spacing:.09em; text-transform:uppercase; font-size:10px; }
+    :focus-visible { outline:3px solid #8aa98d; outline-offset:3px; }
+    @media(max-width:850px) { .hero { grid-template-columns:1fr; gap:44px; min-height:0; padding:65px 0 72px; } .intro { max-width:600px; } h1 { font-size:clamp(54px,10vw,76px); } .intro-meta { margin-top:36px; } .card { max-width:600px; width:100%; } }
+    @media(max-width:480px) { .shell { padding:0 20px; } .header { height:72px; } .header-note { font-size:9px; } .hero { padding:47px 0 55px; gap:35px; } h1 { margin:22px 0; font-size:53px; } .intro-copy { font-size:14px; } .intro-meta { gap:24px; } .card { padding:28px 24px; min-height:0; } .footer { gap:15px; } .footer span:last-child { text-align:right; } }
+    /* EasyUI-inspired quiet surfaces, rounded controls, and restrained motion. */
+    :root { color-scheme:dark; --ink:#f0f0ee; --muted:#a1a1a4; --line:#303034; --green:#eceeeb; --paper:#09090b; --white:#171719; }
+    body { background:#09090b; }
+    .header,.footer { border-color:#262629; }
+    .brand { letter-spacing:-.045em; }
+    .brand-mark { background:#ededeb; color:#171719; }
+    .header-note,.footer,.eyebrow,.meta-label { color:#858589; }
+    .eyebrow:before { background:#717174; }
+    h1 { font-family:"DM Sans",sans-serif; font-weight:600; line-height:1.02; letter-spacing:-.065em; }
+    h1 em { color:#8e8e91; font-style:normal; }
+    .intro-copy { color:#a1a1a5; }
+    .intro-meta { border-color:#303034; }
+    .card { background:#171719; border-color:#28282b; border-radius:22px; box-shadow:0 24px 70px rgba(0,0,0,.25); }
+    .card-top { border-color:#303034; color:#88888c; }
+    .card-title,.state-title { font:600 28px/1.15 "DM Sans",sans-serif; letter-spacing:-.045em; }
+    label,.field-label { color:#c9c9ca; }
+    .div-toggle { background:#101012; padding:4px; gap:3px; border:1px solid #2c2c2f; border-radius:12px; }
+    .div-btn { border:0; border-radius:8px; background:transparent; color:#98989c; transition:background .25s cubic-bezier(.2,.8,.2,1),color .25s; }
+    .div-btn:hover { color:#f4f4f2; }
+    .div-btn.active { background:#3a3a3d; color:white; box-shadow:0 2px 5px rgba(0,0,0,.2); }
+    input[type=text] { background:#111113; color:#f4f4f3; border-color:#39393d; border-radius:10px; transition:border-color .25s,box-shadow .25s; }
+    input::placeholder { color:#737378; }
+    input:focus { border-color:#8e8e93; box-shadow:0 0 0 3px rgba(255,255,255,.07); }
+    input:disabled { background:#202023; }
+    .team-results { background:#212124; border-color:#3a3a3e; border-radius:12px; padding:6px; box-shadow:0 18px 40px rgba(0,0,0,.35); }
+    .team-result { color:#efefed; border-radius:7px; transition:background .2s ease, transform .2s cubic-bezier(.2,.8,.2,1); }
+    .team-result:hover,.team-result.active { background:#36363a; }
+    .team-result-meta,.hint,.card-foot { color:#89898e; }
+    .team-result { display:flex; align-items:center; gap:11px; }
+    .team-result:hover { transform:translateX(2px); }
+    .team-results:not([hidden]) { transform-origin:top center; animation:menu-in .18s cubic-bezier(.2,.8,.2,1) both; }
+    @keyframes menu-in { from { opacity:0; transform:translateY(-5px) scale(.99); } to { opacity:1; transform:translateY(0) scale(1); } }
+    .team-logo { display:grid; place-items:center; width:36px; height:36px; flex:none; overflow:hidden; }
+    .team-logo img { display:block; width:30px; height:30px; object-fit:contain; }
+    .team-logo-fallback { color:#a5a5aa; font-size:10px; font-weight:700; letter-spacing:.02em; }
+    .team-result-copy { min-width:0; }
+    .guide { display:grid; grid-template-columns:minmax(200px, 1fr) minmax(0, 1.3fr); gap:8%; align-items:start; border-top:1px solid #deded9; padding:72px 0 88px; }
+    .guide-heading { margin:0; color:#20211f; font-size:clamp(28px,3.2vw,40px); line-height:1.1; font-weight:600; letter-spacing:-.045em; }
+    .guide-intro { color:#777a74; font-size:14px; line-height:1.6; margin:14px 0 0; }
+    .how-it-works { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:0; padding:0; list-style:none; }
+    .how-button { display:flex; gap:9px; align-items:center; width:100%; padding:7px 0; border:0; background:transparent; color:#777a74; text-align:left; font-size:12px; font-weight:600; line-height:1.35; transition:color .2s; }
+    .how-button:hover, .how-button[aria-pressed="true"] { color:#20211f; }
+    .how-button:hover .how-number { transform:scale(1.06); }
+    .how-number { position:relative; display:grid; place-items:center; flex:none; width:28px; height:28px; border:1px solid #c9cbc5; border-radius:50%; color:#777a74; background:#fff; font-size:12px; font-weight:700; transition:background .25s,border-color .25s,color .25s,transform .25s cubic-bezier(.2,.8,.2,1); }
+    .how-button[aria-pressed="true"] .how-number { background:#20211f; border-color:#20211f; color:#fff; }
+    .how-button[aria-pressed="true"] .how-number::after { content:""; position:absolute; inset:-5px; border:1px solid #c9cbc5; border-radius:50%; }
+    .guide-detail { min-height:68px; margin:14px 0 0; padding:19px 20px; border:1px solid #dadcd5; border-radius:12px; color:#292c28; background:#fff; box-shadow:0 4px 16px rgba(25,25,20,.04); font-size:14px; font-weight:600; line-height:1.55; animation:state-in .22s ease both; }
+    @media(max-width:850px) { .guide { grid-template-columns:1fr; gap:28px; padding:52px 0 65px; } }
+    @media(max-width:480px) { .guide { padding:42px 0 52px; } .how-it-works { gap:8px; } .how-button { align-items:flex-start; font-size:11px; } .how-number { width:25px; height:25px; font-size:11px; } }
+    .btn { border-radius:11px; transition:background .22s,transform .22s cubic-bezier(.2,.8,.2,1),box-shadow .22s; }
+    .btn-primary,.btn-success { background:#f0f0ee; color:#161618; }
+    .btn-primary:hover,.btn-success:hover { background:#d5d5d3; transform:translateY(-1px); }
+    .btn-ghost { color:#aaaab0; }
+    .btn-ghost:hover { color:white; }
+    .status-icon { background:#303a32; color:#b3d1b7; }
+    .status-icon.error { background:#452b2b; color:#e9a9a4; }
+    .spinner { border-color:#38383b; border-top-color:#e8e8e6; }
+    .loading-team { background:#303033; color:#dededc; border-radius:999px; }
+    .state.active { animation:state-in .3s cubic-bezier(.2,.8,.2,1) both; }
+    @keyframes state-in { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:translateY(0); } }
+    /* A short stagger gives the page an entrance without delaying interaction. */
+    @keyframes page-in { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+    @media (prefers-reduced-motion: no-preference) {
+      .header .brand { animation:page-in .5s cubic-bezier(.2,.8,.2,1) both; }
+      .intro h1 { animation:page-in .65s cubic-bezier(.2,.8,.2,1) both; }
+      .intro-copy { animation:page-in .65s .09s cubic-bezier(.2,.8,.2,1) both; }
+      .hero .card { animation:page-in .65s .12s cubic-bezier(.2,.8,.2,1) both; }
+      .card-top { animation:page-in .48s .21s cubic-bezier(.2,.8,.2,1) both; }
+      #state-form.active .card-title, #state-form.active .card-sub { animation:page-in .48s .25s cubic-bezier(.2,.8,.2,1) both; }
+      #state-form.active form, #state-form.active .card-foot { animation:page-in .48s .30s cubic-bezier(.2,.8,.2,1) both; }
+      .reveal-ready { opacity:0; transform:translateY(14px); transition:opacity .55s cubic-bezier(.2,.8,.2,1), transform .55s cubic-bezier(.2,.8,.2,1); }
+      .reveal-ready.is-visible { opacity:1; transform:translateY(0); }
     }
-
-    body {
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-      background-color: var(--navy);
-      color: var(--text);
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 24px 16px;
-    }
-
-    /* ── Nav ── */
-    .logo-bar {
-      text-align: center;
-      margin-bottom: 36px;
-    }
-    .logo {
-      font-size: 1.25rem;
-      font-weight: 800;
-      color: var(--white);
-      letter-spacing: -0.5px;
-    }
-    .logo span { color: var(--accent); }
-    .tagline {
-      font-size: 0.78rem;
-      color: var(--gray);
-      margin-top: 4px;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      font-weight: 500;
-    }
-
-    /* ── Card ── */
-    .card {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 40px 36px;
-      width: 100%;
-      max-width: 480px;
-      box-shadow: 0 24px 64px rgba(0,0,0,0.4);
-    }
-
-    .card-title {
-      font-size: 1.35rem;
-      font-weight: 800;
-      color: var(--white);
-      margin-bottom: 6px;
-      letter-spacing: -0.3px;
-    }
-    .card-sub {
-      font-size: 0.875rem;
-      color: var(--gray);
-      line-height: 1.55;
-      margin-bottom: 28px;
-    }
-
-    /* ── Form ── */
-    label {
-      display: block;
-      font-size: 0.8rem;
-      font-weight: 600;
-      color: var(--gray);
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      margin-bottom: 7px;
-    }
-    .field { margin-bottom: 20px; }
-
-    input[type="text"] {
-      width: 100%;
-      background: var(--input-bg);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 12px 14px;
-      font-size: 0.9rem;
-      color: var(--white);
-      font-family: inherit;
-      outline: none;
-      transition: border-color 0.15s;
-    }
-    input[type="text"]::placeholder { color: #4a5568; }
-    input[type="text"]:focus { border-color: var(--blue-lt); }
-    input[type="text"]:disabled { opacity: 0.6; }
-
-    .combobox { position: relative; }
-    .team-results {
-      position: absolute;
-      z-index: 20;
-      top: calc(100% + 6px);
-      left: 0;
-      right: 0;
-      max-height: 260px;
-      overflow-y: auto;
-      background: #101c2e;
-      border: 1px solid rgba(148,163,184,0.3);
-      border-radius: 9px;
-      box-shadow: 0 18px 40px rgba(0,0,0,0.45);
-      padding: 6px;
-    }
-    .team-results[hidden] { display: none; }
-    .team-result {
-      display: block;
-      width: 100%;
-      padding: 10px 11px;
-      border: 0;
-      border-radius: 6px;
-      background: transparent;
-      color: var(--text);
-      font-family: inherit;
-      font-size: 0.88rem;
-      text-align: left;
-      cursor: pointer;
-    }
-    .team-result:hover,
-    .team-result.active {
-      background: var(--blue);
-      color: var(--white);
-    }
-    .team-result-meta {
-      display: block;
-      margin-top: 2px;
-      color: var(--gray);
-      font-size: 0.7rem;
-      font-weight: 500;
-    }
-    .team-result:hover .team-result-meta,
-    .team-result.active .team-result-meta { color: #dbeafe; }
-    .team-empty {
-      padding: 11px;
-      color: var(--gray);
-      font-size: 0.82rem;
-    }
-
-    .hint {
-      font-size: 0.75rem;
-      color: #4a6080;
-      margin-top: 5px;
-    }
-
-    /* ── Button ── */
-    .btn {
-      display: block;
-      width: 100%;
-      padding: 14px;
-      border-radius: 8px;
-      font-family: inherit;
-      font-size: 0.95rem;
-      font-weight: 700;
-      cursor: pointer;
-      border: none;
-      transition: opacity 0.15s, transform 0.1s;
-      text-align: center;
-    }
-    .btn:active { transform: scale(0.98); }
-    .btn-primary {
-      background: var(--blue);
-      color: var(--white);
-      margin-top: 8px;
-    }
-    .btn-primary:hover { opacity: 0.9; }
-    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-    .btn-ghost {
-      background: transparent;
-      color: var(--gray);
-      font-size: 0.85rem;
-      font-weight: 500;
-      padding: 10px;
-      text-decoration: underline;
-      cursor: pointer;
-      border: none;
-      margin-top: 12px;
-    }
-    .btn-ghost:hover { color: var(--white); }
-    .btn-success {
-      background: var(--success);
-      color: var(--white);
-      margin-top: 8px;
-      text-decoration: none;
-      display: inline-block;
-    }
-    .btn-success:hover { opacity: 0.9; }
-
-    /* ── States ── */
-    .state { display: none; }
-    .state.active { display: block; }
-
-    /* Loading spinner */
-    .spinner-wrap { text-align: center; padding: 8px 0; }
-    .spinner {
-      width: 44px;
-      height: 44px;
-      border: 4px solid rgba(37,99,235,0.25);
-      border-top-color: var(--blue);
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-      margin: 0 auto 20px;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    .loading-title { font-size: 1.1rem; font-weight: 700; color: var(--white); margin-bottom: 8px; }
-    .loading-sub { font-size: 0.85rem; color: var(--gray); line-height: 1.5; }
-
-    /* Success */
-    .icon-circle {
-      width: 52px;
-      height: 52px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin: 0 auto 20px;
-    }
-    .icon-circle.green { background: rgba(34,197,94,0.15); }
-    .icon-circle.red   { background: rgba(239,68,68,0.15); }
-    .state-center { text-align: center; }
-    .state-title { font-size: 1.25rem; font-weight: 800; color: var(--white); margin-bottom: 8px; }
-    .state-msg { font-size: 0.875rem; color: var(--gray); line-height: 1.55; }
-
-    /* ── Divider ── */
-    .divider {
-      border: none;
-      border-top: 1px solid var(--border);
-      margin: 28px 0;
-    }
-
-    /* ── Progress steps ── */
-    .steps {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      margin-top: 20px;
-      text-align: left;
-    }
-    .step {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-size: 0.82rem;
-      color: var(--gray);
-    }
-    .step-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #2d3f5a;
-      flex-shrink: 0;
-      transition: background 0.3s;
-    }
-    .step-dot.done  { background: var(--success); }
-    .step-dot.active { background: var(--blue-lt); animation: pulse 1s ease-in-out infinite; }
-    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
-    .step.done-text  { color: var(--text); }
-    .step.active-text { color: var(--white); font-weight: 600; }
-
-    /* ── Division toggle ── */
-    .div-toggle {
-      display: flex;
-      gap: 6px;
-      margin-bottom: 20px;
-    }
-    .div-btn {
-      flex: 1;
-      padding: 9px 0;
-      border-radius: 7px;
-      border: 1px solid var(--border);
-      background: var(--input-bg);
-      color: var(--gray);
-      font-family: inherit;
-      font-size: 0.85rem;
-      font-weight: 700;
-      letter-spacing: 0.04em;
-      cursor: pointer;
-      transition: background 0.15s, color 0.15s, border-color 0.15s;
-    }
-    .div-btn.active {
-      background: var(--blue);
-      border-color: var(--blue);
-      color: var(--white);
-    }
-    .div-btn:not(.active):hover {
-      border-color: var(--blue-lt);
-      color: var(--text);
-    }
-
-    /* ── Footer ── */
-    .footer {
-      margin-top: 28px;
-      font-size: 0.75rem;
-      color: #2d3f5a;
-      text-align: center;
-    }
+    html[data-theme="light"] { color-scheme:light; --ink:#20211f; --muted:#686b68; }
+    html[data-theme="light"] body { background:#f6f6f3; }
+    html[data-theme="light"] .header, html[data-theme="light"] .footer { border-color:#deded9; }
+    html[data-theme="light"] .brand-mark { background:#20211f; color:#fff; }
+    html[data-theme="light"] h1 em { color:#8b8d88; }
+    html[data-theme="light"] .intro-copy { color:#6f726f; }
+    html[data-theme="light"] .card { background:#fff; border-color:#e3e4df; box-shadow:0 24px 70px rgba(25,25,20,.07); }
+    html[data-theme="light"] .card-top { border-color:#e9eae6; color:#858882; }
+    html[data-theme="light"] label, html[data-theme="light"] .field-label { color:#424540; }
+    html[data-theme="light"] .div-toggle { background:#f2f3f0; border-color:#e7e8e3; }
+    html[data-theme="light"] .div-btn { color:#777a74; }
+    html[data-theme="light"] .div-btn:hover { color:#20211f; }
+    html[data-theme="light"] .div-btn.active { background:#fff; color:#20211f; box-shadow:0 2px 6px rgba(0,0,0,.1); }
+    html[data-theme="light"] input[type=text] { background:#fff; color:#20211f; border-color:#d9dbd5; }
+    html[data-theme="light"] input:focus { border-color:#8a8c86; box-shadow:0 0 0 3px rgba(0,0,0,.06); }
+    html[data-theme="light"] input:disabled { background:#f4f5f2; }
+    html[data-theme="light"] .team-results { background:#fff; border-color:#dedfd9; box-shadow:0 18px 40px rgba(0,0,0,.12); }
+    html[data-theme="light"] .team-result { color:#20211f; }
+    html[data-theme="light"] .team-result:hover, html[data-theme="light"] .team-result.active { background:#f0f1ed; }
+    html[data-theme="light"] .team-logo-fallback { color:#666963; }
+    html[data-theme="light"] .btn-primary, html[data-theme="light"] .btn-success { background:#20211f; color:#fff; }
+    html[data-theme="light"] .btn-primary:hover, html[data-theme="light"] .btn-success:hover { background:#41433f; }
+    html[data-theme="light"] .btn-ghost { color:#6f726c; }
+    html[data-theme="light"] .btn-ghost:hover { color:#20211f; }
+    html[data-theme="light"] .spinner { border-color:#e2e3de; border-top-color:#30332e; }
+    html[data-theme="light"] .loading-team { background:#f0f1ed; color:#444740; }
+    html[data-theme="light"] .status-icon { background:#e9f2e9; color:#416c48; }
+    html[data-theme="light"] .status-icon.error { background:#f7eae8; color:#a55048; }
+    @media(prefers-reduced-motion:reduce) { *,*::before,*::after { animation-duration:.01ms !important; animation-iteration-count:1 !important; transition:none !important; } }
   </style>
 </head>
 <body>
-
-  <div class="logo-bar">
-    <div class="logo">AXIS <span>BASEBALL</span></div>
-    <div class="tagline">Roster Scout</div>
+  <div class="shell">
+    <header class="header"><div class="brand"><span class="brand-mark" aria-hidden="true">RS</span>roster scout<span style="color:#71917b">.</span></div></header>
+    <main>
+      <div class="hero">
+      <section class="intro" aria-labelledby="page-title">
+        <h1 id="page-title">Less searching.<br /><em>More scouting.</em></h1>
+        <p class="intro-copy">Pick a team to download its roster and season stats in an Excel file.</p>
+      </section>
+      <div class="builder-column">
+      <section class="card" aria-label="Roster workbook">
+        <div class="card-top"><span>Roster builder</span></div>
+        <div id="state-form" class="state active">
+          <h2 class="card-title">Find your team.</h2>
+          <p class="card-sub">Choose a division, then select a school to build your workbook.</p>
+          <form id="scout-form" novalidate>
+            <div class="field"><span class="field-label" id="division-label">Division</span><div class="div-toggle" role="group" aria-labelledby="division-label"><button type="button" class="div-btn active" data-div="d1" aria-pressed="true">D1</button><button type="button" class="div-btn" data-div="d2" aria-pressed="false">D2</button><button type="button" class="div-btn" data-div="d3" aria-pressed="false">D3</button></div></div>
+            <div class="field" id="ncaa-team-field"><label for="team-combobox">School</label><div class="combobox" id="team-combobox-wrap"><input type="text" id="team-combobox" placeholder="Loading D1 teams…" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="team-results" aria-expanded="false" aria-describedby="catalog-hint" disabled /><div id="team-results" class="team-results" role="listbox" hidden></div></div><p class="hint" id="catalog-hint" aria-live="polite">Loading the current NCAA catalog…</p></div>
+            <button type="submit" class="btn btn-primary" id="submit-btn">Download Roster Workbook <span aria-hidden="true">↗</span></button>
+          </form>
+          <div class="card-foot"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M4 17v3h16v-3"/></svg> Direct download · No account needed</div>
+        </div>
+        <div id="state-loading" class="state state-center" role="status" aria-live="polite"><div class="spinner" aria-hidden="true"></div><h2 class="state-title">Getting your roster.</h2><p class="loading-sub">We’re gathering the roster and season stats and putting your workbook together. This can take a little while.</p><div class="loading-team" id="loading-team"></div><p class="hint">Keep this page open until your download starts.</p></div>
+        <div id="state-success" class="state state-center" role="status" aria-live="polite"><div class="status-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></div><h2 class="state-title">Your roster is ready.</h2><p class="state-msg" id="success-msg"></p><button id="download-again" type="button" class="btn btn-success">Download again</button><button type="button" class="btn btn-ghost" onclick="resetForm()">Scout another team →</button></div>
+        <div id="state-error" class="state state-center" role="alert"><div class="status-icon error"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></div><h2 class="state-title">We couldn’t finish that.</h2><p class="state-msg" id="error-msg"></p><button type="button" class="btn btn-success" onclick="resetForm()">Try again</button></div>
+      </section>
+      </div>
+      </div>
+      <section class="guide" aria-labelledby="guide-heading"><div><h2 class="guide-heading" id="guide-heading">How it works.</h2><p class="guide-intro">From school to spreadsheet in three steps.</p></div><div><ol class="how-it-works"><li><button type="button" class="how-button" data-guide="division" aria-pressed="true" aria-controls="guide-detail"><span class="how-number">1</span><span>Pick a division</span></button></li><li><button type="button" class="how-button" data-guide="team" aria-pressed="false" aria-controls="guide-detail"><span class="how-number">2</span><span>Choose a team</span></button></li><li><button type="button" class="how-button" data-guide="download" aria-pressed="false" aria-controls="guide-detail"><span class="how-number">3</span><span>Download the stats</span></button></li></ol><p class="guide-detail" id="guide-detail" aria-live="polite">Choose NCAA Division I, II, or III.</p></div></section>
+    </main>
+    <footer class="footer"><span>Roster Scout © 2026</span></footer>
   </div>
-
-  <div class="card">
-
-    <!-- ── Form state ── -->
-    <div id="state-form" class="state active">
-      <div class="card-title">Build a roster sheet</div>
-      <p class="card-sub">
-        Choose an NCAA team from the verified catalog, or enter a JUCO team name. We'll pull
-        the current roster and stats into an Excel workbook that downloads directly.
-      </p>
-
-      <form id="scout-form" novalidate>
-        <div class="field">
-          <label>Division</label>
-          <div class="div-toggle">
-            <button type="button" class="div-btn active" data-div="d1">D1</button>
-            <button type="button" class="div-btn" data-div="d2">D2</button>
-            <button type="button" class="div-btn" data-div="d3">D3</button>
-            <button type="button" class="div-btn" data-div="juco">JUCO</button>
-          </div>
-        </div>
-
-        <div class="field" id="ncaa-team-field">
-          <label for="team-combobox">Team</label>
-          <div class="combobox" id="team-combobox-wrap">
-            <input
-              type="text"
-              id="team-combobox"
-              placeholder="Loading D1 teams…"
-              autocomplete="off"
-              role="combobox"
-              aria-autocomplete="list"
-              aria-controls="team-results"
-              aria-expanded="false"
-              disabled
-            />
-            <div id="team-results" class="team-results" role="listbox" hidden></div>
-          </div>
-          <p class="hint" id="catalog-hint">Loading the current NCAA catalog…</p>
-        </div>
-
-        <div class="field" id="juco-team-field" hidden>
-          <label for="team-input">Team Name</label>
-          <input
-            type="text"
-            id="team-input"
-            placeholder="e.g. Chipola College, Crowder College"
-            autocomplete="off"
-          />
-          <p class="hint">NJCAA program. Type the school name.</p>
-        </div>
-
-        <button type="submit" class="btn btn-primary" id="submit-btn">
-          Download Roster Workbook →
-        </button>
-      </form>
-    </div>
-
-    <!-- ── Loading state ── -->
-    <div id="state-loading" class="state">
-      <div class="spinner-wrap">
-        <div class="spinner"></div>
-        <div class="loading-title">Building your roster sheet…</div>
-        <p class="loading-sub">Scraping roster &amp; stats.<br>First requests may take up to a minute; repeats are cached.</p>
-
-        <div class="steps" id="step-list">
-          <div class="step active-text" id="step-roster">
-            <div class="step-dot active" id="dot-roster"></div>
-            Opening the selected team
-          </div>
-          <div class="step" id="step-stats">
-            <div class="step-dot" id="dot-stats"></div>
-            Pulling current season stats
-          </div>
-          <div class="step" id="step-sheet">
-            <div class="step-dot" id="dot-sheet"></div>
-            Building Excel workbook
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── Success state ── -->
-    <div id="state-success" class="state state-center">
-      <div class="icon-circle green">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="20 6 9 17 4 12"/>
-        </svg>
-      </div>
-      <div class="state-title">Roster ready.</div>
-      <p class="state-msg" id="success-msg"></p>
-
-      <hr class="divider" />
-
-      <button id="download-again" type="button" class="btn btn-success">
-        Download again
-      </button>
-      <button class="btn btn-ghost" onclick="resetForm()">Scout another team</button>
-    </div>
-
-    <!-- ── Error state ── -->
-    <div id="state-error" class="state state-center">
-      <div class="icon-circle red">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-        </svg>
-      </div>
-      <div class="state-title">Something went wrong</div>
-      <p class="state-msg" id="error-msg"></p>
-      <button class="btn btn-ghost" onclick="resetForm()">Try again</button>
-    </div>
-
-  </div>
-
-  <div class="footer">Powered by Axis Baseball &mdash; axisbaseball.com</div>
-
   <script>
+    if (window.matchMedia('(prefers-reduced-motion: no-preference)').matches && 'IntersectionObserver' in window) {
+      const section = document.querySelector('.guide');
+      section.classList.add('reveal-ready');
+      const observer = new IntersectionObserver(entries => {
+        if (entries.some(entry => entry.isIntersecting)) {
+          section.classList.add('is-visible');
+          observer.disconnect();
+        }
+      }, { threshold: 0.12 });
+      observer.observe(section);
+    }
     const STATES = ['form', 'loading', 'success', 'error'];
+    const guideDescriptions = {
+      division: 'Choose NCAA Division I, II, or III.',
+      team: 'Search for a school or select one from the list.',
+      download: 'Get an Excel workbook with separate sheets for hitters and pitchers.',
+    };
+    const guideDetail = document.getElementById('guide-detail');
+    document.querySelectorAll('.how-button').forEach(button => {
+      button.addEventListener('click', () => {
+        document.querySelectorAll('.how-button').forEach(item => item.setAttribute('aria-pressed', 'false'));
+        button.setAttribute('aria-pressed', 'true');
+        guideDetail.textContent = guideDescriptions[button.dataset.guide];
+        if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          guideDetail.animate(
+            [{ opacity: 0.55, transform: 'translateY(3px)' }, { opacity: 1, transform: 'translateY(0)' }],
+            { duration: 200, easing: 'cubic-bezier(.2,.8,.2,1)' },
+          );
+        }
+      });
+    });
     let selectedDiv = 'd1';
     let lastDownloadUrl = null;
     let lastDownloadName = null;
@@ -466,9 +261,9 @@
 
     function selectTeam(team) {
       selectedTeam = team;
-      teamCombobox.value = team.name;
+      teamCombobox.value = team.display_name || team.name;
       teamCombobox.setAttribute('aria-invalid', 'false');
-      catalogHint.textContent = `Selected ${team.name} — exact NCAA team ID ${team.season_team_id}.`;
+      catalogHint.textContent = `${team.display_name || team.name}${team.disambiguation ? ` (${team.disambiguation})` : ''} selected.`;
       closeTeamResults();
     }
 
@@ -491,21 +286,15 @@
       teamResults.replaceChildren();
       activeTeamIndex = -1;
 
-      if (!query) {
-        closeTeamResults();
-        return;
-      }
-
       visibleTeams = teamCatalog
-        .filter(team => team.name.toLocaleLowerCase().includes(query))
+        .filter(team => (team.display_name || team.name).toLocaleLowerCase().includes(query) || team.name.toLocaleLowerCase().includes(query))
         .sort((a, b) => {
-          const aName = a.name.toLocaleLowerCase();
-          const bName = b.name.toLocaleLowerCase();
+          const aName = (a.display_name || a.name).toLocaleLowerCase();
+          const bName = (b.display_name || b.name).toLocaleLowerCase();
           const aRank = aName === query ? 0 : aName.startsWith(query) ? 1 : 2;
           const bRank = bName === query ? 0 : bName.startsWith(query) ? 1 : 2;
-          return aRank - bRank || a.name.localeCompare(b.name);
-        })
-        .slice(0, 12);
+          return aRank - bRank || aName.localeCompare(bName);
+        });
 
       if (!visibleTeams.length) {
         const empty = document.createElement('div');
@@ -520,11 +309,36 @@
           option.className = 'team-result';
           option.setAttribute('role', 'option');
           option.setAttribute('aria-selected', 'false');
-          option.textContent = team.name;
-          const meta = document.createElement('span');
-          meta.className = 'team-result-meta';
-          meta.textContent = `${team.division.toUpperCase()} • ${team.year}`;
-          option.appendChild(meta);
+          const logo = document.createElement('span');
+          logo.className = 'team-logo';
+          logo.setAttribute('aria-hidden', 'true');
+          const fallback = document.createElement('span');
+          fallback.className = 'team-logo-fallback';
+          fallback.textContent = (team.display_name || team.name).match(/[\p{L}\p{N}]+/gu)?.slice(0, 2).map(word => word[0]).join('').toUpperCase() || '•';
+          logo.appendChild(fallback);
+          if (team.logo_url || /^\d+$/.test(team.team_id || '')) {
+            const image = document.createElement('img');
+            image.alt = '';
+            image.loading = 'lazy';
+            image.referrerPolicy = 'no-referrer';
+            image.addEventListener('load', () => { fallback.hidden = true; });
+            image.addEventListener('error', () => { image.remove(); });
+            image.src = team.logo_url || `/api/team-logo/${team.team_id}`;
+            logo.appendChild(image);
+          }
+          option.appendChild(logo);
+          const copy = document.createElement('span');
+          copy.className = 'team-result-copy';
+          const name = document.createElement('span');
+          name.textContent = team.display_name || team.name;
+          copy.appendChild(name);
+          if (team.disambiguation) {
+            const detail = document.createElement('span');
+            detail.className = 'team-result-meta';
+            detail.textContent = team.disambiguation;
+            copy.appendChild(detail);
+          }
+          option.appendChild(copy);
           option.addEventListener('mousedown', event => event.preventDefault());
           option.addEventListener('click', () => selectTeam(team));
           teamResults.appendChild(option);
@@ -558,7 +372,7 @@
         teamCombobox.disabled = false;
         teamCombobox.placeholder = `Type a ${division.toUpperCase()} team name…`;
         submit.disabled = false;
-        hint.textContent = `Type to search ${data.teams.length} NCAA ${division.toUpperCase()} teams, then choose a match.`;
+        hint.textContent = 'Choose a school or type to search.';
       } catch (error) {
         if (requestId !== catalogRequestId) return;
         teamCombobox.placeholder = 'Team catalog unavailable';
@@ -573,6 +387,9 @@
       renderTeamResults();
     });
     teamCombobox.addEventListener('focus', renderTeamResults);
+    teamCombobox.addEventListener('click', () => {
+      if (teamResults.hidden) renderTeamResults();
+    });
     teamCombobox.addEventListener('blur', () => setTimeout(closeTeamResults, 120));
     teamCombobox.addEventListener('keydown', event => {
       if (event.key === 'ArrowDown') {
@@ -594,21 +411,11 @@
     // Division toggle
     document.querySelectorAll('.div-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
-        document.querySelectorAll('.div-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.div-btn').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-pressed', 'false'); });
         btn.classList.add('active');
+        btn.setAttribute('aria-pressed', 'true');
         selectedDiv = btn.dataset.div;
-        const ncaaField = document.getElementById('ncaa-team-field');
-        const jucoField = document.getElementById('juco-team-field');
-        if (selectedDiv === 'juco') {
-          catalogRequestId++;
-          ncaaField.hidden = true;
-          jucoField.hidden = false;
-          document.getElementById('submit-btn').disabled = false;
-        } else {
-          ncaaField.hidden = false;
-          jucoField.hidden = true;
-          await loadNcaaTeams(selectedDiv);
-        }
+        await loadNcaaTeams(selectedDiv);
       });
     });
 
@@ -621,17 +428,6 @@
     function resetForm() {
       show('form');
       document.getElementById('submit-btn').disabled = false;
-      // Reset steps
-      ['roster','stats','sheet'].forEach(s => {
-        setStep(s, 'pending');
-      });
-    }
-
-    function setStep(name, status) {
-      const el  = document.getElementById(`step-${name}`);
-      const dot = document.getElementById(`dot-${name}`);
-      el.className  = 'step' + (status === 'done' ? ' done-text' : status === 'active' ? ' active-text' : '');
-      dot.className = 'step-dot' + (status === 'done' ? ' done' : status === 'active' ? ' active' : '');
     }
 
     function downloadFile(url, filename) {
@@ -652,12 +448,10 @@
     document.getElementById('scout-form').addEventListener('submit', async (e) => {
       e.preventDefault();
 
-      const seasonTeamId = selectedDiv === 'juco' ? '' : selectedTeam?.season_team_id || '';
-      const team = selectedDiv === 'juco'
-        ? document.getElementById('team-input').value.trim()
-        : selectedTeam?.name || '';
+      const seasonTeamId = selectedTeam?.season_team_id || '';
+      const team = selectedTeam?.name || '';
 
-      if (selectedDiv !== 'juco' && (!team || !seasonTeamId)) {
+      if (!team || !seasonTeamId) {
         teamCombobox.setAttribute('aria-invalid', 'true');
         catalogHint.textContent = 'Type a team name and choose one of the matching results.';
         teamCombobox.focus();
@@ -668,17 +462,7 @@
       document.getElementById('submit-btn').disabled = true;
       show('loading');
 
-      // Animate steps while waiting
-      const stepOrder = ['roster','stats','sheet'];
-      let si = 0;
-      setStep(stepOrder[0], 'active');
-      const stepTimer = setInterval(() => {
-        if (si < stepOrder.length - 1) {
-          setStep(stepOrder[si], 'done');
-          si++;
-          setStep(stepOrder[si], 'active');
-        }
-      }, 6000);
+      document.getElementById('loading-team').textContent = team;
 
       try {
         const resp = await fetch('/scrape', {
@@ -686,7 +470,6 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ team, division: selectedDiv, season_team_id: seasonTeamId }),
         });
-        clearInterval(stepTimer);
 
         if (!resp.ok) {
           const data = await resp.json().catch(() => ({}));
@@ -709,16 +492,10 @@
         lastDownloadName = filename;
         downloadFile(lastDownloadUrl, lastDownloadName);
 
-        // Mark all steps done briefly before showing success
-        stepOrder.forEach(s => setStep(s, 'done'));
-        setTimeout(() => {
-          document.getElementById('success-msg').textContent =
-            `${players || 'Roster'} players found for ${team}. Your Excel workbook was downloaded.`;
-          show('success');
-        }, 400);
-
+        document.getElementById('success-msg').textContent =
+          `${players || 'Roster'} players found for ${team}. Your workbook has downloaded.`;
+        show('success');
       } catch (err) {
-        clearInterval(stepTimer);
         document.getElementById('error-msg').textContent =
           'Could not connect to the server. Is it running?';
         show('error');

@@ -127,6 +127,21 @@ healthy-looking deployment cannot return NCAA failures to users.
 
 Only successful parsed team results are cached. Blocks, empty pages, and parser failures are never cached.
 
+### Usage limits
+
+Scrape requests are limited to 10 per client per 10 minutes by default, including
+cached and failed requests. A limited request receives HTTP 429 and a Retry-After
+header. On Fly, `TRUST_FLY_CLIENT_IP=1` uses Fly's client IP header; leave it
+unset when the app is directly accessible or behind an untrusted proxy.
+`SCRAPE_RATE_LIMIT` and `SCRAPE_RATE_WINDOW_SECONDS` adjust the limit.
+
+Uncached Browserless work is limited to two concurrent sessions. When both are
+busy, the app returns HTTP 503 with a Retry-After header. Set
+`BROWSERLESS_MAX_SESSIONS` to 1 to reduce concurrency. These limits share state
+across processes on one machine using the cache directory. They are not global
+across multiple Fly machines or other applications using the same Browserless
+account; a shared limiter is required before scaling beyond one machine.
+
 ## Verification
 
 Run deterministic tests:

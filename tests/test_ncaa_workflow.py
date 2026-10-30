@@ -51,10 +51,86 @@ class NcaaWorkflowTests(unittest.TestCase):
         d2 = rs.list_ncaa_teams("d2", year=2026)
         self.assertEqual([team["name"] for team in d2], ["Tampa"])
         self.assertEqual(d2[0]["season_team_id"], "615087")
+        self.assertEqual(d2[0]["display_name"], "Tampa")
+        self.assertTrue(d2[0]["logo_url"].endswith("/bgl/tampa.svg"))
         resolved = rs._find_ncaa_team_by_season_id("615087", "d2", year=2026)
         self.assertEqual(resolved["team_name"], "Tampa")
         with self.assertRaises(rs.NcaaTeamNotFound):
             rs._find_ncaa_team_by_season_id("615087", "d3", year=2026)
+
+    def test_approved_d1_aliases_use_index_logos_and_shortened_names(self):
+        aliases = rs._ncaa_approved_school_aliases("d1")
+        self.assertEqual(len(aliases), 47)
+        self.assertEqual(aliases["a&m-corpus christi"]["display_name"], "Texas A&M-Corpus Christi")
+        self.assertEqual(aliases["uconn"]["display_name"], "Connecticut")
+        self.assertEqual(aliases["ualbany"]["display_name"], "Albany")
+        self.assertIn("am-corpus-chris.svg", aliases["a&m-corpus christi"]["logo_url"])
+
+    def test_school_names_drop_college_and_use_hawaii_columbia_overrides(self):
+        self.assertEqual(rs._school_display_name("American International College"), "American International")
+        self.assertEqual(rs._school_display_name("College of Charleston"), "Charleston")
+        self.assertEqual(rs._school_display_name("Univ. of Colorado-Colorado Springs"), "Colorado-Colorado Springs")
+        rs._NCAA_TEAM_ROWS += [
+            {"team_id": "111", "team_name": name, "division": "1", "year": "2026", "season_id": "17040", "season_team_id": ident}
+            for name, ident in (("Hawaii", "614618"), ("Columbia", "614586"), ("Indiana", "614627"), ("Maryland", "614654"), ("SIUE", "614744"), ("UIW", "614745"), ("Saint Mary's (CA)", "614746"), ("UTSA", "614747"))
+        ]
+        teams = {team["name"]: team["display_name"] for team in rs.list_ncaa_teams("d1", 2026)}
+        self.assertEqual(teams["Hawaii"], "Hawaii")
+        self.assertEqual(teams["Columbia"], "Columbia")
+        self.assertEqual(teams["Indiana"], "Indiana")
+        self.assertEqual(teams["Maryland"], "Maryland")
+        self.assertEqual(teams["SIUE"], "SIU Edwardsville")
+        self.assertEqual(teams["UIW"], "Incarnate Word")
+        self.assertEqual(teams["Saint Mary's (CA)"], "St. Mary's")
+        self.assertEqual(teams["UTSA"], "UTSA")
+
+    def test_reviewed_d2_and_d3_aliases_resolve_to_index_schools(self):
+        d2 = rs._ncaa_approved_school_aliases("d2")
+        d3 = rs._ncaa_approved_school_aliases("d3")
+        self.assertEqual(d2["csusb"]["display_name"], "Cal State-San Bernardino")
+        self.assertEqual(d2["aum"]["display_name"], "Auburn-Montgomery")
+        self.assertTrue(d2["cal st. san marcos"]["logo_url"].endswith("/cal-st-san-marcos.svg"))
+        self.assertTrue(d2["okla. baptist"]["logo_url"].endswith("/okla-baptist.svg"))
+        self.assertEqual(d3["cwru"]["display_name"], "Case Western Reserve")
+        self.assertTrue(d3["rit"]["logo_url"].endswith("/rochester-inst.svg"))
+
+    def test_johnson_and_wales_campuses_remain_distinguishable(self):
+        rs._NCAA_TEAM_ROWS += [
+            {"team_id": "", "team_name": name, "division": "3", "year": "2026", "season_id": "17040", "season_team_id": ident}
+            for name, ident in (("JWU Charlotte", "615586"), ("JWU (Providence)", "615587"))
+        ]
+        teams = {t["name"]: t for t in rs.list_ncaa_teams("d3", 2026)}
+        self.assertEqual(teams["JWU Charlotte"]["display_name"], "Johnson and Wales")
+        self.assertEqual(teams["JWU Charlotte"]["disambiguation"], "Charlotte")
+        self.assertEqual(teams["JWU (Providence)"]["disambiguation"], "Providence")
+        self.assertEqual(teams["JWU Charlotte"]["logo_url"], teams["JWU (Providence)"]["logo_url"])
+
+    def test_approved_school_logos_are_used_without_stable_team_ids(self):
+        rs._NCAA_TEAM_ROWS += [
+            {"team_id": "", "team_name": name, "division": division, "year": "2026", "season_id": "17040", "season_team_id": ident}
+            for name, division, ident in (("Jamestown", "2", "999901"), ("Point Park", "2", "999902"), ("Regent", "3", "999903"), ("SUNY Brockport", "3", "999904"))
+        ]
+        teams = {t["name"]: t for d in ("d2", "d3") for t in rs.list_ncaa_teams(d, 2026)}
+        for name, filename in (("Jamestown", "jamestown.png"), ("Point Park", "point-park.png"), ("Regent", "regent.png"), ("SUNY Brockport", "brockport.svg")):
+            self.assertEqual(teams[name]["logo_url"], f"/static/logos/{filename}")
+            self.assertTrue((Path(__file__).parent.parent / "static" / "logos" / filename).is_file())
+
+    def test_suny_names_and_duplicate_schools_are_clear(self):
+        rs._NCAA_TEAM_ROWS += [
+            {"team_id": "", "team_name": name, "division": division, "year": "2026", "season_id": "17040", "season_team_id": str(990000 + i)}
+            for i, (name, division) in enumerate((
+                ("SUNY Brockport", "3"), ("Cortland", "3"), ("Oswego St.", "3"),
+                ("Wayne St. (MI)", "2"), ("Wayne St. (NE)", "2"),
+                ("North Central (IL)", "3"), ("North Central (MN)", "3"),
+            ))
+        ]
+        teams = {t["name"]: t for d in ("d2", "d3") for t in rs.list_ncaa_teams(d, 2026)}
+        self.assertEqual(teams["SUNY Brockport"]["display_name"], "SUNY Brockport")
+        self.assertEqual(teams["Cortland"]["display_name"], "SUNY Cortland")
+        self.assertEqual(teams["Oswego St."]["display_name"], "SUNY Oswego")
+        self.assertEqual(teams["Wayne St. (MI)"]["disambiguation"], "Michigan")
+        self.assertEqual(teams["Wayne St. (NE)"]["disambiguation"], "Nebraska")
+        self.assertEqual(teams["North Central (MN)"]["disambiguation"], "Minnesota")
 
     def test_validates_entire_catalog_in_one_pass(self):
         report = rs.validate_ncaa_team_catalog(year=2026)
@@ -85,6 +161,27 @@ class NcaaWorkflowTests(unittest.TestCase):
         hitters, pitchers = rs.split_roster(players)
         self.assertIn("D One Two Way", {row["Name"] for row in hitters})
         self.assertIn("D One Two Way", {row["Name"] for row in pitchers})
+
+    def test_pitcher_zero_batting_row_is_excluded_but_two_way_players_remain(self):
+        batting = [
+            {"Player": "Pitcher Only", "_player_id": "1", "AB": "0", "BB": "0"},
+            {"Player": "Two Way", "_player_id": "2", "AB": "12"},
+            {"Player": "Walk Only", "_player_id": "3", "AB": "0", "HBP": "1"},
+            {"Player": "Hitter", "_player_id": "4", "AB": "30"},
+        ]
+        pitching = [{"Player": name, "_player_id": ident, "IP": "3.0"} for name, ident in (
+            ("Pitcher Only", "1"), ("Two Way", "2"), ("Walk Only", "3"),
+        )]
+        players = rs._normalize_ncaa_players(batting, pitching)
+        hitters, pitchers = rs.split_roster(players)
+        self.assertEqual({p["Name"] for p in hitters}, {"Two Way", "Walk Only", "Hitter"})
+        self.assertEqual({p["Name"] for p in pitchers}, {"Pitcher Only", "Two Way", "Walk Only"})
+
+        # Older cached records contain the original row-presence flag only.
+        for player in players:
+            player.pop("_batting_activity")
+        hitters, _ = rs.split_roster(players)
+        self.assertNotIn("Pitcher Only", {p["Name"] for p in hitters})
 
     def test_identifies_ncaa_aggregate_rows(self):
         for name in ("Total", "Totals", "Team Totals", "Opponent Totals"):
@@ -142,6 +239,18 @@ class NcaaWorkflowTests(unittest.TestCase):
         self.assertEqual(pages, expected)
         browserless.assert_called_once_with(urls)
         direct.assert_not_called()
+
+    def test_browserless_capacity_is_released_after_error(self):
+        from usage_limits import BrowserCapacityExceeded, browserless_slot
+        with browserless_slot(), browserless_slot():
+            with self.assertRaises(BrowserCapacityExceeded):
+                with browserless_slot():
+                    pass
+        with self.assertRaisesRegex(RuntimeError, "failure"):
+            with browserless_slot():
+                raise RuntimeError("failure")
+        with browserless_slot(), browserless_slot():
+            pass
 
     def test_proxy_url_is_used_for_http_and_browser_with_decoded_credentials(self):
         proxy_url = "http://user%2Dsession:secret%40word@proxy.example:7000"

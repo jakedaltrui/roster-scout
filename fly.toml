@@ -16,6 +16,7 @@ primary_region = "ord"
   NCAA_SITE_UNBLOCKER = "0"
   NCAA_RESULT_CACHE_TTL_SECONDS = "21600"
   NCAA_LOOKUP_CACHE_TTL_SECONDS = "86400"
+  TRUST_FLY_CLIENT_IP = "1"
 
 [[mounts]]
   source = "roster_scout_cache"

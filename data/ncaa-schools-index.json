@@ -1,0 +1,5852 @@
+[
+  {
+    "name": "Abilene Christian",
+    "long_name": "Abilene Christian University",
+    "slug": "abilene-christian"
+  },
+  {
+    "name": "Academy of Art",
+    "long_name": "Academy of Art University",
+    "slug": "academy-of-art"
+  },
+  {
+    "name": "Adams St.",
+    "long_name": "Adams State University",
+    "slug": "adams-st"
+  },
+  {
+    "name": "Adelphi",
+    "long_name": "Adelphi University",
+    "slug": "adelphi"
+  },
+  {
+    "name": "Adrian",
+    "long_name": "Adrian College",
+    "slug": "adrian"
+  },
+  {
+    "name": "Agnes Scott",
+    "long_name": "Agnes Scott College",
+    "slug": "agnes-scott"
+  },
+  {
+    "name": "Air Force",
+    "long_name": "Air Force Academy",
+    "slug": "air-force"
+  },
+  {
+    "name": "Akron",
+    "long_name": "University of Akron",
+    "slug": "akron"
+  },
+  {
+    "name": "Alabama-Huntsville",
+    "long_name": "University of Alabama-Huntsville",
+    "slug": "ala-huntsville"
+  },
+  {
+    "name": "Alabama",
+    "long_name": "University of Alabama",
+    "slug": "alabama"
+  },
+  {
+    "name": "Alabama A&M",
+    "long_name": "Alabama A&M University",
+    "slug": "alabama-am"
+  },
+  {
+    "name": "Alabama St.",
+    "long_name": "Alabama State University",
+    "slug": "alabama-st"
+  },
+  {
+    "name": "Alas. Anchorage",
+    "long_name": "University of Alaska-Anchorage",
+    "slug": "alas-anchorage"
+  },
+  {
+    "name": "Alas. Fairbanks",
+    "long_name": "University of Alaska-Fairbanks",
+    "slug": "alas-fairbanks"
+  },
+  {
+    "name": "Albany (NY)",
+    "long_name": "University at Albany",
+    "slug": "albany-ny"
+  },
+  {
+    "name": "Albany St. (GA)",
+    "long_name": "Albany State University ",
+    "slug": "albany-st-ga"
+  },
+  {
+    "name": "Albertus Magnus",
+    "long_name": "Albertus Magnus College",
+    "slug": "albertus-magnus"
+  },
+  {
+    "name": "Albion",
+    "long_name": "Albion College",
+    "slug": "albion"
+  },
+  {
+    "name": "Albright",
+    "long_name": "Albright College",
+    "slug": "albright"
+  },
+  {
+    "name": "Alcorn St.",
+    "long_name": "Alcorn State University",
+    "slug": "alcorn"
+  },
+  {
+    "name": "Alderson Broaddus",
+    "long_name": "Alderson-Broaddus University ",
+    "slug": "alderson-broaddus"
+  },
+  {
+    "name": "Alfred",
+    "long_name": "Alfred University",
+    "slug": "alfred"
+  },
+  {
+    "name": "Alfred State",
+    "long_name": "Alfred State College",
+    "slug": "alfred-st"
+  },
+  {
+    "name": "Allegheny",
+    "long_name": "Allegheny College",
+    "slug": "allegheny"
+  },
+  {
+    "name": "Allen",
+    "long_name": "Allen",
+    "slug": "allen"
+  },
+  {
+    "name": "Alma",
+    "long_name": "Alma College",
+    "slug": "alma"
+  },
+  {
+    "name": "Alvernia",
+    "long_name": "Alvernia University",
+    "slug": "alvernia"
+  },
+  {
+    "name": "Alverno",
+    "long_name": "Alverno College",
+    "slug": "alverno"
+  },
+  {
+    "name": "Texas-Am-Corpus ",
+    "long_name": "Texas A&M-Corpus Christi",
+    "slug": "am-corpus-chris"
+  },
+  {
+    "name": "American",
+    "long_name": "American University",
+    "slug": "american"
+  },
+  {
+    "name": "American Int'l",
+    "long_name": "American International College",
+    "slug": "american-intl"
+  },
+  {
+    "name": "American (PR)",
+    "long_name": "American University of Puerto Rico",
+    "slug": "american-pr"
+  },
+  {
+    "name": "Amherst",
+    "long_name": "Amherst College",
+    "slug": "amherst"
+  },
+  {
+    "name": "Anderson (IN)",
+    "long_name": "Anderson University (Ind.) ",
+    "slug": "anderson-in"
+  },
+  {
+    "name": "Anderson (SC)",
+    "long_name": "Anderson University (S.C.)",
+    "slug": "anderson-sc"
+  },
+  {
+    "name": "Angelo St.",
+    "long_name": "Angelo State University",
+    "slug": "angelo-st"
+  },
+  {
+    "name": "Anna Maria",
+    "long_name": "Anna Maria College",
+    "slug": "anna-maria"
+  },
+  {
+    "name": "Appalachian St.",
+    "long_name": "Appalachian State University",
+    "slug": "appalachian-st"
+  },
+  {
+    "name": "Arcadia",
+    "long_name": "Arcadia University",
+    "slug": "arcadia"
+  },
+  {
+    "name": "Arizona",
+    "long_name": "University of Arizona",
+    "slug": "arizona"
+  },
+  {
+    "name": "Arizona St.",
+    "long_name": "Arizona State University",
+    "slug": "arizona-st"
+  },
+  {
+    "name": "Ark. - Fort Smith",
+    "long_name": "University of Arkansas-Fort Smith",
+    "slug": "ark-fort-smith"
+  },
+  {
+    "name": "Ark.-Monticello",
+    "long_name": "University of Arkansas-Monticello",
+    "slug": "ark-monticello"
+  },
+  {
+    "name": "Ark.-Pine Bluff",
+    "long_name": "University of Arkansas-Pine Bluff",
+    "slug": "ark-pine-bluff"
+  },
+  {
+    "name": "Arkansas",
+    "long_name": "University of Arkansas",
+    "slug": "arkansas"
+  },
+  {
+    "name": "Arkansas St.",
+    "long_name": "Arkansas State University",
+    "slug": "arkansas-st"
+  },
+  {
+    "name": "Arkansas Tech",
+    "long_name": "Arkansas Tech University",
+    "slug": "arkansas-tech"
+  },
+  {
+    "name": "Armstrong",
+    "long_name": "Armstrong State University",
+    "slug": "armstrong"
+  },
+  {
+    "name": "Army",
+    "long_name": "Army West Point",
+    "slug": "army"
+  },
+  {
+    "name": "Asbury University",
+    "long_name": "Asbury University",
+    "slug": "asbury"
+  },
+  {
+    "name": "Ashland",
+    "long_name": "Ashland University",
+    "slug": "ashland"
+  },
+  {
+    "name": "Assumption",
+    "long_name": "Assumption College",
+    "slug": "assumption"
+  },
+  {
+    "name": "Auburn-Montgomery",
+    "long_name": null,
+    "slug": "aub-montgomery"
+  },
+  {
+    "name": "Auburn",
+    "long_name": "Auburn University",
+    "slug": "auburn"
+  },
+  {
+    "name": "Augsburg",
+    "long_name": "Augsburg University",
+    "slug": "augsburg"
+  },
+  {
+    "name": "Augustana (IL)",
+    "long_name": "Augustana College (IL)",
+    "slug": "augustana-il"
+  },
+  {
+    "name": "Augustana (SD)",
+    "long_name": "Augustana University (SD)",
+    "slug": "augustana-sd"
+  },
+  {
+    "name": "Aurora",
+    "long_name": "Aurora University",
+    "slug": "aurora"
+  },
+  {
+    "name": "Austin",
+    "long_name": "Austin College",
+    "slug": "austin"
+  },
+  {
+    "name": "Austin Peay",
+    "long_name": "Austin Peay State University",
+    "slug": "austin-peay"
+  },
+  {
+    "name": "Averett",
+    "long_name": "Averett University",
+    "slug": "averett"
+  },
+  {
+    "name": "Azusa Pacific",
+    "long_name": "Azusa Pacific University",
+    "slug": "azusa-pacific"
+  },
+  {
+    "name": "Babson",
+    "long_name": "Babson College",
+    "slug": "babson"
+  },
+  {
+    "name": "CSU Bakersfield",
+    "long_name": "CSU Bakersfield",
+    "slug": "bakersfield"
+  },
+  {
+    "name": "Baldwin Wallace",
+    "long_name": "Baldwin Wallace University",
+    "slug": "baldwin-wallace"
+  },
+  {
+    "name": "Ball St.",
+    "long_name": "Ball State University",
+    "slug": "ball-st"
+  },
+  {
+    "name": "Clarks Summit University ",
+    "long_name": "Clarks Summit University",
+    "slug": "baptist-bible-pa"
+  },
+  {
+    "name": "Bard",
+    "long_name": "Bard College",
+    "slug": "bard"
+  },
+  {
+    "name": "Barry",
+    "long_name": "Barry University",
+    "slug": "barry"
+  },
+  {
+    "name": "Barton",
+    "long_name": "Barton College",
+    "slug": "barton"
+  },
+  {
+    "name": "Baruch",
+    "long_name": "Baruch College",
+    "slug": "baruch"
+  },
+  {
+    "name": "Bates",
+    "long_name": "Bates College",
+    "slug": "bates"
+  },
+  {
+    "name": "Bay Path",
+    "long_name": "Bay Path University",
+    "slug": "bay-path"
+  },
+  {
+    "name": "Baylor",
+    "long_name": "Baylor University",
+    "slug": "baylor"
+  },
+  {
+    "name": "Becker",
+    "long_name": "Becker College",
+    "slug": "becker"
+  },
+  {
+    "name": "Belhaven",
+    "long_name": "Belhaven University",
+    "slug": "belhaven"
+  },
+  {
+    "name": "Bellarmine",
+    "long_name": "Bellarmine University",
+    "slug": "bellarmine"
+  },
+  {
+    "name": "Belmont",
+    "long_name": "Belmont University",
+    "slug": "belmont"
+  },
+  {
+    "name": "Belmont Abbey",
+    "long_name": "Belmont Abbey College",
+    "slug": "belmont-abbey"
+  },
+  {
+    "name": "Beloit",
+    "long_name": "Beloit College",
+    "slug": "beloit"
+  },
+  {
+    "name": "Bemidji St.",
+    "long_name": "Bemidji State University",
+    "slug": "bemidji-st"
+  },
+  {
+    "name": "Benedict",
+    "long_name": "Benedict College",
+    "slug": "benedict"
+  },
+  {
+    "name": "Benedictine (IL)",
+    "long_name": "Benedictine University",
+    "slug": "benedictine-il"
+  },
+  {
+    "name": "Bentley",
+    "long_name": "Bentley University",
+    "slug": "bentley"
+  },
+  {
+    "name": "Berea College",
+    "long_name": "Berea College",
+    "slug": "berea"
+  },
+  {
+    "name": "Berry",
+    "long_name": "Berry College",
+    "slug": "berry"
+  },
+  {
+    "name": "Bethany Lutheran",
+    "long_name": "Bethany Lutheran College",
+    "slug": "bethany-lutheran"
+  },
+  {
+    "name": "Bethany (WV)",
+    "long_name": "Bethany College",
+    "slug": "bethany-wv"
+  },
+  {
+    "name": "Bethel (MN)",
+    "long_name": "Bethel University",
+    "slug": "bethel-mn"
+  },
+  {
+    "name": "Bethune-Cookman",
+    "long_name": "Bethune-Cookman University",
+    "slug": "bethune-cookman"
+  },
+  {
+    "name": "Binghamton",
+    "long_name": "Binghamton University",
+    "slug": "binghamton"
+  },
+  {
+    "name": "Biola",
+    "long_name": "Biola University",
+    "slug": "biola"
+  },
+  {
+    "name": "Birmingham-So.",
+    "long_name": "Birmingham-Southern College",
+    "slug": "birmingham-so"
+  },
+  {
+    "name": "Black Hills St.",
+    "long_name": "Black Hills State University",
+    "slug": "black-hills-st"
+  },
+  {
+    "name": "Blackburn",
+    "long_name": "Blackburn College",
+    "slug": "blackburn"
+  },
+  {
+    "name": "Bloomfield",
+    "long_name": "Bloomfield College",
+    "slug": "bloomfield"
+  },
+  {
+    "name": "Bloomsburg",
+    "long_name": "Bloomsburg University",
+    "slug": "bloomsburg"
+  },
+  {
+    "name": "Bluefield St.",
+    "long_name": "Bluefield State College",
+    "slug": "bluefield-st"
+  },
+  {
+    "name": "Bluffton",
+    "long_name": "Bluffton University",
+    "slug": "bluffton"
+  },
+  {
+    "name": "Boise St.",
+    "long_name": "Boise State University",
+    "slug": "boise-st"
+  },
+  {
+    "name": "Boston College",
+    "long_name": "Boston College",
+    "slug": "boston-college"
+  },
+  {
+    "name": "Boston U.",
+    "long_name": "Boston University",
+    "slug": "boston-u"
+  },
+  {
+    "name": "Bowdoin",
+    "long_name": "Bowdoin College",
+    "slug": "bowdoin"
+  },
+  {
+    "name": "Bowie St.",
+    "long_name": "Bowie State University",
+    "slug": "bowie-st"
+  },
+  {
+    "name": "Bowling Green",
+    "long_name": "Bowling Green State University",
+    "slug": "bowling-green"
+  },
+  {
+    "name": "Bradley",
+    "long_name": "Bradley University",
+    "slug": "bradley"
+  },
+  {
+    "name": "Brandeis",
+    "long_name": "Brandeis University",
+    "slug": "brandeis"
+  },
+  {
+    "name": "Brevard",
+    "long_name": "Brevard College",
+    "slug": "brevard"
+  },
+  {
+    "name": "Bridgeport",
+    "long_name": "University of Bridgeport",
+    "slug": "bridgeport"
+  },
+  {
+    "name": "Bridgewater St.",
+    "long_name": "Bridgewater State University",
+    "slug": "bridgewater-st"
+  },
+  {
+    "name": "Bridgewater (VA)",
+    "long_name": "Bridgewater College",
+    "slug": "bridgewater-va"
+  },
+  {
+    "name": "Brooklyn",
+    "long_name": "Brooklyn College",
+    "slug": "brooklyn"
+  },
+  {
+    "name": "Brown",
+    "long_name": "Brown University",
+    "slug": "brown"
+  },
+  {
+    "name": "Bryant",
+    "long_name": "Bryant University",
+    "slug": "bryant"
+  },
+  {
+    "name": "Bryn Athyn",
+    "long_name": "Bryn Athyn College",
+    "slug": "bryn-athyn"
+  },
+  {
+    "name": "Bryn Mawr",
+    "long_name": "Bryn Mawr College",
+    "slug": "bryn-mawr"
+  },
+  {
+    "name": "Bucknell",
+    "long_name": "Bucknell University",
+    "slug": "bucknell"
+  },
+  {
+    "name": "Buena Vista",
+    "long_name": "Buena Vista University",
+    "slug": "buena-vista"
+  },
+  {
+    "name": "Buffalo",
+    "long_name": "University at Buffalo",
+    "slug": "buffalo"
+  },
+  {
+    "name": "Buffalo St.",
+    "long_name": "Buffalo State College",
+    "slug": "buffalo-st"
+  },
+  {
+    "name": "Butler",
+    "long_name": "Butler University",
+    "slug": "butler"
+  },
+  {
+    "name": "BYU",
+    "long_name": "Brigham Young University",
+    "slug": "byu"
+  },
+  {
+    "name": "BYU-Hawaii",
+    "long_name": "BYU-Hawaii",
+    "slug": "byu-hawaii"
+  },
+  {
+    "name": "Cabrini",
+    "long_name": "Cabrini University ",
+    "slug": "cabrini"
+  },
+  {
+    "name": "Cairn",
+    "long_name": "Cairn University",
+    "slug": "cairn"
+  },
+  {
+    "name": "Cal Lutheran",
+    "long_name": "California Lutheran University",
+    "slug": "cal-lutheran"
+  },
+  {
+    "name": "Cal Poly",
+    "long_name": "Cal Poly",
+    "slug": "cal-poly"
+  },
+  {
+    "name": "Cal Poly Pomona",
+    "long_name": "Cal Poly Pomona",
+    "slug": "cal-poly-pomona"
+  },
+  {
+    "name": "Cal St. Dom. Hills",
+    "long_name": "Cal State-Dominguez Hills",
+    "slug": "cal-st-dom-hills"
+  },
+  {
+    "name": "Cal St. East Bay",
+    "long_name": "Cal State-East Bay",
+    "slug": "cal-st-east-bay"
+  },
+  {
+    "name": "Cal St. Fullerton",
+    "long_name": "Cal State-Fullerton",
+    "slug": "cal-st-fullerton"
+  },
+  {
+    "name": "Cal State LA",
+    "long_name": "Cal State-Los Angeles",
+    "slug": "cal-st-la"
+  },
+  {
+    "name": "Cal St. Monterey Bay",
+    "long_name": "Cal State-Monterey Bay",
+    "slug": "cal-st-monterey-bay"
+  },
+  {
+    "name": "Cal St. Northridge",
+    "long_name": "Cal State-Northridge",
+    "slug": "cal-st-northridge"
+  },
+  {
+    "name": "Cal St. San B'dino",
+    "long_name": "Cal State-San Bernardino",
+    "slug": "cal-st-san-bdino"
+  },
+  {
+    "name": "Cal State-San Marcos",
+    "long_name": null,
+    "slug": "cal-st-san-marcos"
+  },
+  {
+    "name": "Cal St. Stanislaus",
+    "long_name": "Cal State-Stanislaus",
+    "slug": "cal-st-stanislaus"
+  },
+  {
+    "name": "Caldwell",
+    "long_name": "Caldwell University",
+    "slug": "caldwell"
+  },
+  {
+    "name": "California",
+    "long_name": "University of California",
+    "slug": "california"
+  },
+  {
+    "name": "Cal Baptist",
+    "long_name": "California Baptist University",
+    "slug": "california-baptist"
+  },
+  {
+    "name": "California (PA)",
+    "long_name": "California University of Pennsylvania",
+    "slug": "california-pa"
+  },
+  {
+    "name": "Caltech",
+    "long_name": "California Institute of Technology",
+    "slug": "caltech"
+  },
+  {
+    "name": "Calvin",
+    "long_name": "Calvin College",
+    "slug": "calvin"
+  },
+  {
+    "name": "Cameron",
+    "long_name": "Cameron University",
+    "slug": "cameron"
+  },
+  {
+    "name": "Campbell",
+    "long_name": "Campbell University",
+    "slug": "campbell"
+  },
+  {
+    "name": "Canisius",
+    "long_name": "Canisius College",
+    "slug": "canisius"
+  },
+  {
+    "name": "Capital",
+    "long_name": "Capital University",
+    "slug": "capital"
+  },
+  {
+    "name": "Carleton",
+    "long_name": "Carleton College",
+    "slug": "carleton"
+  },
+  {
+    "name": "Carnegie Mellon",
+    "long_name": "Carnegie Mellon University",
+    "slug": "carnegie-mellon"
+  },
+  {
+    "name": "Carroll (WI)",
+    "long_name": "Carroll University",
+    "slug": "carroll-wi"
+  },
+  {
+    "name": "Carson-Newman",
+    "long_name": "Carson-Newman College",
+    "slug": "carson-newman"
+  },
+  {
+    "name": "Carthage",
+    "long_name": "Carthage College",
+    "slug": "carthage"
+  },
+  {
+    "name": "Case Western Reserve",
+    "long_name": "Case Western Reserve University",
+    "slug": "case"
+  },
+  {
+    "name": "Castleton",
+    "long_name": "Castleton University ",
+    "slug": "castleton"
+  },
+  {
+    "name": "Catawba",
+    "long_name": "Catawba College",
+    "slug": "catawba"
+  },
+  {
+    "name": "Catholic",
+    "long_name": "Catholic University",
+    "slug": "catholic"
+  },
+  {
+    "name": "Cazenovia",
+    "long_name": "Cazenovia College",
+    "slug": "cazenovia"
+  },
+  {
+    "name": "CCNY",
+    "long_name": "City College of New York",
+    "slug": "ccny"
+  },
+  {
+    "name": "Cedar Crest",
+    "long_name": "Cedar Crest College",
+    "slug": "cedar-crest"
+  },
+  {
+    "name": "Cedarville",
+    "long_name": "Cedarville University",
+    "slug": "cedarville"
+  },
+  {
+    "name": "Centenary (LA)",
+    "long_name": "Centenary College of Louisiana",
+    "slug": "centenary-la"
+  },
+  {
+    "name": "Centenary (NJ)",
+    "long_name": "Centenary University (N.J.)",
+    "slug": "centenary-nj"
+  },
+  {
+    "name": "Central Ark.",
+    "long_name": "University of Central Arkansas",
+    "slug": "central-ark"
+  },
+  {
+    "name": "Central Conn. St.",
+    "long_name": "Central Connecticut State University",
+    "slug": "central-conn-st"
+  },
+  {
+    "name": "Central (IA)",
+    "long_name": "Central College (Iowa)",
+    "slug": "central-ia"
+  },
+  {
+    "name": "Central Mich.",
+    "long_name": "Central Michigan University",
+    "slug": "central-mich"
+  },
+  {
+    "name": "Central Mo.",
+    "long_name": "University of Central Missouri",
+    "slug": "central-mo"
+  },
+  {
+    "name": "Central Okla.",
+    "long_name": "University of Central Oklahoma",
+    "slug": "central-okla"
+  },
+  {
+    "name": "Central St. (OH)",
+    "long_name": "Central State University",
+    "slug": "central-st-oh"
+  },
+  {
+    "name": "Central Wash.",
+    "long_name": "Central Washington University",
+    "slug": "central-wash"
+  },
+  {
+    "name": "Centre",
+    "long_name": "Centre College",
+    "slug": "centre"
+  },
+  {
+    "name": "Chadron St.",
+    "long_name": "Chadron State College",
+    "slug": "chadron-st"
+  },
+  {
+    "name": "Chaminade",
+    "long_name": "Chaminade University",
+    "slug": "chaminade"
+  },
+  {
+    "name": "Chapman",
+    "long_name": "Chapman University",
+    "slug": "chapman"
+  },
+  {
+    "name": "Charleston So.",
+    "long_name": "Charleston Southern University",
+    "slug": "charleston-so"
+  },
+  {
+    "name": "Charleston (WV)",
+    "long_name": "University of Charleston",
+    "slug": "charleston-wv"
+  },
+  {
+    "name": "Charlotte",
+    "long_name": "UNC Charlotte",
+    "slug": "charlotte"
+  },
+  {
+    "name": "Chatham",
+    "long_name": "Chatham University",
+    "slug": "chatham"
+  },
+  {
+    "name": "Tenn-Chattanooga ",
+    "long_name": "University of Tennessee at Chattanooga",
+    "slug": "chattanooga"
+  },
+  {
+    "name": "Chestnut Hill",
+    "long_name": "Chestnut Hill College",
+    "slug": "chestnut-hill"
+  },
+  {
+    "name": "Cheyney",
+    "long_name": "Cheyney University of Pennsylvania",
+    "slug": "cheyney"
+  },
+  {
+    "name": "Chicago",
+    "long_name": "University of Chicago",
+    "slug": "chicago"
+  },
+  {
+    "name": "Chicago St.",
+    "long_name": "Chicago State University",
+    "slug": "chicago-st"
+  },
+  {
+    "name": "Chico State",
+    "long_name": "California State University, Chico",
+    "slug": "chico-st"
+  },
+  {
+    "name": "Chowan",
+    "long_name": "Chowan University",
+    "slug": "chowan"
+  },
+  {
+    "name": "Chris. Newport",
+    "long_name": "Christopher Newport University",
+    "slug": "chris-newport"
+  },
+  {
+    "name": "Christian Bros.",
+    "long_name": "Christian Brothers University",
+    "slug": "christian-bros"
+  },
+  {
+    "name": "Cincinnati",
+    "long_name": "University of Cincinnati",
+    "slug": "cincinnati"
+  },
+  {
+    "name": "Citadel",
+    "long_name": "The Citadel",
+    "slug": "citadel"
+  },
+  {
+    "name": "New-York-City-Tech",
+    "long_name": "NYC College of Technology",
+    "slug": "city-tech"
+  },
+  {
+    "name": "Claflin",
+    "long_name": "Claflin University",
+    "slug": "claflin"
+  },
+  {
+    "name": "Claremont-M-S",
+    "long_name": "Claremont-Mudd-Scripps Colleges",
+    "slug": "claremont-m-s"
+  },
+  {
+    "name": "Clarion",
+    "long_name": "Clarion University of Pennsylvania",
+    "slug": "clarion"
+  },
+  {
+    "name": "Clark Atlanta",
+    "long_name": "Clark Atlanta University",
+    "slug": "clark-atlanta"
+  },
+  {
+    "name": "Clark (MA)",
+    "long_name": "Clark University",
+    "slug": "clark-ma"
+  },
+  {
+    "name": "Clarke",
+    "long_name": "Clarke University",
+    "slug": "clarke"
+  },
+  {
+    "name": "Clarkson",
+    "long_name": "Clarkson University",
+    "slug": "clarkson"
+  },
+  {
+    "name": "Clayton St.",
+    "long_name": "Clayton State University",
+    "slug": "clayton-st"
+  },
+  {
+    "name": "Clemson",
+    "long_name": "Clemson University",
+    "slug": "clemson"
+  },
+  {
+    "name": "Cleveland St.",
+    "long_name": "Cleveland State University",
+    "slug": "cleveland-st"
+  },
+  {
+    "name": "Coast Guard",
+    "long_name": "U.S. Coast Guard Academy",
+    "slug": "coast-guard"
+  },
+  {
+    "name": "Coastal Caro.",
+    "long_name": "Coastal Carolina University",
+    "slug": "coastal-caro"
+  },
+  {
+    "name": "Suny-Cobleskill ",
+    "long_name": "SUNY, Cobleskill",
+    "slug": "cobleskill-st"
+  },
+  {
+    "name": "Coe",
+    "long_name": "Coe College",
+    "slug": "coe"
+  },
+  {
+    "name": "Coker",
+    "long_name": "Coker University",
+    "slug": "coker"
+  },
+  {
+    "name": "Col. of Charleston",
+    "long_name": "College of Charleston",
+    "slug": "col-of-charleston"
+  },
+  {
+    "name": "Colby",
+    "long_name": "Colby College",
+    "slug": "colby"
+  },
+  {
+    "name": "Colby-Sawyer",
+    "long_name": "Colby-Sawyer College",
+    "slug": "colby-sawyer"
+  },
+  {
+    "name": "Colgate",
+    "long_name": "Colgate University",
+    "slug": "colgate"
+  },
+  {
+    "name": "Colo. Christian",
+    "long_name": "Colorado Christian University",
+    "slug": "colo-christian"
+  },
+  {
+    "name": "Colorado",
+    "long_name": "University of Colorado",
+    "slug": "colorado"
+  },
+  {
+    "name": "Colorado Col.",
+    "long_name": "Colorado College",
+    "slug": "colorado-col"
+  },
+  {
+    "name": "Colorado Mesa",
+    "long_name": "Colorado Mesa University",
+    "slug": "colorado-mesa"
+  },
+  {
+    "name": "Colorado School of Mines",
+    "long_name": "Colorado School of Mines",
+    "slug": "colorado-mines"
+  },
+  {
+    "name": "Colorado St.",
+    "long_name": "Colorado State University",
+    "slug": "colorado-st"
+  },
+  {
+    "name": "Colorado St.-Pueblo",
+    "long_name": "Colorado State University-Pueblo",
+    "slug": "colorado-st-pueblo"
+  },
+  {
+    "name": "Columbia",
+    "long_name": "Columbia University-Barnard College",
+    "slug": "columbia"
+  },
+  {
+    "name": "Columbus St.",
+    "long_name": "Columbus State University",
+    "slug": "columbus-st"
+  },
+  {
+    "name": "Concord",
+    "long_name": "Concord University",
+    "slug": "concord"
+  },
+  {
+    "name": "Concordia Chicago",
+    "long_name": "Concordia University Chicago",
+    "slug": "concordia-chicago"
+  },
+  {
+    "name": "Concordia University Irvine",
+    "long_name": "Concordia University Irvine",
+    "slug": "concordia-irvine"
+  },
+  {
+    "name": "Concordia-M'head",
+    "long_name": "Concordia College-Moorhead",
+    "slug": "concordia-mhead"
+  },
+  {
+    "name": "Concordia (NY)",
+    "long_name": "Concordia College-New York",
+    "slug": "concordia-ny"
+  },
+  {
+    "name": "Concordia University-Portland",
+    "long_name": null,
+    "slug": "concordia-or"
+  },
+  {
+    "name": "Concordia-St. Paul",
+    "long_name": "Concordia University, St. Paul",
+    "slug": "concordia-st-paul"
+  },
+  {
+    "name": "Concordia (TX)",
+    "long_name": "Concordia University Texas",
+    "slug": "concordia-tx"
+  },
+  {
+    "name": "Concordia (Wis.)",
+    "long_name": "Concordia University Wisconsin",
+    "slug": "concordia-wi"
+  },
+  {
+    "name": "Connecticut Col.",
+    "long_name": "Connecticut College",
+    "slug": "connecticut-col"
+  },
+  {
+    "name": "Converse",
+    "long_name": "Converse College",
+    "slug": "converse"
+  },
+  {
+    "name": "Coppin St.",
+    "long_name": "Coppin State University",
+    "slug": "coppin-st"
+  },
+  {
+    "name": "Cornell",
+    "long_name": "Cornell University",
+    "slug": "cornell"
+  },
+  {
+    "name": "Cornell College",
+    "long_name": "Cornell College",
+    "slug": "cornell-college"
+  },
+  {
+    "name": "Covenant",
+    "long_name": "Covenant College",
+    "slug": "covenant"
+  },
+  {
+    "name": "Creighton",
+    "long_name": "Creighton University",
+    "slug": "creighton"
+  },
+  {
+    "name": "Crown (MN)",
+    "long_name": "Crown College",
+    "slug": "crown-mn"
+  },
+  {
+    "name": "Curry",
+    "long_name": "Curry College",
+    "slug": "curry"
+  },
+  {
+    "name": "Daemen",
+    "long_name": "Daemen College",
+    "slug": "daemen"
+  },
+  {
+    "name": "Dallas",
+    "long_name": "University of Dallas",
+    "slug": "dallas"
+  },
+  {
+    "name": "Dallas Baptist",
+    "long_name": "Dallas Baptist University",
+    "slug": "dallas-baptist"
+  },
+  {
+    "name": "Daniel Webster",
+    "long_name": "Daniel Webster College",
+    "slug": "daniel-webster"
+  },
+  {
+    "name": "Dartmouth",
+    "long_name": "Dartmouth College",
+    "slug": "dartmouth"
+  },
+  {
+    "name": "Davenport",
+    "long_name": "Davenport University ",
+    "slug": "davenport"
+  },
+  {
+    "name": "Davidson",
+    "long_name": "Davidson College",
+    "slug": "davidson"
+  },
+  {
+    "name": "Davis & Elkins",
+    "long_name": "Davis and Elkins College",
+    "slug": "davis-elkins"
+  },
+  {
+    "name": "Dayton",
+    "long_name": "University of Dayton",
+    "slug": "dayton"
+  },
+  {
+    "name": "Dean College",
+    "long_name": "Dean College ",
+    "slug": "dean-college"
+  },
+  {
+    "name": "Delaware",
+    "long_name": "University of Delaware",
+    "slug": "delaware"
+  },
+  {
+    "name": "Delaware St.",
+    "long_name": "Delaware State University",
+    "slug": "delaware-st"
+  },
+  {
+    "name": "Delaware Valley",
+    "long_name": "Delaware Valley College",
+    "slug": "delaware-valley"
+  },
+  {
+    "name": "Delta St.",
+    "long_name": "Delta State University",
+    "slug": "delta-st"
+  },
+  {
+    "name": "Denison",
+    "long_name": "Denison University",
+    "slug": "denison"
+  },
+  {
+    "name": "Denver",
+    "long_name": "University of Denver",
+    "slug": "denver"
+  },
+  {
+    "name": "DePaul",
+    "long_name": "DePaul University",
+    "slug": "depaul"
+  },
+  {
+    "name": "DePauw",
+    "long_name": "DePauw University",
+    "slug": "depauw"
+  },
+  {
+    "name": "DeSales",
+    "long_name": "DeSales University",
+    "slug": "desales"
+  },
+  {
+    "name": "Detroit",
+    "long_name": "University of Detroit Mercy",
+    "slug": "detroit"
+  },
+  {
+    "name": "Dickinson",
+    "long_name": "Dickinson College",
+    "slug": "dickinson"
+  },
+  {
+    "name": "Dist. Columbia",
+    "long_name": "University of the District of Columbia",
+    "slug": "dist-columbia"
+  },
+  {
+    "name": "Dominican (Cal.)",
+    "long_name": "Dominican University of California",
+    "slug": "dominican-ca"
+  },
+  {
+    "name": "Dominican (IL)",
+    "long_name": "Dominican University (Ill.)",
+    "slug": "dominican-il"
+  },
+  {
+    "name": "Dominican (NY)",
+    "long_name": "Dominican College (N.Y.) ",
+    "slug": "dominican-ny"
+  },
+  {
+    "name": "Dowling",
+    "long_name": "Dowling College",
+    "slug": "dowling"
+  },
+  {
+    "name": "Drake",
+    "long_name": "Drake University",
+    "slug": "drake"
+  },
+  {
+    "name": "Drew",
+    "long_name": "Drew University",
+    "slug": "drew"
+  },
+  {
+    "name": "Drexel",
+    "long_name": "Drexel University",
+    "slug": "drexel"
+  },
+  {
+    "name": "Drury",
+    "long_name": "Drury University",
+    "slug": "drury"
+  },
+  {
+    "name": "Dubuque",
+    "long_name": "University of Dubuque",
+    "slug": "dubuque"
+  },
+  {
+    "name": "Duke",
+    "long_name": "Duke University",
+    "slug": "duke"
+  },
+  {
+    "name": "Duquesne",
+    "long_name": "Duquesne University",
+    "slug": "duquesne"
+  },
+  {
+    "name": "D'Youville",
+    "long_name": "D'Youville College",
+    "slug": "dyouville"
+  },
+  {
+    "name": "Earlham",
+    "long_name": "Earlham College",
+    "slug": "earlham"
+  },
+  {
+    "name": "East Carolina",
+    "long_name": "East Carolina University",
+    "slug": "east-carolina"
+  },
+  {
+    "name": "East Central",
+    "long_name": "East Central University",
+    "slug": "east-central"
+  },
+  {
+    "name": "East. Mennonite",
+    "long_name": "Eastern Mennonite University",
+    "slug": "east-mennonite"
+  },
+  {
+    "name": "East Stroudsburg",
+    "long_name": "East Stroudsburg University",
+    "slug": "east-stroudsburg"
+  },
+  {
+    "name": "East Tenn. St.",
+    "long_name": "East Tennessee State University",
+    "slug": "east-tenn-st"
+  },
+  {
+    "name": "East Tex. A&M",
+    "long_name": "East Texas A&M University",
+    "slug": "east-tex-am"
+  },
+  {
+    "name": "East Tex. Baptist",
+    "long_name": "East Texas Baptist University",
+    "slug": "east-tex-baptist"
+  },
+  {
+    "name": "Eastern",
+    "long_name": "Eastern University",
+    "slug": "eastern"
+  },
+  {
+    "name": "Eastern Conn. St.",
+    "long_name": "Eastern Connecticut State University",
+    "slug": "eastern-conn-st"
+  },
+  {
+    "name": "Eastern Ill.",
+    "long_name": "Eastern Illinois University",
+    "slug": "eastern-ill"
+  },
+  {
+    "name": "Eastern Ky.",
+    "long_name": "Eastern Kentucky University",
+    "slug": "eastern-ky"
+  },
+  {
+    "name": "Eastern Mich.",
+    "long_name": "Eastern Michigan University",
+    "slug": "eastern-mich"
+  },
+  {
+    "name": "Eastern N.M.",
+    "long_name": "Eastern New Mexico University",
+    "slug": "eastern-nm"
+  },
+  {
+    "name": "Eastern Ore.",
+    "long_name": "Eastern Oregon University",
+    "slug": "eastern-ore"
+  },
+  {
+    "name": "Eastern Wash.",
+    "long_name": "Eastern Washington University",
+    "slug": "eastern-wash"
+  },
+  {
+    "name": "Eckerd",
+    "long_name": "Eckerd College",
+    "slug": "eckerd"
+  },
+  {
+    "name": "Edgewood",
+    "long_name": "Edgewood College",
+    "slug": "edgewood"
+  },
+  {
+    "name": "Edinboro",
+    "long_name": "Edinboro University",
+    "slug": "edinboro"
+  },
+  {
+    "name": "Edward Waters",
+    "long_name": "Edward Waters",
+    "slug": "edward-waters"
+  },
+  {
+    "name": "Elizabeth City St.",
+    "long_name": "Elizabeth City State University",
+    "slug": "elizabeth-city-st"
+  },
+  {
+    "name": "Elizabethtown",
+    "long_name": "Elizabethtown College",
+    "slug": "elizabethtown"
+  },
+  {
+    "name": "Elmhurst",
+    "long_name": "Elmhurst College",
+    "slug": "elmhurst"
+  },
+  {
+    "name": "Elmira",
+    "long_name": "Elmira College",
+    "slug": "elmira"
+  },
+  {
+    "name": "Elms",
+    "long_name": "Elms College",
+    "slug": "elms"
+  },
+  {
+    "name": "Elon",
+    "long_name": "Elon University",
+    "slug": "elon"
+  },
+  {
+    "name": "Embry-Riddle University",
+    "long_name": "Embry-Riddle University ",
+    "slug": "embry-riddle-fl"
+  },
+  {
+    "name": "Emerson",
+    "long_name": "Emerson College",
+    "slug": "emerson"
+  },
+  {
+    "name": "Emmanuel (Ga.)",
+    "long_name": "Emmanuel College (Ga.)",
+    "slug": "emmanuel-ga"
+  },
+  {
+    "name": "Emmanuel (Mass.)",
+    "long_name": "Emmanuel College (Mass.)",
+    "slug": "emmanuel-ma"
+  },
+  {
+    "name": "Emory",
+    "long_name": "Emory University",
+    "slug": "emory"
+  },
+  {
+    "name": "Emory & Henry",
+    "long_name": "Emory and Henry College",
+    "slug": "emory-henry"
+  },
+  {
+    "name": "Emporia St.",
+    "long_name": "Emporia State University",
+    "slug": "emporia-st"
+  },
+  {
+    "name": "Endicott",
+    "long_name": "Endicott College",
+    "slug": "endicott"
+  },
+  {
+    "name": "Erskine",
+    "long_name": "Erskine College",
+    "slug": "erskine"
+  },
+  {
+    "name": "Eureka",
+    "long_name": "Eureka College",
+    "slug": "eureka"
+  },
+  {
+    "name": "Evansville",
+    "long_name": "University of Evansville",
+    "slug": "evansville"
+  },
+  {
+    "name": "Evergreen St.",
+    "long_name": "Evergreen St.",
+    "slug": "evergreen-st"
+  },
+  {
+    "name": "Fairfield",
+    "long_name": "Fairfield University",
+    "slug": "fairfield"
+  },
+  {
+    "name": "Fairmont St.",
+    "long_name": "Fairmont State University",
+    "slug": "fairmont-st"
+  },
+  {
+    "name": "Farmingdale St.",
+    "long_name": "Farmingdale State College",
+    "slug": "farmingdale-st"
+  },
+  {
+    "name": "Fayetteville St.",
+    "long_name": "Fayetteville State University",
+    "slug": "fayetteville-st"
+  },
+  {
+    "name": "FDU",
+    "long_name": "FDU",
+    "slug": "fdu"
+  },
+  {
+    "name": "FDU-Florham",
+    "long_name": "Fairleigh Dickinson Univ., Florham",
+    "slug": "fdu-florham"
+  },
+  {
+    "name": "Felician",
+    "long_name": "Felician College",
+    "slug": "felician"
+  },
+  {
+    "name": "Ferris St.",
+    "long_name": "Ferris State University",
+    "slug": "ferris-st"
+  },
+  {
+    "name": "Ferrum",
+    "long_name": "Ferrum College",
+    "slug": "ferrum"
+  },
+  {
+    "name": "FGCU",
+    "long_name": "Florida Gulf Coast University",
+    "slug": "fgcu"
+  },
+  {
+    "name": "Findlay",
+    "long_name": "University of Findlay",
+    "slug": "findlay"
+  },
+  {
+    "name": "Finlandia",
+    "long_name": "Finlandia University",
+    "slug": "finlandia"
+  },
+  {
+    "name": "Fisk",
+    "long_name": "Fisk University",
+    "slug": "fisk"
+  },
+  {
+    "name": "Fitchburg St.",
+    "long_name": "Fitchburg State University",
+    "slug": "fitchburg-st"
+  },
+  {
+    "name": "FIU",
+    "long_name": "Florida International University",
+    "slug": "fiu"
+  },
+  {
+    "name": "Florida Atlantic",
+    "long_name": "Florida Atlantic University",
+    "slug": "fla-atlantic"
+  },
+  {
+    "name": "Fla. Southern",
+    "long_name": "Florida Southern College",
+    "slug": "fla-southern"
+  },
+  {
+    "name": "Flagler",
+    "long_name": "Flagler College",
+    "slug": "flagler"
+  },
+  {
+    "name": "Florida",
+    "long_name": "University of Florida",
+    "slug": "florida"
+  },
+  {
+    "name": "Florida A&M",
+    "long_name": "Florida A&M University",
+    "slug": "florida-am"
+  },
+  {
+    "name": "Florida St.",
+    "long_name": "Florida State University",
+    "slug": "florida-st"
+  },
+  {
+    "name": "Florida Tech",
+    "long_name": "Florida Tech",
+    "slug": "florida-tech"
+  },
+  {
+    "name": "Fontbonne",
+    "long_name": "Fontbonne University",
+    "slug": "fontbonne"
+  },
+  {
+    "name": "Fordham",
+    "long_name": "Fordham University",
+    "slug": "fordham"
+  },
+  {
+    "name": "Fort Hays St.",
+    "long_name": "Fort Hays State University",
+    "slug": "fort-hays-st"
+  },
+  {
+    "name": "Fort Lewis",
+    "long_name": "Fort Lewis College",
+    "slug": "fort-lewis"
+  },
+  {
+    "name": "Fort Valley St.",
+    "long_name": "Fort Valley State University",
+    "slug": "fort-valley-st"
+  },
+  {
+    "name": "Framingham St.",
+    "long_name": "Framingham State University",
+    "slug": "framingham-st"
+  },
+  {
+    "name": "Francis Marion",
+    "long_name": "Francis Marion University",
+    "slug": "francis-marion"
+  },
+  {
+    "name": "Franciscan",
+    "long_name": "Franciscan Univ. of Steubenville",
+    "slug": "franciscan"
+  },
+  {
+    "name": "Frank. & Marsh.",
+    "long_name": "Franklin & Marshall College",
+    "slug": "frank-marsh"
+  },
+  {
+    "name": "Franklin",
+    "long_name": "Franklin College",
+    "slug": "franklin"
+  },
+  {
+    "name": "Franklin Pierce",
+    "long_name": "Franklin Pierce University",
+    "slug": "franklin-pierce"
+  },
+  {
+    "name": "Fredonia",
+    "long_name": "SUNY at Fredonia",
+    "slug": "fredonia-st"
+  },
+  {
+    "name": "Fresno Pacific",
+    "long_name": "Fresno Pacific University",
+    "slug": "fresno-pacific"
+  },
+  {
+    "name": "Fresno St.",
+    "long_name": "Fresno State",
+    "slug": "fresno-st"
+  },
+  {
+    "name": "Frostburg St.",
+    "long_name": "Frostburg State University",
+    "slug": "frostburg-st"
+  },
+  {
+    "name": "Furman",
+    "long_name": "Furman University",
+    "slug": "furman"
+  },
+  {
+    "name": "Georgia Southern",
+    "long_name": "Georgia Southern University",
+    "slug": "ga-southern"
+  },
+  {
+    "name": "Ga. Southwestern",
+    "long_name": "Georgia Southwestern State Univ.",
+    "slug": "ga-southwestern"
+  },
+  {
+    "name": "Gallaudet",
+    "long_name": "Gallaudet University",
+    "slug": "gallaudet"
+  },
+  {
+    "name": "Gannon",
+    "long_name": "Gannon University",
+    "slug": "gannon"
+  },
+  {
+    "name": "Gardner-Webb",
+    "long_name": "Gardner-Webb University",
+    "slug": "gardner-webb"
+  },
+  {
+    "name": "Geneva",
+    "long_name": "Geneva College",
+    "slug": "geneva"
+  },
+  {
+    "name": "George Fox",
+    "long_name": "George Fox University",
+    "slug": "george-fox"
+  },
+  {
+    "name": "George Mason",
+    "long_name": "George Mason University",
+    "slug": "george-mason"
+  },
+  {
+    "name": "George Washington",
+    "long_name": "George Washington University",
+    "slug": "george-washington"
+  },
+  {
+    "name": "Georgetown",
+    "long_name": "Georgetown University",
+    "slug": "georgetown"
+  },
+  {
+    "name": "Georgia",
+    "long_name": "University of Georgia",
+    "slug": "georgia"
+  },
+  {
+    "name": "Georgia College",
+    "long_name": "Georgia College",
+    "slug": "georgia-college"
+  },
+  {
+    "name": "Georgia St.",
+    "long_name": "Georgia State University",
+    "slug": "georgia-st"
+  },
+  {
+    "name": "Georgia Tech",
+    "long_name": "Georgia Tech",
+    "slug": "georgia-tech"
+  },
+  {
+    "name": "Georgian Court",
+    "long_name": "Georgian Court University",
+    "slug": "georgian-court"
+  },
+  {
+    "name": "Gettysburg",
+    "long_name": "Gettysburg College",
+    "slug": "gettysburg"
+  },
+  {
+    "name": "Glenville St.",
+    "long_name": "Glenville State College",
+    "slug": "glenville-st"
+  },
+  {
+    "name": "Goldey-Beacom",
+    "long_name": "Goldey-Beacom College",
+    "slug": "goldey-beacom"
+  },
+  {
+    "name": "Gonzaga",
+    "long_name": "Gonzaga University",
+    "slug": "gonzaga"
+  },
+  {
+    "name": "Gordon",
+    "long_name": "Gordon College",
+    "slug": "gordon"
+  },
+  {
+    "name": "Goucher",
+    "long_name": "Goucher College",
+    "slug": "goucher"
+  },
+  {
+    "name": "Grambling",
+    "long_name": "Grambling State University",
+    "slug": "grambling"
+  },
+  {
+    "name": "Grand Canyon",
+    "long_name": "Grand Canyon University",
+    "slug": "grand-canyon"
+  },
+  {
+    "name": "Grand Valley St.",
+    "long_name": "Grand Valley State University",
+    "slug": "grand-valley-st"
+  },
+  {
+    "name": "Green Bay",
+    "long_name": "University of Wisconsin, Green Bay",
+    "slug": "green-bay"
+  },
+  {
+    "name": "Green Mountain",
+    "long_name": "Green Mountain College",
+    "slug": "green-mountain"
+  },
+  {
+    "name": "Greensboro",
+    "long_name": "Greensboro College",
+    "slug": "greensboro"
+  },
+  {
+    "name": "Greenville",
+    "long_name": "Greenville University",
+    "slug": "greenville"
+  },
+  {
+    "name": "Grinnell",
+    "long_name": "Grinnell College",
+    "slug": "grinnell"
+  },
+  {
+    "name": "Grove City",
+    "long_name": "Grove City College",
+    "slug": "grove-city"
+  },
+  {
+    "name": "Augusta University ",
+    "long_name": "Augusta University ",
+    "slug": "gru-augusta"
+  },
+  {
+    "name": "Guilford",
+    "long_name": "Guilford College",
+    "slug": "guilford"
+  },
+  {
+    "name": "Gust. Adolphus",
+    "long_name": "Gustavus Adolphus College",
+    "slug": "gust-adolphus"
+  },
+  {
+    "name": "Gwynedd-Mercy",
+    "long_name": "Gwynedd-Mercy College",
+    "slug": "gwynedd-mercy"
+  },
+  {
+    "name": "Hamilton",
+    "long_name": "Hamilton College",
+    "slug": "hamilton"
+  },
+  {
+    "name": "Hamline",
+    "long_name": "Hamline University",
+    "slug": "hamline"
+  },
+  {
+    "name": "Hampden-Sydney",
+    "long_name": "Hampden-Sydney College",
+    "slug": "hampden-sydney"
+  },
+  {
+    "name": "Hampton",
+    "long_name": "Hampton University",
+    "slug": "hampton"
+  },
+  {
+    "name": "Hanover",
+    "long_name": "Hanover College",
+    "slug": "hanover"
+  },
+  {
+    "name": "Hardin-Simmons",
+    "long_name": "Hardin-Simmons University",
+    "slug": "hardin-simmons"
+  },
+  {
+    "name": "Harding",
+    "long_name": "Harding University",
+    "slug": "harding"
+  },
+  {
+    "name": "Hartford",
+    "long_name": "University of Hartford",
+    "slug": "hartford"
+  },
+  {
+    "name": "Hartwick",
+    "long_name": "Hartwick College",
+    "slug": "hartwick"
+  },
+  {
+    "name": "Harvard",
+    "long_name": "Harvard University",
+    "slug": "harvard"
+  },
+  {
+    "name": "Haverford",
+    "long_name": "Haverford College",
+    "slug": "haverford"
+  },
+  {
+    "name": "Hawaii",
+    "long_name": "University of Hawaii, Manoa",
+    "slug": "hawaii"
+  },
+  {
+    "name": "Hawaii Hilo",
+    "long_name": "University of Hawaii at Hilo",
+    "slug": "hawaii-hilo"
+  },
+  {
+    "name": "Hawaii Pacific",
+    "long_name": "Hawaii Pacific University",
+    "slug": "hawaii-pacific"
+  },
+  {
+    "name": "Heidelberg",
+    "long_name": "Heidelberg University",
+    "slug": "heidelberg"
+  },
+  {
+    "name": "Henderson St.",
+    "long_name": "Henderson State University",
+    "slug": "henderson-st"
+  },
+  {
+    "name": "Hendrix",
+    "long_name": "Hendrix College",
+    "slug": "hendrix"
+  },
+  {
+    "name": "High Point",
+    "long_name": "High Point University",
+    "slug": "high-point"
+  },
+  {
+    "name": "Hilbert",
+    "long_name": "Hilbert College",
+    "slug": "hilbert"
+  },
+  {
+    "name": "Hillsdale",
+    "long_name": "Hillsdale College",
+    "slug": "hillsdale"
+  },
+  {
+    "name": "Hiram",
+    "long_name": "Hiram College",
+    "slug": "hiram"
+  },
+  {
+    "name": "Hobart",
+    "long_name": "Hobart College",
+    "slug": "hobart"
+  },
+  {
+    "name": "Hofstra",
+    "long_name": "Hofstra University",
+    "slug": "hofstra"
+  },
+  {
+    "name": "Hollins",
+    "long_name": "Hollins University",
+    "slug": "hollins"
+  },
+  {
+    "name": "Holy Cross",
+    "long_name": "College of the Holy Cross",
+    "slug": "holy-cross"
+  },
+  {
+    "name": "Holy Family",
+    "long_name": "Holy Family University",
+    "slug": "holy-family"
+  },
+  {
+    "name": "Holy Names",
+    "long_name": "Holy Names University",
+    "slug": "holy-names"
+  },
+  {
+    "name": "Hood",
+    "long_name": "Hood College",
+    "slug": "hood"
+  },
+  {
+    "name": "Hope",
+    "long_name": "Hope College",
+    "slug": "hope"
+  },
+  {
+    "name": "Houghton",
+    "long_name": "Houghton College",
+    "slug": "houghton"
+  },
+  {
+    "name": "Houston",
+    "long_name": "University of Houston",
+    "slug": "houston"
+  },
+  {
+    "name": "Houston Christian",
+    "long_name": "Houston Christian University",
+    "slug": "houston-christian"
+  },
+  {
+    "name": "Howard",
+    "long_name": "Howard University",
+    "slug": "howard"
+  },
+  {
+    "name": "Howard Payne",
+    "long_name": "Howard Payne University",
+    "slug": "howard-payne"
+  },
+  {
+    "name": "Cal Poly Humboldt ",
+    "long_name": "California State Polytechnic University, Humboldt",
+    "slug": "humboldt-st"
+  },
+  {
+    "name": "Hunter",
+    "long_name": "Hunter College",
+    "slug": "hunter"
+  },
+  {
+    "name": "Huntingdon",
+    "long_name": "Huntingdon College",
+    "slug": "huntingdon"
+  },
+  {
+    "name": "Husson",
+    "long_name": "Husson University",
+    "slug": "husson"
+  },
+  {
+    "name": "Idaho",
+    "long_name": "University of Idaho",
+    "slug": "idaho"
+  },
+  {
+    "name": "Idaho St.",
+    "long_name": "Idaho State University",
+    "slug": "idaho-st"
+  },
+  {
+    "name": "Illinois Tech",
+    "long_name": "Illinois Tech",
+    "slug": "iit"
+  },
+  {
+    "name": "Ill.-Chicago",
+    "long_name": "University of Illinois-Chicago",
+    "slug": "ill-chicago"
+  },
+  {
+    "name": "Ill.- Springfield",
+    "long_name": "University of Illinois-Springfield",
+    "slug": "ill-springfield"
+  },
+  {
+    "name": "Ill. Wesleyan",
+    "long_name": "Illinois Wesleyan University",
+    "slug": "ill-wesleyan"
+  },
+  {
+    "name": "Illinois",
+    "long_name": "University of Illinois",
+    "slug": "illinois"
+  },
+  {
+    "name": "Illinois Col.",
+    "long_name": "Illinois College",
+    "slug": "illinois-col"
+  },
+  {
+    "name": "Illinois St.",
+    "long_name": "Illinois State University",
+    "slug": "illinois-st"
+  },
+  {
+    "name": "Immaculata",
+    "long_name": "Immaculata University",
+    "slug": "immaculata"
+  },
+  {
+    "name": "UIW",
+    "long_name": "University of the Incarnate Word",
+    "slug": "incarnate-word"
+  },
+  {
+    "name": "Indiana",
+    "long_name": "Indiana University, Bloomington",
+    "slug": "indiana"
+  },
+  {
+    "name": "Indiana (PA)",
+    "long_name": "Indiana University of Pennsylvania",
+    "slug": "indiana-pa"
+  },
+  {
+    "name": "Indiana St.",
+    "long_name": "Indiana State University",
+    "slug": "indiana-st"
+  },
+  {
+    "name": "Indianapolis",
+    "long_name": "University of Indianapolis",
+    "slug": "indianapolis"
+  },
+  {
+    "name": "Iona",
+    "long_name": "Iona College",
+    "slug": "iona"
+  },
+  {
+    "name": "Iowa",
+    "long_name": "University of Iowa",
+    "slug": "iowa"
+  },
+  {
+    "name": "Iowa St.",
+    "long_name": "Iowa State University",
+    "slug": "iowa-st"
+  },
+  {
+    "name": "Iowa Wesleyan",
+    "long_name": "Iowa Wesleyan University ",
+    "slug": "iowa-wesleyan"
+  },
+  {
+    "name": "Purdue University Fort Wayne",
+    "long_name": "Purdue University Fort Wayne",
+    "slug": "ipfw"
+  },
+  {
+    "name": "Ithaca",
+    "long_name": "Ithaca College",
+    "slug": "ithaca"
+  },
+  {
+    "name": "IU Indy",
+    "long_name": "Indiana University Indianapolis",
+    "slug": "iu-indy"
+  },
+  {
+    "name": "Jackson St.",
+    "long_name": "Jackson State University",
+    "slug": "jackson-st"
+  },
+  {
+    "name": "Jacksonville",
+    "long_name": "Jacksonville University",
+    "slug": "jacksonville"
+  },
+  {
+    "name": "Jacksonville St.",
+    "long_name": "Jacksonville State University",
+    "slug": "jacksonville-st"
+  },
+  {
+    "name": "James Madison",
+    "long_name": "James Madison University",
+    "slug": "james-madison"
+  },
+  {
+    "name": "Jessup University",
+    "long_name": "Jessup University",
+    "slug": "jessup"
+  },
+  {
+    "name": "John Carroll",
+    "long_name": "John Carroll University",
+    "slug": "john-carroll"
+  },
+  {
+    "name": "John Jay",
+    "long_name": "John Jay College of Criminal Justice",
+    "slug": "john-jay"
+  },
+  {
+    "name": "Johns Hopkins",
+    "long_name": "Johns Hopkins University",
+    "slug": "johns-hopkins"
+  },
+  {
+    "name": "Johnson C. Smith",
+    "long_name": "Johnson C. Smith University",
+    "slug": "johnson-c-smith"
+  },
+  {
+    "name": "Johnson St.",
+    "long_name": "Johnson State College",
+    "slug": "johnson-st"
+  },
+  {
+    "name": "Johnson & Wales (RI)",
+    "long_name": "Johnson and Wales University",
+    "slug": "johnson-wales-ri"
+  },
+  {
+    "name": "Juniata",
+    "long_name": "Juniata College",
+    "slug": "juniata"
+  },
+  {
+    "name": "Johnson & Wales (Denver) ",
+    "long_name": "Johnson & Wales University (Denver) ",
+    "slug": "jwu-denver"
+  },
+  {
+    "name": "Kalamazoo",
+    "long_name": "Kalamazoo College",
+    "slug": "kalamazoo"
+  },
+  {
+    "name": "Kansas",
+    "long_name": "University of Kansas",
+    "slug": "kansas"
+  },
+  {
+    "name": "Kansas St.",
+    "long_name": "Kansas State University",
+    "slug": "kansas-st"
+  },
+  {
+    "name": "Kean",
+    "long_name": "Kean University",
+    "slug": "kean"
+  },
+  {
+    "name": "Keene St.",
+    "long_name": "Keene State College",
+    "slug": "keene-st"
+  },
+  {
+    "name": "Kennesaw St.",
+    "long_name": "Kennesaw State University",
+    "slug": "kennesaw-st"
+  },
+  {
+    "name": "Kent St.",
+    "long_name": "Kent State University",
+    "slug": "kent-st"
+  },
+  {
+    "name": "Kentucky",
+    "long_name": "University of Kentucky",
+    "slug": "kentucky"
+  },
+  {
+    "name": "Kentucky St.",
+    "long_name": "Kentucky State University",
+    "slug": "kentucky-st"
+  },
+  {
+    "name": "Kenyon",
+    "long_name": "Kenyon College",
+    "slug": "kenyon"
+  },
+  {
+    "name": "Keuka",
+    "long_name": "Keuka College",
+    "slug": "keuka"
+  },
+  {
+    "name": "Keystone",
+    "long_name": "Keystone College",
+    "slug": "keystone"
+  },
+  {
+    "name": "King (TN)",
+    "long_name": "King University",
+    "slug": "king-tn"
+  },
+  {
+    "name": "King's (PA)",
+    "long_name": "King's College",
+    "slug": "kings-pa"
+  },
+  {
+    "name": "Knox",
+    "long_name": "Knox College",
+    "slug": "knox"
+  },
+  {
+    "name": "Kutztown",
+    "long_name": "Kutztown University",
+    "slug": "kutztown"
+  },
+  {
+    "name": "Ky. Wesleyan",
+    "long_name": "Kentucky Wesleyan College",
+    "slug": "ky-wesleyan"
+  },
+  {
+    "name": "La.-Lafayette",
+    "long_name": "University of Louisiana at Lafayette",
+    "slug": "la-lafayette"
+  },
+  {
+    "name": "La.-Monroe",
+    "long_name": "University of Louisiana at Monroe",
+    "slug": "la-monroe"
+  },
+  {
+    "name": "La Roche",
+    "long_name": "La Roche College",
+    "slug": "la-roche"
+  },
+  {
+    "name": "La Salle",
+    "long_name": "La Salle University",
+    "slug": "la-salle"
+  },
+  {
+    "name": "La Sierra",
+    "long_name": "La Sierra University",
+    "slug": "la-sierra"
+  },
+  {
+    "name": "La Verne",
+    "long_name": "University of La Verne",
+    "slug": "la-verne"
+  },
+  {
+    "name": "Lafayette",
+    "long_name": "Lafayette College",
+    "slug": "lafayette"
+  },
+  {
+    "name": "LaGrange",
+    "long_name": "LaGrange College",
+    "slug": "lagrange"
+  },
+  {
+    "name": "Lake Erie",
+    "long_name": "Lake Erie College",
+    "slug": "lake-erie"
+  },
+  {
+    "name": "Lake Forest",
+    "long_name": "Lake Forest College",
+    "slug": "lake-forest"
+  },
+  {
+    "name": "Lake Superior St.",
+    "long_name": "Lake Superior State University",
+    "slug": "lake-superior-st"
+  },
+  {
+    "name": "Lakeland",
+    "long_name": "Lakeland College",
+    "slug": "lakeland"
+  },
+  {
+    "name": "Lamar",
+    "long_name": "Lamar University",
+    "slug": "lamar"
+  },
+  {
+    "name": "Lambuth",
+    "long_name": "Lambuth University",
+    "slug": "lambuth"
+  },
+  {
+    "name": "Lancaster Bible",
+    "long_name": "Lancaster Bible College",
+    "slug": "lancaster-bible"
+  },
+  {
+    "name": "Lander",
+    "long_name": "Lander University",
+    "slug": "lander"
+  },
+  {
+    "name": "Lane",
+    "long_name": "Lane College",
+    "slug": "lane"
+  },
+  {
+    "name": "Langston",
+    "long_name": "Langston University",
+    "slug": "langston"
+  },
+  {
+    "name": "Lasell",
+    "long_name": "Lasell University",
+    "slug": "lasell"
+  },
+  {
+    "name": "Lawrence",
+    "long_name": "Lawrence University",
+    "slug": "lawrence"
+  },
+  {
+    "name": "Le Moyne",
+    "long_name": "Le Moyne College",
+    "slug": "le-moyne"
+  },
+  {
+    "name": "Lebanon Valley",
+    "long_name": "Lebanon Valley College",
+    "slug": "lebanon-valley"
+  },
+  {
+    "name": "Lee ",
+    "long_name": "Lee University",
+    "slug": "lee"
+  },
+  {
+    "name": "Lees-McRae",
+    "long_name": "Lees-McRae College",
+    "slug": "lees-mcrae"
+  },
+  {
+    "name": "Lehigh",
+    "long_name": "Lehigh University",
+    "slug": "lehigh"
+  },
+  {
+    "name": "Lehman",
+    "long_name": "Lehman College",
+    "slug": "lehman"
+  },
+  {
+    "name": "LeMoyne-Owen",
+    "long_name": "LeMoyne-Owen College",
+    "slug": "lemoyne-owen"
+  },
+  {
+    "name": "Lenoir-Rhyne",
+    "long_name": "Lenoir-Rhyne University",
+    "slug": "lenoir-rhyne"
+  },
+  {
+    "name": "Lesley",
+    "long_name": "Lesley University",
+    "slug": "lesley"
+  },
+  {
+    "name": "LeTourneau",
+    "long_name": "LeTourneau University",
+    "slug": "letourneau"
+  },
+  {
+    "name": "Lewis",
+    "long_name": "Lewis University",
+    "slug": "lewis"
+  },
+  {
+    "name": "Lewis & Clark",
+    "long_name": "Lewis & Clark College",
+    "slug": "lewis-clark"
+  },
+  {
+    "name": "Liberty",
+    "long_name": "Liberty University",
+    "slug": "liberty"
+  },
+  {
+    "name": "Limestone",
+    "long_name": "Limestone College",
+    "slug": "limestone"
+  },
+  {
+    "name": "Lincoln Christian",
+    "long_name": "Lincoln Christian College & Seminary",
+    "slug": "lincoln-christian"
+  },
+  {
+    "name": "Lincoln Memorial",
+    "long_name": "Lincoln Memorial University",
+    "slug": "lincoln-memorial"
+  },
+  {
+    "name": "Lincoln (MO)",
+    "long_name": "Lincoln University (Mo.) ",
+    "slug": "lincoln-mo"
+  },
+  {
+    "name": "Lincoln (PA)",
+    "long_name": "The Lincoln University (Pa.)",
+    "slug": "lincoln-pa"
+  },
+  {
+    "name": "Lindenwood",
+    "long_name": "Lindenwood University",
+    "slug": "lindenwood-mo"
+  },
+  {
+    "name": "Linfield",
+    "long_name": "Linfield College",
+    "slug": "linfield"
+  },
+  {
+    "name": "Lipscomb",
+    "long_name": "Lipscomb University",
+    "slug": "lipscomb"
+  },
+  {
+    "name": "LIU Post",
+    "long_name": "LIU Post",
+    "slug": "liu-post"
+  },
+  {
+    "name": "Livingstone",
+    "long_name": "Livingstone College",
+    "slug": "livingstone"
+  },
+  {
+    "name": "Lock Haven",
+    "long_name": "Lock Haven University",
+    "slug": "lock-haven"
+  },
+  {
+    "name": "Long Beach St.",
+    "long_name": "Long Beach State University",
+    "slug": "long-beach-st"
+  },
+  {
+    "name": "Long Island",
+    "long_name": "Long Island University",
+    "slug": "long-island"
+  },
+  {
+    "name": "Longwood",
+    "long_name": "Longwood University",
+    "slug": "longwood"
+  },
+  {
+    "name": "Loras",
+    "long_name": "Loras College",
+    "slug": "loras"
+  },
+  {
+    "name": "Louisiana Col.",
+    "long_name": "Louisiana College",
+    "slug": "louisiana-col"
+  },
+  {
+    "name": "Louisiana Tech",
+    "long_name": "Louisiana Tech University",
+    "slug": "louisiana-tech"
+  },
+  {
+    "name": "Louisville",
+    "long_name": "University of Louisville",
+    "slug": "louisville"
+  },
+  {
+    "name": "Loyola (IL)",
+    "long_name": "Loyola University Chicago",
+    "slug": "loyola-chicago"
+  },
+  {
+    "name": "Loyola Maryland",
+    "long_name": "Loyola University Maryland",
+    "slug": "loyola-maryland"
+  },
+  {
+    "name": "Loyola Marymount",
+    "long_name": "Loyola Marymount University",
+    "slug": "loyola-marymount"
+  },
+  {
+    "name": "LSU",
+    "long_name": "Louisiana State University",
+    "slug": "lsu"
+  },
+  {
+    "name": "Lubbock Christian",
+    "long_name": "Lubbock Christian University",
+    "slug": "lubbock-christian"
+  },
+  {
+    "name": "Luther",
+    "long_name": "Luther College",
+    "slug": "luther"
+  },
+  {
+    "name": "Lycoming",
+    "long_name": "Lycoming College",
+    "slug": "lycoming"
+  },
+  {
+    "name": "Lynchburg",
+    "long_name": "University of Lynchburg ",
+    "slug": "lynchburg"
+  },
+  {
+    "name": "Lyndon St.",
+    "long_name": "Lyndon State College",
+    "slug": "lyndon-st"
+  },
+  {
+    "name": "Lynn",
+    "long_name": "Lynn University",
+    "slug": "lynn"
+  },
+  {
+    "name": "Lyon College",
+    "long_name": "Lyon College",
+    "slug": "lyon"
+  },
+  {
+    "name": "Macalester",
+    "long_name": "Macalester College",
+    "slug": "macalester"
+  },
+  {
+    "name": "MacMurray",
+    "long_name": "MacMurray College",
+    "slug": "macmurray"
+  },
+  {
+    "name": "Maine",
+    "long_name": "University of Maine",
+    "slug": "maine"
+  },
+  {
+    "name": "Maine Maritime",
+    "long_name": "Maine Maritime Academy",
+    "slug": "maine-maritime"
+  },
+  {
+    "name": "Malone",
+    "long_name": "Malone University",
+    "slug": "malone"
+  },
+  {
+    "name": "Manchester",
+    "long_name": "Manchester University",
+    "slug": "manchester"
+  },
+  {
+    "name": "Manhattan",
+    "long_name": "Manhattan College",
+    "slug": "manhattan"
+  },
+  {
+    "name": "Manhattanville",
+    "long_name": "Manhattanville College",
+    "slug": "manhattanville"
+  },
+  {
+    "name": "Mansfield",
+    "long_name": "Mansfield Univ. of Pennsylvania",
+    "slug": "mansfield"
+  },
+  {
+    "name": "Maranatha Baptist",
+    "long_name": "Maranatha Baptist University",
+    "slug": "maranatha-baptist"
+  },
+  {
+    "name": "Marian (WI)",
+    "long_name": "Marian University ",
+    "slug": "marian-wi"
+  },
+  {
+    "name": "Marietta",
+    "long_name": "Marietta College",
+    "slug": "marietta"
+  },
+  {
+    "name": "Marist",
+    "long_name": "Marist College",
+    "slug": "marist"
+  },
+  {
+    "name": "Marquette",
+    "long_name": "Marquette University",
+    "slug": "marquette"
+  },
+  {
+    "name": "Mars Hill",
+    "long_name": "Mars Hill University",
+    "slug": "mars-hill"
+  },
+  {
+    "name": "Marshall",
+    "long_name": "Marshall University",
+    "slug": "marshall"
+  },
+  {
+    "name": "Martin Luther",
+    "long_name": "Martin Luther College",
+    "slug": "martin-luther"
+  },
+  {
+    "name": "Mary",
+    "long_name": "University of Mary",
+    "slug": "mary"
+  },
+  {
+    "name": "Mary Baldwin",
+    "long_name": "Mary Baldwin University ",
+    "slug": "mary-baldwin"
+  },
+  {
+    "name": "Mary Hardin-Baylor",
+    "long_name": "University of Mary Hardin-Baylor",
+    "slug": "mary-hardin-baylor"
+  },
+  {
+    "name": "Mary Washington",
+    "long_name": "University of Mary Washington",
+    "slug": "mary-washington"
+  },
+  {
+    "name": "Maryland",
+    "long_name": "University of Maryland-College Park",
+    "slug": "maryland"
+  },
+  {
+    "name": "Marymount (VA)",
+    "long_name": "Marymount University",
+    "slug": "marymount-va"
+  },
+  {
+    "name": "Maryville (MO)",
+    "long_name": "Maryville University of Saint Louis",
+    "slug": "maryville-mo"
+  },
+  {
+    "name": "Maryville (TN)",
+    "long_name": "Maryville College ",
+    "slug": "maryville-tn"
+  },
+  {
+    "name": "Marywood",
+    "long_name": "Marywood University",
+    "slug": "marywood"
+  },
+  {
+    "name": "Mass. Maritime",
+    "long_name": "Massachusetts Maritime Academy",
+    "slug": "mass-maritime"
+  },
+  {
+    "name": "Mass-Amherst ",
+    "long_name": "University of Massachusetts",
+    "slug": "massachusetts"
+  },
+  {
+    "name": "McDaniel",
+    "long_name": "McDaniel College",
+    "slug": "mcdaniel"
+  },
+  {
+    "name": "McKendree",
+    "long_name": "McKendree University",
+    "slug": "mckendree"
+  },
+  {
+    "name": "Mass-Liberal-Arts ",
+    "long_name": "Massachusetts College of Liberal Arts",
+    "slug": "mcla"
+  },
+  {
+    "name": "McMurry",
+    "long_name": "McMurry University",
+    "slug": "mcmurry"
+  },
+  {
+    "name": "McNeese St.",
+    "long_name": "McNeese State University",
+    "slug": "mcneese-st"
+  },
+  {
+    "name": "Me.-Farmington",
+    "long_name": "University of Maine, Farmington",
+    "slug": "me-farmington"
+  },
+  {
+    "name": "Me.-Presque Isle",
+    "long_name": "University of Maine at Presque Isle",
+    "slug": "me-presque-isle"
+  },
+  {
+    "name": "Medaille",
+    "long_name": "Medaille College",
+    "slug": "medaille"
+  },
+  {
+    "name": "Medgar Evers",
+    "long_name": "Medgar Evers College",
+    "slug": "medgar-evers"
+  },
+  {
+    "name": "Memphis",
+    "long_name": "University of Memphis",
+    "slug": "memphis"
+  },
+  {
+    "name": "Menlo",
+    "long_name": "Menlo College",
+    "slug": "menlo"
+  },
+  {
+    "name": "UC Merced",
+    "long_name": "University of California, Merced",
+    "slug": "merced"
+  },
+  {
+    "name": "Mercer",
+    "long_name": "Mercer University",
+    "slug": "mercer"
+  },
+  {
+    "name": "Merchant Marine",
+    "long_name": "U.S. Merchant Marine Academy",
+    "slug": "merchant-marine"
+  },
+  {
+    "name": "Mercy",
+    "long_name": "Mercy College",
+    "slug": "mercy"
+  },
+  {
+    "name": "Mercyhurst",
+    "long_name": "Mercyhurst College",
+    "slug": "mercyhurst"
+  },
+  {
+    "name": "Meredith",
+    "long_name": "Meredith College",
+    "slug": "meredith"
+  },
+  {
+    "name": "Merrimack",
+    "long_name": "Merrimack College",
+    "slug": "merrimack"
+  },
+  {
+    "name": "Messiah",
+    "long_name": "Messiah College",
+    "slug": "messiah"
+  },
+  {
+    "name": "Methodist",
+    "long_name": "Methodist University",
+    "slug": "methodist"
+  },
+  {
+    "name": "Metro St.",
+    "long_name": "Metropolitan St. University of Denver",
+    "slug": "metro-st"
+  },
+  {
+    "name": "Miami (Fla.)",
+    "long_name": "University of Miami",
+    "slug": "miami-fl"
+  },
+  {
+    "name": "Miami (OH)",
+    "long_name": "Miami University (Ohio)",
+    "slug": "miami-oh"
+  },
+  {
+    "name": "Michigan",
+    "long_name": "University of Michigan",
+    "slug": "michigan"
+  },
+  {
+    "name": "Michigan St.",
+    "long_name": "Michigan State University",
+    "slug": "michigan-st"
+  },
+  {
+    "name": "Michigan Tech",
+    "long_name": "Michigan Technological University",
+    "slug": "michigan-tech"
+  },
+  {
+    "name": "Middle Georgia State",
+    "long_name": "Middle Georgia State",
+    "slug": "middle-georgia-st"
+  },
+  {
+    "name": "Middle Tenn.",
+    "long_name": "Middle Tennessee State University",
+    "slug": "middle-tenn"
+  },
+  {
+    "name": "Middlebury",
+    "long_name": "Middlebury College",
+    "slug": "middlebury"
+  },
+  {
+    "name": "MSU Texas ",
+    "long_name": "Midwestern State University",
+    "slug": "midwestern-st"
+  },
+  {
+    "name": "Miles",
+    "long_name": "Miles College",
+    "slug": "miles"
+  },
+  {
+    "name": "Millersville",
+    "long_name": "Millersville University",
+    "slug": "millersville"
+  },
+  {
+    "name": "Millikin",
+    "long_name": "Millikin University",
+    "slug": "millikin"
+  },
+  {
+    "name": "Mills",
+    "long_name": "Mills College",
+    "slug": "mills"
+  },
+  {
+    "name": "Millsaps",
+    "long_name": "Millsaps College",
+    "slug": "millsaps"
+  },
+  {
+    "name": "Milwaukee",
+    "long_name": "University of Wisconsin, Milwaukee",
+    "slug": "milwaukee"
+  },
+  {
+    "name": "Minn.-Crookston",
+    "long_name": "University of Minnesota-Crookston",
+    "slug": "minn-crookston"
+  },
+  {
+    "name": "Minn. Duluth",
+    "long_name": "University of Minnesota-Duluth",
+    "slug": "minn-duluth"
+  },
+  {
+    "name": "Minn.-Morris",
+    "long_name": "University of Minnesota-Morris",
+    "slug": "minn-morris"
+  },
+  {
+    "name": "Minn. St. Mankato",
+    "long_name": "Minnesota State University-Mankato",
+    "slug": "minn-st-mankato"
+  },
+  {
+    "name": "Minn. St. Moorhead",
+    "long_name": "Minnesota State Univ.-Moorhead",
+    "slug": "minn-st-moorhead"
+  },
+  {
+    "name": "Minnesota",
+    "long_name": "University of Minnesota",
+    "slug": "minnesota"
+  },
+  {
+    "name": "Minot St.",
+    "long_name": "Minot State University",
+    "slug": "minot-st"
+  },
+  {
+    "name": "Misericordia",
+    "long_name": "Misericordia University",
+    "slug": "misericordia"
+  },
+  {
+    "name": "Mississippi Christian ",
+    "long_name": "Mississippi Christian University",
+    "slug": "mississippi-christ"
+  },
+  {
+    "name": "Mississippi St.",
+    "long_name": "Mississippi State University",
+    "slug": "mississippi-st"
+  },
+  {
+    "name": "Mississippi Val.",
+    "long_name": "Mississippi Valley State University",
+    "slug": "mississippi-val"
+  },
+  {
+    "name": "Missouri",
+    "long_name": "University of Missouri",
+    "slug": "missouri"
+  },
+  {
+    "name": "Missouri S&T",
+    "long_name": "Missouri S&T",
+    "slug": "missouri-snt"
+  },
+  {
+    "name": "Missouri St.",
+    "long_name": "Missouri State University",
+    "slug": "missouri-st"
+  },
+  {
+    "name": "MIT",
+    "long_name": "MIT",
+    "slug": "mit"
+  },
+  {
+    "name": "Mitchell",
+    "long_name": "Mitchell College",
+    "slug": "mitchell"
+  },
+  {
+    "name": "Mo. Southern St.",
+    "long_name": "Missouri Southern St. University",
+    "slug": "mo-southern-st"
+  },
+  {
+    "name": "Mo.-St. Louis",
+    "long_name": "University of Missouri-St. Louis",
+    "slug": "mo-st-louis"
+  },
+  {
+    "name": "Mo. Western St.",
+    "long_name": "Missouri Western St. University",
+    "slug": "mo-western-st"
+  },
+  {
+    "name": "Molloy",
+    "long_name": "Molloy University",
+    "slug": "molloy"
+  },
+  {
+    "name": "Monmouth",
+    "long_name": "Monmouth University",
+    "slug": "monmouth"
+  },
+  {
+    "name": "Monmouth (IL)",
+    "long_name": "Monmouth College",
+    "slug": "monmouth-il"
+  },
+  {
+    "name": "Mont. St. Billings",
+    "long_name": "Montana St. University Billings",
+    "slug": "mont-st-billings"
+  },
+  {
+    "name": "Montana",
+    "long_name": "University of Montana",
+    "slug": "montana"
+  },
+  {
+    "name": "Montana St.",
+    "long_name": "Montana State University-Bozeman",
+    "slug": "montana-st"
+  },
+  {
+    "name": "Montclair St.",
+    "long_name": "Montclair State University",
+    "slug": "montclair-st"
+  },
+  {
+    "name": "Montevallo",
+    "long_name": "University of Montevallo",
+    "slug": "montevallo"
+  },
+  {
+    "name": "Moravian",
+    "long_name": "Moravian College",
+    "slug": "moravian"
+  },
+  {
+    "name": "Morehead St.",
+    "long_name": "Morehead State University",
+    "slug": "morehead-st"
+  },
+  {
+    "name": "Morehouse",
+    "long_name": "Morehouse College",
+    "slug": "morehouse"
+  },
+  {
+    "name": "Morgan St.",
+    "long_name": "Morgan State University",
+    "slug": "morgan-st"
+  },
+  {
+    "name": "Morningside",
+    "long_name": "Morningside College",
+    "slug": "morningside"
+  },
+  {
+    "name": "Morris Brown",
+    "long_name": "Morris Brown College",
+    "slug": "morris-brown"
+  },
+  {
+    "name": "Mount Holyoke",
+    "long_name": "Mount Holyoke College",
+    "slug": "mount-holyoke"
+  },
+  {
+    "name": "Mount Ida",
+    "long_name": "Mount Ida College",
+    "slug": "mount-ida"
+  },
+  {
+    "name": "Mount Olive",
+    "long_name": "Mount Olive College",
+    "slug": "mount-olive"
+  },
+  {
+    "name": "Mount Union",
+    "long_name": "Mount Union College",
+    "slug": "mount-union"
+  },
+  {
+    "name": "Milwaukee Engr.",
+    "long_name": "Milwaukee School of Engineering",
+    "slug": "msoe"
+  },
+  {
+    "name": "Mt. Aloysius",
+    "long_name": "Mount Aloysius College",
+    "slug": "mt-aloysius"
+  },
+  {
+    "name": "Mt. Mary",
+    "long_name": "Mount Mary College",
+    "slug": "mt-mary"
+  },
+  {
+    "name": "Mount St. Joseph ",
+    "long_name": "Mount St. Joseph University",
+    "slug": "mt-st-joseph"
+  },
+  {
+    "name": "Mt. St. Mary (NY)",
+    "long_name": "Mount Saint Mary College ",
+    "slug": "mt-st-mary-ny"
+  },
+  {
+    "name": "Mt. St. Mary's",
+    "long_name": "Mount St. Mary's University",
+    "slug": "mt-st-marys"
+  },
+  {
+    "name": "Mt. St. Vincent",
+    "long_name": "University of Mount Saint Vincent",
+    "slug": "mt-st-vincent"
+  },
+  {
+    "name": "Muhlenberg",
+    "long_name": "Muhlenberg College",
+    "slug": "muhlenberg"
+  },
+  {
+    "name": "Murray St.",
+    "long_name": "Murray State University",
+    "slug": "murray-st"
+  },
+  {
+    "name": "Muskingum",
+    "long_name": "Muskingum University",
+    "slug": "muskingum"
+  },
+  {
+    "name": "Navy",
+    "long_name": "U.S. Naval Academy",
+    "slug": "navy"
+  },
+  {
+    "name": "Nazareth",
+    "long_name": "Nazareth College",
+    "slug": "nazareth"
+  },
+  {
+    "name": "North Carolina A&T",
+    "long_name": "North Carolina A&T State University",
+    "slug": "nc-at"
+  },
+  {
+    "name": "North Carolina Central",
+    "long_name": "North Carolina Central University",
+    "slug": "nc-central"
+  },
+  {
+    "name": "North Carolina Wesleyan ",
+    "long_name": "North Carolina Wesleyan College",
+    "slug": "nc-wesleyan"
+  },
+  {
+    "name": "Neb.-Kearney",
+    "long_name": "University of Nebraska-Kearney",
+    "slug": "neb-kearney"
+  },
+  {
+    "name": "Omaha",
+    "long_name": "University of Nebraska-Omaha",
+    "slug": "neb-omaha"
+  },
+  {
+    "name": "Neb. Wesleyan",
+    "long_name": "Nebraska Wesleyan University",
+    "slug": "neb-wesleyan"
+  },
+  {
+    "name": "Nebraska",
+    "long_name": "University of Nebraska-Lincoln",
+    "slug": "nebraska"
+  },
+  {
+    "name": "Neumann",
+    "long_name": "Neumann University",
+    "slug": "neumann"
+  },
+  {
+    "name": "Nevada",
+    "long_name": "University of Nevada",
+    "slug": "nevada"
+  },
+  {
+    "name": "New England Col.",
+    "long_name": "New England College",
+    "slug": "new-england-col"
+  },
+  {
+    "name": "New Hampshire",
+    "long_name": "University of New Hampshire",
+    "slug": "new-hampshire"
+  },
+  {
+    "name": "New Haven",
+    "long_name": "University of New Haven",
+    "slug": "new-haven"
+  },
+  {
+    "name": "New Jersey City",
+    "long_name": "New Jersey City University",
+    "slug": "new-jersey-city"
+  },
+  {
+    "name": "New Mexico",
+    "long_name": "University of New Mexico",
+    "slug": "new-mexico"
+  },
+  {
+    "name": "New Mexico St.",
+    "long_name": "New Mexico State University",
+    "slug": "new-mexico-st"
+  },
+  {
+    "name": "New Orleans",
+    "long_name": "University of New Orleans",
+    "slug": "new-orleans"
+  },
+  {
+    "name": "New Rochelle",
+    "long_name": "College of New Rochelle",
+    "slug": "new-rochelle"
+  },
+  {
+    "name": "New York U.",
+    "long_name": "New York University",
+    "slug": "new-york-u"
+  },
+  {
+    "name": "Newberry",
+    "long_name": "Newberry College",
+    "slug": "newberry"
+  },
+  {
+    "name": "Newbury",
+    "long_name": "Newbury College",
+    "slug": "newbury"
+  },
+  {
+    "name": "Newman",
+    "long_name": "Newman University",
+    "slug": "newman"
+  },
+  {
+    "name": "Niagara",
+    "long_name": "Niagara University",
+    "slug": "niagara"
+  },
+  {
+    "name": "Nicholls St.",
+    "long_name": "Nicholls State University",
+    "slug": "nicholls-st"
+  },
+  {
+    "name": "Nichols",
+    "long_name": "Nichols College",
+    "slug": "nichols"
+  },
+  {
+    "name": "New-Jersey-Tech",
+    "long_name": "New Jersey Institute of Technology",
+    "slug": "njit"
+  },
+  {
+    "name": "New-Mexico-Highlands ",
+    "long_name": "New Mexico Highlands University",
+    "slug": "nm-highlands"
+  },
+  {
+    "name": "Norfolk St.",
+    "long_name": "Norfolk State University",
+    "slug": "norfolk-st"
+  },
+  {
+    "name": "North Ala.",
+    "long_name": "University of North Alabama",
+    "slug": "north-ala"
+  },
+  {
+    "name": "North Carolina",
+    "long_name": "University of North Carolina",
+    "slug": "north-carolina"
+  },
+  {
+    "name": "North Carolina St.",
+    "long_name": "North Carolina State University",
+    "slug": "north-carolina-st"
+  },
+  {
+    "name": "North Central (IL)",
+    "long_name": "North Central College",
+    "slug": "north-central-il"
+  },
+  {
+    "name": "North Central (MN)",
+    "long_name": "North Central University",
+    "slug": "north-central-mn"
+  },
+  {
+    "name": "North Dakota",
+    "long_name": "University of North Dakota",
+    "slug": "north-dakota"
+  },
+  {
+    "name": "North Dakota St.",
+    "long_name": "North Dakota State University",
+    "slug": "north-dakota-st"
+  },
+  {
+    "name": "North Florida",
+    "long_name": "University of North Florida",
+    "slug": "north-florida"
+  },
+  {
+    "name": "North Ga.",
+    "long_name": "University of North Georgia",
+    "slug": "north-georgia"
+  },
+  {
+    "name": "North Greenville",
+    "long_name": "North Greenville University",
+    "slug": "north-greenville"
+  },
+  {
+    "name": "North Park",
+    "long_name": "North Park University",
+    "slug": "north-park"
+  },
+  {
+    "name": "North Texas",
+    "long_name": "University of North Texas",
+    "slug": "north-texas"
+  },
+  {
+    "name": "Northeastern",
+    "long_name": "Northeastern University",
+    "slug": "northeastern"
+  },
+  {
+    "name": "Northeastern Ill.",
+    "long_name": "Northeastern Illinois",
+    "slug": "northeastern-ill"
+  },
+  {
+    "name": "Northeastern St.",
+    "long_name": "Northeastern State University",
+    "slug": "northeastern-st"
+  },
+  {
+    "name": "Northern Ariz.",
+    "long_name": "Northern Arizona University",
+    "slug": "northern-ariz"
+  },
+  {
+    "name": "Northern Colo.",
+    "long_name": "University of Northern Colorado",
+    "slug": "northern-colo"
+  },
+  {
+    "name": "Northern Ill.",
+    "long_name": "Northern Illinois University",
+    "slug": "northern-ill"
+  },
+  {
+    "name": "Northern Ky.",
+    "long_name": "Northern Kentucky University",
+    "slug": "northern-ky"
+  },
+  {
+    "name": "Northern Mich.",
+    "long_name": "Northern Michigan University",
+    "slug": "northern-mich"
+  },
+  {
+    "name": "Northern St.",
+    "long_name": "Northern State University",
+    "slug": "northern-st"
+  },
+  {
+    "name": "Northland",
+    "long_name": "Northland College",
+    "slug": "northland"
+  },
+  {
+    "name": "Northwest Mo. St.",
+    "long_name": "Northwest Missouri State University",
+    "slug": "northwest-mo-st"
+  },
+  {
+    "name": "Northwest Nazarene",
+    "long_name": "Northwest Nazarene University",
+    "slug": "northwest-nazarene"
+  },
+  {
+    "name": "Northwestern",
+    "long_name": "Northwestern University",
+    "slug": "northwestern"
+  },
+  {
+    "name": "Northwestern Oklahoma",
+    "long_name": "Northwestern Oklahoma State Univ.",
+    "slug": "northwestern-okla"
+  },
+  {
+    "name": "Northwestern St.",
+    "long_name": "Northwestern State University",
+    "slug": "northwestern-st"
+  },
+  {
+    "name": "Northwestern-St. Paul",
+    "long_name": "University of Northwestern-St. Paul",
+    "slug": "northwestern-st-paul"
+  },
+  {
+    "name": "Northwood (MI)",
+    "long_name": "Northwood University (Michigan) ",
+    "slug": "northwood-mi"
+  },
+  {
+    "name": "Norwich",
+    "long_name": "Norwich University",
+    "slug": "norwich"
+  },
+  {
+    "name": "Notre Dame",
+    "long_name": "University of Notre Dame",
+    "slug": "notre-dame"
+  },
+  {
+    "name": "Notre Dame de Namur",
+    "long_name": "Notre Dame de Namur",
+    "slug": "notre-dame-de-namur"
+  },
+  {
+    "name": "Notre Dame (MD)",
+    "long_name": "Notre Dame of Maryland University",
+    "slug": "notre-dame-md"
+  },
+  {
+    "name": "Notre Dame (OH)",
+    "long_name": "Notre Dame College (Ohio)",
+    "slug": "notre-dame-oh"
+  },
+  {
+    "name": "Nova Southeastern",
+    "long_name": "Nova Southeastern University",
+    "slug": "nova-southeastern"
+  },
+  {
+    "name": "Nyack",
+    "long_name": "Nyack College",
+    "slug": "nyack"
+  },
+  {
+    "name": "New-York-Inst ",
+    "long_name": "New York Institute of Technology",
+    "slug": "nyit"
+  },
+  {
+    "name": "Oakland",
+    "long_name": "Oakland University",
+    "slug": "oakland"
+  },
+  {
+    "name": "Oakland City",
+    "long_name": "Oakland City University",
+    "slug": "oakland-city"
+  },
+  {
+    "name": "Oberlin",
+    "long_name": "Oberlin College",
+    "slug": "oberlin"
+  },
+  {
+    "name": "Occidental",
+    "long_name": "Occidental College",
+    "slug": "occidental"
+  },
+  {
+    "name": "Oglethorpe",
+    "long_name": "Oglethorpe University",
+    "slug": "oglethorpe"
+  },
+  {
+    "name": "Ohio",
+    "long_name": "Ohio University",
+    "slug": "ohio"
+  },
+  {
+    "name": "Ohio Dominican",
+    "long_name": "Ohio Dominican University",
+    "slug": "ohio-dominican"
+  },
+  {
+    "name": "Ohio Northern",
+    "long_name": "Ohio Northern University",
+    "slug": "ohio-northern"
+  },
+  {
+    "name": "Ohio St.",
+    "long_name": "The Ohio State University",
+    "slug": "ohio-st"
+  },
+  {
+    "name": "Ohio Valley",
+    "long_name": "Ohio Valley University",
+    "slug": "ohio-valley"
+  },
+  {
+    "name": "Ohio Wesleyan",
+    "long_name": "Ohio Wesleyan University",
+    "slug": "ohio-wesleyan"
+  },
+  {
+    "name": "Oklahoma Baptist University",
+    "long_name": null,
+    "slug": "okla-baptist"
+  },
+  {
+    "name": "Oklahoma Christian",
+    "long_name": "Oklahoma Christian University",
+    "slug": "okla-christian"
+  },
+  {
+    "name": "Oklahoma Panhandle",
+    "long_name": "Oklahoma Panhandle State Univ.",
+    "slug": "okla-panhandle"
+  },
+  {
+    "name": "Oklahoma",
+    "long_name": "University of Oklahoma",
+    "slug": "oklahoma"
+  },
+  {
+    "name": "Oklahoma St.",
+    "long_name": "Oklahoma State University",
+    "slug": "oklahoma-st"
+  },
+  {
+    "name": "Old Dominion",
+    "long_name": "Old Dominion University",
+    "slug": "old-dominion"
+  },
+  {
+    "name": "Suny-Old-Westbury ",
+    "long_name": "SUNY, Old Westbury",
+    "slug": "old-westbury"
+  },
+  {
+    "name": "Mississippi",
+    "long_name": "University of Mississippi",
+    "slug": "ole-miss"
+  },
+  {
+    "name": "Olivet",
+    "long_name": "Olivet College",
+    "slug": "olivet"
+  },
+  {
+    "name": "SUNY Oneonta",
+    "long_name": "SUNY Oneonta",
+    "slug": "oneonta-st"
+  },
+  {
+    "name": "Oral Roberts",
+    "long_name": "Oral Roberts University",
+    "slug": "oral-roberts"
+  },
+  {
+    "name": "Oregon",
+    "long_name": "University of Oregon",
+    "slug": "oregon"
+  },
+  {
+    "name": "Oregon State",
+    "long_name": "Oregon State University",
+    "slug": "oregon-st"
+  },
+  {
+    "name": "Suny-Oswego",
+    "long_name": "SUNY, Oswego",
+    "slug": "oswego-st"
+  },
+  {
+    "name": "Otterbein",
+    "long_name": "Otterbein University",
+    "slug": "otterbein"
+  },
+  {
+    "name": "Ouachita Baptist",
+    "long_name": "Ouachita Baptist University",
+    "slug": "ouachita-baptist"
+  },
+  {
+    "name": "Ozarks (AR)",
+    "long_name": "University of the Ozarks",
+    "slug": "ozarks-ar"
+  },
+  {
+    "name": "Pace",
+    "long_name": "Pace University",
+    "slug": "pace"
+  },
+  {
+    "name": "Pacific",
+    "long_name": "University of the Pacific",
+    "slug": "pacific"
+  },
+  {
+    "name": "Pacific Lutheran",
+    "long_name": "Pacific Lutheran University",
+    "slug": "pacific-lutheran"
+  },
+  {
+    "name": "Pacific (OR)",
+    "long_name": "Pacific University",
+    "slug": "pacific-or"
+  },
+  {
+    "name": "Paine",
+    "long_name": "Paine College",
+    "slug": "paine"
+  },
+  {
+    "name": "Palm Beach Atl.",
+    "long_name": "Palm Beach Atlantic University",
+    "slug": "palm-beach-atl"
+  },
+  {
+    "name": "Penn",
+    "long_name": "University of Pennsylvania",
+    "slug": "penn"
+  },
+  {
+    "name": "Penn State",
+    "long_name": "Penn State University",
+    "slug": "penn-st"
+  },
+  {
+    "name": "Penn St.-Abington",
+    "long_name": "Penn State Abington",
+    "slug": "penn-st-abington"
+  },
+  {
+    "name": "Penn St.-Altoona",
+    "long_name": "Penn State Altoona",
+    "slug": "penn-st-altoona"
+  },
+  {
+    "name": "Penn St.-Behrend",
+    "long_name": "Penn State Behrend",
+    "slug": "penn-st-behrend"
+  },
+  {
+    "name": "Penn St.-Berks",
+    "long_name": "Penn State Berks College",
+    "slug": "penn-st-berks"
+  },
+  {
+    "name": "Penn St. Brandywine",
+    "long_name": "Pennsylvania State University Brandywine",
+    "slug": "penn-st-brandywine"
+  },
+  {
+    "name": "Penn St.-Harrisburg",
+    "long_name": "Penn State Harrisburg",
+    "slug": "penn-st-harrisburg"
+  },
+  {
+    "name": "Penn College",
+    "long_name": "Penn College of Technology",
+    "slug": "penn-tech"
+  },
+  {
+    "name": "Pepperdine",
+    "long_name": "Pepperdine University",
+    "slug": "pepperdine"
+  },
+  {
+    "name": "Pfeiffer",
+    "long_name": "Pfeiffer University",
+    "slug": "pfeiffer"
+  },
+  {
+    "name": "Jefferson University ",
+    "long_name": "Thomas Jefferson University ",
+    "slug": "philadelphia-u"
+  },
+  {
+    "name": "Piedmont",
+    "long_name": "Piedmont College",
+    "slug": "piedmont"
+  },
+  {
+    "name": "Pine Manor",
+    "long_name": "Pine Manor College",
+    "slug": "pine-manor"
+  },
+  {
+    "name": "Pitt.-Bradford",
+    "long_name": "University of Pittsburgh, Bradford",
+    "slug": "pitt-bradford"
+  },
+  {
+    "name": "Pitt.-Greensburg",
+    "long_name": "University of Pittsburgh-Greensburg",
+    "slug": "pitt-greensburg"
+  },
+  {
+    "name": "Pitt.-Johnstown",
+    "long_name": "University of Pittsburgh-Johnstown",
+    "slug": "pitt-johnstown"
+  },
+  {
+    "name": "Pittsburg State",
+    "long_name": "Pittsburg State University",
+    "slug": "pittsburg-st"
+  },
+  {
+    "name": "Pittsburgh",
+    "long_name": "University of Pittsburgh",
+    "slug": "pittsburgh"
+  },
+  {
+    "name": "Plattsburgh State",
+    "long_name": "Plattsburgh State University",
+    "slug": "plattsburgh-st"
+  },
+  {
+    "name": "Plymouth St.",
+    "long_name": "Plymouth State University",
+    "slug": "plymouth-st"
+  },
+  {
+    "name": "Point Loma",
+    "long_name": "Point Loma ",
+    "slug": "point-loma"
+  },
+  {
+    "name": "Polytechnic (NY)",
+    "long_name": "Polytechnic Institute of New York University",
+    "slug": "polytechnic-ny"
+  },
+  {
+    "name": "Pomona-Pitzer",
+    "long_name": "Pomona-Pitzer Colleges",
+    "slug": "pomona-pitzer"
+  },
+  {
+    "name": "Portland",
+    "long_name": "University of Portland",
+    "slug": "portland"
+  },
+  {
+    "name": "Portland St.",
+    "long_name": "Portland State University",
+    "slug": "portland-st"
+  },
+  {
+    "name": "Post",
+    "long_name": "Post University",
+    "slug": "post"
+  },
+  {
+    "name": "P.R.-Bayamon",
+    "long_name": "University of Puerto Rico-Bayamon",
+    "slug": "pr-bayamon"
+  },
+  {
+    "name": "P.R.-Cayey",
+    "long_name": "University of Puerto Rico, Cayey",
+    "slug": "pr-cayey"
+  },
+  {
+    "name": "P.R.-Humacao",
+    "long_name": "University of Puerto Rico, Humacao",
+    "slug": "pr-humacao"
+  },
+  {
+    "name": "P.R.-Mayaguez",
+    "long_name": "University of Puerto Rico-Mayaguez Campus",
+    "slug": "pr-mayaguez"
+  },
+  {
+    "name": "P.R.-Rio Piedras",
+    "long_name": "University of Puerto Rico-Rio Piedras",
+    "slug": "pr-rio-piedras"
+  },
+  {
+    "name": "Prairie View",
+    "long_name": "Prairie View A&M University",
+    "slug": "prairie-view"
+  },
+  {
+    "name": "Pratt Institute ",
+    "long_name": "Pratt Institute ",
+    "slug": "pratt-institute"
+  },
+  {
+    "name": "Presbyterian",
+    "long_name": "Presbyterian College",
+    "slug": "presbyterian"
+  },
+  {
+    "name": "Presentation",
+    "long_name": "Presentation College",
+    "slug": "presentation"
+  },
+  {
+    "name": "Princeton",
+    "long_name": "Princeton University",
+    "slug": "princeton"
+  },
+  {
+    "name": "Principia",
+    "long_name": "Principia College",
+    "slug": "principia"
+  },
+  {
+    "name": "Providence",
+    "long_name": "Providence College",
+    "slug": "providence"
+  },
+  {
+    "name": "Puget Sound",
+    "long_name": "University of Puget Sound",
+    "slug": "puget-sound"
+  },
+  {
+    "name": "Purchase",
+    "long_name": "Purchase College-SUNY",
+    "slug": "purchase-st"
+  },
+  {
+    "name": "Purdue",
+    "long_name": "Purdue University",
+    "slug": "purdue"
+  },
+  {
+    "name": "Purdue Northwest ",
+    "long_name": "Purdue University Northwest",
+    "slug": "purdue-northwest"
+  },
+  {
+    "name": "Queens (NC)",
+    "long_name": "Queens University of Charlotte",
+    "slug": "queens-nc"
+  },
+  {
+    "name": "Queens (NY)",
+    "long_name": "Queens College",
+    "slug": "queens-ny"
+  },
+  {
+    "name": "Quincy",
+    "long_name": "Quincy University",
+    "slug": "quincy"
+  },
+  {
+    "name": "Quinnipiac",
+    "long_name": "Quinnipiac University",
+    "slug": "quinnipiac"
+  },
+  {
+    "name": "Radford",
+    "long_name": "Radford University",
+    "slug": "radford"
+  },
+  {
+    "name": "Ramapo",
+    "long_name": "Ramapo College",
+    "slug": "ramapo"
+  },
+  {
+    "name": "Randolph",
+    "long_name": "Randolph College",
+    "slug": "randolph"
+  },
+  {
+    "name": "Randolph-Macon",
+    "long_name": "Randolph-Macon College",
+    "slug": "randolph-macon"
+  },
+  {
+    "name": "Redlands",
+    "long_name": "University of Redlands",
+    "slug": "redlands"
+  },
+  {
+    "name": "Regis (CO)",
+    "long_name": "Regis University",
+    "slug": "regis-co"
+  },
+  {
+    "name": "Regis College",
+    "long_name": "Regis College",
+    "slug": "regis-ma"
+  },
+  {
+    "name": "Reneau University",
+    "long_name": "Reneau University",
+    "slug": "reneau-university"
+  },
+  {
+    "name": "Rensselaer",
+    "long_name": "Rensselaer Polytechnic Institute",
+    "slug": "rensselaer"
+  },
+  {
+    "name": "Rhode Island",
+    "long_name": "University of Rhode Island",
+    "slug": "rhode-island"
+  },
+  {
+    "name": "Rhode Island Col.",
+    "long_name": "Rhode Island College",
+    "slug": "rhode-island-col"
+  },
+  {
+    "name": "Rhodes",
+    "long_name": "Rhodes College",
+    "slug": "rhodes"
+  },
+  {
+    "name": "Rice",
+    "long_name": "Rice University",
+    "slug": "rice"
+  },
+  {
+    "name": "Stockton",
+    "long_name": "Stockton University",
+    "slug": "richard-stockton"
+  },
+  {
+    "name": "Richmond",
+    "long_name": "University of Richmond",
+    "slug": "richmond"
+  },
+  {
+    "name": "Rider",
+    "long_name": "Rider University",
+    "slug": "rider"
+  },
+  {
+    "name": "Ripon",
+    "long_name": "Ripon College",
+    "slug": "ripon"
+  },
+  {
+    "name": "Rivier",
+    "long_name": "Rivier University",
+    "slug": "rivier"
+  },
+  {
+    "name": "Roanoke",
+    "long_name": "Roanoke College",
+    "slug": "roanoke"
+  },
+  {
+    "name": "Robert Morris",
+    "long_name": "Robert Morris University",
+    "slug": "robert-morris"
+  },
+  {
+    "name": "Roberts Wesleyan",
+    "long_name": "Roberts Wesleyan University",
+    "slug": "roberts-wesleyan"
+  },
+  {
+    "name": "Rochester Inst.",
+    "long_name": "Rochester Institute of Technology",
+    "slug": "rochester-inst"
+  },
+  {
+    "name": "Rochester (NY)",
+    "long_name": "University of Rochester",
+    "slug": "rochester-ny"
+  },
+  {
+    "name": "Rockford",
+    "long_name": "Rockford University",
+    "slug": "rockford"
+  },
+  {
+    "name": "Rockhurst",
+    "long_name": "Rockhurst University",
+    "slug": "rockhurst"
+  },
+  {
+    "name": "Roger Williams",
+    "long_name": "Roger Williams University",
+    "slug": "roger-williams"
+  },
+  {
+    "name": "Rogers State",
+    "long_name": "Rogers State University",
+    "slug": "rogers-st"
+  },
+  {
+    "name": "Rollins",
+    "long_name": "Rollins College",
+    "slug": "rollins"
+  },
+  {
+    "name": "Roosevelt University ",
+    "long_name": "Roosevelt University ",
+    "slug": "roosevelt-university"
+  },
+  {
+    "name": "Rose-Hulman",
+    "long_name": "Rose-Hulman Institute of Technology",
+    "slug": "rose-hulman"
+  },
+  {
+    "name": "Rosemont",
+    "long_name": "Rosemont College",
+    "slug": "rosemont"
+  },
+  {
+    "name": "Rowan",
+    "long_name": "Rowan University",
+    "slug": "rowan"
+  },
+  {
+    "name": "Rust",
+    "long_name": "Rust College",
+    "slug": "rust"
+  },
+  {
+    "name": "Rutgers",
+    "long_name": "Rutgers University",
+    "slug": "rutgers"
+  },
+  {
+    "name": "Rutgers-Camden",
+    "long_name": "Rutgers University, Camden",
+    "slug": "rutgers-camden"
+  },
+  {
+    "name": "Rutgers-Newark",
+    "long_name": "Rutgers University, Newark",
+    "slug": "rutgers-newark"
+  },
+  {
+    "name": "Sacramento St.",
+    "long_name": "Sacramento State University",
+    "slug": "sacramento-st"
+  },
+  {
+    "name": "Sacred Heart",
+    "long_name": "Sacred Heart University",
+    "slug": "sacred-heart"
+  },
+  {
+    "name": "Russell Sage College",
+    "long_name": "The Sage Colleges",
+    "slug": "sage-colleges"
+  },
+  {
+    "name": "Saginaw Valley",
+    "long_name": "Saginaw Valley State University",
+    "slug": "saginaw-valley"
+  },
+  {
+    "name": "St. John's (MN)",
+    "long_name": "St. John's University (Minn.) ",
+    "slug": "saint-johns-mn"
+  },
+  {
+    "name": "Saint Joseph's",
+    "long_name": "Saint Joseph's University",
+    "slug": "saint-josephs"
+  },
+  {
+    "name": "St. Leo",
+    "long_name": "Saint Leo University",
+    "slug": "saint-leo"
+  },
+  {
+    "name": "St. Louis",
+    "long_name": "Saint Louis University",
+    "slug": "saint-louis"
+  },
+  {
+    "name": "Saint-Martins ",
+    "long_name": "Saint Martin's University",
+    "slug": "saint-martins"
+  },
+  {
+    "name": "St. Michael's",
+    "long_name": "Saint Michael's College",
+    "slug": "saint-michaels"
+  },
+  {
+    "name": "Saint Rose",
+    "long_name": null,
+    "slug": "saint-rose"
+  },
+  {
+    "name": "St. Vincent",
+    "long_name": "Saint Vincent College",
+    "slug": "saint-vincent"
+  },
+  {
+    "name": "Salem",
+    "long_name": "Salem College",
+    "slug": "salem"
+  },
+  {
+    "name": "Salem University",
+    "long_name": "Salem University",
+    "slug": "salem-intl"
+  },
+  {
+    "name": "Salem St.",
+    "long_name": "Salem State University",
+    "slug": "salem-st"
+  },
+  {
+    "name": "Salisbury",
+    "long_name": "Salisbury University",
+    "slug": "salisbury"
+  },
+  {
+    "name": "Salve Regina",
+    "long_name": "Salve Regina University",
+    "slug": "salve-regina"
+  },
+  {
+    "name": "Sam Houston St.",
+    "long_name": "Sam Houston State University",
+    "slug": "sam-houston-st"
+  },
+  {
+    "name": "Samford",
+    "long_name": "Samford University",
+    "slug": "samford"
+  },
+  {
+    "name": "San Diego",
+    "long_name": "University of San Diego",
+    "slug": "san-diego"
+  },
+  {
+    "name": "San Diego St.",
+    "long_name": "San Diego State University",
+    "slug": "san-diego-st"
+  },
+  {
+    "name": "San Fran. St.",
+    "long_name": "San Francisco State University",
+    "slug": "san-fran-st"
+  },
+  {
+    "name": "San Francisco",
+    "long_name": "University of San Francisco",
+    "slug": "san-francisco"
+  },
+  {
+    "name": "San Jose St.",
+    "long_name": "San Jose State University",
+    "slug": "san-jose-st"
+  },
+  {
+    "name": "Santa Clara",
+    "long_name": "Santa Clara University",
+    "slug": "santa-clara"
+  },
+  {
+    "name": "Sarah Lawrence",
+    "long_name": "Sarah Lawrence College",
+    "slug": "sarah-lawrence"
+  },
+  {
+    "name": "Savannah St.",
+    "long_name": "Savannah State University",
+    "slug": "savannah-st"
+  },
+  {
+    "name": "South-Carolina-Aiken",
+    "long_name": "University of South Carolina Aiken",
+    "slug": "sc-aiken"
+  },
+  {
+    "name": "SCAD",
+    "long_name": "Savannah College of Art & Design",
+    "slug": "scad"
+  },
+  {
+    "name": "Schreiner",
+    "long_name": "Schreiner University",
+    "slug": "schreiner"
+  },
+  {
+    "name": "Scranton",
+    "long_name": "University of Scranton",
+    "slug": "scranton"
+  },
+  {
+    "name": "Seattle",
+    "long_name": "Seattle University",
+    "slug": "seattle"
+  },
+  {
+    "name": "Seattle Pacific",
+    "long_name": "Seattle Pacific University",
+    "slug": "seattle-pacific"
+  },
+  {
+    "name": "Seton Hall",
+    "long_name": "Seton Hall University",
+    "slug": "seton-hall"
+  },
+  {
+    "name": "Seton Hill",
+    "long_name": "Seton Hill University",
+    "slug": "seton-hill"
+  },
+  {
+    "name": "Sewanee",
+    "long_name": "The University of the South",
+    "slug": "sewanee"
+  },
+  {
+    "name": "Shaw",
+    "long_name": "Shaw University",
+    "slug": "shaw"
+  },
+  {
+    "name": "Shenandoah",
+    "long_name": "Shenandoah University",
+    "slug": "shenandoah"
+  },
+  {
+    "name": "Shepherd",
+    "long_name": "Shepherd University",
+    "slug": "shepherd"
+  },
+  {
+    "name": "Shippensburg",
+    "long_name": "Shippensburg University",
+    "slug": "shippensburg"
+  },
+  {
+    "name": "Shorter",
+    "long_name": "Shorter University",
+    "slug": "shorter"
+  },
+  {
+    "name": "Siena",
+    "long_name": "Siena College",
+    "slug": "siena"
+  },
+  {
+    "name": "Simmons",
+    "long_name": "Simmons College",
+    "slug": "simmons"
+  },
+  {
+    "name": "Simon Fraser",
+    "long_name": "Simon Fraser University",
+    "slug": "simon-fraser"
+  },
+  {
+    "name": "Simpson",
+    "long_name": "Simpson College",
+    "slug": "simpson"
+  },
+  {
+    "name": "Sioux Falls",
+    "long_name": "University of Sioux Falls",
+    "slug": "sioux-falls"
+  },
+  {
+    "name": "SIUE",
+    "long_name": "Southern Illinois Univ.-Edwardsville ",
+    "slug": "siu-edwardsville"
+  },
+  {
+    "name": "Skidmore",
+    "long_name": "Skidmore College",
+    "slug": "skidmore"
+  },
+  {
+    "name": "Slippery Rock",
+    "long_name": "Slippery Rock University",
+    "slug": "slippery-rock"
+  },
+  {
+    "name": "Smith",
+    "long_name": "Smith College",
+    "slug": "smith"
+  },
+  {
+    "name": "SMU",
+    "long_name": "Southern Methodist University",
+    "slug": "smu"
+  },
+  {
+    "name": "Sonoma St.",
+    "long_name": "Sonoma State University",
+    "slug": "sonoma-st"
+  },
+  {
+    "name": "South Ala.",
+    "long_name": "University of South Alabama",
+    "slug": "south-ala"
+  },
+  {
+    "name": "South Carolina",
+    "long_name": "University of South Carolina",
+    "slug": "south-carolina"
+  },
+  {
+    "name": "South Carolina St.",
+    "long_name": "South Carolina State University",
+    "slug": "south-carolina-st"
+  },
+  {
+    "name": "South Dakota",
+    "long_name": "University of South Dakota",
+    "slug": "south-dakota"
+  },
+  {
+    "name": "South Dakota Mines",
+    "long_name": "South Dakota (Mines)",
+    "slug": "south-dakota-mines"
+  },
+  {
+    "name": "South Dakota St.",
+    "long_name": "South Dakota State University",
+    "slug": "south-dakota-st"
+  },
+  {
+    "name": "South Fla.",
+    "long_name": "University of South Florida",
+    "slug": "south-fla"
+  },
+  {
+    "name": "Southampton",
+    "long_name": "Southampton Campus of LIU",
+    "slug": "southampton"
+  },
+  {
+    "name": "Southeast Mo. St.",
+    "long_name": "Southeast Missouri State University",
+    "slug": "southeast-mo-st"
+  },
+  {
+    "name": "Southeastern La.",
+    "long_name": "Southeastern Louisiana University",
+    "slug": "southeastern-la"
+  },
+  {
+    "name": "Southeastern Okla.",
+    "long_name": "Southeastern Oklahoma State Univ.",
+    "slug": "southeastern-okla"
+  },
+  {
+    "name": "Southern Ark.",
+    "long_name": "Southern Arkansas University",
+    "slug": "southern-ark"
+  },
+  {
+    "name": "Southern California",
+    "long_name": "University of Southern California",
+    "slug": "southern-california"
+  },
+  {
+    "name": "Southern Conn. St.",
+    "long_name": "Southern Connecticut St. University",
+    "slug": "southern-conn-st"
+  },
+  {
+    "name": "Southern Ill.",
+    "long_name": "Southern Illinois University",
+    "slug": "southern-ill"
+  },
+  {
+    "name": "Southern Ind.",
+    "long_name": "University of Southern Indiana",
+    "slug": "southern-ind"
+  },
+  {
+    "name": "Southern Me.",
+    "long_name": "University of Southern Maine",
+    "slug": "southern-me"
+  },
+  {
+    "name": "Southern Miss.",
+    "long_name": "The University of Southern Mississippi",
+    "slug": "southern-miss"
+  },
+  {
+    "name": "Southern Nazarene",
+    "long_name": "Southern Nazarene University",
+    "slug": "southern-nazarene"
+  },
+  {
+    "name": "Southern N.H.",
+    "long_name": "Southern New Hampshire University",
+    "slug": "southern-nh"
+  },
+  {
+    "name": "Southern U.",
+    "long_name": "Southern University",
+    "slug": "southern-u"
+  },
+  {
+    "name": "Southern Utah",
+    "long_name": "Southern Utah University",
+    "slug": "southern-utah"
+  },
+  {
+    "name": "Southern Virginia",
+    "long_name": "Southern Virginia University",
+    "slug": "southern-va"
+  },
+  {
+    "name": "Southern Vt.",
+    "long_name": "Southern Vermont College",
+    "slug": "southern-vt"
+  },
+  {
+    "name": "Southern Wesleyan",
+    "long_name": "Southern Wesleyan University",
+    "slug": "southern-wesleyan"
+  },
+  {
+    "name": "Southwest Baptist",
+    "long_name": "Southwest Baptist University",
+    "slug": "southwest-baptist"
+  },
+  {
+    "name": "Southwest Minn. St.",
+    "long_name": "Southwest Minnesota St. University",
+    "slug": "southwest-minn-st"
+  },
+  {
+    "name": "Southwestern Okla.",
+    "long_name": "Southwestern Oklahoma State Univ.",
+    "slug": "southwestern-okla"
+  },
+  {
+    "name": "Southwestern (TX)",
+    "long_name": "Southwestern University",
+    "slug": "southwestern-tx"
+  },
+  {
+    "name": "Spalding",
+    "long_name": "Spalding University",
+    "slug": "spalding"
+  },
+  {
+    "name": "Spelman",
+    "long_name": "Spelman College",
+    "slug": "spelman"
+  },
+  {
+    "name": "Spring Hill",
+    "long_name": "Spring Hill College",
+    "slug": "spring-hill"
+  },
+  {
+    "name": "Springfield",
+    "long_name": "Springfield College",
+    "slug": "springfield"
+  },
+  {
+    "name": "St. Andrews",
+    "long_name": "St. Andrews Presbyterian College",
+    "slug": "st-andrews"
+  },
+  {
+    "name": "St. Anselm",
+    "long_name": "Saint Anselm College",
+    "slug": "st-anselm"
+  },
+  {
+    "name": "St. Augustine's",
+    "long_name": "St. Augustine's University",
+    "slug": "st-augustines"
+  },
+  {
+    "name": "Saint Benedict",
+    "long_name": "College of Saint Benedict",
+    "slug": "st-benedict"
+  },
+  {
+    "name": "St. Bonaventure",
+    "long_name": "St. Bonaventure University",
+    "slug": "st-bonaventure"
+  },
+  {
+    "name": "St. Catherine",
+    "long_name": "St. Catherine University",
+    "slug": "st-catherine"
+  },
+  {
+    "name": "St. Cloud State",
+    "long_name": "St. Cloud State University",
+    "slug": "st-cloud-st"
+  },
+  {
+    "name": "St. Edward's",
+    "long_name": "St. Edward's University",
+    "slug": "st-edwards"
+  },
+  {
+    "name": "St. Elizabeth",
+    "long_name": "College of Saint Elizabeth",
+    "slug": "st-elizabeth"
+  },
+  {
+    "name": "St. Francis (IL)",
+    "long_name": "University of St. Francis (Ill.)",
+    "slug": "st-francis-il"
+  },
+  {
+    "name": "St. Francis Brooklyn",
+    "long_name": "St. Francis College Brooklyn",
+    "slug": "st-francis-ny"
+  },
+  {
+    "name": "St. Francis (PA)",
+    "long_name": "Saint Francis University",
+    "slug": "st-francis-pa"
+  },
+  {
+    "name": "St. John Fisher",
+    "long_name": "St. John Fisher University",
+    "slug": "st-john-fisher"
+  },
+  {
+    "name": "St. John's (NY)",
+    "long_name": "St. John's University (N.Y.) ",
+    "slug": "st-johns-ny"
+  },
+  {
+    "name": "St. Joseph (CT)",
+    "long_name": "University of Saint Joseph (Conn.)",
+    "slug": "st-joseph-ct"
+  },
+  {
+    "name": "St. Joseph's (Brkln)",
+    "long_name": "St. Joseph's University, New York (Brooklyn)",
+    "slug": "st-josephs-brkln"
+  },
+  {
+    "name": "St. Joseph's (IN)",
+    "long_name": "Saint Joseph's College (Ind.) ",
+    "slug": "st-josephs-in"
+  },
+  {
+    "name": "St. Joseph's (L.I.)",
+    "long_name": "St. Joseph's University (Long Island)",
+    "slug": "st-josephs-li"
+  },
+  {
+    "name": "St. Joseph's (Me.)",
+    "long_name": "Saint Joseph's College (Maine)",
+    "slug": "st-josephs-me"
+  },
+  {
+    "name": "St. Lawrence",
+    "long_name": "St. Lawrence University",
+    "slug": "st-lawrence"
+  },
+  {
+    "name": "Saint-Mary's (CA)",
+    "long_name": "St. Mary's College (CA)",
+    "slug": "st-marys-ca"
+  },
+  {
+    "name": "Saint-Mary's (IN)",
+    "long_name": "Saint Mary's College (IN)",
+    "slug": "st-marys-in"
+  },
+  {
+    "name": "Saint-Mary's (MD)",
+    "long_name": "St. Mary's College (MD)",
+    "slug": "st-marys-md"
+  },
+  {
+    "name": "Saint Mary's (Minn.)",
+    "long_name": "Saint Mary's University (Minn.)",
+    "slug": "st-marys-mn"
+  },
+  {
+    "name": "St. Mary's (TX)",
+    "long_name": "St. Mary's University (Texas) ",
+    "slug": "st-marys-tx"
+  },
+  {
+    "name": "St. Norbert",
+    "long_name": "St. Norbert College",
+    "slug": "st-norbert"
+  },
+  {
+    "name": "St. Olaf",
+    "long_name": "St. Olaf College",
+    "slug": "st-olaf"
+  },
+  {
+    "name": "St. Paul's",
+    "long_name": "St. Paul's College",
+    "slug": "st-pauls"
+  },
+  {
+    "name": "Saint Peter's ",
+    "long_name": "Saint Peter's University ",
+    "slug": "st-peters"
+  },
+  {
+    "name": "St. Scholastica",
+    "long_name": "College of St. Scholastica",
+    "slug": "st-scholastica"
+  },
+  {
+    "name": "St. Thomas Aquinas",
+    "long_name": "St. Thomas Aquinas College",
+    "slug": "st-thomas-aquinas"
+  },
+  {
+    "name": "St. Thomas (FL)",
+    "long_name": "St. Thomas University",
+    "slug": "st-thomas-fl"
+  },
+  {
+    "name": "St. Thomas (MN)",
+    "long_name": "University of St. Thomas (Minn.)",
+    "slug": "st-thomas-mn"
+  },
+  {
+    "name": "St. Thomas Houston",
+    "long_name": "St. Thomas Houston ",
+    "slug": "st-thomas-tx"
+  },
+  {
+    "name": "Stanford",
+    "long_name": "Stanford University",
+    "slug": "stanford"
+  },
+  {
+    "name": "Staten Island",
+    "long_name": "College of Staten Island",
+    "slug": "staten-island"
+  },
+  {
+    "name": "Stephen F. Austin",
+    "long_name": "Stephen F. Austin State University",
+    "slug": "stephen-f-austin"
+  },
+  {
+    "name": "Stephens",
+    "long_name": "Stephens College",
+    "slug": "stephens"
+  },
+  {
+    "name": "Stetson",
+    "long_name": "Stetson University",
+    "slug": "stetson"
+  },
+  {
+    "name": "Stevens ",
+    "long_name": "Stevens Institute of Technology",
+    "slug": "stevens"
+  },
+  {
+    "name": "Stevenson",
+    "long_name": "Stevenson University",
+    "slug": "stevenson"
+  },
+  {
+    "name": "Stillman",
+    "long_name": "Stillman College",
+    "slug": "stillman"
+  },
+  {
+    "name": "Stonehill",
+    "long_name": "Stonehill College",
+    "slug": "stonehill"
+  },
+  {
+    "name": "Stony Brook",
+    "long_name": "Stony Brook University",
+    "slug": "stony-brook"
+  },
+  {
+    "name": "Suffolk",
+    "long_name": "Suffolk University",
+    "slug": "suffolk"
+  },
+  {
+    "name": "Sul Ross St.",
+    "long_name": "Sul Ross State University",
+    "slug": "sul-ross-st"
+  },
+  {
+    "name": "SUNY Brockport",
+    "long_name": "State University of New York Brockport",
+    "slug": "suny-brockport"
+  },
+  {
+    "name": "SUNY Canton",
+    "long_name": "SUNY Canton",
+    "slug": "suny-canton"
+  },
+  {
+    "name": "SUNY Cortland",
+    "long_name": "SUNY, Cortland",
+    "slug": "suny-cortland"
+  },
+  {
+    "name": "SUNY Delhi ",
+    "long_name": "SUNY Delhi ",
+    "slug": "suny-delhi"
+  },
+  {
+    "name": "SUNY Geneseo",
+    "long_name": "SUNY, Geneseo",
+    "slug": "suny-geneseo"
+  },
+  {
+    "name": "SUNY Maritime",
+    "long_name": "SUNY Maritime College",
+    "slug": "suny-maritime"
+  },
+  {
+    "name": "State University of New York at Morrisville",
+    "long_name": "State University of New York at Morrisville",
+    "slug": "suny-morrisville"
+  },
+  {
+    "name": "SUNY New Paltz",
+    "long_name": "SUNY New Paltz",
+    "slug": "suny-new-paltz"
+  },
+  {
+    "name": "SUNY Potsdam",
+    "long_name": "SUNY, Potsdam",
+    "slug": "suny-potsdam"
+  },
+  {
+    "name": "SUNY Poly",
+    "long_name": "SUNY Polytechnic Institute",
+    "slug": "sunyit"
+  },
+  {
+    "name": "Susquehanna",
+    "long_name": "Susquehanna University",
+    "slug": "susquehanna"
+  },
+  {
+    "name": "Swarthmore",
+    "long_name": "Swarthmore College",
+    "slug": "swarthmore"
+  },
+  {
+    "name": "Sweet Briar",
+    "long_name": "Sweet Briar College",
+    "slug": "sweet-briar"
+  },
+  {
+    "name": "Syracuse",
+    "long_name": "Syracuse University",
+    "slug": "syracuse"
+  },
+  {
+    "name": "Tampa",
+    "long_name": "University of Tampa",
+    "slug": "tampa"
+  },
+  {
+    "name": "Tarleton St.",
+    "long_name": "Tarleton State University",
+    "slug": "tarleton-st"
+  },
+  {
+    "name": "TCNJ",
+    "long_name": "The College of New Jersey",
+    "slug": "tcnj"
+  },
+  {
+    "name": "TCU",
+    "long_name": "Texas Christian University",
+    "slug": "tcu"
+  },
+  {
+    "name": "Temple",
+    "long_name": "Temple University",
+    "slug": "temple"
+  },
+  {
+    "name": "Tennessee",
+    "long_name": "University of Tennessee",
+    "slug": "tennessee"
+  },
+  {
+    "name": "Tennessee St.",
+    "long_name": "Tennessee State University",
+    "slug": "tennessee-st"
+  },
+  {
+    "name": "Tennessee Tech",
+    "long_name": "Tennessee Technological University",
+    "slug": "tennessee-tech"
+  },
+  {
+    "name": "Tex. A&M Int'l",
+    "long_name": "Texas A&M International University",
+    "slug": "tex-am-intl"
+  },
+  {
+    "name": "Tex. A&M-Kingsville",
+    "long_name": "Texas A&M-Kingsville",
+    "slug": "tex-am-kingsville"
+  },
+  {
+    "name": "Texas of the Permian Basin",
+    "long_name": "Texas of the Permian Basin",
+    "slug": "tex-permian-basin"
+  },
+  {
+    "name": "Texas",
+    "long_name": "University of Texas",
+    "slug": "texas"
+  },
+  {
+    "name": "Texas A&M",
+    "long_name": "Texas A&M University",
+    "slug": "texas-am"
+  },
+  {
+    "name": "Texas at Arlington",
+    "long_name": "University of Texas at Arlington",
+    "slug": "texas-arlington"
+  },
+  {
+    "name": "Texas at Dallas",
+    "long_name": "University of Texas at Dallas",
+    "slug": "texas-dallas"
+  },
+  {
+    "name": "Texas Lutheran",
+    "long_name": "Texas Lutheran University",
+    "slug": "texas-lutheran"
+  },
+  {
+    "name": "Texas Southern",
+    "long_name": "Texas Southern University",
+    "slug": "texas-southern"
+  },
+  {
+    "name": "Texas St.",
+    "long_name": "Texas State University",
+    "slug": "texas-st"
+  },
+  {
+    "name": "Texas Tech",
+    "long_name": "Texas Tech University",
+    "slug": "texas-tech"
+  },
+  {
+    "name": "Texas at Tyler",
+    "long_name": "University of Texas at Tyler",
+    "slug": "texas-tyler"
+  },
+  {
+    "name": "Texas Wesleyan",
+    "long_name": "Texas Wesleyan University",
+    "slug": "texas-wesleyan"
+  },
+  {
+    "name": "Texas Woman's",
+    "long_name": "Texas Woman's University",
+    "slug": "texas-womans"
+  },
+  {
+    "name": "Thiel",
+    "long_name": "Thiel College",
+    "slug": "thiel"
+  },
+  {
+    "name": "Thomas (ME)",
+    "long_name": "Thomas College",
+    "slug": "thomas-me"
+  },
+  {
+    "name": "Thomas More",
+    "long_name": "Thomas More University ",
+    "slug": "thomas-more"
+  },
+  {
+    "name": "Tiffin",
+    "long_name": "Tiffin University",
+    "slug": "tiffin"
+  },
+  {
+    "name": "Toledo",
+    "long_name": "University of Toledo",
+    "slug": "toledo"
+  },
+  {
+    "name": "Towson",
+    "long_name": "Towson University",
+    "slug": "towson"
+  },
+  {
+    "name": "Transylvania",
+    "long_name": "Transylvania University",
+    "slug": "transylvania"
+  },
+  {
+    "name": "Trevecca Nazarene",
+    "long_name": "Trevecca Nazarene University",
+    "slug": "trevecca-nazarene"
+  },
+  {
+    "name": "Trine",
+    "long_name": "Trine University",
+    "slug": "trine"
+  },
+  {
+    "name": "Trinity (CT)",
+    "long_name": "Trinity College (CT)",
+    "slug": "trinity-ct"
+  },
+  {
+    "name": "Trinity (TX)",
+    "long_name": "Trinity University (Texas)",
+    "slug": "trinity-tx"
+  },
+  {
+    "name": "Trinity Washington",
+    "long_name": "Trinity Washington University",
+    "slug": "trinity-washington"
+  },
+  {
+    "name": "Troy",
+    "long_name": "Troy University",
+    "slug": "troy"
+  },
+  {
+    "name": "Truman",
+    "long_name": "Truman State University",
+    "slug": "truman"
+  },
+  {
+    "name": "Tufts",
+    "long_name": "Tufts University",
+    "slug": "tufts"
+  },
+  {
+    "name": "Tulane",
+    "long_name": "Tulane University",
+    "slug": "tulane"
+  },
+  {
+    "name": "Tulsa",
+    "long_name": "The University of Tulsa",
+    "slug": "tulsa"
+  },
+  {
+    "name": "Tusculum",
+    "long_name": "Tusculum College",
+    "slug": "tusculum"
+  },
+  {
+    "name": "Tuskegee",
+    "long_name": "Tuskegee University",
+    "slug": "tuskegee"
+  },
+  {
+    "name": "New-England ",
+    "long_name": "University of New England",
+    "slug": "u-new-england"
+  },
+  {
+    "name": "UAB",
+    "long_name": "UAB",
+    "slug": "uab"
+  },
+  {
+    "name": "Little-Rock ",
+    "long_name": " Little Rock",
+    "slug": "ualr"
+  },
+  {
+    "name": "Colo-Springs",
+    "long_name": "Univ. of Colorado-Colorado Springs",
+    "slug": "uc-colo-springs"
+  },
+  {
+    "name": "UC Davis",
+    "long_name": "UC Davis",
+    "slug": "uc-davis"
+  },
+  {
+    "name": "UC Irvine",
+    "long_name": "UC Irvine",
+    "slug": "uc-irvine"
+  },
+  {
+    "name": "UC Riverside",
+    "long_name": "UC Riverside",
+    "slug": "uc-riverside"
+  },
+  {
+    "name": "UC San Diego",
+    "long_name": "UC San Diego",
+    "slug": "uc-san-diego"
+  },
+  {
+    "name": "UC Santa Barbara",
+    "long_name": "UC Santa Barbara",
+    "slug": "uc-santa-barbara"
+  },
+  {
+    "name": "UC Santa Cruz",
+    "long_name": "UC Santa Cruz",
+    "slug": "uc-santa-cruz"
+  },
+  {
+    "name": "UCF",
+    "long_name": "University of Central Florida",
+    "slug": "ucf"
+  },
+  {
+    "name": "UCLA",
+    "long_name": "UCLA",
+    "slug": "ucla"
+  },
+  {
+    "name": "Connecticut",
+    "long_name": "University of Connecticut",
+    "slug": "uconn"
+  },
+  {
+    "name": "Mass.-Boston",
+    "long_name": "UMass Boston",
+    "slug": "umass-boston"
+  },
+  {
+    "name": "Mass.-Dartmouth",
+    "long_name": "UMass Dartmouth",
+    "slug": "umass-dartmouth"
+  },
+  {
+    "name": "Mass.-Lowell",
+    "long_name": "UMass Lowell",
+    "slug": "umass-lowell"
+  },
+  {
+    "name": "Maryland-Baltimore-County ",
+    "long_name": "UMBC",
+    "slug": "umbc"
+  },
+  {
+    "name": "Md.-East. Shore",
+    "long_name": "University of Maryland, Eastern Shore",
+    "slug": "umes"
+  },
+  {
+    "name": "Kansas City",
+    "long_name": "University of Missouri-Kansas City",
+    "slug": "umkc"
+  },
+  {
+    "name": "UNC Asheville",
+    "long_name": "UNC Asheville",
+    "slug": "unc-asheville"
+  },
+  {
+    "name": "UNC Greensboro",
+    "long_name": "UNC Greensboro",
+    "slug": "unc-greensboro"
+  },
+  {
+    "name": "UNC Pembroke",
+    "long_name": "UNC Pembroke",
+    "slug": "unc-pembroke"
+  },
+  {
+    "name": "UNCW",
+    "long_name": "UNC Wilmington",
+    "slug": "unc-wilmington"
+  },
+  {
+    "name": "Northern Iowa",
+    "long_name": "University of Northern Iowa",
+    "slug": "uni"
+  },
+  {
+    "name": "Union (NY)",
+    "long_name": "Union College (N.Y.) ",
+    "slug": "union-ny"
+  },
+  {
+    "name": "Union (Tenn.)",
+    "long_name": "Union University (Tenn.)",
+    "slug": "union-tn"
+  },
+  {
+    "name": "UNLV",
+    "long_name": "UNLV",
+    "slug": "unlv"
+  },
+  {
+    "name": "Upper Iowa",
+    "long_name": "Upper Iowa University",
+    "slug": "upper-iowa"
+  },
+  {
+    "name": "Urbana University",
+    "long_name": "Urbana University",
+    "slug": "urbana"
+  },
+  {
+    "name": "Ursinus",
+    "long_name": "Ursinus College",
+    "slug": "ursinus"
+  },
+  {
+    "name": "Ursuline",
+    "long_name": "Ursuline College",
+    "slug": "ursuline"
+  },
+  {
+    "name": "USC Beaufort",
+    "long_name": "University of South Carolina Beaufort",
+    "slug": "usc-beaufort"
+  },
+  {
+    "name": "South-Carolina-Upstate",
+    "long_name": "University of South Carolina Upstate",
+    "slug": "usc-upstate"
+  },
+  {
+    "name": "Tenn-Martin",
+    "long_name": "University of Tennessee at Martin",
+    "slug": "ut-martin"
+  },
+  {
+    "name": "Utah",
+    "long_name": "University of Utah",
+    "slug": "utah"
+  },
+  {
+    "name": "Utah St.",
+    "long_name": "Utah State University",
+    "slug": "utah-st"
+  },
+  {
+    "name": "Utah Tech ",
+    "long_name": "Utah Tech University",
+    "slug": "utah-tech"
+  },
+  {
+    "name": "Utah Valley",
+    "long_name": "Utah Valley University",
+    "slug": "utah-valley"
+  },
+  {
+    "name": "Texas at El Paso",
+    "long_name": "University of Texas at El Paso",
+    "slug": "utep"
+  },
+  {
+    "name": "Utica",
+    "long_name": "Utica College",
+    "slug": "utica"
+  },
+  {
+    "name": "Texas Rio Grande Valley ",
+    "long_name": "University of Texas Rio Grande Valley ",
+    "slug": "utrgv"
+  },
+  {
+    "name": "Texas at San Antonio",
+    "long_name": "University of Texas at San Antonio",
+    "slug": "utsa"
+  },
+  {
+    "name": "Virginia-Wise",
+    "long_name": "Virginia's College at Wise",
+    "slug": "uva-wise"
+  },
+  {
+    "name": "Virg-Wesleyan",
+    "long_name": "Virginia Wesleyan College",
+    "slug": "va-wesleyan"
+  },
+  {
+    "name": "Valdosta St.",
+    "long_name": "Valdosta State University",
+    "slug": "valdosta-st"
+  },
+  {
+    "name": "Valley Forge",
+    "long_name": "University of Valley Forge",
+    "slug": "valley-forge-chrst"
+  },
+  {
+    "name": "Valparaiso",
+    "long_name": "Valparaiso University",
+    "slug": "valparaiso"
+  },
+  {
+    "name": "Vanderbilt",
+    "long_name": "Vanderbilt University",
+    "slug": "vanderbilt"
+  },
+  {
+    "name": "Vassar",
+    "long_name": "Vassar College",
+    "slug": "vassar"
+  },
+  {
+    "name": "VCU",
+    "long_name": "Virginia Commonwealth University",
+    "slug": "vcu"
+  },
+  {
+    "name": "Vermont",
+    "long_name": "University of Vermont",
+    "slug": "vermont"
+  },
+  {
+    "name": "Villanova",
+    "long_name": "Villanova University",
+    "slug": "villanova"
+  },
+  {
+    "name": "Virginia",
+    "long_name": "University of Virginia",
+    "slug": "virginia"
+  },
+  {
+    "name": "Virginia St.",
+    "long_name": "Virginia State University",
+    "slug": "virginia-st"
+  },
+  {
+    "name": "Virginia Tech",
+    "long_name": "Virginia Tech",
+    "slug": "virginia-tech"
+  },
+  {
+    "name": "Virginia Union",
+    "long_name": "Virginia Union University",
+    "slug": "virginia-union"
+  },
+  {
+    "name": "VMI",
+    "long_name": "Virginia Military Institute",
+    "slug": "vmi"
+  },
+  {
+    "name": "Wabash",
+    "long_name": "Wabash College",
+    "slug": "wabash"
+  },
+  {
+    "name": "Wagner",
+    "long_name": "Wagner College",
+    "slug": "wagner"
+  },
+  {
+    "name": "Wake Forest",
+    "long_name": "Wake Forest University",
+    "slug": "wake-forest"
+  },
+  {
+    "name": "Walsh",
+    "long_name": "Walsh University",
+    "slug": "walsh"
+  },
+  {
+    "name": "Warren Wilson College",
+    "long_name": "Warren Wilson College",
+    "slug": "warren-wilson-college"
+  },
+  {
+    "name": "Wartburg",
+    "long_name": "Wartburg College",
+    "slug": "wartburg"
+  },
+  {
+    "name": "Wash. & Jeff.",
+    "long_name": "Washington and Jefferson College",
+    "slug": "wash-jeff"
+  },
+  {
+    "name": "Wash. & Lee",
+    "long_name": "Washington and Lee University",
+    "slug": "wash-lee"
+  },
+  {
+    "name": "Washburn",
+    "long_name": "Washburn University of Topeka ",
+    "slug": "washburn"
+  },
+  {
+    "name": "Washington",
+    "long_name": "University of Washington",
+    "slug": "washington"
+  },
+  {
+    "name": "Washington Adventist",
+    "long_name": "Washington Adventist University",
+    "slug": "washington-adventist"
+  },
+  {
+    "name": "Washington Col.",
+    "long_name": "Washington College ",
+    "slug": "washington-col"
+  },
+  {
+    "name": "Washington St.",
+    "long_name": "Washington State University",
+    "slug": "washington-st"
+  },
+  {
+    "name": "Washington-St. Louis",
+    "long_name": "Washington University (Missouri)",
+    "slug": "washington-st-louis"
+  },
+  {
+    "name": "Wayne St. (MI)",
+    "long_name": "Wayne State University ",
+    "slug": "wayne-st-mi"
+  },
+  {
+    "name": "Wayne St. (NE)",
+    "long_name": "Wayne State College ",
+    "slug": "wayne-st-ne"
+  },
+  {
+    "name": "Waynesburg",
+    "long_name": "Waynesburg University",
+    "slug": "waynesburg"
+  },
+  {
+    "name": "Weber St.",
+    "long_name": "Weber State University",
+    "slug": "weber-st"
+  },
+  {
+    "name": "Webster",
+    "long_name": "Webster University",
+    "slug": "webster"
+  },
+  {
+    "name": "Wellesley",
+    "long_name": "Wellesley College",
+    "slug": "wellesley"
+  },
+  {
+    "name": "Wells",
+    "long_name": "Wells College",
+    "slug": "wells"
+  },
+  {
+    "name": "Wentworth Inst.",
+    "long_name": "Wentworth Institute of Technology",
+    "slug": "wentworth"
+  },
+  {
+    "name": "Wesley",
+    "long_name": "Wesley College",
+    "slug": "wesley"
+  },
+  {
+    "name": "Wesleyan (CT)",
+    "long_name": "Wesleyan University",
+    "slug": "wesleyan-ct"
+  },
+  {
+    "name": "Wesleyan (GA)",
+    "long_name": "Wesleyan College",
+    "slug": "wesleyan-ga"
+  },
+  {
+    "name": "West Ala.",
+    "long_name": "University of West Alabama",
+    "slug": "west-ala"
+  },
+  {
+    "name": "West Chester",
+    "long_name": "West Chester Univ. of Pennsylvania",
+    "slug": "west-chester"
+  },
+  {
+    "name": "West Fla.",
+    "long_name": "University of West Florida",
+    "slug": "west-florida"
+  },
+  {
+    "name": "West Ga.",
+    "long_name": "University of West Georgia",
+    "slug": "west-ga"
+  },
+  {
+    "name": "West Liberty",
+    "long_name": "West Liberty University",
+    "slug": "west-liberty"
+  },
+  {
+    "name": "West Tex. A&M",
+    "long_name": "West Texas A&M University",
+    "slug": "west-tex-am"
+  },
+  {
+    "name": "West Va. Tech",
+    "long_name": "West Virginia Univ. Inst. of Tech.",
+    "slug": "west-va-tech"
+  },
+  {
+    "name": "West Va. Wesleyan",
+    "long_name": "West Virginia Wesleyan College",
+    "slug": "west-va-wesleyan"
+  },
+  {
+    "name": "West Virginia",
+    "long_name": "West Virginia University",
+    "slug": "west-virginia"
+  },
+  {
+    "name": "West Virginia St.",
+    "long_name": "West Virginia State University",
+    "slug": "west-virginia-st"
+  },
+  {
+    "name": "Western Caro.",
+    "long_name": "Western Carolina University",
+    "slug": "western-caro"
+  },
+  {
+    "name": "Western Conn. St.",
+    "long_name": "Western Connecticut State University",
+    "slug": "western-conn-st"
+  },
+  {
+    "name": "Western Ill.",
+    "long_name": "Western Illinois University",
+    "slug": "western-ill"
+  },
+  {
+    "name": "Western Ky.",
+    "long_name": "Western Kentucky University",
+    "slug": "western-ky"
+  },
+  {
+    "name": "Western Mich.",
+    "long_name": "Western Michigan University",
+    "slug": "western-mich"
+  },
+  {
+    "name": "Western New Eng.",
+    "long_name": "Western New England University",
+    "slug": "western-new-eng"
+  },
+  {
+    "name": "Western N.M.",
+    "long_name": "Western New Mexico University",
+    "slug": "western-nm"
+  },
+  {
+    "name": "Western Ore.",
+    "long_name": "Western Oregon University",
+    "slug": "western-ore"
+  },
+  {
+    "name": "Western Colo.",
+    "long_name": "Western Colorado University ",
+    "slug": "western-st"
+  },
+  {
+    "name": "Western Wash.",
+    "long_name": "Western Washington University",
+    "slug": "western-wash"
+  },
+  {
+    "name": "Westfield St.",
+    "long_name": "Westfield State University",
+    "slug": "westfield-st"
+  },
+  {
+    "name": "Westminster (MO)",
+    "long_name": "Westminster College (Mo.) ",
+    "slug": "westminster-mo"
+  },
+  {
+    "name": "Westminster (PA)",
+    "long_name": "Westminster College (Pa.) ",
+    "slug": "westminster-pa"
+  },
+  {
+    "name": "Westminster (UT)",
+    "long_name": "Westminster University",
+    "slug": "westminster-ut"
+  },
+  {
+    "name": "Westmont College ",
+    "long_name": "Westmont College ",
+    "slug": "westmont-college"
+  },
+  {
+    "name": "Wheaton (IL)",
+    "long_name": "Wheaton College (Ill.) ",
+    "slug": "wheaton-il"
+  },
+  {
+    "name": "Wheaton (MA)",
+    "long_name": "Wheaton College (Mass.)",
+    "slug": "wheaton-ma"
+  },
+  {
+    "name": "Wheeling Jesuit",
+    "long_name": "Wheeling Jesuit University",
+    "slug": "wheeling-jesuit"
+  },
+  {
+    "name": "Wheelock",
+    "long_name": "Wheelock College",
+    "slug": "wheelock"
+  },
+  {
+    "name": "Whitman",
+    "long_name": "Whitman College",
+    "slug": "whitman"
+  },
+  {
+    "name": "Whittier",
+    "long_name": "Whittier College",
+    "slug": "whittier"
+  },
+  {
+    "name": "Whitworth",
+    "long_name": "Whitworth University",
+    "slug": "whitworth"
+  },
+  {
+    "name": "Wichita St.",
+    "long_name": "Wichita State University",
+    "slug": "wichita-st"
+  },
+  {
+    "name": "Widener",
+    "long_name": "Widener University",
+    "slug": "widener"
+  },
+  {
+    "name": "Wilkes",
+    "long_name": "Wilkes University",
+    "slug": "wilkes"
+  },
+  {
+    "name": "Willamette",
+    "long_name": "Willamette University",
+    "slug": "willamette"
+  },
+  {
+    "name": "William Jewell",
+    "long_name": "William Jewell College",
+    "slug": "william-jewell"
+  },
+  {
+    "name": "William & Mary",
+    "long_name": "College of William and Mary",
+    "slug": "william-mary"
+  },
+  {
+    "name": "William Peace",
+    "long_name": "William Peace University ",
+    "slug": "william-peace"
+  },
+  {
+    "name": "William Penn",
+    "long_name": "William Penn College",
+    "slug": "william-penn"
+  },
+  {
+    "name": "William Smith",
+    "long_name": "William Smith College",
+    "slug": "william-smith"
+  },
+  {
+    "name": "Williams",
+    "long_name": "Williams College",
+    "slug": "williams"
+  },
+  {
+    "name": "Wilmington (DE)",
+    "long_name": "Wilmington University",
+    "slug": "wilmington-de"
+  },
+  {
+    "name": "Wilmington (OH)",
+    "long_name": "Wilmington College",
+    "slug": "wilmington-oh"
+  },
+  {
+    "name": "Wilson",
+    "long_name": "Wilson College",
+    "slug": "wilson"
+  },
+  {
+    "name": "Wingate",
+    "long_name": "Wingate University",
+    "slug": "wingate"
+  },
+  {
+    "name": "Winona St.",
+    "long_name": "Winona State University",
+    "slug": "winona-st"
+  },
+  {
+    "name": "Winston-Salem",
+    "long_name": "Winston-Salem State University",
+    "slug": "winston-salem"
+  },
+  {
+    "name": "Winthrop",
+    "long_name": "Winthrop University",
+    "slug": "winthrop"
+  },
+  {
+    "name": "Wis.-Eau Claire",
+    "long_name": "University of Wisconsin-Eau Claire",
+    "slug": "wis-eau-claire"
+  },
+  {
+    "name": "Wis.-La Crosse",
+    "long_name": "University of Wisconsin-La Crosse",
+    "slug": "wis-la-crosse"
+  },
+  {
+    "name": "Wis. Lutheran",
+    "long_name": "Wisconsin Lutheran College",
+    "slug": "wis-lutheran"
+  },
+  {
+    "name": "Wis.-Oshkosh",
+    "long_name": "University of Wisconsin-Oshkosh",
+    "slug": "wis-oshkosh"
+  },
+  {
+    "name": "Wis.-Parkside",
+    "long_name": "University of Wisconsin, Parkside",
+    "slug": "wis-parkside"
+  },
+  {
+    "name": "Wis.-Platteville",
+    "long_name": "University of Wisconsin-Platteville",
+    "slug": "wis-platteville"
+  },
+  {
+    "name": "Wis.-River Falls",
+    "long_name": "University of Wisconsin-River Falls",
+    "slug": "wis-river-falls"
+  },
+  {
+    "name": "Wis.-Stevens Point",
+    "long_name": "Univ. of Wisconsin-Stevens Point",
+    "slug": "wis-stevens-point"
+  },
+  {
+    "name": "Wis.-Stout",
+    "long_name": "University of Wisconsin-Stout",
+    "slug": "wis-stout"
+  },
+  {
+    "name": "Wis.-Superior",
+    "long_name": "University of Wisconsin-Superior",
+    "slug": "wis-superior"
+  },
+  {
+    "name": "Wis.-Whitewater",
+    "long_name": "University of Wisconsin-Whitewater",
+    "slug": "wis-whitewater"
+  },
+  {
+    "name": "Wisconsin",
+    "long_name": "University of Wisconsin, Madison",
+    "slug": "wisconsin"
+  },
+  {
+    "name": "Wittenberg",
+    "long_name": "Wittenberg University",
+    "slug": "wittenberg"
+  },
+  {
+    "name": "William Paterson",
+    "long_name": "William Paterson University ",
+    "slug": "wm-paterson"
+  },
+  {
+    "name": "Wofford",
+    "long_name": "Wofford College",
+    "slug": "wofford"
+  },
+  {
+    "name": "Wooster",
+    "long_name": "College of Wooster",
+    "slug": "wooster"
+  },
+  {
+    "name": "Worcester St.",
+    "long_name": "Worcester State University",
+    "slug": "worcester-st"
+  },
+  {
+    "name": "WPI",
+    "long_name": "Worcester Polytechnic Institute",
+    "slug": "wpi"
+  },
+  {
+    "name": "Wright St.",
+    "long_name": "Wright State University",
+    "slug": "wright-st"
+  },
+  {
+    "name": "Wyoming",
+    "long_name": "University of Wyoming",
+    "slug": "wyoming"
+  },
+  {
+    "name": "Xavier",
+    "long_name": "Xavier University",
+    "slug": "xavier"
+  },
+  {
+    "name": "Yale",
+    "long_name": "Yale University",
+    "slug": "yale"
+  },
+  {
+    "name": "Yeshiva",
+    "long_name": "Yeshiva University",
+    "slug": "yeshiva"
+  },
+  {
+    "name": "York (NY)",
+    "long_name": "York College (N.Y.) ",
+    "slug": "york-ny"
+  },
+  {
+    "name": "York (PA)",
+    "long_name": "York College (Pa.)",
+    "slug": "york-pa"
+  },
+  {
+    "name": "Young Harris",
+    "long_name": "Young Harris College",
+    "slug": "young-harris"
+  },
+  {
+    "name": "Youngstown St.",
+    "long_name": "Youngstown State University",
+    "slug": "youngstown-st"
+  }
+]
