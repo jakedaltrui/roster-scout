@@ -388,11 +388,22 @@
     .div-toggle::before { content:""; position:absolute; z-index:-1; top:4px; bottom:4px; left:4px; width:calc((100% - 14px) / 3); border-radius:8px; background:#3a3a3d; box-shadow:0 2px 5px rgba(0,0,0,.2); transform:translateX(calc(var(--division-index) * (100% + 3px))); transition:transform .42s cubic-bezier(.22, 1, .36, 1), background-color .25s; }
     .div-btn, .div-btn.active, html[data-theme="light"] .div-btn.active { background:transparent; box-shadow:none; }
     html[data-theme="light"] .div-toggle::before { background:#fff; box-shadow:0 2px 6px rgba(0,0,0,.1); }
-    #submit-btn { will-change:transform; }
+    #submit-btn { position:relative; isolation:isolate; display:grid; grid-template-columns:minmax(0,1fr) 42px; align-items:center; gap:10px; overflow:hidden; padding:5px 5px 5px 18px; text-align:center; will-change:transform; }
+    #submit-btn::before { content:""; position:absolute; z-index:0; top:-55%; bottom:-55%; left:-38%; width:28%; background:linear-gradient(90deg,transparent,rgba(24,24,26,.18),transparent); transform:skewX(-18deg) translateX(-180%); transition:transform .65s cubic-bezier(.22,1,.36,1); pointer-events:none; }
+    #submit-btn:not(:disabled):hover::before { transform:skewX(-18deg) translateX(620%); }
     #submit-btn:not(:disabled):active { transform:translateY(1px) scale(.975); transition:transform .11s cubic-bezier(.2,.8,.2,1); }
-    #submit-btn span { display:inline-block; transition:transform .28s cubic-bezier(.2,.8,.2,1); }
-    #submit-btn:not(:disabled):hover span { transform:translate(3px,-3px); }
-    #submit-btn:not(:disabled):active span { transform:translate(5px,-5px) scale(.9); }
+    .arrow-button-label { position:relative; z-index:1; justify-self:center; transition:transform .4s cubic-bezier(.22,1,.36,1),letter-spacing .4s cubic-bezier(.22,1,.36,1); }
+    .arrow-button-icon { position:relative; z-index:1; display:grid; place-items:center; width:42px; height:42px; overflow:hidden; border-radius:9px; color:#f0f0ee; background:#18181a; box-shadow:inset 0 0 0 1px rgba(255,255,255,.08); transition:transform .4s cubic-bezier(.22,1,.36,1),background-color .2s; }
+    .arrow-button-icon svg { position:absolute; width:21px; height:21px; overflow:visible; }
+    .download-arrow { transform-box:fill-box; transform-origin:center; transform:rotate(-90deg); transition:transform .48s cubic-bezier(.22,1,.36,1); }
+    .download-tray { opacity:0; stroke-dasharray:14; stroke-dashoffset:14; transition:stroke-dashoffset .38s .08s cubic-bezier(.22,1,.36,1),opacity .16s .06s ease; }
+    #submit-btn:not(:disabled):hover .arrow-button-label { transform:translateX(5px); letter-spacing:.015em; }
+    #submit-btn:not(:disabled):hover .arrow-button-icon { transform:scale(1.04); }
+    #submit-btn:not(:disabled):hover .download-arrow { transform:translateY(1px) rotate(0); }
+    #submit-btn:not(:disabled):hover .download-tray { opacity:1; stroke-dashoffset:0; }
+    #submit-btn:not(:disabled):active .arrow-button-icon { transform:scale(.94); }
+    html[data-theme="light"] .arrow-button-icon { color:#20211f; background:#fff; box-shadow:inset 0 0 0 1px rgba(32,33,31,.1); }
+    html[data-theme="light"] #submit-btn::before { background:linear-gradient(90deg,transparent,rgba(255,255,255,.32),transparent); }
     .theme-toggle { display:grid; place-items:center; width:42px; height:42px; padding:0; border:1px solid #deded9; border-radius:50%; background:transparent; color:#41443f; cursor:pointer; transition:background-color .2s, border-color .2s, color .2s, transform .2s; }
     .theme-toggle:hover { background:#ebebe7; transform:translateY(-1px); }
     .theme-toggle:focus-visible { outline:2px solid currentColor; outline-offset:3px; }
@@ -420,6 +431,24 @@
     html[data-theme="dark"] .use-number { border-color:#444449; color:#aaaab0; }
     html[data-theme="dark"] .faq-section, html[data-theme="dark"] .faq-list, html[data-theme="dark"] .faq-item { border-color:#303034; }
     html[data-theme="dark"] .faq-item summary { color:#f0f0ee; }
+    html[data-theme="dark"] .sheet-window { border-color:#444449; background:#111113; color:#ededeb; }
+    html[data-theme="dark"] .sample-team { background:#18181b; }
+    html[data-theme="dark"] .sample-team-name { color:color-mix(in srgb,var(--team-primary) 38%,#fff); }
+    html[data-theme="dark"] .sample-team-meta { color:#aaaab0; }
+    html[data-theme="dark"] .sheet-tabs { border-color:#414146; background:#1c1c1f; background:linear-gradient(180deg,color-mix(in srgb,var(--team-primary) 10%,#202023),#18181b); }
+    html[data-theme="dark"] .sheet-tab { color:#aaaab0; }
+    html[data-theme="dark"] .sheet-tab:hover { color:#f1f1ef; background:rgba(255,255,255,.055); }
+    html[data-theme="dark"] .sheet-tab[aria-selected="true"] { color:color-mix(in srgb,var(--team-primary) 32%,#fff); border-color:#414146; background:#111113; box-shadow:0 -2px 8px rgba(0,0,0,.25); }
+    html[data-theme="dark"] .sheet-tab[aria-selected="true"]::after { background:#111113; }
+    html[data-theme="dark"] .sheet-panel { background:#111113; }
+    html[data-theme="dark"] .sheet-grid-wrap { scrollbar-color:#505056 #1a1a1d; }
+    html[data-theme="dark"] .sample-table th, html[data-theme="dark"] .sample-table td { border-color:#303034; }
+    html[data-theme="dark"] .sample-table .column-letters th { color:#95959a; background:#222225; }
+    html[data-theme="dark"] .sample-table tbody tr:nth-child(even) { background:#19191c; }
+    html[data-theme="dark"] .sample-table tbody tr:hover { background:color-mix(in srgb,var(--team-primary) 18%,#202023); }
+    html[data-theme="dark"] .sample-table th:first-child, html[data-theme="dark"] .sample-table td:first-child { color:#97979c; background:#222225; }
+    html[data-theme="dark"] .sample-table tbody .player-cell { color:#f0f0ee; }
+    html[data-theme="dark"] .sample-table tbody td { color:#b8b8bc; }
     @media(prefers-reduced-motion:reduce) { *,*::before,*::after { animation-duration:.01ms !important; animation-iteration-count:1 !important; transition:none !important; } }
   </style>
 </head>
@@ -441,7 +470,7 @@
           <form id="scout-form" novalidate>
             <div class="field"><span class="field-label" id="division-label">Division</span><div class="div-toggle" role="group" aria-labelledby="division-label"><button type="button" class="div-btn active" data-div="d1" aria-pressed="true">D1</button><button type="button" class="div-btn" data-div="d2" aria-pressed="false">D2</button><button type="button" class="div-btn" data-div="d3" aria-pressed="false">D3</button></div></div>
             <div class="field" id="ncaa-team-field"><label for="team-combobox">School</label><div class="combobox" id="team-combobox-wrap"><input type="text" id="team-combobox" name="team" placeholder="Loading D1 teams…" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="team-results" aria-expanded="false" aria-describedby="catalog-hint" disabled /><div id="team-results" class="team-results" role="listbox" hidden></div></div><p class="hint" id="catalog-hint" aria-live="polite">Loading the current NCAA catalog…</p></div>
-            <button type="submit" class="btn btn-primary" id="submit-btn">Download Roster Stat Sheet <span aria-hidden="true">↗</span></button>
+            <button type="submit" class="btn btn-primary" id="submit-btn"><span class="arrow-button-label">Download Roster Stat Sheet</span><span class="arrow-button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><g class="download-arrow"><path d="M12 4v11" /><path d="m7.5 10.5 4.5 4.5 4.5-4.5" /></g><path class="download-tray" d="M5 19h14" /></svg></span></button>
           </form>
         </div>
         <div id="state-loading" class="state state-center" role="status" aria-live="polite"><div class="loading-orbit" aria-hidden="true"><span class="loading-orbit-core"></span></div><div class="loading-team" id="loading-team"></div><h2 class="state-title">Getting your roster.</h2><p class="loading-sub">We’re putting your stat sheet together. The steps below illustrate the process.</p><div class="loading-viewport" tabindex="0" aria-label="Stat Sheet preparation steps"><ol class="loading-progress"><li class="loading-step is-complete"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Team selected</span><span class="sr-only"> — complete</span></li><li class="loading-step loading-activity is-current" id="loading-build-step"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Finding the roster</span><span class="sr-only loading-activity-status"> — in progress</span></li><li class="loading-step loading-activity"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Gathering season stats</span><span class="sr-only loading-activity-status"></span></li><li class="loading-step loading-activity"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Organizing player records</span><span class="sr-only loading-activity-status"></span></li><li class="loading-step loading-activity"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Building your Stat Sheet</span><span class="sr-only loading-activity-status"></span></li><li class="loading-step loading-activity" id="loading-download-step"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Preparing your download</span><span class="sr-only loading-activity-status" id="loading-download-status"> — waiting</span></li></ol></div><p class="hint">Keep this page open until your download starts.</p></div>
@@ -516,7 +545,7 @@
 
     const featuredTeams = [
       {
-        school: 'University of Oklahoma', shortName: 'Oklahoma', year: '2026', filename: 'Oklahoma_2026_Baseball.xlsx', logo: '/api/team-logo/522',
+        school: 'University of Oklahoma', shortName: 'Oklahoma', year: '2026', filename: 'Oklahoma_2026_Baseball.xlsx', logo: '{{ url_for("static", filename="logos/oklahoma.svg") }}',
         colors: { primary:'#841617', accent:'#e8c893', soft:'#f7eeee', hover:'#f8e8e8', meta:'#7a3d3e' },
         hitters: [
           ['Dasan Harris','17','OF','Jr','.361','.415','.581','6','31','18'],
@@ -534,7 +563,7 @@
         ],
       },
       {
-        school: 'University of Tennessee', shortName: 'Tennessee', year: '2024', filename: 'Tennessee_2024_Baseball.xlsx', logo: '/api/team-logo/694',
+        school: 'University of Tennessee', shortName: 'Tennessee', year: '2024', filename: 'Tennessee_2024_Baseball.xlsx', logo: '{{ url_for("static", filename="logos/tennessee.svg") }}',
         colors: { primary:'#ff8200', accent:'#58595b', soft:'#fff0e2', hover:'#ffe5cc', meta:'#95500c' },
         hitters: [
           ['Blake Burke','25','1B','Jr','.379','.449','.702','20','61','11'],
@@ -570,7 +599,7 @@
         ],
       },
       {
-        school: 'University of Mississippi', shortName: 'Ole Miss', year: '2022', filename: 'Ole_Miss_2022_Baseball.xlsx', logo: '/api/team-logo/433',
+        school: 'University of Mississippi', shortName: 'Ole Miss', year: '2022', filename: 'Ole_Miss_2022_Baseball.xlsx', logo: '{{ url_for("static", filename="logos/ole-miss.svg") }}',
         colors: { primary:'#ce1126', accent:'#14213d', soft:'#eef2f7', hover:'#fce9eb', meta:'#7d2630' },
         hitters: [
           ['Kevin Graham','35','OF','Sr','.335','.371','.562','11','51','1'],
@@ -588,7 +617,7 @@
         ],
       },
       {
-        school: 'Mississippi State University', shortName: 'Mississippi State', year: '2021', filename: 'Mississippi_State_2021_Baseball.xlsx', logo: '/api/team-logo/430',
+        school: 'Mississippi State University', shortName: 'Mississippi State', year: '2021', filename: 'Mississippi_State_2021_Baseball.xlsx', logo: '{{ url_for("static", filename="logos/mississippi-state.svg") }}',
         colors: { primary:'#5d1725', accent:'#c5c6c8', soft:'#f4ecee', hover:'#f1e0e4', meta:'#70414a' },
         hitters: [
           ['Tanner Allen','5','OF','Sr','.383','.456','.621','11','66','11'],
@@ -606,7 +635,7 @@
         ],
       },
       {
-        school: 'Vanderbilt University', shortName: 'Vanderbilt', year: '2019', filename: 'Vanderbilt_2019_Baseball.xlsx', logo: '/api/team-logo/736',
+        school: 'Vanderbilt University', shortName: 'Vanderbilt', year: '2019', filename: 'Vanderbilt_2019_Baseball.xlsx', logo: '{{ url_for("static", filename="logos/vanderbilt.svg") }}',
         colors: { primary:'#171717', accent:'#cfb53b', soft:'#f3efe3', hover:'#fbf4d8', meta:'#6c5c2b' },
         hitters: [
           ['Austin Martin','16','3B/OF','So','.392','.486','.604','10','46','18'],
