@@ -1,4 +1,4 @@
-app = "axis-roster-scout"
+app = "roster-scout"
 primary_region = "ord"
 
 [build]

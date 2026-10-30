@@ -211,13 +211,13 @@ def _write_worksheet(workbook, title: str, rows: list[dict], headers: list[str])
         "bold": True,
         "font_color": "#FFFFFF",
         "bg_color": "#1E3A5F",
-        "align": "center",
+        "align": "left",
         "valign": "vcenter",
     })
-    text_format = workbook.add_format({"valign": "vcenter"})
-    integer_format = workbook.add_format({"num_format": "0", "valign": "vcenter"})
-    three_decimal_format = workbook.add_format({"num_format": "0.000", "valign": "vcenter"})
-    two_decimal_format = workbook.add_format({"num_format": "0.00", "valign": "vcenter"})
+    text_format = workbook.add_format({"align": "left", "valign": "vcenter"})
+    integer_format = workbook.add_format({"num_format": "0", "align": "left", "valign": "vcenter"})
+    three_decimal_format = workbook.add_format({"num_format": "0.000", "align": "left", "valign": "vcenter"})
+    two_decimal_format = workbook.add_format({"num_format": "0.00", "align": "left", "valign": "vcenter"})
 
     worksheet.set_row(0, 24)
     for col, header in enumerate(headers):
@@ -237,7 +237,7 @@ def _write_worksheet(workbook, title: str, rows: list[dict], headers: list[str])
 
     if rows:
         worksheet.add_table(0, 0, len(rows), len(headers) - 1, {
-            "columns": [{"header": header} for header in headers],
+            "columns": [{"header": header, "header_format": header_format} for header in headers],
             "style": "Table Style Medium 2",
         })
     else:

@@ -3,6 +3,7 @@ import os
 import tempfile
 import unittest
 import zipfile
+import xml.etree.ElementTree as ET
 from unittest.mock import MagicMock, patch
 from PIL import Image
 
@@ -55,6 +56,22 @@ class AppRouteTests(unittest.TestCase):
         self.assertNotIn(b"Google Sheets", response.data)
         self.assertNotIn(b"JUCO", response.data)
         self.assertNotIn(b"NJCAA", response.data)
+
+    def test_workbook_cells_are_left_aligned_including_numeric_values(self):
+        workbook = app_module._create_workbook([SAMPLE_PLAYER], [SAMPLE_PLAYER])
+        ns = {"s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+        with zipfile.ZipFile(workbook) as archive:
+            styles = ET.fromstring(archive.read("xl/styles.xml"))
+            formats = styles.find("s:cellXfs", ns)
+            for sheet in ("sheet1.xml", "sheet2.xml"):
+                root = ET.fromstring(archive.read(f"xl/worksheets/{sheet}"))
+                cells = root.findall(".//s:sheetData/s:row/s:c", ns)
+                self.assertTrue(cells)
+                for cell in cells:
+                    fmt = formats[int(cell.get("s", "0"))]
+                    alignment = fmt.find("s:alignment", ns)
+                    self.assertIsNotNone(alignment, cell.get("r"))
+                    self.assertEqual(alignment.get("horizontal"), "left", cell.get("r"))
 
     def test_health_check_does_not_touch_external_services(self):
         response = self.client.get("/healthz")

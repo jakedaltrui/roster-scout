@@ -3,8 +3,24 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#f3f1e9" />
-  <title>Roster Scout — Baseball rosters, ready to work</title>
+  <meta name="theme-color" content="#f6f6f3" />
+  <script>
+    try {
+      document.documentElement.dataset.theme = localStorage.getItem('roster-scout-theme') === 'dark' ? 'dark' : 'light';
+    } catch (_) { /* Light mode remains available if storage is disabled. */ }
+  </script>
+  <title>Roster Scout | Generate opponent stat sheets in seconds.</title>
+  <meta name="description" content="Generate opponent stat sheets in seconds." />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Roster Scout" />
+  <meta property="og:description" content="Generate opponent stat sheets in seconds." />
+  <meta property="og:url" content="https://roster-scout.fly.dev/" />
+  <meta property="og:image" content="https://roster-scout.fly.dev/static/brand/roster-scout-social.png" />
+  <meta property="og:image:width" content="1734" />
+  <meta property="og:image:height" content="907" />
+  <meta property="og:image:alt" content="Roster Scout — Generate opponent stat sheets in seconds." />
+  <meta name="twitter:card" content="summary_large_image" />
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='brand/roster-scout-dog-outlined.png') }}" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet" />
@@ -15,8 +31,8 @@
     button,input { font:inherit; } button { cursor:pointer; } [hidden] { display:none !important; }
     .shell { max-width:1440px; margin:auto; padding:0 5.5%; }
     .header { height:89px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #d5d8ce; }
-    .brand { display:flex; align-items:center; gap:11px; font-weight:700; font-size:19px; letter-spacing:-.06em; }
-    .brand-mark { width:30px; height:30px; background:var(--green); color:#f9faf3; display:grid; place-items:center; border-radius:50%; font-size:12px; letter-spacing:0; }
+    .brand { display:flex; align-items:center; gap:4px; font-weight:700; font-size:19px; letter-spacing:-.06em; }
+    .brand-mark { width:42px; height:42px; object-fit:contain; }
     .header-note { font-size:11px; letter-spacing:.13em; text-transform:uppercase; color:#627169; font-weight:700; }
     .hero { display:grid; grid-template-columns:minmax(0,1fr) minmax(400px, 510px); gap:8%; align-items:center; min-height:calc(100vh - 89px); padding:65px 0 85px; }
     .intro { max-width:630px; }
@@ -76,10 +92,11 @@
     body { background:#09090b; }
     .header,.footer { border-color:#262629; }
     .brand { letter-spacing:-.045em; }
-    .brand-mark { background:#ededeb; color:#171719; }
     .header-note,.footer,.eyebrow,.meta-label { color:#858589; }
     .eyebrow:before { background:#717174; }
     h1 { font-family:"DM Sans",sans-serif; font-weight:600; line-height:1.02; letter-spacing:-.065em; }
+    .intro h1 { font-size:clamp(49px, 4.3vw, 64px); }
+    @media(max-width:480px) { .intro h1 { font-size:clamp(38px, 10vw, 48px); } }
     h1 em { color:#8e8e91; font-style:normal; }
     .intro-copy { color:#a1a1a5; }
     .intro-meta { border-color:#303034; }
@@ -117,7 +134,11 @@
     .how-number { position:relative; display:grid; place-items:center; flex:none; width:28px; height:28px; border:1px solid #c9cbc5; border-radius:50%; color:#777a74; background:#fff; font-size:12px; font-weight:700; transition:background .25s,border-color .25s,color .25s,transform .25s cubic-bezier(.2,.8,.2,1); }
     .how-button[aria-pressed="true"] .how-number { background:#20211f; border-color:#20211f; color:#fff; }
     .how-button[aria-pressed="true"] .how-number::after { content:""; position:absolute; inset:-5px; border:1px solid #c9cbc5; border-radius:50%; }
-    .guide-detail { min-height:68px; margin:14px 0 0; padding:19px 20px; border:1px solid #dadcd5; border-radius:12px; color:#292c28; background:#fff; box-shadow:0 4px 16px rgba(25,25,20,.04); font-size:14px; font-weight:600; line-height:1.55; animation:state-in .22s ease both; }
+    .guide-detail { position:relative; overflow:hidden; display:flex; flex-direction:column; justify-content:center; min-height:180px; margin:20px 0 0; padding:30px 32px; border:1px solid #dadcd5; border-radius:16px; color:#292c28; background:#fff; box-shadow:0 8px 30px rgba(25,25,20,.05); }
+    .guide-detail-label { position:relative; z-index:1; margin:0 0 15px; color:#888b84; font-size:10px; font-weight:700; letter-spacing:.15em; text-transform:uppercase; }
+    .guide-detail-text { position:relative; z-index:1; max-width:82%; margin:0; font-size:clamp(19px,2vw,24px); font-weight:600; letter-spacing:-.035em; line-height:1.3; }
+    .guide-detail-number { position:absolute; right:22px; bottom:-34px; color:#f2f3f0; font-size:130px; font-weight:700; line-height:1; letter-spacing:-.08em; pointer-events:none; user-select:none; }
+    @media(max-width:480px) { .guide-detail { min-height:155px; padding:25px 24px; } .guide-detail-text { max-width:88%; font-size:19px; } .guide-detail-number { font-size:105px; bottom:-27px; } }
     @media(max-width:850px) { .guide { grid-template-columns:1fr; gap:28px; padding:52px 0 65px; } }
     @media(max-width:480px) { .guide { padding:42px 0 52px; } .how-it-works { gap:8px; } .how-button { align-items:flex-start; font-size:11px; } .how-number { width:25px; height:25px; font-size:11px; } }
     .btn { border-radius:11px; transition:background .22s,transform .22s cubic-bezier(.2,.8,.2,1),box-shadow .22s; }
@@ -134,7 +155,6 @@
     /* A short stagger gives the page an entrance without delaying interaction. */
     @keyframes page-in { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
     @media (prefers-reduced-motion: no-preference) {
-      .header .brand { animation:page-in .5s cubic-bezier(.2,.8,.2,1) both; }
       .intro h1 { animation:page-in .65s cubic-bezier(.2,.8,.2,1) both; }
       .intro-copy { animation:page-in .65s .09s cubic-bezier(.2,.8,.2,1) both; }
       .hero .card { animation:page-in .65s .12s cubic-bezier(.2,.8,.2,1) both; }
@@ -147,7 +167,6 @@
     html[data-theme="light"] { color-scheme:light; --ink:#20211f; --muted:#686b68; }
     html[data-theme="light"] body { background:#f6f6f3; }
     html[data-theme="light"] .header, html[data-theme="light"] .footer { border-color:#deded9; }
-    html[data-theme="light"] .brand-mark { background:#20211f; color:#fff; }
     html[data-theme="light"] h1 em { color:#8b8d88; }
     html[data-theme="light"] .intro-copy { color:#6f726f; }
     html[data-theme="light"] .card { background:#fff; border-color:#e3e4df; box-shadow:0 24px 70px rgba(25,25,20,.07); }
@@ -160,6 +179,8 @@
     html[data-theme="light"] input[type=text] { background:#fff; color:#20211f; border-color:#d9dbd5; }
     html[data-theme="light"] input:focus { border-color:#8a8c86; box-shadow:0 0 0 3px rgba(0,0,0,.06); }
     html[data-theme="light"] input:disabled { background:#f4f5f2; }
+    html[data-theme="light"] input.catalog-loading:disabled { background:#fff; }
+    .btn.catalog-loading:disabled { opacity:1; }
     html[data-theme="light"] .team-results { background:#fff; border-color:#dedfd9; box-shadow:0 18px 40px rgba(0,0,0,.12); }
     html[data-theme="light"] .team-result { color:#20211f; }
     html[data-theme="light"] .team-result:hover, html[data-theme="light"] .team-result.active { background:#f0f1ed; }
@@ -172,16 +193,119 @@
     html[data-theme="light"] .loading-team { background:#f0f1ed; color:#444740; }
     html[data-theme="light"] .status-icon { background:#e9f2e9; color:#416c48; }
     html[data-theme="light"] .status-icon.error { background:#f7eae8; color:#a55048; }
+    /* A compact, request-driven take on the multi-step loader. */
+    .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+    .loading-progress { margin:25px 0 22px; padding:6px 0; list-style:none; text-align:left; }
+    .loading-step { display:flex; align-items:center; gap:14px; min-height:52px; color:#8c8c90; font-size:13px; font-weight:600; transition:color .3s, opacity .3s; }
+    .loading-step.is-complete { color:#b8b8bb; }
+    .loading-step.is-current { color:#f0f0ee; }
+    .loading-step-icon { position:relative; display:grid; place-items:center; flex:none; width:28px; height:28px; border:1px solid #49494d; border-radius:50%; color:inherit; }
+    .loading-step-icon svg { grid-area:1 / 1; width:15px; height:15px; opacity:0; }
+    .loading-step.is-complete .loading-step-icon { border-color:#66666b; background:#343437; }
+    .loading-step.is-complete .loading-step-icon svg { opacity:1; }
+    .loading-step.is-current .loading-step-icon { border-color:#ececea; }
+    .loading-step.is-current .loading-step-icon::after { content:""; grid-area:1 / 1; width:8px; height:8px; border-radius:50%; background:currentColor; animation:loading-pulse 1.6s ease-in-out infinite; }
+    @keyframes loading-pulse { 0%, 100% { opacity:.45; transform:scale(.8); } 50% { opacity:1; transform:scale(1.15); } }
+    #state-loading .state-title { margin-top:18px; }
+    #state-loading .loading-sub { margin-bottom:0; }
+    #state-loading .loading-team { margin:0; }
+    html[data-theme="light"] .loading-step { color:#92958e; }
+    html[data-theme="light"] .loading-step.is-complete { color:#777b73; }
+    html[data-theme="light"] .loading-step.is-current { color:#20211f; }
+    html[data-theme="light"] .loading-step-icon { border-color:#d2d4ce; }
+    html[data-theme="light"] .loading-step.is-complete .loading-step-icon { border-color:#c8cbc3; background:#f0f1ed; }
+    html[data-theme="light"] .loading-step.is-current .loading-step-icon { border-color:#333630; }
+    /* Ambient motion indicates activity without suggesting a timed percentage. */
+    .loading-orbit { position:relative; display:grid; place-items:center; width:52px; height:52px; margin:0 auto 18px; color:#ededeb; }
+    .loading-orbit::before, .loading-orbit::after { content:""; position:absolute; inset:0; border:1px solid #404044; border-radius:50%; }
+    .loading-orbit::after { border-color:transparent; border-top-color:currentColor; border-right-color:currentColor; animation:orbit-spin 1.45s linear infinite; }
+    .loading-orbit-core { width:10px; height:10px; border-radius:3px; background:currentColor; transform:rotate(45deg); animation:orbit-core 2.4s ease-in-out infinite; }
+    @keyframes orbit-spin { to { transform:rotate(360deg); } }
+    @keyframes orbit-core { 0%,100% { opacity:.55; transform:rotate(45deg) scale(.8); } 50% { opacity:1; transform:rotate(135deg) scale(1); } }
+    .loading-progress { position:relative; padding:0; margin:25px 0 20px; }
+    .loading-progress::before { content:""; position:absolute; left:13px; top:26px; bottom:26px; width:1px; background:#3c3c40; }
+    .loading-step { position:relative; min-height:56px; padding:0 12px 0 0; border-radius:11px; }
+    .loading-step-icon { z-index:1; background:#171719; transition:background .3s, border-color .3s, color .3s; }
+    .loading-step.is-current { background:#252528; }
+    .loading-step.is-current .loading-step-icon::before { content:""; position:absolute; inset:-4px; border:1px solid currentColor; border-radius:50%; opacity:0; animation:loading-halo 2s ease-out infinite; }
+    @keyframes loading-halo { 0% { opacity:.35; transform:scale(.85); } 75%,100% { opacity:0; transform:scale(1.35); } }
+    @keyframes confirm-team-circle {
+      0% { background:var(--loading-surface); transform:scale(1); }
+      70% { background:var(--loading-complete-bg); transform:scale(1.1); }
+      100% { background:var(--loading-complete-bg); transform:scale(1); }
+    }
+    @keyframes confirm-team-check {
+      0% { opacity:1; stroke-dashoffset:24; }
+      100% { opacity:1; stroke-dashoffset:0; }
+    }
+    @keyframes reveal-build-step { from { color:var(--loading-pending-color); background:transparent; } to { color:var(--loading-current-color); background:var(--loading-current-bg); } }
+    @keyframes reveal-build-border { from { border-color:var(--loading-pending-border); } to { border-color:var(--loading-current-border); } }
+    @keyframes reveal-build-indicator { from { opacity:0; } to { opacity:1; } }
+    @keyframes build-dot-breathe { 0%,100% { transform:scale(.85); } 50% { transform:scale(1.15); } }
+    @keyframes build-halo { 0% { opacity:0; transform:scale(.85); } 20% { opacity:.28; } 80%,100% { opacity:0; transform:scale(1.35); } }
+    #state-loading { --loading-complete-bg:#343437; --loading-surface:#171719; --loading-pending-color:#8c8c90; --loading-current-color:#f0f0ee; --loading-pending-border:#49494d; --loading-current-border:#ececea; --loading-current-bg:#252528; }
+    html[data-theme="light"] #state-loading { --loading-complete-bg:#f0f1ed; --loading-surface:#fff; --loading-pending-color:#92958e; --loading-current-color:#20211f; --loading-pending-border:#d2d4ce; --loading-current-border:#333630; --loading-current-bg:#f4f5f2; }
+    @media (prefers-reduced-motion: no-preference) {
+      #state-loading.active .loading-step:first-child .loading-step-icon { animation:confirm-team-circle .55s ease-out both; }
+      #state-loading.active .loading-step:first-child .loading-step-icon svg { stroke-dasharray:24; animation:confirm-team-check .55s ease-out both; }
+      #state-loading.active .loading-orbit, #state-loading.active .loading-team, #state-loading.active .state-title, #state-loading.active .loading-sub { animation:page-in .45s cubic-bezier(.2,.8,.2,1) both; }
+      #state-loading.active .loading-team { animation-delay:.04s; }
+      #state-loading.active .state-title { animation-delay:.08s; }
+      #state-loading.active .loading-sub { animation-delay:.12s; }
+      #state-loading.active .loading-step { animation:page-in .45s cubic-bezier(.2,.8,.2,1) both; }
+      #state-loading.active .loading-step:nth-child(1) { animation-delay:0s; }
+      #state-loading.active .loading-step:nth-child(2) { animation-delay:.19s; }
+      #state-loading.active .loading-step:nth-child(3) { animation-delay:.26s; }
+      #state-loading.active #loading-build-step.is-current { animation:page-in .45s .19s cubic-bezier(.2,.8,.2,1) both, reveal-build-step .42s .55s ease-out both; }
+      #state-loading.active #loading-build-step.is-current .loading-step-icon { animation:reveal-build-border .42s .55s ease-out both; }
+      #state-loading.active #loading-build-step.is-current .loading-step-icon::after { animation:reveal-build-indicator .4s .55s ease-out both, build-dot-breathe 1.6s .95s ease-in-out infinite; }
+      #state-loading.active #loading-build-step.is-current .loading-step-icon::before { animation:build-halo 2s .85s ease-out infinite backwards; }
+    }
+    html[data-theme="light"] .loading-orbit { color:#30332e; }
+    html[data-theme="light"] .loading-orbit::before { border-color:#dedfd9; }
+    html[data-theme="light"] .loading-orbit::after { border-top-color:currentColor; border-right-color:currentColor; }
+    html[data-theme="light"] .loading-progress::before { background:#e1e2dd; }
+    html[data-theme="light"] .loading-step-icon { background:#fff; }
+    html[data-theme="light"] .loading-step.is-current { background:#f4f5f2; }
+    /* The selection travels between divisions while the labels stay in place. */
+    .div-toggle { position:relative; isolation:isolate; --division-index:0; }
+    .div-toggle::before { content:""; position:absolute; z-index:-1; top:4px; bottom:4px; left:4px; width:calc((100% - 14px) / 3); border-radius:8px; background:#3a3a3d; box-shadow:0 2px 5px rgba(0,0,0,.2); transform:translateX(calc(var(--division-index) * (100% + 3px))); transition:transform .42s cubic-bezier(.22, 1, .36, 1), background-color .25s; }
+    .div-btn, .div-btn.active, html[data-theme="light"] .div-btn.active { background:transparent; box-shadow:none; }
+    html[data-theme="light"] .div-toggle::before { background:#fff; box-shadow:0 2px 6px rgba(0,0,0,.1); }
+    #submit-btn { will-change:transform; }
+    #submit-btn:not(:disabled):active { transform:translateY(1px) scale(.975); transition:transform .11s cubic-bezier(.2,.8,.2,1); }
+    #submit-btn span { display:inline-block; transition:transform .28s cubic-bezier(.2,.8,.2,1); }
+    #submit-btn:not(:disabled):hover span { transform:translate(3px,-3px); }
+    #submit-btn:not(:disabled):active span { transform:translate(5px,-5px) scale(.9); }
+    .theme-toggle { display:grid; place-items:center; width:42px; height:42px; padding:0; border:1px solid #deded9; border-radius:50%; background:transparent; color:#41443f; cursor:pointer; transition:background-color .2s, border-color .2s, color .2s, transform .2s; }
+    .theme-toggle:hover { background:#ebebe7; transform:translateY(-1px); }
+    .theme-toggle:focus-visible { outline:2px solid currentColor; outline-offset:3px; }
+    .theme-toggle svg { width:18px; height:18px; }
+    .theme-icon-sun { display:none; }
+    html[data-theme="dark"] .theme-toggle { color:#e8e8e6; border-color:#3a3a3e; }
+    html[data-theme="dark"] .theme-toggle:hover { background:#242426; }
+    html[data-theme="dark"] .theme-icon-moon { display:none; }
+    html[data-theme="dark"] .theme-icon-sun { display:block; }
+    html[data-theme="dark"] .guide { border-color:#303034; }
+    html[data-theme="dark"] .guide-heading { color:#f0f0ee; }
+    html[data-theme="dark"] .guide-intro, html[data-theme="dark"] .how-button { color:#a1a1a4; }
+    html[data-theme="dark"] .how-button:hover, html[data-theme="dark"] .how-button[aria-pressed="true"] { color:#f0f0ee; }
+    html[data-theme="dark"] .how-number { background:#171719; border-color:#55555a; color:#b5b5b8; }
+    html[data-theme="dark"] .how-button[aria-pressed="true"] .how-number { background:#f0f0ee; border-color:#f0f0ee; color:#171719; }
+    html[data-theme="dark"] .how-button[aria-pressed="true"] .how-number::after { border-color:#6d6d72; }
+    html[data-theme="dark"] .guide-detail { background:#202023; border-color:#3a3a3e; color:#f0f0ee; box-shadow:0 4px 16px rgba(0,0,0,.15); }
+    html[data-theme="dark"] .guide-detail-label { color:#99999d; }
+    html[data-theme="dark"] .guide-detail-number { color:#303034; }
     @media(prefers-reduced-motion:reduce) { *,*::before,*::after { animation-duration:.01ms !important; animation-iteration-count:1 !important; transition:none !important; } }
   </style>
 </head>
 <body>
   <div class="shell">
-    <header class="header"><div class="brand"><span class="brand-mark" aria-hidden="true">RS</span>roster scout<span style="color:#71917b">.</span></div></header>
+    <header class="header"><div class="brand"><img class="brand-mark" src="{{ url_for('static', filename='brand/roster-scout-dog-outlined.png') }}" alt="" />roster scout</div><button type="button" class="theme-toggle" id="theme-toggle" aria-label="Switch to dark mode" title="Switch to dark mode"><svg class="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.9 13.1A9 9 0 0 1 10.9 3.1 9 9 0 1 0 20.9 13.1Z" /></svg><svg class="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" /></svg></button></header>
     <main>
       <div class="hero">
       <section class="intro" aria-labelledby="page-title">
-        <h1 id="page-title">Less searching.<br /><em>More scouting.</em></h1>
+        <h1 id="page-title">Generate opponent<br /><em>stat sheets in seconds.</em></h1>
         <p class="intro-copy">Pick a team to download its roster and season stats in an Excel file.</p>
       </section>
       <div class="builder-column">
@@ -195,19 +319,34 @@
             <div class="field" id="ncaa-team-field"><label for="team-combobox">School</label><div class="combobox" id="team-combobox-wrap"><input type="text" id="team-combobox" placeholder="Loading D1 teams…" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="team-results" aria-expanded="false" aria-describedby="catalog-hint" disabled /><div id="team-results" class="team-results" role="listbox" hidden></div></div><p class="hint" id="catalog-hint" aria-live="polite">Loading the current NCAA catalog…</p></div>
             <button type="submit" class="btn btn-primary" id="submit-btn">Download Roster Workbook <span aria-hidden="true">↗</span></button>
           </form>
-          <div class="card-foot"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M4 17v3h16v-3"/></svg> Direct download · No account needed</div>
         </div>
-        <div id="state-loading" class="state state-center" role="status" aria-live="polite"><div class="spinner" aria-hidden="true"></div><h2 class="state-title">Getting your roster.</h2><p class="loading-sub">We’re gathering the roster and season stats and putting your workbook together. This can take a little while.</p><div class="loading-team" id="loading-team"></div><p class="hint">Keep this page open until your download starts.</p></div>
+        <div id="state-loading" class="state state-center" role="status" aria-live="polite"><div class="loading-orbit" aria-hidden="true"><span class="loading-orbit-core"></span></div><div class="loading-team" id="loading-team"></div><h2 class="state-title">Getting your roster.</h2><p class="loading-sub">We’re putting your workbook together.</p><ol class="loading-progress"><li class="loading-step is-complete"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Team selected</span><span class="sr-only"> — complete</span></li><li class="loading-step is-current" id="loading-build-step"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Gathering stats and building your workbook</span><span class="sr-only" id="loading-build-status"> — in progress</span></li><li class="loading-step" id="loading-download-step"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Preparing your download</span><span class="sr-only" id="loading-download-status"> — waiting</span></li></ol><p class="hint">Keep this page open until your download starts.</p></div>
         <div id="state-success" class="state state-center" role="status" aria-live="polite"><div class="status-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></div><h2 class="state-title">Your roster is ready.</h2><p class="state-msg" id="success-msg"></p><button id="download-again" type="button" class="btn btn-success">Download again</button><button type="button" class="btn btn-ghost" onclick="resetForm()">Scout another team →</button></div>
         <div id="state-error" class="state state-center" role="alert"><div class="status-icon error"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></div><h2 class="state-title">We couldn’t finish that.</h2><p class="state-msg" id="error-msg"></p><button type="button" class="btn btn-success" onclick="resetForm()">Try again</button></div>
       </section>
       </div>
       </div>
-      <section class="guide" aria-labelledby="guide-heading"><div><h2 class="guide-heading" id="guide-heading">How it works.</h2><p class="guide-intro">From school to spreadsheet in three steps.</p></div><div><ol class="how-it-works"><li><button type="button" class="how-button" data-guide="division" aria-pressed="true" aria-controls="guide-detail"><span class="how-number">1</span><span>Pick a division</span></button></li><li><button type="button" class="how-button" data-guide="team" aria-pressed="false" aria-controls="guide-detail"><span class="how-number">2</span><span>Choose a team</span></button></li><li><button type="button" class="how-button" data-guide="download" aria-pressed="false" aria-controls="guide-detail"><span class="how-number">3</span><span>Download the stats</span></button></li></ol><p class="guide-detail" id="guide-detail" aria-live="polite">Choose NCAA Division I, II, or III.</p></div></section>
+      <section class="guide" aria-labelledby="guide-heading"><div><h2 class="guide-heading" id="guide-heading">How it works.</h2><p class="guide-intro">From school to spreadsheet in three steps.</p></div><div><ol class="how-it-works"><li><button type="button" class="how-button" data-guide="division" aria-pressed="true" aria-controls="guide-detail"><span class="how-number">1</span><span>Pick a division</span></button></li><li><button type="button" class="how-button" data-guide="team" aria-pressed="false" aria-controls="guide-detail"><span class="how-number">2</span><span>Choose a team</span></button></li><li><button type="button" class="how-button" data-guide="download" aria-pressed="false" aria-controls="guide-detail"><span class="how-number">3</span><span>Download the stats</span></button></li></ol><div class="guide-detail" id="guide-detail" aria-live="polite"><span class="guide-detail-label" id="guide-detail-label">Step 01</span><p class="guide-detail-text" id="guide-detail-text">Choose Division 1, 2, or 3.</p><span class="guide-detail-number" id="guide-detail-number" aria-hidden="true">01</span></div></div></section>
     </main>
     <footer class="footer"><span>Roster Scout © 2026</span></footer>
   </div>
   <script>
+    const themeToggle = document.getElementById('theme-toggle');
+    function updateThemeToggle() {
+      const dark = document.documentElement.dataset.theme === 'dark';
+      const label = dark ? 'Switch to light mode' : 'Switch to dark mode';
+      themeToggle.setAttribute('aria-label', label);
+      themeToggle.title = label;
+      document.querySelector('meta[name="theme-color"]').content = dark ? '#09090b' : '#f6f6f3';
+    }
+    themeToggle.addEventListener('click', () => {
+      const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+      document.documentElement.dataset.theme = theme;
+      try { localStorage.setItem('roster-scout-theme', theme); } catch (_) { /* The toggle still works for this visit. */ }
+      updateThemeToggle();
+    });
+    updateThemeToggle();
+
     if (window.matchMedia('(prefers-reduced-motion: no-preference)').matches && 'IntersectionObserver' in window) {
       const section = document.querySelector('.guide');
       section.classList.add('reveal-ready');
@@ -221,16 +360,21 @@
     }
     const STATES = ['form', 'loading', 'success', 'error'];
     const guideDescriptions = {
-      division: 'Choose NCAA Division I, II, or III.',
-      team: 'Search for a school or select one from the list.',
-      download: 'Get an Excel workbook with separate sheets for hitters and pitchers.',
+      division: 'Choose Division 1, 2, or 3.',
+      team: 'Select a school from the list.',
+      download: 'Download your complete stat sheet.',
     };
-    const guideDetail = document.getElementById('guide-detail');
+    const guideDetail = document.getElementById('guide-detail-text');
+    const guideDetailLabel = document.getElementById('guide-detail-label');
+    const guideDetailNumber = document.getElementById('guide-detail-number');
     document.querySelectorAll('.how-button').forEach(button => {
       button.addEventListener('click', () => {
         document.querySelectorAll('.how-button').forEach(item => item.setAttribute('aria-pressed', 'false'));
         button.setAttribute('aria-pressed', 'true');
         guideDetail.textContent = guideDescriptions[button.dataset.guide];
+        const stepNumber = button.querySelector('.how-number').textContent.padStart(2, '0');
+        guideDetailLabel.textContent = `Step ${stepNumber}`;
+        guideDetailNumber.textContent = stepNumber;
         if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
           guideDetail.animate(
             [{ opacity: 0.55, transform: 'translateY(3px)' }, { opacity: 1, transform: 'translateY(0)' }],
@@ -244,6 +388,7 @@
     let lastDownloadName = null;
     let catalogRequestId = 0;
     let teamCatalog = [];
+    const divisionCatalogs = new Map();
     let selectedTeam = null;
     let visibleTeams = [];
     let activeTeamIndex = -1;
@@ -357,24 +502,34 @@
       selectedTeam = null;
       teamCombobox.value = '';
       teamCombobox.disabled = true;
-      teamCombobox.placeholder = `Loading ${division.toUpperCase()} teams…`;
+      teamCombobox.classList.add('catalog-loading');
+      teamCombobox.placeholder = `Type a ${division.toUpperCase()} team name…`;
       closeTeamResults();
       submit.disabled = true;
-      hint.textContent = 'Loading the current NCAA catalog…';
+      submit.classList.add('catalog-loading');
+      hint.textContent = 'Choose a school or type to search.';
 
       try {
-        const response = await fetch(`/api/teams?division=${encodeURIComponent(division)}`);
-        const data = await response.json();
+        let data = divisionCatalogs.get(division);
+        if (!data) {
+          const response = await fetch(`/api/teams?division=${encodeURIComponent(division)}`);
+          data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Team catalog could not be loaded.');
+          divisionCatalogs.set(division, data);
+        }
         if (requestId !== catalogRequestId) return;
-        if (!response.ok) throw new Error(data.error || 'Team catalog could not be loaded.');
 
         teamCatalog = data.teams;
         teamCombobox.disabled = false;
+        teamCombobox.classList.remove('catalog-loading');
         teamCombobox.placeholder = `Type a ${division.toUpperCase()} team name…`;
         submit.disabled = false;
+        submit.classList.remove('catalog-loading');
         hint.textContent = 'Choose a school or type to search.';
       } catch (error) {
         if (requestId !== catalogRequestId) return;
+        teamCombobox.classList.remove('catalog-loading');
+        submit.classList.remove('catalog-loading');
         teamCombobox.placeholder = 'Team catalog unavailable';
         hint.textContent = error.message;
       }
@@ -411,8 +566,10 @@
     // Division toggle
     document.querySelectorAll('.div-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
+        if (selectedDiv === btn.dataset.div) return;
         document.querySelectorAll('.div-btn').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-pressed', 'false'); });
         btn.classList.add('active');
+        btn.parentElement.style.setProperty('--division-index', Array.from(btn.parentElement.children).indexOf(btn));
         btn.setAttribute('aria-pressed', 'true');
         selectedDiv = btn.dataset.div;
         await loadNcaaTeams(selectedDiv);
@@ -460,6 +617,10 @@
       if (!team) return;
 
       document.getElementById('submit-btn').disabled = true;
+      document.getElementById('loading-build-step').className = 'loading-step is-current';
+      document.getElementById('loading-build-status').textContent = ' — in progress';
+      document.getElementById('loading-download-step').className = 'loading-step';
+      document.getElementById('loading-download-status').textContent = ' — waiting';
       show('loading');
 
       document.getElementById('loading-team').textContent = team;
@@ -478,6 +639,10 @@
           return;
         }
 
+        document.getElementById('loading-build-step').className = 'loading-step is-complete';
+        document.getElementById('loading-build-status').textContent = ' — complete';
+        document.getElementById('loading-download-step').className = 'loading-step is-current';
+        document.getElementById('loading-download-status').textContent = ' — in progress';
         const workbook = await resp.blob();
         const disposition = resp.headers.get('Content-Disposition') || '';
         const encodedMatch = disposition.match(/filename\*=UTF-8''([^;]+)/i);
