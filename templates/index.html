@@ -64,6 +64,7 @@
     .team-result:hover,.team-result.active { background:#eaf0e8; }
     .team-result-meta { display:block; font-size:10px; color:#819087; margin-top:3px; }
     .team-empty { padding:12px; font-size:12px; color:var(--muted); }
+    .hint:empty { display:none; }
     .hint { font-size:11px; color:#849087; line-height:1.5; margin:8px 0 0; min-height:17px; }
     .btn { width:100%; min-height:52px; border:0; border-radius:3px; font-size:13px; font-weight:700; transition:background .15s, transform .15s; }
     .btn-primary,.btn-success { background:var(--green); color:white; }
@@ -433,7 +434,7 @@
       selectedTeam = team;
       teamCombobox.value = team.display_name || team.name;
       teamCombobox.setAttribute('aria-invalid', 'false');
-      catalogHint.textContent = `${team.display_name || team.name}${team.disambiguation ? ` (${team.disambiguation})` : ''} selected.`;
+      catalogHint.textContent = '';
       closeTeamResults();
     }
 
@@ -532,7 +533,7 @@
       closeTeamResults();
       submit.disabled = true;
       submit.classList.add('catalog-loading');
-      hint.textContent = 'Choose a school or type to search.';
+      hint.textContent = '';
 
       try {
         let data = divisionCatalogs.get(division);
@@ -550,7 +551,7 @@
         teamCombobox.placeholder = `Type a ${division.toUpperCase()} team name…`;
         submit.disabled = false;
         submit.classList.remove('catalog-loading');
-        hint.textContent = 'Choose a school or type to search.';
+        hint.textContent = '';
       } catch (error) {
         if (requestId !== catalogRequestId) return;
         teamCombobox.classList.remove('catalog-loading');
@@ -563,7 +564,7 @@
     teamCombobox.addEventListener('input', () => {
       selectedTeam = null;
       teamCombobox.setAttribute('aria-invalid', 'false');
-      catalogHint.textContent = `Choose a match from the verified ${selectedDiv.toUpperCase()} catalog.`;
+      catalogHint.textContent = '';
       renderTeamResults();
     });
     teamCombobox.addEventListener('focus', renderTeamResults);
