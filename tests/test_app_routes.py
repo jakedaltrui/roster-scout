@@ -49,7 +49,7 @@ class AppRouteTests(unittest.TestCase):
     def test_home_page_describes_direct_excel_download(self):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"Download Roster Workbook", response.data)
+        self.assertIn(b"Download Roster Stat Sheet", response.data)
         self.assertIn(b'id="team-combobox"', response.data)
         self.assertIn(b'role="listbox"', response.data)
         self.assertNotIn(b"email-input", response.data)
