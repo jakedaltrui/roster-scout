@@ -1280,6 +1280,8 @@
 
       const seasonTeamId = selectedTeam?.season_team_id || '';
       const team = selectedTeam?.name || '';
+      const teamId = selectedTeam?.team_id || '';
+      const displayName = selectedTeam?.display_name || team;
 
       if (!team || !seasonTeamId) {
         teamCombobox.setAttribute('aria-invalid', 'true');
@@ -1302,7 +1304,13 @@
         const resp = await fetch('/scrape', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ team, division: selectedDiv, season_team_id: seasonTeamId }),
+          body: JSON.stringify({
+            team,
+            division: selectedDiv,
+            season_team_id: seasonTeamId,
+            team_id: teamId,
+            display_name: displayName,
+          }),
         });
 
         if (!resp.ok) {

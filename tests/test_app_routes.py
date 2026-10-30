@@ -73,6 +73,66 @@ class AppRouteTests(unittest.TestCase):
                     self.assertIsNotNone(alignment, cell.get("r"))
                     self.assertEqual(alignment.get("horizontal"), "left", cell.get("r"))
 
+    def test_ncaa_workbook_includes_school_branding_and_logo(self):
+        logo = Image.new("RGBA", (40, 40), (0, 77, 46, 255))
+        for x in range(20, 40):
+            for y in range(40):
+                logo.putpixel((x, y), (244, 185, 33, 255))
+        logo_bytes = io.BytesIO()
+        logo.save(logo_bytes, format="PNG")
+        branding = {
+            "school_name": "Belhaven",
+            "generated_on": app_module.date(2026, 10, 30),
+            "logo_png": logo_bytes.getvalue(),
+            "palette": app_module._logo_palette(logo_bytes.getvalue()),
+        }
+
+        workbook = app_module._create_workbook([SAMPLE_PLAYER], [SAMPLE_PLAYER], branding=branding)
+        with zipfile.ZipFile(workbook) as archive:
+            hitters_xml = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
+            drawing_xml = archive.read("xl/drawings/drawing1.xml").decode("utf-8")
+            shared_strings_xml = archive.read("xl/sharedStrings.xml").decode("utf-8")
+            table_xml = archive.read("xl/tables/table1.xml").decode("utf-8")
+            self.assertIn("Belhaven", shared_strings_xml)
+            self.assertIn("OCTOBER 30, 2026", shared_strings_xml)
+            self.assertNotIn("D III", shared_strings_xml)
+            self.assertNotIn("Hitters, 1 players", shared_strings_xml)
+            self.assertIn("tabColor", hitters_xml)
+            self.assertIn('ySplit="3"', hitters_xml)
+            self.assertIn('mergeCell ref="A1:A2"', hitters_xml)
+            self.assertIn('mergeCell ref="B1:D1"', hitters_xml)
+            self.assertIn('mergeCell ref="B2:D2"', hitters_xml)
+            self.assertIn('ref="A3:P4"', table_xml)
+            self.assertIn("<xdr:col>0</xdr:col>", drawing_xml)
+            self.assertIn("<xdr:row>0</xdr:row>", drawing_xml)
+            self.assertEqual(drawing_xml.count("<xdr:twoCellAnchor"), 1)
+            self.assertTrue(any(name.startswith("xl/media/") for name in archive.namelist()))
+
+    def test_ncaa_branding_uses_the_site_display_name(self):
+        branding = app_module._ncaa_workbook_branding(
+            {"display_name": "Mississippi State University"},
+            "Mississippi St.",
+        )
+        self.assertEqual(branding["school_name"], "Mississippi State University")
+        self.assertNotIn("division", branding)
+
+    def test_long_school_names_expand_the_header_lockup_without_shrinking_text(self):
+        widths = [20, 7, 10, 10, 7, 7, 7, 7]
+        last_col = app_module._lockup_last_column(
+            widths,
+            "Rose-Hulman Institute of Technology",
+            "OCTOBER 30, 2026",
+        )
+        available_width = sum(
+            app_module._column_width_pixels(width)
+            for width in widths[1:last_col + 1]
+        ) - 24
+        required_title_width = round(
+            app_module.xl_pixel_width("Rose-Hulman Institute of Technology") * 1.6
+        )
+        self.assertGreater(last_col, 3)
+        self.assertGreaterEqual(available_width, required_title_width)
+
     def test_health_check_does_not_touch_external_services(self):
         response = self.client.get("/healthz")
         self.assertEqual(response.status_code, 200)
