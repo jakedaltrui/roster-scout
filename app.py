@@ -116,6 +116,14 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/demo")
+def demo():
+    """Render the unlisted product demo landing page."""
+    response = app.make_response(render_template("demo.html"))
+    response.headers["X-Robots-Tag"] = "noindex, nofollow"
+    return response
+
+
 @app.route("/healthz")
 def healthz():
     return jsonify({"status": "ok"})

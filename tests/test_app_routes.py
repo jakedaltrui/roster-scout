@@ -56,6 +56,23 @@ class AppRouteTests(unittest.TestCase):
         self.assertNotIn(b"Google Sheets", response.data)
         self.assertNotIn(b"JUCO", response.data)
         self.assertNotIn(b"NJCAA", response.data)
+        self.assertNotIn(b'href="/demo"', response.data)
+        self.assertNotIn(b"20-second product demo", response.data)
+
+    def test_demo_page_is_unlisted_and_serves_seekable_video(self):
+        response = self.client.get("/demo")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["X-Robots-Tag"], "noindex, nofollow")
+        self.assertIn(b"20-second product demo", response.data)
+        self.assertIn(b"/static/demo/roster-scout-demo.mp4", response.data)
+
+        video = self.client.get(
+            "/static/demo/roster-scout-demo.mp4",
+            headers={"Range": "bytes=0-99"},
+        )
+        self.addCleanup(video.close)
+        self.assertEqual(video.status_code, 206)
+        self.assertEqual(len(video.data), 100)
 
     def test_workbook_cells_are_left_aligned_including_numeric_values(self):
         workbook = app_module._create_workbook([SAMPLE_PLAYER], [SAMPLE_PLAYER])

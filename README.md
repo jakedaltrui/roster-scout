@@ -9,9 +9,9 @@ Roster Scout turns a current NCAA baseball team into a polished, downloadable Ex
 
 **[Try the live app](https://roster-scout.fly.dev/)**
 
-[![Roster Scout interface showing the NCAA team selector](docs/roster-scout-ui.jpg)](docs/roster-scout-demo.mp4)
+[![Roster Scout interface showing the NCAA team selector](docs/roster-scout-ui.jpg)](https://roster-scout.fly.dev/demo)
 
-**[▶ Watch the 20-second product demo](docs/roster-scout-demo.mp4)**
+**[▶ Watch the 20-second product demo](https://roster-scout.fly.dev/demo)**
 
 ## Why this project is interesting
 
@@ -101,7 +101,7 @@ See [SECURITY.md](SECURITY.md) for reporting and deployment guidance.
 | `app.py` | Flask routes, input validation, security headers, rate-limit integration, and workbook delivery |
 | `roster_scraper.py` | Team catalog, data-source adapters, normalization, caching, and player classification |
 | `usage_limits.py` | SQLite-backed request limits and process-safe Browserless capacity |
-| `templates/index.html` | Responsive UI and the `/scrape` client contract |
+| `templates/` | Responsive product UI, unlisted demo page, and the `/scrape` client contract |
 | `tests/` | Route, workbook, parsing, proxy-safety, cache, and catalog regression tests |
 | `data/` | Reviewed NCAA school aliases and public school identity metadata |
 | `Dockerfile`, `compose.yaml`, `fly.toml` | Reproducible local and hosted deployment |
