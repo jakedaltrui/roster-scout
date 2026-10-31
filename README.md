@@ -1,6 +1,6 @@
 # Roster Scout
 
-[![CI](https://github.com/daltruibaseball-cpu/roster-scout/actions/workflows/ci.yml/badge.svg)](https://github.com/daltruibaseball-cpu/roster-scout/actions/workflows/ci.yml)
+[![CI](https://github.com/jakedaltrui/roster-scout/actions/workflows/ci.yml/badge.svg)](https://github.com/jakedaltrui/roster-scout/actions/workflows/ci.yml)
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Flask](https://img.shields.io/badge/Flask-3.1-000000?logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-2f855a.svg)](LICENSE)
@@ -48,7 +48,7 @@ The browser never receives raw scraped HTML or credentials. `app.py` owns valida
 Requirements: Python 3.12+ and a Browserless token for reliable live NCAA requests.
 
 ```bash
-git clone https://github.com/daltruibaseball-cpu/roster-scout.git
+git clone https://github.com/jakedaltrui/roster-scout.git
 cd roster-scout
 ./scripts/setup_local.sh
 ./scripts/set_browserless_token.sh

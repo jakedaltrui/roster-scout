@@ -6,7 +6,7 @@ Security fixes are applied to the latest commit on `main`.
 
 ## Reporting a vulnerability
 
-Please do not open a public issue for a suspected vulnerability. Use [GitHub's private vulnerability reporting form](https://github.com/daltruibaseball-cpu/roster-scout/security/advisories/new) and include reproduction steps, impact, and any suggested mitigation.
+Please do not open a public issue for a suspected vulnerability. Use [GitHub's private vulnerability reporting form](https://github.com/jakedaltrui/roster-scout/security/advisories/new) and include reproduction steps, impact, and any suggested mitigation.
 
 ## Deployment checklist
 
