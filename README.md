@@ -9,7 +9,9 @@ Roster Scout turns a current NCAA baseball team into a polished, downloadable Ex
 
 **[Try the live app](https://roster-scout.fly.dev/)**
 
-![Roster Scout interface showing the NCAA team selector](docs/roster-scout-ui.jpg)
+[![Roster Scout interface showing the NCAA team selector](docs/roster-scout-ui.jpg)](docs/roster-scout-demo.mp4)
+
+**[▶ Watch the 20-second product demo](docs/roster-scout-demo.mp4)**
 
 ## Why this project is interesting
 
