@@ -33,4 +33,7 @@ USER roster-scout
 
 EXPOSE 5000
 
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD curl --fail --silent http://127.0.0.1:5000/healthz || exit 1
+
 CMD ["xvfb-run", "-a", "gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "4", "--timeout", "180", "app:app"]

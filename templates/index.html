@@ -98,6 +98,8 @@
     .loading-team { display:inline-block; color:#3b6550; background:#edf3eb; padding:8px 12px; font-size:12px; font-weight:600; border-radius:3px; margin-bottom:25px; }
     .state-msg { margin-bottom:24px; }
     .footer { min-height:72px; display:flex; align-items:center; justify-content:space-between; color:#829087; font-size:11px; }
+    .footer a { color:inherit; font-weight:600; text-underline-offset:3px; }
+    .footer a:hover { color:var(--ink); }
     .footer span:last-child { letter-spacing:.09em; text-transform:uppercase; font-size:10px; }
     :focus-visible { outline:3px solid #8aa98d; outline-offset:3px; }
     @media(max-width:850px) { .hero { grid-template-columns:1fr; gap:44px; min-height:0; padding:65px 0 72px; } .intro { max-width:600px; } h1 { font-size:clamp(54px,10vw,76px); } .intro-meta { margin-top:36px; } .card { max-width:600px; width:100%; } }
@@ -517,7 +519,7 @@
       <section class="faq-section" id="questions" aria-labelledby="faq-heading"><div class="faq-intro"><p class="section-kicker">Quick answers</p><h2 class="faq-heading" id="faq-heading">Know what you’re downloading.</h2><p>No account setup or manual copy-and-paste. Choose a team and Roster Scout builds the workbook.</p></div><div class="faq-list"><details class="faq-item" open><summary>What is included in the workbook?</summary><p>Every download contains a Hitters worksheet and a Pitchers worksheet. Both include player identity fields, while each sheet adds the season statistics relevant to that group.</p></details><details class="faq-item"><summary>Which teams can I search?</summary><p>The selector covers the current NCAA baseball catalog for Division I, Division II, and Division III teams.</p></details><details class="faq-item"><summary>What file type will I receive?</summary><p>Roster Scout creates an .xlsx Excel workbook and names it for the selected team and download date.</p></details><details class="faq-item"><summary>What happens after I click download?</summary><p>The app verifies the selected team, gathers the roster and season statistics, organizes the player records, and prepares the workbook before your browser starts the download.</p></details></div></section>
       <section class="final-cta" aria-labelledby="final-heading"><div class="final-copy"><h2 class="final-heading" id="final-heading">Your next opponent is a search away.</h2><p>Choose a division and build the workbook when you need it.</p></div><a class="cta-link" href="#builder">Find a team <span aria-hidden="true">&nbsp;↗</span></a></section>
     </main>
-    <footer class="footer"><span>Roster Scout © 2026</span></footer>
+    <footer class="footer"><span>Roster Scout © 2026</span><a href="https://github.com/daltruibaseball-cpu/roster-scout" target="_blank" rel="noopener noreferrer">View source on GitHub ↗</a></footer>
   </div>
   <script>
     const themeToggle = document.getElementById('theme-toggle');
@@ -839,7 +841,7 @@
       },
       {
         root: document.querySelector('.footer'),
-        items: [['span', 'fade']],
+        items: [['span, a', 'fade']],
       },
     ];
     if (!reducedMotion && 'IntersectionObserver' in window) {

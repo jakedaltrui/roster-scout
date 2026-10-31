@@ -138,6 +138,14 @@ class AppRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json(), {"status": "ok"})
 
+    def test_responses_include_baseline_security_headers(self):
+        response = self.client.get("/")
+        self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
+        self.assertEqual(response.headers["X-Frame-Options"], "DENY")
+        self.assertEqual(response.headers["Referrer-Policy"], "no-referrer")
+        self.assertIn("max-age=31536000", response.headers["Strict-Transport-Security"])
+        self.assertIn("frame-ancestors 'none'", response.headers["Content-Security-Policy"])
+
     def test_team_catalog_endpoint_returns_exact_selector_ids(self):
         catalog = [{
             "name": "Tampa", "team_id": "689", "season_team_id": "615087",
@@ -204,7 +212,7 @@ class AppRouteTests(unittest.TestCase):
             response = self.client.post("/scrape", json={
                 "team": "Scranton", "division": "d3",
             })
-        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.status_code, 502)
         self.assertIn("verification required", response.get_json()["error"])
         fallback.assert_not_called()
 
@@ -212,6 +220,44 @@ class AppRouteTests(unittest.TestCase):
         response = self.client.post("/scrape", json={"division": "d2"})
         self.assertEqual(response.status_code, 400)
         self.assertIn("team name", response.get_json()["error"])
+
+    def test_scrape_requires_a_bounded_json_object(self):
+        not_json = self.client.post("/scrape", data="team=Tampa")
+        self.assertEqual(not_json.status_code, 415)
+        array_body = self.client.post("/scrape", json=["Tampa"])
+        self.assertEqual(array_body.status_code, 400)
+        oversized = self.client.post("/scrape", json={"team": "x" * 17_000})
+        self.assertEqual(oversized.status_code, 413)
+        long_team = self.client.post("/scrape", json={"team": "x" * 121})
+        self.assertEqual(long_team.status_code, 400)
+        invalid_id = self.client.post("/scrape", json={
+            "team": "Tampa", "division": "d2", "season_team_id": "../../etc",
+        })
+        self.assertEqual(invalid_id.status_code, 400)
+
+    def test_unexpected_errors_do_not_leak_exception_text(self):
+        with self.assertLogs(app_module.app.logger, level="ERROR") as logs, patch.object(
+            app_module,
+            "scrape_ncaa_by_id",
+            side_effect=RuntimeError("secret internal detail"),
+        ):
+            response = self.client.post("/scrape", json={
+                "team": "Tampa", "division": "d2", "season_team_id": "615087",
+            })
+        self.assertEqual(response.status_code, 500)
+        self.assertNotIn("secret internal detail", response.get_json()["error"])
+        self.assertIn("Unexpected workbook generation failure", logs.output[0])
+
+    def test_workbook_treats_formula_and_url_like_values_as_plain_text(self):
+        player = {**SAMPLE_PLAYER, "Name": "=1+1", "Position": "https://example.com"}
+        workbook = app_module._create_workbook([player], [])
+        with zipfile.ZipFile(workbook) as archive:
+            sheet_xml = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
+            shared_strings = archive.read("xl/sharedStrings.xml").decode("utf-8")
+        self.assertNotIn("<f>", sheet_xml)
+        self.assertNotIn("<hyperlink", sheet_xml)
+        self.assertIn("=1+1", shared_strings)
+        self.assertIn("https://example.com", shared_strings)
 
     def test_rate_limit_is_per_client_and_returns_retry_header(self):
         with patch.dict(os.environ, {"SCRAPE_RATE_LIMIT": "1", "SCRAPE_RATE_WINDOW_SECONDS": "60"}), patch.object(

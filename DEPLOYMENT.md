@@ -1,176 +1,88 @@
-# Roster Scout deployment
+# Deployment guide
 
-## Recommended on macOS: native local runner
+Roster Scout runs as a standard Flask/Gunicorn service. Live NCAA collection may require Browserless or an approved proxy because upstream anti-bot behavior varies by network.
 
-The local runner uses the same Browserless NCAA workflow as the hosted app. It
-does not open or control the Mac's installed Chrome.
+## Native local runner
 
-1. Run `scripts/setup_local.sh` once.
-2. Run `scripts/set_browserless_token.sh` once and paste the token when prompted.
-   Input is hidden and saved to the Git-ignored `.browserless-token` file.
-3. Run `scripts/run_local.sh`.
-4. Open `http://localhost:5050`.
+The bundled scripts create an isolated environment, collect the Browserless token without echoing it, and bind Gunicorn to localhost.
 
-No Google account, OAuth token, or cloud storage is required. Each successful
-request downloads a two-tab Excel workbook directly in the browser.
+```bash
+./scripts/setup_local.sh
+./scripts/set_browserless_token.sh
+./scripts/run_local.sh
+```
 
-The ignored project `.cache/` directory persists:
+Open [http://localhost:5050](http://localhost:5050). The token is stored with owner-only permissions in the Git-ignored `.browserless-token` file. The runner never opens or reuses a personal Chrome profile.
 
-- baseballr's NCAA team and season lookup CSVs;
-- successful normalized team results (six-hour default);
-- successful Browserless-backed NCAA results.
+## Docker Compose
 
-The first uncached NCAA request uses Browserless to accept NCAA's statistics
-terms and retrieve both tables. Later requests reuse successful cached results.
+```bash
+docker compose up --build
+```
 
-## Docker and hosted deployment
+The app is available at [http://localhost:5050](http://localhost:5050). Compose persists lookup and successful-result caches in a named volume. Pass secrets at runtime through your shell, an untracked env file, or a secret manager; do not add them to `compose.yaml`.
 
-The included `Dockerfile` can run on Render, Fly.io, Railway, or another Docker host. Expose port 5000. A small instance should use one worker because Chromium can require roughly 1 GB while NCAA verification is active.
+The image:
 
-Docker remains useful for consistent packaging and for cached results, but its
-Linux browser is currently rejected by NCAA from this network. Treat live
-D2/D3 scraping in Docker as unsupported unless `NCAA_BROWSER_PROXY` points to a
-network/browser path that NCAA accepts. The native macOS runner is the verified
-free deployment.
+- uses Python 3.12 and pinned direct application dependencies;
+- installs Chrome for the Patchright fallback;
+- writes only to the configured cache directory; and
+- serves the app as the unprivileged `roster-scout` user.
 
-Free hosted services commonly suspend inactive containers. Docker solves packaging and browser consistency, but it does not prevent a provider-imposed cold start. The local Compose service avoids that tradeoff.
+## Fly.io
 
-## Fly.io hosted deployment
-
-`fly.toml` defines the initial hosted shape:
-
-- one always-on shared CPU machine in Chicago with 1 GB RAM;
-- a 3 GB persistent volume mounted at `/data` for result caches and the NCAA browser profile;
-- official Google Chrome under Xvfb, one Gunicorn worker, and HTTPS health checks;
-- no database or additional paid service.
-
-The October 29, 2026 feasibility run confirmed that the 1 GB machine, Chrome,
-Xvfb, selector API, persistent volume, and health check all work. NCAA returned
-an Akamai `Access Denied` page specifically to Fly's data-center IP. More RAM or
-a different container browser does not fix that network-level rejection.
-
-For live NCAA requests, configure an ethically sourced residential proxy that
-permits this public-data use. Roster Scout sends both the initial HTTP attempt
-and the Chrome fallback through it, while keeping all successful results in the
-persistent cache. A credentialed URL is supported, for example
-`http://USER:PASSWORD@HOST:PORT`; URL-encode special characters in credentials.
-Decodo's generated `HOST:PORT:USER:PASSWORD` format is also accepted directly.
-Store it as the `NCAA_BROWSER_PROXY` Fly secret—never in `fly.toml`, source
-control, or a command that will remain in shell history. The Fly dashboard's
-Secrets page is the simplest safe place to set it. `NCAA_HTTP_PROXY` may be set
-separately when a provider gives different HTTP and browser endpoints.
-
-Managed Site Unblocker endpoints may terminate TLS with a provider-managed
-certificate. Set `NCAA_PROXY_TLS_VERIFY=0` only for that deployment. Roster
-Scout then disables certificate verification solely on the NCAA session that
-has `NCAA_BROWSER_PROXY` configured; normal application HTTPS remains verified.
-With `NCAA_SITE_UNBLOCKER=1`, each scrape creates one random
-`X-SU-Session-Id`, enables `X-SU-Force-Cookies: 1`, and keeps the initial stats
-GET, live terms-token POST, and stats retry in the same HTTP session. The terms
-POST also forces its CSRF-sensitive headers and retries provider HTTP 550 faults.
-When the initial stats GET is itself the NCAA terms page, its form is posted
-directly without making a redundant second terms GET.
-Roster Scout does not follow a terms POST redirect automatically; it accepts a
-successful 200/302/303 response and performs the final stats GET itself.
-
-The October 29, 2026 live test reached both Decodo's US residential endpoint
-and its rotating residential gateway successfully, but NCAA returned Akamai
-`Access Denied` from both exit pools. Treat Decodo residential proxies as
-incompatible unless Decodo support confirms an NCAA-capable product or route.
-Rotate any proxy credential that appears in an application error or diagnostic
-transcript before further use.
-
-A later Site Unblocker test successfully reached NCAA's real `/stats_terms`
-page with scoped TLS verification disabled. After accepting the terms, the
-Tampa stats URL still remained on NCAA's timed `bm-verify`/Akamai validation
-shell and never returned `#stat_grid`. Site Unblocker therefore remains
-unverified for live team stats until Decodo supplies a target configuration
-that resolves that exact URL in its API Playground.
-
-Deploy from the repository root:
+`fly.toml` defines the service, persistent cache volume, HTTPS enforcement, health check, and one-machine concurrency limits.
 
 ```bash
 fly auth login
 fly launch --copy-config --no-deploy
+fly secrets set BROWSERLESS_TOKEN=your-token
 fly deploy
 ```
 
-Before treating the URL as public, run the live NCAA smoke matrix through the
-configured proxy and inspect memory usage. If Chrome exceeds 1 GB, increase the
-machine to 2 GB. Keep the machine stopped until the proxy is configured so a
-healthy-looking deployment cannot return NCAA failures to users.
+Keep secrets out of command history when possible by using the Fly dashboard or a secure shell input method. The checked-in configuration deliberately keeps TLS verification enabled.
 
-## Relevant environment variables
+Before making a deployment public:
+
+1. Run the deterministic suite and catalog validation.
+2. Run `python scripts/live_ncaa_smoke.py` from the target network.
+3. Confirm `/healthz` returns `{"status":"ok"}` over HTTPS.
+4. Confirm rate limiting returns HTTP 429 with `Retry-After`.
+5. Confirm a real workbook download opens in Excel and contains both worksheets.
+6. Review memory use during one uncached browser session.
+
+## Environment variables
 
 | Variable | Default | Purpose |
 |---|---:|---|
-| `ROSTER_SCOUT_CACHE_DIR` | project `.cache/` | Persistent cache and browser state location |
-| `NCAA_RESULT_CACHE_TTL_SECONDS` | `21600` | Successful team result lifetime (six hours) |
-| `NCAA_LOOKUP_CACHE_TTL_SECONDS` | `86400` | Team/season metadata lifetime (one day) |
-| `NCAA_BROWSER_FALLBACK` | `1` | Set to `0` to disable Playwright |
-| `NCAA_BROWSER_HEADLESS` | `1` in Python; `0` in Docker | NCAA blocks headless fingerprints; Docker supplies a virtual display for headed Patchright |
-| `NCAA_BROWSER_VERIFY_TIMEOUT_SECONDS` | `45` | Maximum challenge wait per page |
-| `NCAA_TERMS_DWELL_MILLISECONDS` | `8000` | Delay before accepting NCAA's statistics terms page |
-| `NCAA_BROWSER_EXECUTABLE_PATH` | unset | Use a specific Chromium/Chrome executable |
-| `NCAA_BROWSER_CHANNEL` | unset; `chrome` in local runner | Patchright browser channel |
-| `NCAA_BROWSER_PROFILE_DIR` | cache directory | Dedicated persistent browser profile; do not point this at a personal Chrome profile |
-| `NCAA_BROWSER_PROXY` | unset | Credentialed proxy URL used by Chrome and, unless overridden, direct HTTP |
-| `NCAA_BROWSER_PREFLIGHT_TERMS` | `0`; `1` on Fly Site Unblocker deployment | Accept NCAA's terms page before the first proxied stats URL |
-| `NCAA_HTTP_PROXY` | `NCAA_BROWSER_PROXY` | Optional separate proxy URL for the direct HTTP attempt |
-| `NCAA_PROXY_TLS_VERIFY` | `1`; `0` on Fly Site Unblocker deployment | Verify TLS certificates on proxied NCAA HTTP and browser requests |
-| `NCAA_SITE_UNBLOCKER` | `0`; `1` on Fly Site Unblocker deployment | Enable sticky provider session headers and direct NCAA terms acceptance |
-| `NCAA_BROWSER_PROVIDER` | unset; `browserless` on Fly | Route the complete hosted NCAA browser session through Browserless |
-| `BROWSERLESS_TOKEN` | unset | Browserless API token; configure as a Fly secret, never in `fly.toml` |
-| `BROWSERLESS_PROXY` | `residential` | Browserless proxy network for NCAA sessions |
-| `BROWSERLESS_PROXY_COUNTRY` | `us` | Browserless residential exit country |
-| `NCAA_SEASON_YEAR` | current NCAA season | Override the requested season |
+| `PORT` | `5000` | HTTP port |
+| `ROSTER_SCOUT_CACHE_DIR` | project `.cache/` | Lookup data, successful results, rate-limit state, and browser locks |
+| `LOG_LEVEL` | `INFO` | Python log level for the development entry point |
+| `SCRAPE_RATE_LIMIT` | `10` | Allowed workbook requests per client and window |
+| `SCRAPE_RATE_WINDOW_SECONDS` | `600` | Rate-limit window |
+| `TRUST_FLY_CLIENT_IP` | unset | Trust Fly.io's platform-provided client IP header when set to `1` |
+| `NCAA_RESULT_CACHE_TTL_SECONDS` | `21600` | Successful team result lifetime |
+| `NCAA_LOOKUP_CACHE_TTL_SECONDS` | `86400` | Team and season catalog lifetime |
+| `NCAA_SEASON_YEAR` | current season | Optional season override |
+| `NCAA_BROWSER_PROVIDER` | local browser | Set to `browserless` to use the hosted browser workflow |
+| `BROWSERLESS_TOKEN` | unset | Browserless API token |
+| `BROWSERLESS_MAX_SESSIONS` | `2` | Concurrent Browserless slots on one machine |
+| `BROWSERLESS_PROXY` | `residential` | Browserless proxy network |
+| `BROWSERLESS_PROXY_COUNTRY` | `us` | Browserless proxy country |
+| `NCAA_BROWSER_FALLBACK` | `1` | Enable the local Patchright fallback |
+| `NCAA_BROWSER_HEADLESS` | `1` | Run the local browser headlessly |
+| `NCAA_BROWSER_CHANNEL` | unset | Optional installed browser channel, such as `chrome` |
+| `NCAA_BROWSER_PROFILE_DIR` | cache subdirectory | Dedicated browser profile; never point this at a personal profile |
+| `NCAA_BROWSER_PROXY` | unset | Optional credentialed proxy used by the browser workflow |
+| `NCAA_HTTP_PROXY` | browser proxy | Optional separate proxy for direct NCAA HTTP requests |
+| `NCAA_PROXY_TLS_VERIFY` | `1` | Verify TLS certificates for proxied NCAA HTTP |
+| `NCAA_SITE_UNBLOCKER` | `0` | Enable supported Site Unblocker session behavior |
+| `NCAA_BROWSER_VERIFY_TIMEOUT_SECONDS` | `45` | Maximum browser verification wait per page |
 
-Only successful parsed team results are cached. Blocks, empty pages, and parser failures are never cached.
+See `.env.example` for a safe starting configuration. Only successful parsed results are cached; blocks, malformed pages, and empty results are discarded.
 
-### Usage limits
+## Scaling boundaries
 
-Scrape requests are limited to 10 per client per 10 minutes by default, including
-cached and failed requests. A limited request receives HTTP 429 and a Retry-After
-header. On Fly, `TRUST_FLY_CLIENT_IP=1` uses Fly's client IP header; leave it
-unset when the app is directly accessible or behind an untrusted proxy.
-`SCRAPE_RATE_LIMIT` and `SCRAPE_RATE_WINDOW_SECONDS` adjust the limit.
+The rate limiter and Browserless capacity locks coordinate processes on one machine through the cache directory. They are not global across multiple machines. Before horizontal scaling, move both controls to a shared store such as Redis or a transactional database.
 
-Uncached Browserless work is limited to two concurrent sessions. When both are
-busy, the app returns HTTP 503 with a Retry-After header. Set
-`BROWSERLESS_MAX_SESSIONS` to 1 to reduce concurrency. These limits share state
-across processes on one machine using the cache directory. They are not global
-across multiple Fly machines or other applications using the same Browserless
-account; a shared limiter is required before scaling beyond one machine.
-
-## Verification
-
-Run deterministic tests:
-
-```bash
-python -m unittest discover -s tests -v
-```
-
-Validate the complete current-season team selector catalog without contacting
-every NCAA stats page:
-
-```bash
-python scripts/validate_ncaa_catalog.py
-```
-
-Run the credential-free live smoke matrix:
-
-```bash
-python scripts/live_ncaa_smoke.py
-```
-
-The live smoke test uses Florida State (D1), Tampa (D2), and Scranton (D3). NCAA may require a visible verification once on a new IP. The dedicated profile retains that verification for later runs:
-
-```bash
-NCAA_BROWSER_HEADLESS=0 python scripts/live_ncaa_smoke.py
-```
-
-NCAA's Akamai policy remains an external boundary. Roster Scout uses Patchright
-with a headed browser fingerprint and accepts NCAA's statistics terms in its
-dedicated profile; failed or blocked pages are never cached. D1 requests can
-still use the existing D1Baseball fallback; D2/D3 report a block instead of
-returning invented or stale data.
+NCAA availability is an external boundary. A healthy container and `/healthz` response do not guarantee that the current hosting network can retrieve a live stats page. Keep the credential-free smoke test in the release checklist.

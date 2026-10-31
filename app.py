@@ -6,6 +6,7 @@ return a formatted Excel workbook containing Hitters and Pitchers worksheets.
 """
 
 import io
+import logging
 import os
 import re
 from datetime import date
@@ -15,6 +16,7 @@ import requests
 import xlsxwriter
 from PIL import Image, ImageDraw, UnidentifiedImageError
 from flask import Flask, jsonify, render_template, request, send_file
+from werkzeug.exceptions import RequestEntityTooLarge
 from xlsxwriter.utility import xl_pixel_width
 from usage_limits import BrowserCapacityExceeded, check_request_limit
 
@@ -32,6 +34,10 @@ from roster_scraper import (
 
 
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = 16 * 1024
+
+_ALLOWED_DIVISIONS = {"", "d1", "d2", "d3", "juco"}
+_MAX_TEAM_LENGTH = 120
 
 _INTEGER_COLUMNS = {
     "#", "AB", "H", "2B", "HR", "RBI", "R", "BB", "SO", "SB",
@@ -46,6 +52,63 @@ _DEFAULT_PALETTE = {
     "band": "#F2F5F8",
     "border": "#D9E0E7",
 }
+
+
+def _json_error(message: str, status: int):
+    """Return the API's consistent JSON error shape."""
+    return jsonify({"error": message}), status
+
+
+def _string_field(body: dict, key: str, *, max_length: int) -> str:
+    """Read a bounded string field from an untrusted JSON object."""
+    value = body.get(key, "")
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ValueError(f"'{key}' must be a string.")
+    value = value.strip()
+    if any(ord(character) < 32 for character in value):
+        raise ValueError(f"'{key}' cannot contain control characters.")
+    if len(value) > max_length:
+        raise ValueError(f"'{key}' must be {max_length} characters or fewer.")
+    return value
+
+
+@app.after_request
+def add_security_headers(response):
+    """Apply a conservative browser policy to every response."""
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault(
+        "Permissions-Policy",
+        "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+    )
+    response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+    response.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
+    response.headers.setdefault(
+        "Strict-Transport-Security",
+        "max-age=31536000; includeSubDomains",
+    )
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; "
+        "base-uri 'self'; "
+        "connect-src 'self'; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "form-action 'self'; "
+        "frame-ancestors 'none'; "
+        "img-src 'self' data: https://www.ncaa.com; "
+        "object-src 'none'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    )
+    return response
+
+
+@app.errorhandler(RequestEntityTooLarge)
+def request_too_large(_error):
+    return _json_error("Request body is too large.", 413)
 
 
 @app.route("/")
@@ -114,13 +177,30 @@ def team_logo(team_id):
 
 @app.route("/scrape", methods=["POST"])
 def scrape():
-    body = request.get_json(silent=True) or {}
-    team = (body.get("team") or "").strip()
-    division = (body.get("division") or "").strip().lower()
-    season_team_id = str(body.get("season_team_id") or "").strip()
+    if not request.is_json:
+        return _json_error("Content-Type must be application/json.", 415)
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return _json_error("Request body must be a JSON object.", 400)
+
+    try:
+        team = _string_field(body, "team", max_length=_MAX_TEAM_LENGTH)
+        division = _string_field(body, "division", max_length=8).lower()
+        season_team_id = _string_field(body, "season_team_id", max_length=12)
+        _string_field(body, "team_id", max_length=12)
+        _string_field(body, "display_name", max_length=_MAX_TEAM_LENGTH)
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+
+    if division not in _ALLOWED_DIVISIONS:
+        return _json_error("Choose D1, D2, D3, or JUCO.", 400)
+    if season_team_id and (
+        not season_team_id.isascii() or not season_team_id.isdigit()
+    ):
+        return _json_error("'season_team_id' must contain only digits.", 400)
 
     if not team and not season_team_id:
-        return jsonify({"error": "Please enter a team name."}), 400
+        return _json_error("Please enter a team name.", 400)
 
     try:
         client = request.remote_addr or "unknown"
@@ -187,8 +267,14 @@ def scrape():
         response.status_code = 503
         response.headers["Retry-After"] = "30"
         return response
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+    except (NcaaError, ValueError) as exc:
+        return _json_error(str(exc), 502)
+    except requests.RequestException:
+        app.logger.warning("Upstream request failed while building a workbook", exc_info=True)
+        return _json_error("A roster data source is temporarily unavailable.", 502)
+    except Exception:
+        app.logger.exception("Unexpected workbook generation failure")
+        return _json_error("Roster Scout could not build that workbook.", 500)
 
 
 def _safe_filename(value: str) -> str:
@@ -520,7 +606,11 @@ def _create_workbook(
 ) -> io.BytesIO:
     """Build the two-tab Roster Scout workbook entirely in memory."""
     output = io.BytesIO()
-    workbook = xlsxwriter.Workbook(output, {"in_memory": True})
+    workbook = xlsxwriter.Workbook(output, {
+        "in_memory": True,
+        "strings_to_formulas": False,
+        "strings_to_urls": False,
+    })
     school_name = (branding or {}).get("school_name", "Axis Baseball")
     workbook.set_properties({
         "title": f"{school_name} Baseball Roster Scout",
@@ -536,5 +626,6 @@ def _create_workbook(
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
     port = int(os.environ.get("PORT", 5000))
     app.run(debug=False, port=port)
