@@ -3,5 +3,5 @@ gunicorn==26.2.0
 requests==2.34.2
 beautifulsoup4==4.15.0
 patchright==1.64.3
-xlsxwriter==3.2.9
+xlsxwriter==3.3.0
 Pillow==13.0.0
