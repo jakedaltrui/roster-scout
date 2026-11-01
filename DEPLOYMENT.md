@@ -74,6 +74,45 @@ Before making a deployment public:
 7. Confirm a real workbook download opens in Excel and contains both worksheets.
 8. Review memory use during one uncached browser session.
 
+## Deterministic release verification
+
+Run the complete local gate from the repository root before a release. The
+PostgreSQL URL must point to the disposable database ending in `_test`:
+
+```bash
+.venv/bin/python -m py_compile app.py roster_scraper.py usage_limits.py roster_scout/*.py scripts/live_ncaa_smoke.py scripts/validate_ncaa_catalog.py
+DATABASE_URL=postgresql+psycopg://roster_scout:roster_scout@localhost:5432/roster_scout_test .venv/bin/alembic upgrade head
+DATABASE_URL=postgresql+psycopg://roster_scout:roster_scout@localhost:5432/roster_scout_test .venv/bin/alembic check
+DATABASE_URL=postgresql+psycopg://roster_scout:roster_scout@localhost:5432/roster_scout_test .venv/bin/python -m unittest discover -s tests -v
+.venv/bin/python scripts/validate_ncaa_catalog.py
+git diff --check
+```
+
+The deterministic suite includes D1, D2, and D3 fixture publication, exact
+source-row traceability, duplicate delivery, same-job recovery, legacy cache,
+selector, workbook, branding, error, rate-limit, and Browserless-capacity
+regressions. Catalog validation must report `"valid": true`, 942 selectable
+teams, and the reviewed D1/D2/D3 counts unless a catalog update is part of the
+release.
+
+Confirm the worker stays inside the one-machine capacity boundary without
+starting a process:
+
+```bash
+BROWSERLESS_MAX_SESSIONS=2 .venv/bin/python -c "from scripts.run_worker import worker_command; command = worker_command(); assert command[-2:] == ['--concurrency', '2']; print('worker concurrency: 2')"
+docker compose config --quiet
+```
+
+After deterministic verification, the optional external smoke is:
+
+```bash
+.venv/bin/python scripts/live_ncaa_smoke.py
+```
+
+The smoke depends on NCAA/Akamai and the configured Browserless or proxy path;
+its external failure does not invalidate a green deterministic release gate,
+but a production launch still requires one successful target-network smoke.
+
 ## Environment variables
 
 | Variable | Default | Purpose |

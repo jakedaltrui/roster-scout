@@ -40,6 +40,8 @@ class AppRouteTests(unittest.TestCase):
         self.assertIn("attachment", response.headers["Content-Disposition"])
         self.assertIn(team_name, response.headers["Content-Disposition"])
         self.assertEqual(response.headers["X-Roster-Scout-Players"], "1")
+        self.assertEqual(response.headers["X-Roster-Scout-Hitters"], "1")
+        self.assertEqual(response.headers["X-Roster-Scout-Pitchers"], "0")
         self.assertTrue(response.data.startswith(b"PK"))
         with zipfile.ZipFile(io.BytesIO(response.data)) as archive:
             workbook_xml = archive.read("xl/workbook.xml").decode("utf-8")
@@ -227,6 +229,25 @@ class AppRouteTests(unittest.TestCase):
             })
         self.assertEqual(response.status_code, 502)
         self.assertIn("verification required", response.get_json()["error"])
+
+    def test_all_ncaa_divisions_share_the_same_failure_contract(self):
+        for division in ("d1", "d2", "d3"):
+            with self.subTest(division=division), patch.object(
+                app_module,
+                "scrape_ncaa_by_name",
+                side_effect=NcaaAccessError("source unavailable"),
+            ):
+                response = self.client.post("/scrape", json={
+                    "team": "Test Team", "division": division,
+                })
+            self.assertEqual(response.status_code, 502)
+            self.assertEqual(response.get_json(), {"error": "source unavailable"})
+
+    def test_phase_one_adds_no_unauthenticated_job_routes(self):
+        routes = {rule.rule for rule in app_module.app.url_map.iter_rules()}
+        self.assertNotIn("/jobs", routes)
+        self.assertFalse(any(route.startswith("/api/jobs") for route in routes))
+        self.assertFalse(any("report-job" in route for route in routes))
 
     def test_missing_team_is_rejected(self):
         response = self.client.post("/scrape", json={"division": "d2"})
