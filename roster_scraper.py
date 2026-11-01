@@ -23,10 +23,11 @@ import threading
 import time
 import uuid
 import requests
+from dataclasses import dataclass
 from bs4 import BeautifulSoup
 from urllib.parse import quote, unquote, urlencode, urljoin, urlparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import datetime, timezone
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -76,6 +77,63 @@ _NCAA_CACHE_LOCK = threading.Lock()
 _NCAA_BROWSER_LOCK = threading.Lock()
 _NCAA_TEAM_ROWS = None
 _NCAA_SEASON_ROWS = None
+
+NCAA_PARSER_VERSION = "1.0"
+NCAA_SCHEMA_VERSION = "1.0"
+
+
+@dataclass(frozen=True)
+class NcaaTeam:
+    team_id: str
+    name: str
+    season_team_id: str
+    division: str
+
+
+@dataclass(frozen=True)
+class NcaaSeason:
+    season_id: str
+    year: int
+    batting_category_id: str
+    pitching_category_id: str
+
+
+@dataclass(frozen=True)
+class NcaaCollectionMetadata:
+    collected_at: datetime
+    parser_version: str = NCAA_PARSER_VERSION
+    schema_version: str = NCAA_SCHEMA_VERSION
+
+
+@dataclass(frozen=True)
+class NcaaSourceRow:
+    section: str
+    row_ordinal: int
+    source_url: str
+    source_player_id: str | None
+    player_url: str | None
+    raw_values: dict
+    payload_sha256: str
+
+
+@dataclass(frozen=True)
+class NcaaSection:
+    name: str
+    source_url: str
+    stat_category_id: str
+    html_sha256: str
+    rows: tuple[NcaaSourceRow, ...]
+    verified_empty: bool = False
+
+
+@dataclass(frozen=True)
+class NcaaCollection:
+    team: NcaaTeam
+    season: NcaaSeason
+    metadata: NcaaCollectionMetadata
+    sections: tuple[NcaaSection, ...]
+    players: tuple[dict, ...]
+    team_label: str
 
 CURRENT_YEAR = datetime.now().year
 CLASS_TO_GRAD = {
@@ -1948,10 +2006,13 @@ def _parse_ncaa_stat_table(html: str) -> list[dict]:
         row[player_key] = name
         player_link = tr.find("a", href=re.compile(r"/players/\d+"))
         if player_link:
-            match = re.search(r"/players/(\d+)", player_link.get("href", ""))
+            href = player_link.get("href", "")
+            match = re.search(r"/players/(\d+)", href)
             row["_player_id"] = match.group(1) if match else ""
+            row["_player_url"] = urljoin(NCAA_BASE, href) if match else ""
         else:
             row["_player_id"] = ""
+            row["_player_url"] = ""
         rows.append(row)
     return rows
 
@@ -2045,8 +2106,98 @@ def _normalize_ncaa_players(batting: list[dict], pitching: list[dict]) -> list[d
                 "AB", "H", "R", "RBI", "BB", "HBP", "SF", "SH", "SB", "K", "SO",
             )),
             "_pos": position,
+            "_player_id": (bat or pit).get("_player_id", ""),
+            "_player_url": (bat or pit).get("_player_url", ""),
+            "_source_urls": [
+                url for url in (bat.get("_source_url"), pit.get("_source_url")) if url
+            ],
         })
     return players
+
+
+def _source_rows(
+    section: str,
+    source_url: str,
+    html_sha256: str,
+    rows: list[dict],
+) -> tuple[NcaaSourceRow, ...]:
+    output = []
+    for ordinal, row in enumerate(rows):
+        raw_values = {
+            key: value for key, value in row.items() if not key.startswith("_")
+        }
+        output.append(NcaaSourceRow(
+            section=section,
+            row_ordinal=ordinal,
+            source_url=source_url,
+            source_player_id=row.get("_player_id") or None,
+            player_url=row.get("_player_url") or None,
+            raw_values=raw_values,
+            payload_sha256=html_sha256,
+        ))
+    return tuple(output)
+
+
+def _collect_ncaa_team(team: dict, year: int) -> NcaaCollection:
+    """Collect one NCAA team without consulting the legacy result cache."""
+    season = _find_ncaa_season(year)
+    base_url = f"{NCAA_BASE}/teams/{team['season_team_id']}/season_to_date_stats"
+    urls = {
+        "batting": f"{base_url}?year_stat_category_id={season['batting_id']}",
+        "pitching": f"{base_url}?year_stat_category_id={season['pitching_id']}",
+    }
+    pages = _fetch_ncaa_pages(urls)
+    collected_at = datetime.now(timezone.utc)
+    parsed = {}
+    sections = []
+    for name, category_id in (
+        ("batting", season["batting_id"]),
+        ("pitching", season["pitching_id"]),
+    ):
+        html = pages.get(name)
+        if html is None:
+            raise NcaaAccessError(f"NCAA did not return the {name} section.")
+        rows = _parse_ncaa_stat_table(html)
+        html_sha256 = hashlib.sha256(html.encode("utf-8")).hexdigest()
+        for row in rows:
+            row["_source_url"] = urls[name]
+        parsed[name] = rows
+        sections.append(NcaaSection(
+            name=name,
+            source_url=urls[name],
+            stat_category_id=category_id,
+            html_sha256=html_sha256,
+            rows=_source_rows(name, urls[name], html_sha256, rows),
+            verified_empty=not rows,
+        ))
+
+    if not parsed["batting"] and not parsed["pitching"]:
+        raise NcaaAccessError(
+            f"Found '{team['team_name']}' but NCAA has no batting or pitching rows for {year}."
+        )
+    players = _normalize_ncaa_players(parsed["batting"], parsed["pitching"])
+    if not players:
+        raise NcaaAccessError(
+            f"NCAA returned stats for '{team['team_name']}', but no players could be parsed."
+        )
+    return NcaaCollection(
+        team=NcaaTeam(
+            team_id=team.get("team_id", ""),
+            name=team["team_name"],
+            season_team_id=team["season_team_id"],
+            division=f"d{team['division']}",
+        ),
+        season=NcaaSeason(
+            season_id=team.get("season_id") or season["id"],
+            year=year,
+            batting_category_id=season["batting_id"],
+            pitching_category_id=season["pitching_id"],
+        ),
+        metadata=NcaaCollectionMetadata(collected_at=collected_at),
+        sections=tuple(sections),
+        players=tuple(players),
+        team_label=team["team_name"],
+    )
 
 
 def _scrape_ncaa_team(team: dict, year: int, force_refresh: bool = False) -> tuple:
@@ -2068,23 +2219,8 @@ def _scrape_ncaa_team(team: dict, year: int, force_refresh: bool = False) -> tup
                     _write_json_cache(cache_key, {**cached, "players": cached_players})
                 return cached_players, cached.get("team_label", label)
 
-    season = _find_ncaa_season(year)
-    base_url = f"{NCAA_BASE}/teams/{season_team_id}/season_to_date_stats"
-    urls = {
-        "batting": f"{base_url}?year_stat_category_id={season['batting_id']}",
-        "pitching": f"{base_url}?year_stat_category_id={season['pitching_id']}",
-    }
-    pages = _fetch_ncaa_pages(urls)
-    batting = _parse_ncaa_stat_table(pages["batting"])
-    pitching = _parse_ncaa_stat_table(pages["pitching"])
-    if not batting and not pitching:
-        raise NcaaAccessError(
-            f"Found '{label}' but NCAA has no batting or pitching rows for {year}."
-        )
-
-    players = _normalize_ncaa_players(batting, pitching)
-    if not players:
-        raise NcaaAccessError(f"NCAA returned stats for '{label}', but no players could be parsed.")
+    collection = _collect_ncaa_team(team, year)
+    players = list(collection.players)
 
     _write_json_cache(cache_key, {
         "team_label": label,
@@ -2095,6 +2231,24 @@ def _scrape_ncaa_team(team: dict, year: int, force_refresh: bool = False) -> tup
         "players": players,
     })
     return players, label
+
+
+def collect_ncaa_by_id(
+    season_team_id: str,
+    division=None,
+    year: int | None = None,
+    force_refresh: bool = True,
+) -> NcaaCollection:
+    """Return provenance-rich NCAA data for a durable report build."""
+    year = year or _current_ncaa_year()
+    team = _find_ncaa_team_by_season_id(
+        season_team_id,
+        division=division,
+        year=year,
+    )
+    if not force_refresh:
+        raise NcaaError("Structured NCAA collection is live-only; force_refresh is required.")
+    return _collect_ncaa_team(team, year)
 
 
 def scrape_ncaa_by_name(

@@ -161,6 +161,24 @@ class NcaaWorkflowTests(unittest.TestCase):
         hitters, pitchers = rs.split_roster(players)
         self.assertIn("D One Two Way", {row["Name"] for row in hitters})
         self.assertIn("D One Two Way", {row["Name"] for row in pitchers})
+        self.assertTrue(two_way["_player_id"])
+        self.assertTrue(two_way["_player_url"].startswith("https://stats.ncaa.org/players/"))
+
+    def test_structured_collection_preserves_provenance_without_changing_tuple_api(self):
+        pages = {
+            "batting": fixture("d1_batting.html"),
+            "pitching": fixture("d1_pitching.html"),
+        }
+        with patch.object(rs, "_fetch_ncaa_pages", return_value=pages):
+            structured = rs.collect_ncaa_by_id("615087", "d2", year=2026)
+            players, label = rs.scrape_ncaa_by_id("615087", "d2", year=2026)
+
+        self.assertEqual(structured.team.season_team_id, "615087")
+        self.assertEqual({section.name for section in structured.sections}, {"batting", "pitching"})
+        self.assertTrue(all(len(section.html_sha256) == 64 for section in structured.sections))
+        self.assertTrue(all(row.source_url for section in structured.sections for row in section.rows))
+        self.assertIsInstance(players, list)
+        self.assertEqual(label, "Tampa")
 
     def test_pitcher_zero_batting_row_is_excluded_but_two_way_players_remain(self):
         batting = [
