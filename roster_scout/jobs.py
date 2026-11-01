@@ -12,7 +12,22 @@ from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 
 from usage_limits import BrowserCapacityExceeded
 
-from .models import ReportJob, ReportSection, ReportSnapshot, SourceRecord
+from .models import (
+    BattingFact,
+    MetricDefinition,
+    MetricValue,
+    PitchingFact,
+    Player,
+    PlayerTeamSeason,
+    Report,
+    ReportJob,
+    ReportSection,
+    ReportSnapshot,
+    Season,
+    SourceRecord,
+    Team,
+    TeamSeason,
+)
 from .snapshots import SnapshotPublicationError, publish_snapshot
 
 
@@ -286,7 +301,13 @@ def _persist_sections(session, job, snapshot, sections):
         for ordinal, row in enumerate(collected.rows):
             if ordinal in existing_ordinals:
                 continue
-            encoded = json.dumps(row, sort_keys=True, separators=(",", ":")).encode()
+            raw_values = {
+                key: value for key, value in row.items()
+                if key not in {"_player_id", "_player_url", "_payload_sha256"}
+            }
+            if row.get("_player_url"):
+                raw_values["player_url"] = row["_player_url"]
+            encoded = json.dumps(raw_values, sort_keys=True, separators=(",", ":")).encode()
             session.add(
                 SourceRecord(
                     organization_id=job.organization_id,
@@ -302,13 +323,178 @@ def _persist_sections(session, job, snapshot, sections):
                     collected_at=collected.collected_at or _utcnow(),
                     parser_version=collected.parser_version,
                     schema_version=collected.schema_version,
-                    payload_sha256=hashlib.sha256(encoded).hexdigest(),
-                    raw_values=row,
+                    payload_sha256=(
+                        row.get("_payload_sha256") or hashlib.sha256(encoded).hexdigest()
+                    ),
+                    raw_values=raw_values,
                 )
             )
 
 
+def _persist_canonical(session, job, snapshot, sections):
+    """Persist player identities and typed facts after exact source rows exist."""
+    from roster_scraper import (
+        NcaaCollection,
+        NcaaCollectionMetadata,
+        NcaaSection,
+        NcaaSeason,
+        NcaaSourceRow,
+        NcaaTeam,
+    )
+    from .canonical import canonicalize_ncaa_collection
+
+    report = session.get(Report, job.report_id)
+    team_season = session.get(TeamSeason, report.team_season_id)
+    team = session.get(Team, team_season.team_id)
+    season = session.get(Season, team_season.season_id)
+    complete = [item for item in sections if item.status == "complete"]
+    if not complete:
+        return
+    collected_at = min(
+        (item.collected_at for item in complete if item.collected_at),
+        default=_utcnow(),
+    )
+    ncaa_sections = []
+    for item in complete:
+        source_rows = []
+        for ordinal, row in enumerate(item.rows):
+            raw_values = {
+                key: value for key, value in row.items()
+                if key not in {"_player_id", "_player_url", "_payload_sha256"}
+            }
+            source_rows.append(NcaaSourceRow(
+                section=item.name,
+                row_ordinal=ordinal,
+                source_url=item.source_url or "unknown",
+                source_player_id=row.get("_player_id") or None,
+                player_url=row.get("_player_url") or None,
+                raw_values=raw_values,
+                payload_sha256=row.get("_payload_sha256") or hashlib.sha256(
+                    json.dumps(raw_values, sort_keys=True, separators=(",", ":")).encode()
+                ).hexdigest(),
+            ))
+        ncaa_sections.append(NcaaSection(
+            name=item.name,
+            source_url=item.source_url or "unknown",
+            stat_category_id=item.source_stat_category_id or "unknown",
+            html_sha256=(
+                source_rows[0].payload_sha256 if source_rows
+                else hashlib.sha256(b"").hexdigest()
+            ),
+            rows=tuple(source_rows),
+            verified_empty=item.verified_empty,
+        ))
+    collection = NcaaCollection(
+        team=NcaaTeam(
+            team_id=team.source_team_id,
+            name=team.name,
+            season_team_id=team_season.source_season_team_id,
+            division=team_season.division,
+        ),
+        season=NcaaSeason(
+            season_id=season.source_season_id,
+            year=season.year,
+            batting_category_id=team_season.batting_stat_category_id or "unknown",
+            pitching_category_id=team_season.pitching_stat_category_id or "unknown",
+        ),
+        metadata=NcaaCollectionMetadata(
+            collected_at=collected_at,
+            parser_version=complete[0].parser_version,
+            schema_version=complete[0].schema_version,
+        ),
+        sections=tuple(ncaa_sections),
+        players=(),
+        team_label=team.name,
+    )
+    canonical = canonicalize_ncaa_collection(collection)
+    source_by_key = {
+        (record.section, record.row_ordinal): record
+        for record in session.scalars(
+            select(SourceRecord).where(SourceRecord.snapshot_id == snapshot.id)
+        )
+    }
+    identities = {}
+    for item in canonical.players:
+        player = None
+        if item.source_player_id:
+            player = session.scalar(select(Player).where(
+                Player.source == "ncaa",
+                Player.source_player_id == item.source_player_id,
+            ))
+        if player is None:
+            player = Player(
+                source="ncaa",
+                source_player_id=item.source_player_id,
+                display_name=item.display_name,
+            )
+            session.add(player)
+            session.flush()
+        identity = PlayerTeamSeason(
+            organization_id=job.organization_id,
+            snapshot_id=snapshot.id,
+            player_id=player.id,
+            team_season_id=team_season.id,
+            identity_status=item.identity_status,
+            identity_key=item.identity_key,
+            display_name=item.display_name,
+            jersey_number=item.jersey_number,
+            position=item.position,
+        )
+        session.add(identity)
+        session.flush()
+        identities[item.identity_key] = identity
+
+    for fact in canonical.facts:
+        source = source_by_key[fact.source_record]
+        identity = identities[fact.identity_key]
+        if fact.section == "batting":
+            session.add(BattingFact(
+                organization_id=job.organization_id,
+                snapshot_id=snapshot.id,
+                player_team_season_id=identity.id,
+                source_record_id=source.id,
+                **fact.values,
+            ))
+        else:
+            values = dict(fact.values)
+            values.pop("innings_raw", None)
+            session.add(PitchingFact(
+                organization_id=job.organization_id,
+                snapshot_id=snapshot.id,
+                player_team_season_id=identity.id,
+                source_record_id=source.id,
+                **values,
+            ))
+
+    for metric in canonical.metrics:
+        version = f"{metric.definition_version}:{metric.provenance}"
+        definition = session.scalar(select(MetricDefinition).where(
+            MetricDefinition.code == metric.code,
+            MetricDefinition.version == version,
+        ))
+        if definition is None:
+            definition = MetricDefinition(
+                code=metric.code,
+                version=version,
+                formula=metric.provenance,
+            )
+            session.add(definition)
+            session.flush()
+        session.add(MetricValue(
+            organization_id=job.organization_id,
+            snapshot_id=snapshot.id,
+            metric_definition_id=definition.id,
+            player_team_season_id=identities[metric.identity_key].id,
+            value=metric.value,
+            unavailable_reason=(
+                "source value unavailable" if metric.value is None else None
+            ),
+        ))
+
+
 def _classified_error(exc):
+    from .canonical import IdentityConflictError
+
     if isinstance(exc, RetryableJobError | DeterministicJobError):
         return exc
     if isinstance(exc, BrowserCapacityExceeded):
@@ -317,6 +503,8 @@ def _classified_error(exc):
         return RetryableJobError("network")
     if isinstance(exc, SnapshotPublicationError):
         return DeterministicJobError("core_section_failed")
+    if isinstance(exc, IdentityConflictError):
+        return DeterministicJobError("identity_conflict")
     if isinstance(exc, ValueError):
         return DeterministicJobError("schema_validation")
     return DeterministicJobError("unexpected")
@@ -390,6 +578,17 @@ def run_report_job(session_factory, job_id, *, collector):
             ]
             if collected_times:
                 snapshot.source_collected_at = min(collected_times)
+
+        # Exact source evidence commits before typed facts/publication. A worker
+        # loss after this boundary can reuse only these same-job, versioned rows.
+        with session_factory.begin() as session:
+            job = session.scalar(
+                select(ReportJob).where(ReportJob.id == job_id).with_for_update()
+            )
+            if job.status in {"ready", "partial"}:
+                return session.get(ReportSnapshot, job.result_snapshot_id)
+            snapshot = session.get(ReportSnapshot, job.result_snapshot_id)
+            _persist_canonical(session, job, snapshot, sections)
             published = publish_snapshot(session, snapshot.id)
             job.status = published.status
             job.finished_at = _utcnow()
@@ -397,3 +596,78 @@ def run_report_job(session_factory, job_id, *, collector):
     except Exception as exc:
         safe_error = _record_failure(session_factory, job_id, _classified_error(exc))
         raise safe_error from None
+
+
+def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset()):
+    """Collect live NCAA sections or reuse only same-job version-matched evidence."""
+    from roster_scraper import NcaaAccessError, collect_ncaa_by_id
+    from .canonical import to_collected_sections
+
+    job_uuid = uuid.UUID(str(job_id))
+    with session_factory() as session:
+        job = session.get(ReportJob, job_uuid)
+        if job is None:
+            raise DeterministicJobError("schema_validation", "Report job does not exist.")
+        report = session.get(Report, job.report_id)
+        team_season = session.get(TeamSeason, report.team_season_id)
+        season = session.get(Season, team_season.season_id)
+        snapshot_id = job.result_snapshot_id
+
+        expected = {
+            "batting": team_season.batting_stat_category_id,
+            "pitching": team_season.pitching_stat_category_id,
+        }
+        matching = {
+            key.section: key for key in cached_sections
+            if key.job_id == job.id
+            and key.source_team_id == session.get(Team, team_season.team_id).source_team_id
+            and key.source_season_id == season.source_season_id
+            and key.source_season_team_id == team_season.source_season_team_id
+            and key.source_stat_category_id == expected.get(key.section)
+            and key.schema_version == SCHEMA_VERSION
+            and key.parser_version == PARSER_VERSION
+        }
+        if snapshot_id and matching.keys() >= {"batting", "pitching"}:
+            stored = list(session.scalars(
+                select(ReportSection).where(
+                    ReportSection.snapshot_id == snapshot_id,
+                    ReportSection.job_id == job.id,
+                    ReportSection.section.in_(("batting", "pitching")),
+                )
+            ))
+            rows = list(session.scalars(
+                select(SourceRecord).where(SourceRecord.snapshot_id == snapshot_id)
+            ))
+            by_section = {}
+            for row in rows:
+                by_section.setdefault(row.section, []).append(row)
+            return tuple(CollectedSection(
+                name=section.section,
+                critical=section.critical,
+                rows=tuple({
+                    **record.raw_values,
+                    "_player_id": record.source_player_id,
+                    "_player_url": record.raw_values.get("player_url"),
+                    "_payload_sha256": record.payload_sha256,
+                } for record in sorted(by_section.get(section.section, ()), key=lambda item: item.row_ordinal)),
+                verified_empty=section.verified_empty,
+                source_url=section.source_url,
+                source_team_id=section.source_team_id,
+                source_season_id=section.source_season_id,
+                source_season_team_id=section.source_season_team_id,
+                source_stat_category_id=section.source_stat_category_id,
+                collected_at=section.collected_at,
+                parser_version=section.parser_version,
+                schema_version=section.schema_version,
+            ) for section in stored)
+
+    try:
+        collection = collect_ncaa_by_id(
+            team_season.source_season_team_id,
+            division=team_season.division,
+            year=season.year,
+            force_refresh=True,
+        )
+    except NcaaAccessError as exc:
+        raise RetryableJobError("source_blocked") from exc
+    return to_collected_sections(collection)

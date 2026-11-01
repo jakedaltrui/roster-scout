@@ -78,8 +78,8 @@ _NCAA_BROWSER_LOCK = threading.Lock()
 _NCAA_TEAM_ROWS = None
 _NCAA_SEASON_ROWS = None
 
-NCAA_PARSER_VERSION = "1.0"
-NCAA_SCHEMA_VERSION = "1.0"
+NCAA_PARSER_VERSION = os.environ.get("NCAA_PARSER_VERSION", "parser-1")
+NCAA_SCHEMA_VERSION = os.environ.get("REPORT_SCHEMA_VERSION", "schema-1")
 
 
 @dataclass(frozen=True)
@@ -2126,6 +2126,8 @@ def _source_rows(
         raw_values = {
             key: value for key, value in row.items() if not key.startswith("_")
         }
+        if row.get("_player_url"):
+            raw_values["player_url"] = row["_player_url"]
         output.append(NcaaSourceRow(
             section=section,
             row_ordinal=ordinal,

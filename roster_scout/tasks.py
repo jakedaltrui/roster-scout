@@ -4,7 +4,13 @@ from functools import lru_cache
 
 from .celery_app import celery_app
 from .database import create_session_factory, get_engine
-from .jobs import MAX_ATTEMPTS, DeterministicJobError, RetryableJobError, run_report_job
+from .jobs import (
+    MAX_ATTEMPTS,
+    DeterministicJobError,
+    RetryableJobError,
+    collect_ncaa_sections,
+    run_report_job,
+)
 
 
 @lru_cache(maxsize=1)
@@ -13,10 +19,9 @@ def _session_factory():
 
 
 def collect_report_sections(job_id, *, cached_sections=frozenset()):
-    """Collector seam implemented by the canonical NCAA adapter in Plan 01-03."""
-    del job_id, cached_sections
-    raise DeterministicJobError(
-        "schema_validation", "No canonical report collector is configured."
+    """Collect live NCAA evidence for one durable report job."""
+    return collect_ncaa_sections(
+        _session_factory(), job_id, cached_sections=cached_sections
     )
 
 

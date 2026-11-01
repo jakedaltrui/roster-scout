@@ -272,3 +272,31 @@ def canonicalize_ncaa_collection(collection: NcaaCollection) -> CanonicalCollect
         facts=tuple(facts),
         metrics=tuple(metrics),
     )
+
+
+def to_collected_sections(collection: NcaaCollection):
+    """Adapt live NCAA evidence to the durable job section contract."""
+    from .jobs import CollectedSection
+
+    return tuple(
+        CollectedSection(
+            name=section.name,
+            critical=True,
+            rows=tuple({
+                **row.raw_values,
+                "_player_id": row.source_player_id,
+                "_player_url": row.player_url,
+                "_payload_sha256": row.payload_sha256,
+            } for row in section.rows),
+            verified_empty=section.verified_empty,
+            source_url=section.source_url,
+            source_team_id=collection.team.team_id,
+            source_season_id=collection.season.season_id,
+            source_season_team_id=collection.team.season_team_id,
+            source_stat_category_id=section.stat_category_id,
+            collected_at=collection.metadata.collected_at,
+            parser_version=collection.metadata.parser_version,
+            schema_version=collection.metadata.schema_version,
+        )
+        for section in collection.sections
+    )
