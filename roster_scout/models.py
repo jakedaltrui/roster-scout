@@ -175,12 +175,24 @@ class ReportSection(UUIDPrimaryKey, Base):
     verified_empty: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     collected_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
     failure_category: Mapped[str | None] = mapped_column(String(100))
+    job_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    source_url: Mapped[str | None] = mapped_column(Text)
+    source_team_id: Mapped[str | None] = mapped_column(String(100))
+    source_season_id: Mapped[str | None] = mapped_column(String(100))
+    source_season_team_id: Mapped[str | None] = mapped_column(String(100))
+    source_stat_category_id: Mapped[str | None] = mapped_column(String(100))
+    schema_version: Mapped[str | None] = mapped_column(String(32))
+    parser_version: Mapped[str | None] = mapped_column(String(32))
     __table_args__ = (
         UniqueConstraint("snapshot_id", "section", name="uq_report_sections_snapshot_section"),
         UniqueConstraint("id", "snapshot_id", "organization_id", name="uq_report_sections_snapshot_owner"),
         ForeignKeyConstraint(
             ["snapshot_id", "organization_id"], ["report_snapshots.id", "report_snapshots.organization_id"],
             name="fk_report_sections_snapshot_organization",
+        ),
+        ForeignKeyConstraint(
+            ["job_id", "organization_id"], ["report_jobs.id", "report_jobs.organization_id"],
+            name="fk_report_sections_job_organization",
         ),
         CheckConstraint(_allowed("status", SECTION_STATUSES), name="ck_report_sections_status"),
         CheckConstraint("row_count >= 0", name="ck_report_sections_row_count_nonnegative"),
@@ -314,9 +326,15 @@ class ReportJob(UUIDPrimaryKey, Timestamped, Base):
     report_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     result_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, unique=True)
     idempotency_key: Mapped[str] = mapped_column(String(200), nullable=False)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", server_default="pending")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued", server_default="queued")
     failure_category: Mapped[str | None] = mapped_column(String(100))
+    failure_message: Mapped[str | None] = mapped_column(String(200))
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=3, server_default="3")
+    enqueued_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
+    broker_message_id: Mapped[str | None] = mapped_column(String(100))
+    started_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
     __table_args__ = (
         UniqueConstraint("id", "organization_id", name="uq_report_jobs_id_organization"),
         UniqueConstraint("organization_id", "idempotency_key", name="uq_report_jobs_organization_idempotency"),
@@ -331,6 +349,7 @@ class ReportJob(UUIDPrimaryKey, Timestamped, Base):
         ),
         CheckConstraint(_allowed("status", JOB_STATUSES), name="ck_report_jobs_status"),
         CheckConstraint("attempt_count >= 0", name="ck_report_jobs_attempt_count_nonnegative"),
+        CheckConstraint("max_attempts BETWEEN 1 AND 10", name="ck_report_jobs_max_attempts_bounded"),
     )
 
 
@@ -361,6 +380,10 @@ class FailureEvidence(UUIDPrimaryKey, Timestamped, Base):
     job_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     compressed_html: Mapped[bytes | None] = mapped_column(LargeBinary)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    section: Mapped[str] = mapped_column(String(50), nullable=False, default="unknown", server_default="unknown")
+    source_url: Mapped[str | None] = mapped_column(Text)
+    failure_category: Mapped[str] = mapped_column(String(100), nullable=False, default="unknown", server_default="unknown")
+    collected_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     expires_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=False)
     purged_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
     __table_args__ = (

@@ -368,7 +368,7 @@ class TenantAndPublicationTests(PostgreSQLSnapshotTestCase):
                 organization_id=organization.id,
                 report_id=report.id,
                 idempotency_key="pending-job",
-                status="pending",
+                status="queued",
             )
             session.add(job)
             session.flush()
