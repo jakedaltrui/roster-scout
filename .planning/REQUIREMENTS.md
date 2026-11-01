@@ -37,9 +37,9 @@
 
 ### Provenance and Canonical Data
 
-- [ ] **DATA-01**: NCAA player records retain stable player ID when available, source-scoped fallback identity when unavailable, and unresolved-identity status when neither is safe.
+- [x] **DATA-01**: NCAA player records retain stable player ID when available, source-scoped fallback identity when unavailable, and unresolved-identity status when neither is safe.
 - [x] **DATA-02**: Every snapshot retains team ID, season-team ID, season ID, division, stat-category IDs, source URLs, and collection timestamps.
-- [ ] **DATA-03**: Batting, pitching, and fielding facts relate to one canonical player identity so two-way players are not duplicated as people.
+- [x] **DATA-03**: Batting, pitching, and fielding facts relate to one canonical player identity so two-way players are not duplicated as people.
 - [x] **DATA-04**: Transfers retain one player identity with distinct player-team-season records.
 - [x] **DATA-05**: Canonical numerical values distinguish zero from missing or unavailable source data.
 - [x] **DATA-06**: Innings pitched are stored canonically as outs or thirds and are never calculated as ordinary base-10 decimals.
@@ -110,7 +110,7 @@
 - [x] **OPS-02**: Successful source responses and normalized sections are cached with schema/version keys to control upstream requests and rebuild cost.
 - [ ] **OPS-03**: Operators can identify stuck jobs, failed Power BI refreshes, unavailable source sections, and capacity exhaustion without reading customer data.
 - [x] **OPS-04**: Database migrations and snapshot schema upgrades preserve existing published snapshots or explicitly migrate them with verification.
-- [ ] **OPS-05**: Existing current-season D1/D2/D3 selector and basic workbook behavior remain covered by regression tests throughout the migration.
+- [x] **OPS-05**: Existing current-season D1/D2/D3 selector and basic workbook behavior remain covered by regression tests throughout the migration.
 
 ## Future Requirements
 
@@ -151,7 +151,7 @@
 
 | Requirement group | Phase | Status |
 |---|---:|---|
-| SNAP-01–04, DATA-01–10, OPS-01–02, OPS-04–05 | Phase 1 | Pending |
+| SNAP-01–04, DATA-01–10, OPS-01–02, OPS-04–05 | Phase 1 | Complete |
 | AUTH-01–05, ORG-01–07, SNAP-05–08, SECU-01–05 | Phase 2 | Pending |
 | STAT-01–08, SPLT-01–05, HIST-01–06, OPS-03 | Phase 3 | Pending |
 | XLSX-01–06 | Phase 4 | Pending |

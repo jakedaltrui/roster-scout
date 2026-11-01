@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 01-02-PLAN.md
-last_updated: "2026-11-01T23:14:54.849Z"
+status: verifying
+stopped_at: Completed 01-03-PLAN.md
+last_updated: "2026-11-01T23:22:48.014Z"
 last_activity: 2026-11-01
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 2
-  percent: 67
+  completed_plans: 3
+  percent: 20
 ---
 
 # Project State
@@ -27,24 +27,24 @@ See: `.planning/PROJECT.md` (updated 2026-11-01)
 
 Phase: 01 (canonical-snapshot-foundation) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-11-01
 
-Progress: [███████░░░] 67%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 2
+- Total plans completed: 3
 - Average duration: 6 min
-- Total execution time: 11 min
+- Total execution time: 17 min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |---|---:|---:|---:|
-| 1. Canonical Snapshot Foundation | 2 | 11 min | 6 min |
+| 1. Canonical Snapshot Foundation | 3 | 17 min | 6 min |
 
 **Plan History:**
 
@@ -52,6 +52,7 @@ Progress: [███████░░░] 67%
 |---|---|---:|---:|---:|
 | 01 | 01 | 6 min | 3 | 16 |
 | 01 | 02 | 5 min | 3 | 17 |
+| 01 | 03 | 6 min | 3 | 9 |
 
 ## Accumulated Context
 
@@ -69,6 +70,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 01]: PostgreSQL remains authoritative for durable job state; Redis carries only opaque job UUIDs. — At-least-once delivery and broker failure cannot diverge customer-visible state.
 - [Phase 01]: Accepted jobs commit before broker publication and null enqueued_at is the recoverable handoff marker. — A repeated idempotent request can dispatch the same durable job after broker failure.
 - [Phase 01]: Production is limited to one worker machine with Browserless concurrency 1-2. — Machine-local locks do not provide a distributed capacity lease.
+- [Phase 01]: Keep the tuple scraper for workbooks and use live structured collection for durable jobs — Preserves the public API while making refresh provenance explicit.
+- [Phase 01]: Scope ID-less fallback identities to one team-season and merge only reciprocal unique matches — Prevents silent teammate and transfer identity collisions.
+- [Phase 01]: Commit exact source rows before canonical facts and publication — Allows same-job redelivery recovery without exposing half-ready snapshots.
 
 ### Pending Todos
 
@@ -91,6 +95,6 @@ None recorded under `.planning/todos/pending/`.
 
 ## Session Continuity
 
-Last session: 2026-11-01T23:14:44.128Z
-Stopped at: Completed 01-02-PLAN.md
+Last session: 2026-11-01T23:22:32.389Z
+Stopped at: Completed 01-03-PLAN.md
 Resume file: None
