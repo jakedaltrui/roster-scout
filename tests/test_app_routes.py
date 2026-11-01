@@ -204,34 +204,29 @@ class AppRouteTests(unittest.TestCase):
         self.assert_excel_download(response, "Tampa")
         scrape.assert_called_once_with("615087", division="d2")
 
-    def test_d1_uses_existing_fallback_when_ncaa_is_blocked(self):
+    def test_d1_ncaa_failure_is_returned_without_external_fallback(self):
         with patch.object(
             app_module,
             "scrape_ncaa_by_name",
             side_effect=NcaaAccessError("blocked"),
-        ), patch.object(
-            app_module,
-            "scrape_by_team_name",
-            return_value=([SAMPLE_PLAYER], "Vanderbilt"),
-        ) as fallback:
+        ):
             response = self.client.post("/scrape", json={
                 "team": "Vanderbilt", "division": "d1",
             })
-        self.assert_excel_download(response, "Vanderbilt")
-        fallback.assert_called_once_with("Vanderbilt")
+        self.assertEqual(response.status_code, 502)
+        self.assertIn("blocked", response.get_json()["error"])
 
-    def test_d3_failure_is_returned_without_d1_fallback(self):
+    def test_d3_ncaa_failure_is_returned(self):
         with patch.object(
             app_module,
             "scrape_ncaa_by_name",
             side_effect=NcaaAccessError("verification required"),
-        ), patch.object(app_module, "scrape_by_team_name") as fallback:
+        ):
             response = self.client.post("/scrape", json={
                 "team": "Scranton", "division": "d3",
             })
         self.assertEqual(response.status_code, 502)
         self.assertIn("verification required", response.get_json()["error"])
-        fallback.assert_not_called()
 
     def test_missing_team_is_rejected(self):
         response = self.client.post("/scrape", json={"division": "d2"})
@@ -288,15 +283,16 @@ class AppRouteTests(unittest.TestCase):
             self.assertEqual(self.client.post("/scrape", json=payload, environ_base={"REMOTE_ADDR": "192.0.2.2"}).status_code, 200)
             self.assertEqual(scrape.call_count, 2)
 
-    def test_browser_capacity_returns_503_without_d1_fallback(self):
+    def test_browser_capacity_returns_503(self):
         from usage_limits import BrowserCapacityExceeded
-        with patch.object(app_module, "scrape_ncaa_by_name", side_effect=BrowserCapacityExceeded("busy")), patch.object(
-            app_module, "scrape_by_team_name"
-        ) as fallback:
+        with patch.object(
+            app_module,
+            "scrape_ncaa_by_name",
+            side_effect=BrowserCapacityExceeded("busy"),
+        ):
             response = self.client.post("/scrape", json={"team": "Tampa", "division": "d1"})
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.headers["Retry-After"], "30")
-        fallback.assert_not_called()
 
 
 if __name__ == "__main__":

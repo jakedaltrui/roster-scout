@@ -25,7 +25,6 @@ from roster_scraper import (
     PITCHER_HEADERS,
     NcaaError,
     list_ncaa_teams,
-    scrape_by_team_name,
     scrape_juco_by_name,
     scrape_ncaa_by_id,
     scrape_ncaa_by_name,
@@ -223,33 +222,22 @@ def scrape():
         if division == "juco":
             rows, team_label = scrape_juco_by_name(team)
         elif division in {"d1", "d2", "d3"}:
-            try:
-                if season_team_id:
-                    rows, team_label = scrape_ncaa_by_id(
-                        season_team_id,
-                        division=division,
-                    )
-                else:
-                    rows, team_label = scrape_ncaa_by_name(team, division=division)
-            except NcaaError as ncaa_exc:
-                if division != "d1":
-                    raise
-                try:
-                    rows, team_label = scrape_by_team_name(team)
-                except ValueError:
-                    raise ncaa_exc
+            if season_team_id:
+                rows, team_label = scrape_ncaa_by_id(
+                    season_team_id,
+                    division=division,
+                )
+            else:
+                rows, team_label = scrape_ncaa_by_name(team, division=division)
         else:
             # Backwards-compatible auto-detection for clients that omit a division.
             try:
                 rows, team_label = scrape_ncaa_by_name(team)
             except NcaaError as ncaa_exc:
                 try:
-                    rows, team_label = scrape_by_team_name(team)
+                    rows, team_label = scrape_juco_by_name(team)
                 except ValueError:
-                    try:
-                        rows, team_label = scrape_juco_by_name(team)
-                    except ValueError:
-                        raise ncaa_exc
+                    raise ncaa_exc
 
         hitters, pitchers = split_roster(rows)
         branding = None
