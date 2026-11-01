@@ -283,6 +283,56 @@ class RetentionAndCacheTests(PostgreSQLJobTestCase):
         parameters = list(python_inspect.signature(build_report_job.run).parameters)
         self.assertEqual(parameters, ["job_id"])
 
+    def test_successful_job_cannot_store_html_evidence(self):
+        from roster_scout.evidence import store_failure_evidence
+        from roster_scout.jobs import accept_report_job
+        from roster_scout.models import ReportJob
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(self.Session, organization_id, report_id, "success-html", dispatch=None)
+        with self.Session.begin() as session:
+            session.get(ReportJob, job.id).status = "ready"
+        with self.assertRaisesRegex(ValueError, "failed or blocked"):
+            store_failure_evidence(
+                self.Session,
+                job.id,
+                section="batting",
+                source_url="https://stats.ncaa.org/success?token=secret",
+                html=b"<html>success</html>",
+                failure_category="unexpected",
+            )
+
+    def test_worker_concurrency_is_strictly_bounded_and_cache_is_ephemeral(self):
+        from scripts.run_worker import WORKER_CACHE_DIR, parse_concurrency, worker_command
+
+        self.assertEqual(parse_concurrency("1"), 1)
+        self.assertEqual(parse_concurrency("2"), 2)
+        for value in ("0", "3", "many"):
+            with self.assertRaises(ValueError):
+                parse_concurrency(value)
+        command = worker_command({"BROWSERLESS_MAX_SESSIONS": "2"})
+        self.assertEqual(command[-2:], ["--concurrency", "2"])
+        self.assertEqual(WORKER_CACHE_DIR, "/tmp/roster-scout-worker")
+
+    def test_cache_key_includes_job_source_schema_and_parser_identity(self):
+        from roster_scout.jobs import SectionCacheKey
+
+        fields = set(SectionCacheKey.__dataclass_fields__)
+        self.assertEqual(
+            fields,
+            {
+                "job_id",
+                "section",
+                "source_url",
+                "source_team_id",
+                "source_season_id",
+                "source_season_team_id",
+                "source_stat_category_id",
+                "schema_version",
+                "parser_version",
+            },
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

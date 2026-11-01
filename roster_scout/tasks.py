@@ -4,7 +4,7 @@ from functools import lru_cache
 
 from .celery_app import celery_app
 from .database import create_session_factory, get_engine
-from .jobs import DeterministicJobError, RetryableJobError, run_report_job
+from .jobs import MAX_ATTEMPTS, DeterministicJobError, RetryableJobError, run_report_job
 
 
 @lru_cache(maxsize=1)
@@ -23,7 +23,7 @@ def collect_report_sections(job_id, *, cached_sections=frozenset()):
 @celery_app.task(
     bind=True,
     name="roster_scout.build_report_job",
-    max_retries=2,
+    max_retries=MAX_ATTEMPTS - 1,
     retry_backoff=True,
     retry_backoff_max=300,
     retry_jitter=True,

@@ -21,6 +21,10 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY app.py roster_scraper.py usage_limits.py ./
+COPY roster_scout/ ./roster_scout/
+COPY migrations/ ./migrations/
+COPY alembic.ini ./
+COPY scripts/run_worker.py ./scripts/run_worker.py
 COPY templates/ ./templates/
 COPY data/ ./data/
 COPY static/ ./static/

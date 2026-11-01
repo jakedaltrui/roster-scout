@@ -18,9 +18,24 @@ Open [http://localhost:5050](http://localhost:5050). The token is stored with ow
 
 ```bash
 docker compose up --build
+docker compose --profile worker up --build
 ```
 
 The app is available at [http://localhost:5050](http://localhost:5050). Compose persists lookup and successful-result caches in a named volume. Pass secrets at runtime through your shell, an untracked env file, or a secret manager; do not add them to `compose.yaml`.
+
+The `worker` profile starts the separate Celery process with PostgreSQL as the
+durable job store and Redis only as its broker. The worker uses
+`/tmp/roster-scout-worker` for machine-local Browserless locks and does not mount
+the app's persistent `/data` cache.
+
+Apply migrations before starting either process and verify rollback safety in
+the disposable test database:
+
+```bash
+DATABASE_URL=postgresql+psycopg://roster_scout:roster_scout@localhost:5432/roster_scout alembic upgrade head
+DATABASE_URL=postgresql+psycopg://roster_scout:roster_scout@localhost:5432/roster_scout_test alembic downgrade base
+DATABASE_URL=postgresql+psycopg://roster_scout:roster_scout@localhost:5432/roster_scout_test alembic upgrade head
+```
 
 The image:
 
@@ -31,12 +46,15 @@ The image:
 
 ## Fly.io
 
-`fly.toml` defines the service, persistent cache volume, HTTPS enforcement, health check, and one-machine concurrency limits.
+`fly.toml` defines separate `app` and `worker` process groups. Its release command
+runs `alembic upgrade head` once before the new release receives traffic. Only
+the app process has the HTTP service and `/data` volume; the worker has neither.
 
 ```bash
 fly auth login
 fly launch --copy-config --no-deploy
-fly secrets set BROWSERLESS_TOKEN=your-token
+fly secrets set BROWSERLESS_TOKEN=your-token DATABASE_URL=your-managed-postgres-url CELERY_BROKER_URL=your-managed-redis-url
+fly scale count app=1 worker=1
 fly deploy
 ```
 
@@ -44,12 +62,17 @@ Keep secrets out of command history when possible by using the Fly dashboard or 
 
 Before making a deployment public:
 
-1. Run the deterministic suite and catalog validation.
-2. Run `python scripts/live_ncaa_smoke.py` from the target network.
-3. Confirm `/healthz` returns `{"status":"ok"}` over HTTPS.
-4. Confirm rate limiting returns HTTP 429 with `Retry-After`.
-5. Confirm a real workbook download opens in Excel and contains both worksheets.
-6. Review memory use during one uncached browser session.
+1. Complete the manual billing/provisioning gate for one managed PostgreSQL
+   database, one managed Redis broker, one app machine, and exactly one worker
+   machine. Do not deploy a durable worker on trial capacity that can stop after
+   five minutes.
+2. Confirm the release migration succeeded before either process group starts.
+3. Run the deterministic suite and catalog validation.
+4. Run `python scripts/live_ncaa_smoke.py` from the target network.
+5. Confirm `/healthz` returns `{"status":"ok"}` over HTTPS.
+6. Confirm rate limiting returns HTTP 429 with `Retry-After`.
+7. Confirm a real workbook download opens in Excel and contains both worksheets.
+8. Review memory use during one uncached browser session.
 
 ## Environment variables
 
@@ -67,6 +90,12 @@ Before making a deployment public:
 | `NCAA_BROWSER_PROVIDER` | local browser | Set to `browserless` to use the hosted browser workflow |
 | `BROWSERLESS_TOKEN` | unset | Browserless API token |
 | `BROWSERLESS_MAX_SESSIONS` | `2` | Concurrent Browserless slots on one machine |
+| `DATABASE_URL` | required for jobs | Managed PostgreSQL URL; canonical job/snapshot source of truth |
+| `CELERY_BROKER_URL` | `redis://localhost:6379/0` | Redis broker URL; never used as customer-visible job state |
+| `REPORT_JOB_MAX_ATTEMPTS` | `3` | Total bounded job attempts (1-10); Celery retries are one fewer |
+| `FAILURE_EVIDENCE_RETENTION_DAYS` | `30` | Failed/blocked compressed HTML retention, capped at 30 days |
+| `REPORT_SCHEMA_VERSION` | `schema-1` | Same-build section-cache schema identity |
+| `NCAA_PARSER_VERSION` | `parser-1` | Same-build section-cache parser identity |
 | `BROWSERLESS_PROXY` | `residential` | Browserless proxy network |
 | `BROWSERLESS_PROXY_COUNTRY` | `us` | Browserless proxy country |
 | `NCAA_BROWSER_FALLBACK` | `1` | Enable the local Patchright fallback |
@@ -84,5 +113,23 @@ See `.env.example` for a safe starting configuration. Only successful parsed res
 ## Scaling boundaries
 
 The rate limiter and Browserless capacity locks coordinate processes on one machine through the cache directory. They are not global across multiple machines. Before horizontal scaling, move both controls to a shared store such as Redis or a transactional database.
+
+**Run exactly one worker machine. Horizontal worker scaling is prohibited until
+a distributed Browserless capacity lease exists.** Celery concurrency must match
+`BROWSERLESS_MAX_SESSIONS`, and `scripts/run_worker.py` rejects values other than
+1 or 2. Adding worker machines would multiply the machine-local allowance and
+could exceed the Browserless account limit even though each process is locally
+bounded.
+
+Snapshots that are already `ready` or `partial` reopen from PostgreSQL without an
+NCAA request. An explicit refresh creates a new accepted job and successor build;
+only retries for that same job may reuse a successfully collected section whose
+job ID, source identity, schema version, and parser version still match. Reused
+sections retain their original `collected_at` timestamp.
+
+Failed or blocked HTML is operator evidence, not canonical report data. It is
+gzip-compressed in PostgreSQL, has no public file path or object key, expires no
+later than 30 days after collection, and is purged by nulling the bytes while
+retaining its checksum and sanitized metadata. Successful HTML is never stored.
 
 NCAA availability is an external boundary. A healthy container and `/healthz` response do not guarantee that the current hosting network can retrieve a live stats page. Keep the credential-free smoke test in the release checklist.

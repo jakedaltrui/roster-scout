@@ -19,6 +19,7 @@ from .snapshots import SnapshotPublicationError, publish_snapshot
 TERMINAL_JOB_STATUSES = frozenset({"ready", "partial", "failed", "blocked"})
 SCHEMA_VERSION = os.environ.get("REPORT_SCHEMA_VERSION", "schema-1")
 PARSER_VERSION = os.environ.get("NCAA_PARSER_VERSION", "parser-1")
+MAX_ATTEMPTS = max(1, min(10, int(os.environ.get("REPORT_JOB_MAX_ATTEMPTS", "3"))))
 SAFE_FAILURE_MESSAGES = {
     "browser_capacity": "Browser capacity is temporarily unavailable.",
     "network": "The NCAA source could not be reached.",
@@ -45,6 +46,19 @@ class DeterministicJobError(ValueError):
     def __init__(self, category, message=None):
         self.category = category
         super().__init__(message or SAFE_FAILURE_MESSAGES[category])
+
+
+@dataclass(frozen=True)
+class SectionCacheKey:
+    job_id: uuid.UUID
+    section: str
+    source_url: str | None
+    source_team_id: str | None
+    source_season_id: str | None
+    source_season_team_id: str | None
+    source_stat_category_id: str | None
+    schema_version: str
+    parser_version: str
 
 
 @dataclass(frozen=True)
@@ -91,6 +105,7 @@ def create_or_get_job(session, organization_id, report_id, idempotency_key):
             report_id=report_id,
             idempotency_key=idempotency_key,
             status="queued",
+            max_attempts=MAX_ATTEMPTS,
         )
         .on_conflict_do_nothing(
             constraint="uq_report_jobs_organization_idempotency"
@@ -201,7 +216,20 @@ def _load_cached_sections(session, job, snapshot):
             )
         )
     )
-    return {section.section: section for section in sections}
+    return {
+        SectionCacheKey(
+            job_id=job.id,
+            section=section.section,
+            source_url=section.source_url,
+            source_team_id=section.source_team_id,
+            source_season_id=section.source_season_id,
+            source_season_team_id=section.source_season_team_id,
+            source_stat_category_id=section.source_stat_category_id,
+            schema_version=section.schema_version,
+            parser_version=section.parser_version,
+        ): section
+        for section in sections
+    }
 
 
 def _persist_sections(session, job, snapshot, sections):

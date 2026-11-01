@@ -4,6 +4,13 @@ primary_region = "ord"
 [build]
   dockerfile = "Dockerfile"
 
+[deploy]
+  release_command = "alembic upgrade head"
+
+[processes]
+  app = "xvfb-run -a gunicorn --bind 0.0.0.0:5000 --workers 1 --threads 4 --timeout 180 app:app"
+  worker = "python scripts/run_worker.py"
+
 [env]
   PORT = "5000"
   ROSTER_SCOUT_CACHE_DIR = "/data"
@@ -22,6 +29,7 @@ primary_region = "ord"
   source = "roster_scout_cache"
   destination = "/data"
   initial_size = "3gb"
+  processes = ["app"]
 
 [http_service]
   internal_port = 5000
