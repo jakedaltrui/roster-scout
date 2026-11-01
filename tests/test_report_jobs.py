@@ -4,7 +4,7 @@ import inspect as python_inspect
 import unittest
 import uuid
 from datetime import UTC, datetime
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from sqlalchemy import func, select
 
@@ -243,6 +243,25 @@ class PublicationTests(PostgreSQLJobTestCase):
         with self.Session() as session:
             sections = list(session.scalars(select(ReportSection)))
             self.assertEqual({section.collected_at for section in sections}, {collected_at})
+
+    def test_celery_eager_delivery_executes_from_opaque_job_id(self):
+        from roster_scout.celery_app import celery_app
+        from roster_scout.jobs import accept_report_job
+        from roster_scout.tasks import build_report_job
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(self.Session, organization_id, report_id, "eager", dispatch=None)
+        previous_eager = celery_app.conf.task_always_eager
+        celery_app.conf.task_always_eager = True
+        try:
+            with patch("roster_scout.tasks._session_factory", return_value=self.Session), patch(
+                "roster_scout.tasks.collect_report_sections",
+                return_value=self.successful_sections(),
+            ):
+                result = build_report_job.apply(args=(str(job.id),), throw=True)
+        finally:
+            celery_app.conf.task_always_eager = previous_eager
+        self.assertTrue(result.successful())
 
 
 class RetentionAndCacheTests(PostgreSQLJobTestCase):
