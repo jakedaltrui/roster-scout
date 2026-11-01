@@ -139,6 +139,21 @@ class JobLifecycleTests(PostgreSQLJobTestCase):
             self.assertEqual(failed.status, "failed")
             self.assertNotIn("secret-token", failed.failure_message or "")
 
+    def test_celery_delivery_is_json_late_acked_bounded_and_resultless(self):
+        from roster_scout.celery_app import celery_app
+        from roster_scout.tasks import build_report_job
+
+        self.assertEqual(tuple(celery_app.conf.accept_content), ("json",))
+        self.assertEqual(celery_app.conf.task_serializer, "json")
+        self.assertTrue(celery_app.conf.task_acks_late)
+        self.assertTrue(celery_app.conf.task_reject_on_worker_lost)
+        self.assertEqual(celery_app.conf.worker_prefetch_multiplier, 1)
+        self.assertTrue(celery_app.conf.task_ignore_result)
+        self.assertTrue(build_report_job.ignore_result)
+        self.assertEqual(build_report_job.max_retries, 2)
+        self.assertTrue(build_report_job.retry_backoff)
+        self.assertTrue(build_report_job.retry_jitter)
+
 
 class PublicationTests(PostgreSQLJobTestCase):
     @staticmethod

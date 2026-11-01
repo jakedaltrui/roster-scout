@@ -3,7 +3,7 @@
 from sqlalchemy import select
 
 from .enums import PUBLISHED_SNAPSHOT_STATUSES
-from .models import ReportSnapshot
+from .models import ReportJob, ReportSnapshot
 
 
 def list_published_snapshots(session, organization_id):
@@ -26,3 +26,13 @@ def get_published_snapshot(session, organization_id, snapshot_id):
             ReportSnapshot.status.in_(PUBLISHED_SNAPSHOT_STATUSES),
         )
     )
+
+
+def get_report_job(session, organization_id, job_id, *, for_update=False):
+    statement = select(ReportJob).where(
+        ReportJob.id == job_id,
+        ReportJob.organization_id == organization_id,
+    )
+    if for_update:
+        statement = statement.with_for_update()
+    return session.scalar(statement)
