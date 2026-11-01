@@ -47,7 +47,6 @@
   "features": {},
   "mode": "yolo",
   "granularity": "coarse",
-  "branching_strategy": "none",
   "quick_branch_template": null,
   "intel": {
     "enabled": false
