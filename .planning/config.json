@@ -32,7 +32,8 @@
     "ai_integration_phase": true,
     "tdd_mode": false,
     "ui_review": true,
-    "_auto_chain_active": false
+    "_auto_chain_active": false,
+    "use_worktrees": false
   },
   "ship": {
     "pr_body_sections": []
@@ -54,5 +55,6 @@
   "graphify": {
     "enabled": false
   },
-  "resolve_model_ids": "omit"
+  "resolve_model_ids": "omit",
+  "runtime": "codex"
 }
