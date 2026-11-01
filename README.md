@@ -18,7 +18,7 @@ Roster Scout turns a current NCAA baseball team into a polished, downloadable Ex
 This is a compact production web app with unusually real boundaries: inconsistent third-party sports data, anti-bot challenges, exact team identity matching, spreadsheet generation, concurrent browser capacity, and public-endpoint abuse controls.
 
 - Deterministic D1, D2, and D3 team selection backed by exact season/team IDs
-- Source-specific scraping with normalized player records and a D1 fallback path
+- Source-specific NCAA and JUCO scraping with normalized player records
 - In-memory Excel generation with separate hitter and pitcher worksheets
 - School-aware workbook branding, number formats, filters, frozen headers, and print layout
 - Accessible responsive UI with keyboard navigation, dark mode, progress states, and an interactive workbook preview
@@ -33,14 +33,15 @@ This is a compact production web app with unusually real boundaries: inconsisten
 ```mermaid
 flowchart LR
     A[Choose division and team] --> B[POST /scrape]
-    B --> C{Exact NCAA ID?}
-    C -->|Yes| D[Load or fetch batting and pitching tables]
-    C -->|D1 fallback| E[Fetch D1Baseball data]
-    D --> F[Normalize and merge player records]
-    E --> F
-    F --> G[Split hitters and pitchers]
-    G --> H[Build branded XLSX in memory]
-    H --> I[Stream browser download]
+    B --> C{JUCO?}
+    C -->|No| D[Resolve exact NCAA season and team ID]
+    C -->|Yes| E[Resolve JUCO roster and statistics]
+    D --> F[Load cache or fetch NCAA batting and pitching tables]
+    E --> G[Normalize and merge player records]
+    F --> G
+    G --> H[Split hitters and pitchers]
+    H --> I[Build branded XLSX in memory]
+    I --> J[Stream browser download]
 ```
 
 The browser never receives raw scraped HTML or credentials. `app.py` owns validation and delivery, `roster_scraper.py` owns source adapters and normalization, and XlsxWriter creates the final workbook without a temporary output file.
