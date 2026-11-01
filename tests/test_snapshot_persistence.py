@@ -88,9 +88,12 @@ class CanonicalSchemaTests(PostgreSQLSnapshotTestCase):
             session.add(player)
             session.flush()
             identity = PlayerTeamSeason(
+                organization_id=organization.id,
+                snapshot_id=snapshot.id,
                 player_id=player.id,
                 team_season_id=team_season.id,
                 identity_status="authoritative",
+                identity_key="ncaa:123",
                 display_name="Player One",
             )
             session.add(identity)
@@ -232,11 +235,26 @@ class TenantAndPublicationTests(PostgreSQLSnapshotTestCase):
                     session.execute(statement, {"id": fact_id})
 
     def test_predecessor_from_another_report_is_rejected(self):
-        from roster_scout.models import Report, ReportSnapshot
+        from roster_scout.models import Report, ReportSnapshot, Team, TeamSeason
         with self.Session.begin() as session:
             organization, team_season, _, first = self.fixture(session)
+            other_team = Team(
+                source="ncaa", source_team_id=str(uuid.uuid4()), name="Other Team"
+            )
+            session.add(other_team)
+            session.flush()
+            other_team_season = TeamSeason(
+                team_id=other_team.id,
+                season_id=team_season.season_id,
+                source_season_team_id=str(uuid.uuid4()),
+                division="2",
+            )
+            session.add(other_team_season)
+            session.flush()
             other_report = Report(
-                organization_id=organization.id, team_season_id=team_season.id, name="Other"
+                organization_id=organization.id,
+                team_season_id=other_team_season.id,
+                name="Other",
             )
             session.add(other_report)
             session.flush()
