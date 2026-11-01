@@ -26,9 +26,9 @@
 ### Snapshot Foundation
 
 - [x] **SNAP-01**: A report identifies one organization, one opponent team, one NCAA division, and one season.
-- [ ] **SNAP-02**: A report build runs outside the request process and exposes queued, running, partial, ready, and failed states.
+- [x] **SNAP-02**: A report build runs outside the request process and exposes queued, running, partial, ready, and failed states.
 - [x] **SNAP-03**: A published snapshot is immutable and records schema version, creator, source collection time, publication time, and predecessor snapshot when present.
-- [ ] **SNAP-04**: Each report section records its own status, row count, source time, and sanitized failure category.
+- [x] **SNAP-04**: Each report section records its own status, row count, source time, and sanitized failure category.
 - [ ] **SNAP-05**: A user can explicitly refresh a report, producing a new linked snapshot without modifying prior snapshots.
 - [ ] **SNAP-06**: A user can review all dated snapshots for a report and identify the newest complete or partial version.
 - [ ] **SNAP-07**: Repeating an accepted report-build request with the same idempotency key does not create duplicate jobs or snapshots.
@@ -43,7 +43,7 @@
 - [x] **DATA-04**: Transfers retain one player identity with distinct player-team-season records.
 - [x] **DATA-05**: Canonical numerical values distinguish zero from missing or unavailable source data.
 - [x] **DATA-06**: Innings pitched are stored canonically as outs or thirds and are never calculated as ordinary base-10 decimals.
-- [ ] **DATA-07**: Raw source values needed for audit and metric recomputation remain associated with their snapshot facts.
+- [x] **DATA-07**: Raw source values needed for audit and metric recomputation remain associated with their snapshot facts.
 - [x] **DATA-08**: Derived values identify the metric-definition version and any season/division weight set used.
 - [x] **DATA-09**: Database constraints prevent canonical facts from referencing another organization's snapshot.
 - [x] **DATA-10**: Power BI-facing views and Excel generation read from the same published snapshot facts.
@@ -106,8 +106,8 @@
 - [ ] **SECU-04**: Security-relevant membership, report, refresh, export, and embed-token events are auditable by actor, organization, target, and time without recording secret material.
 - [ ] **SECU-05**: External failures from NCAA, Browserless, identity, object storage, database, and Power BI produce distinct sanitized operational states.
 - [ ] **SECU-06**: Production readiness includes automated cross-organization denial tests and a manual two-organization Power BI RLS verification.
-- [ ] **OPS-01**: Report jobs apply bounded retries and never run more NCAA browser sessions than the configured capacity permits.
-- [ ] **OPS-02**: Successful source responses and normalized sections are cached with schema/version keys to control upstream requests and rebuild cost.
+- [x] **OPS-01**: Report jobs apply bounded retries and never run more NCAA browser sessions than the configured capacity permits.
+- [x] **OPS-02**: Successful source responses and normalized sections are cached with schema/version keys to control upstream requests and rebuild cost.
 - [ ] **OPS-03**: Operators can identify stuck jobs, failed Power BI refreshes, unavailable source sections, and capacity exhaustion without reading customer data.
 - [x] **OPS-04**: Database migrations and snapshot schema upgrades preserve existing published snapshots or explicitly migrate them with verification.
 - [ ] **OPS-05**: Existing current-season D1/D2/D3 selector and basic workbook behavior remain covered by regression tests throughout the migration.
