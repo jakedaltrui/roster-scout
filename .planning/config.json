@@ -31,7 +31,8 @@
     "pattern_mapper": true,
     "ai_integration_phase": true,
     "tdd_mode": false,
-    "ui_review": true
+    "ui_review": true,
+    "_auto_chain_active": false
   },
   "ship": {
     "pr_body_sections": []
