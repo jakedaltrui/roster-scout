@@ -64,9 +64,27 @@ def upgrade():
             BEFORE INSERT OR UPDATE OR DELETE ON {table}
             FOR EACH ROW EXECUTE FUNCTION reject_published_snapshot_child_mutation()
         """)
+    op.execute("""
+        CREATE FUNCTION reject_nonfailure_evidence() RETURNS trigger AS $$
+        DECLARE job_status varchar;
+        BEGIN
+            SELECT status INTO job_status FROM report_jobs WHERE id = NEW.job_id;
+            IF job_status NOT IN ('failed', 'blocked') THEN
+                RAISE EXCEPTION 'failure evidence requires a failed or blocked job';
+            END IF;
+            RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql
+    """)
+    op.execute("""
+        CREATE TRIGGER trg_failure_evidence_failed_jobs_only
+        BEFORE INSERT OR UPDATE ON failure_evidence
+        FOR EACH ROW EXECUTE FUNCTION reject_nonfailure_evidence()
+    """)
 
 
 def downgrade():
+    op.execute("DROP FUNCTION IF EXISTS reject_nonfailure_evidence() CASCADE")
     op.execute("DROP FUNCTION IF EXISTS reject_published_snapshot_child_mutation() CASCADE")
     op.execute("DROP FUNCTION IF EXISTS reject_published_snapshot_mutation() CASCADE")
     Base.metadata.drop_all(bind=op.get_bind(), checkfirst=False)

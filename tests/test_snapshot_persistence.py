@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
-from sqlalchemy import inspect, select, text
+from sqlalchemy import event, inspect, select, text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from tests.db_support import (
@@ -159,6 +159,38 @@ class CanonicalSchemaTests(PostgreSQLSnapshotTestCase):
                 status="pending",
             ))
 
+    def test_authoritative_and_fallback_identity_uniqueness(self):
+        from roster_scout.models import Player, PlayerTeamSeason
+        with self.Session.begin() as session:
+            session.add_all([
+                Player(source="ncaa", source_player_id="duplicate", display_name="One"),
+                Player(source="ncaa", source_player_id="duplicate", display_name="Two"),
+            ])
+            with self.assertRaises(IntegrityError):
+                session.flush()
+        with self.Session.begin() as session:
+            organization, team_season, _, snapshot = self.fixture(session)
+            players = [
+                Player(source="ncaa", display_name="Same Name"),
+                Player(source="ncaa", display_name="Same Name"),
+            ]
+            session.add_all(players)
+            session.flush()
+            session.add_all([
+                PlayerTeamSeason(
+                    organization_id=organization.id,
+                    snapshot_id=snapshot.id,
+                    player_id=player.id,
+                    team_season_id=team_season.id,
+                    identity_status="fallback",
+                    identity_key="fallback:same-name:12:ss",
+                    display_name="Same Name",
+                )
+                for player in players
+            ])
+            with self.assertRaises(IntegrityError):
+                session.flush()
+
 
 class TenantAndPublicationTests(PostgreSQLSnapshotTestCase):
     def add_core_sections(self, session, organization_id, snapshot_id):
@@ -234,6 +266,45 @@ class TenantAndPublicationTests(PostgreSQLSnapshotTestCase):
                 with self.assertRaises(DBAPIError):
                     session.execute(statement, {"id": fact_id})
 
+    def test_published_snapshot_metadata_and_source_rows_are_immutable(self):
+        from roster_scout.models import SourceRecord
+        from roster_scout.snapshots import publish_snapshot
+        with self.Session.begin() as session:
+            organization, _, _, snapshot = self.fixture(session)
+            source = SourceRecord(
+                organization_id=organization.id,
+                snapshot_id=snapshot.id,
+                section="batting",
+                row_ordinal=0,
+                source_url="https://stats.ncaa.org/example",
+                source_team_id="689",
+                source_season_id="17040",
+                source_season_team_id="615087",
+                source_stat_category_id="15867",
+                collected_at=datetime.now(UTC),
+                parser_version="1",
+                schema_version="1",
+                payload_sha256="b" * 64,
+                raw_values={"H": "1"},
+            )
+            session.add(source)
+            self.add_core_sections(session, organization.id, snapshot.id)
+            session.flush()
+            snapshot_id = snapshot.id
+            source_id = source.id
+        with self.Session.begin() as session:
+            publish_snapshot(session, snapshot_id)
+        statements = (
+            (text("UPDATE report_snapshots SET schema_version = '2' WHERE id = :id"), snapshot_id),
+            (text("DELETE FROM report_snapshots WHERE id = :id"), snapshot_id),
+            (text("UPDATE source_records SET raw_values = '{}'::jsonb WHERE id = :id"), source_id),
+            (text("DELETE FROM source_records WHERE id = :id"), source_id),
+        )
+        for statement, identifier in statements:
+            with self.Session.begin() as session:
+                with self.assertRaises(DBAPIError):
+                    session.execute(statement, {"id": identifier})
+
     def test_predecessor_from_another_report_is_rejected(self):
         from roster_scout.models import Report, ReportSnapshot, Team, TeamSeason
         with self.Session.begin() as session:
@@ -289,6 +360,28 @@ class TenantAndPublicationTests(PostgreSQLSnapshotTestCase):
             artifact = session.get(ReportArtifact, artifact_id)
             artifact.status = "ready"
 
+    def test_failure_evidence_requires_failed_or_blocked_job(self):
+        from roster_scout.models import FailureEvidence, ReportJob
+        with self.Session.begin() as session:
+            organization, _, report, _ = self.fixture(session)
+            job = ReportJob(
+                organization_id=organization.id,
+                report_id=report.id,
+                idempotency_key="pending-job",
+                status="pending",
+            )
+            session.add(job)
+            session.flush()
+            session.add(FailureEvidence(
+                organization_id=organization.id,
+                job_id=job.id,
+                compressed_html=b"gzip",
+                sha256="c" * 64,
+                expires_at=datetime.now(UTC) + timedelta(days=30),
+            ))
+            with self.assertRaises(DBAPIError):
+                session.flush()
+
 
 class MigrationLifecycleTests(PostgreSQLSnapshotTestCase):
     def test_t_01_07_downgrade_and_reupgrade(self):
@@ -305,8 +398,28 @@ class MigrationLifecycleTests(PostgreSQLSnapshotTestCase):
             organization, _, _, snapshot = self.fixture(session)
             organization_id = organization.id
             snapshot_id = snapshot.id
-        with self.assertRaises(Exception):
+            for section in ("batting", "pitching"):
+                from roster_scout.models import ReportSection
+                session.add(ReportSection(
+                    organization_id=organization.id,
+                    snapshot_id=snapshot.id,
+                    section=section,
+                    critical=True,
+                    status="complete",
+                    row_count=0,
+                    verified_empty=True,
+                ))
+
+        def injected_failure(session, *_):
+            if any(
+                isinstance(item, ReportSnapshot) and item.status == "ready"
+                for item in session.dirty
+            ):
+                raise RuntimeError("injected publication failure")
+
+        with self.assertRaisesRegex(RuntimeError, "injected publication failure"):
             with self.Session.begin() as session:
+                event.listen(session, "before_flush", injected_failure)
                 publish_snapshot(session, snapshot_id)
         with self.Session() as session:
             self.assertEqual(list_published_snapshots(session, organization_id), [])
