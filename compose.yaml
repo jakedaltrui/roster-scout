@@ -10,6 +10,41 @@ services:
     volumes:
       - roster-scout-cache:/var/cache/roster-scout
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: roster_scout
+      POSTGRES_PASSWORD: roster_scout
+      POSTGRES_DB: roster_scout
+    ports:
+      - "5432:5432"
+    volumes:
+      - roster-scout-postgres:/var/lib/postgresql/data
+      - ./scripts/create-test-database.sql:/docker-entrypoint-initdb.d/create-test-database.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U roster_scout -d roster_scout"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+    restart: unless-stopped
 
 volumes:
   roster-scout-cache:
+  roster-scout-postgres:
