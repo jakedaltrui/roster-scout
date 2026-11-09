@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-12-PLAN.md
-last_updated: "2026-11-09T21:19:21.871Z"
+stopped_at: Completed 01-09-PLAN.md
+last_updated: "2026-11-09T21:31:22.955Z"
 last_activity: 2026-11-09
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 13
-  completed_plans: 10
-  percent: 77
+  completed_plans: 11
+  percent: 85
 ---
 
 # Project State
@@ -26,25 +26,25 @@ See: `.planning/PROJECT.md` (updated 2026-11-01)
 ## Current Position
 
 Phase: 01 (canonical-snapshot-foundation) — EXECUTING
-Plan: 10 of 13
+Plan: 11 of 13
 Status: Ready to execute
 Last activity: 2026-11-09
 
-Progress: [████████░░] 77%
+Progress: [█████████░] 85%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 10
-- Average duration: 1h 34m
-- Total execution time: 15h 44m
+- Total plans completed: 11
+- Average duration: 1h 27m
+- Total execution time: 15h 52m
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |---|---:|---:|---:|
-| 1. Canonical Snapshot Foundation | 10 | 15h 44m | 1h 34m |
+| 1. Canonical Snapshot Foundation | 11 | 15h 52m | 1h 27m |
 
 **Plan History:**
 
@@ -60,6 +60,7 @@ Progress: [████████░░] 77%
 | 01 | 07 | 35 min | 2 | 7 |
 | 01 | 08 | 11 min | 3 | 5 |
 | 01 | 12 | 5 min | 2 | 7 |
+| 01 | 09 | 8 min | 2 | 5 |
 
 ## Accumulated Context
 
@@ -98,6 +99,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 01]: Dispatch reconciliation runs as one dedicated scheduler process that calls existing job services instead of duplicating outbox SQL or state rules. — Preserves PostgreSQL outbox authority and keeps deployment glue separate from domain transitions.
 - [Phase 01]: The Fly scheduler replaces its inherited environment with an allowlist containing only PostgreSQL, Redis, and nonsecret timing configuration. — Keeps Browserless credentials and app-specific configuration outside the scheduler runtime.
 - [Phase 01]: Production remains blocked until managed PostgreSQL, Redis, object/evidence storage, and uninterrupted Fly worker billing/capacity are verified. — Local Compose is development-only and cannot satisfy durable production availability requirements.
+- [Phase 01]: Failure HTML crosses the acquisition-to-job boundary only as a private 64 KiB byte payload with safe category, section, URL, and collection time.
+- [Phase 01]: Evidence byte expiry is fixed at collected_at plus 696 hours; Plan 01-13 owns purge cadence and the 720-hour deletion guarantee.
+- [Phase 01]: Evidence URLs rebuild authority from validated hostname and optional port, excluding userinfo, query, fragment, and malformed authorities.
 
 ### Pending Todos
 
@@ -120,6 +124,6 @@ Full decision log: `.planning/PROJECT.md`.
 
 ## Session Continuity
 
-Last session: 2026-11-09T21:19:04.208Z
-Stopped at: Completed 01-12-PLAN.md
+Last session: 2026-11-09T21:31:22.801Z
+Stopped at: Completed 01-09-PLAN.md
 Resume file: None
