@@ -19,6 +19,7 @@ Open [http://localhost:5050](http://localhost:5050). The token is stored with ow
 ```bash
 docker compose up --build
 docker compose --profile worker up --build
+docker compose --profile worker --profile scheduler up --build
 ```
 
 The app is available at [http://localhost:5050](http://localhost:5050). Compose persists lookup and successful-result caches in a named volume. Pass secrets at runtime through your shell, an untracked env file, or a secret manager; do not add them to `compose.yaml`.
@@ -28,6 +29,11 @@ durable job store and Redis only as its broker. Both app and worker use the same
 PostgreSQL advisory-lock namespace for Browserless account capacity; the worker
 does not mount the app's persistent `/data` cache. PostgreSQL and Redis host
 ports are development-only and bind to `127.0.0.1`.
+
+The `scheduler` profile starts exactly one local reconciliation process from the
+same immutable image. It has no HTTP port or `/data` mount and receives only
+`DATABASE_URL`, `CELERY_BROKER_URL`, and nonsecret timing configuration. It is
+not given `BROWSERLESS_TOKEN` or any NCAA/browser configuration.
 
 The dispatch scheduler is a separate long-running process. It calls the durable
 outbox drain and stale-job reconciliation services at bounded intervals; it
@@ -63,15 +69,19 @@ The image:
 
 ## Fly.io
 
-`fly.toml` defines separate `app` and `worker` process groups. Its release command
+`fly.toml` defines separate `app`, `worker`, and singleton `scheduler` process
+groups. Its release command
 runs `alembic upgrade head` once before the new release receives traffic. Only
-the app process has the HTTP service and `/data` volume; the worker has neither.
+the app process has the HTTP service and `/data` volume; the worker and scheduler
+have neither. The scheduler command clears the inherited environment and passes
+only the database URL, broker URL, and four nonsecret timing values to Python,
+so app-wide Browserless credentials are not exposed to the scheduler runtime.
 
 ```bash
 fly auth login
 fly launch --copy-config --no-deploy
 fly secrets set BROWSERLESS_TOKEN=your-token DATABASE_URL=your-managed-postgres-url CELERY_BROKER_URL=your-managed-redis-url
-fly scale count app=1 worker=1
+fly scale count app=1 worker=1 scheduler=1
 fly deploy
 ```
 

@@ -22,6 +22,8 @@ def render_compose():
             "compose",
             "--profile",
             "worker",
+            "--profile",
+            "scheduler",
             "config",
             "--format",
             "json",
@@ -268,6 +270,100 @@ class DispatchSchedulerEntrypointTests(unittest.TestCase):
         self.assertNotIn(secret, rendered)
         self.assertNotIn("customer-payload", rendered)
         self.assertIn("degraded", rendered)
+
+
+class DispatchSchedulerConfigTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.compose = render_compose()
+        with (PROJECT_ROOT / "fly.toml").open("rb") as handle:
+            cls.fly = tomllib.load(handle)
+
+    def test_exactly_one_scheduler_uses_a_separate_image_command(self):
+        compose_services = self.compose["services"]
+        scheduler = compose_services["scheduler"]
+        self.assertEqual(scheduler["profiles"], ["scheduler"])
+        self.assertEqual(scheduler["command"], ["python", "scripts/run_scheduler.py"])
+        self.assertEqual(
+            sum(
+                "run_scheduler.py" in " ".join(service.get("command") or [])
+                for service in compose_services.values()
+            ),
+            1,
+        )
+
+        processes = self.fly["processes"]
+        self.assertEqual(
+            sum("run_scheduler.py" in command for command in processes.values()),
+            1,
+        )
+        self.assertIn("scheduler", processes)
+        self.assertEqual(len(set(processes.values())), len(processes))
+        self.assertEqual(self.fly["deploy"]["release_command"], "alembic upgrade head")
+
+        dockerfile = (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8")
+        self.assertIn(
+            "COPY scripts/run_scheduler.py ./scripts/run_scheduler.py",
+            dockerfile,
+        )
+
+    def test_scheduler_has_only_database_broker_and_timing_configuration(self):
+        timing = {
+            "REPORT_DISPATCH_POLL_SECONDS": "5",
+            "REPORT_DISPATCH_LEASE_SECONDS": "60",
+            "REPORT_QUEUED_REDISPATCH_SECONDS": "300",
+            "REPORT_RUNNING_STALE_SECONDS": "1800",
+        }
+        scheduler = self.compose["services"]["scheduler"]
+        self.assertEqual(
+            set(scheduler["environment"]),
+            {"DATABASE_URL", "CELERY_BROKER_URL", *timing},
+        )
+        self.assertEqual(
+            {key: scheduler["environment"].get(key) for key in timing},
+            timing,
+        )
+        self.assertNotIn("ports", scheduler)
+        self.assertNotIn("volumes", scheduler)
+        self.assertFalse(
+            any(name.startswith("BROWSERLESS_") for name in scheduler["environment"])
+        )
+
+        self.assertEqual(
+            {key: self.fly["env"].get(key) for key in timing},
+            timing,
+        )
+        command = self.fly["processes"]["scheduler"]
+        self.assertIn("env -i", command)
+        self.assertIn('DATABASE_URL="$DATABASE_URL"', command)
+        self.assertIn('CELERY_BROKER_URL="$CELERY_BROKER_URL"', command)
+        self.assertNotIn("BROWSERLESS", command)
+
+    def test_scheduler_owns_no_http_service_or_app_volume(self):
+        self.assertEqual(self.fly["http_service"]["processes"], ["app"])
+        self.assertEqual(self.fly["mounts"][0]["processes"], ["app"])
+        self.assertNotIn("scheduler", self.fly["http_service"]["processes"])
+        self.assertNotIn("scheduler", self.fly["mounts"][0]["processes"])
+
+    def test_example_defaults_and_production_gate_are_explicit(self):
+        example = (PROJECT_ROOT / ".env.example").read_text(encoding="utf-8")
+        for name, value in {
+            "REPORT_DISPATCH_POLL_SECONDS": "5",
+            "REPORT_DISPATCH_LEASE_SECONDS": "60",
+            "REPORT_QUEUED_REDISPATCH_SECONDS": "300",
+            "REPORT_RUNNING_STALE_SECONDS": "1800",
+        }.items():
+            self.assertIn(f"{name}={value}", example)
+
+        guide = (PROJECT_ROOT / "DEPLOYMENT.md").read_text(encoding="utf-8")
+        for prerequisite in (
+            "managed PostgreSQL",
+            "managed Redis",
+            "managed object/evidence storage",
+            "uninterrupted Fly worker billing/capacity",
+        ):
+            self.assertIn(prerequisite, guide)
+        self.assertIn("Local Compose is development-only", guide)
 
 
 @dataclass(frozen=True)

@@ -43,6 +43,24 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  scheduler:
+    build: .
+    command: ["python", "scripts/run_scheduler.py"]
+    profiles: ["scheduler"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://roster_scout:roster_scout@postgres:5432/roster_scout
+      CELERY_BROKER_URL: redis://redis:6379/0
+      REPORT_DISPATCH_POLL_SECONDS: "5"
+      REPORT_DISPATCH_LEASE_SECONDS: "60"
+      REPORT_QUEUED_REDISPATCH_SECONDS: "300"
+      REPORT_RUNNING_STALE_SECONDS: "1800"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
   postgres:
     image: postgres:16-alpine
     environment:
