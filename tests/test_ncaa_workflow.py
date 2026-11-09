@@ -524,5 +524,126 @@ class NcaaWorkflowTests(unittest.TestCase):
         self.assertEqual(list(Path(self.temp_dir.name).glob("result-*.json")), [])
 
 
+class NcaaStructuredCollectionTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.env = patch.dict(os.environ, {
+            "ROSTER_SCOUT_CACHE_DIR": self.temp_dir.name,
+            "NCAA_REQUEST_DELAY_SECONDS": "0",
+        })
+        self.env.start()
+        rs._NCAA_TEAM_ROWS = list(TEAM_ROWS)
+        rs._NCAA_SEASON_ROWS = list(SEASON_ROWS)
+
+    def tearDown(self):
+        self.env.stop()
+        self.temp_dir.cleanup()
+        rs._NCAA_TEAM_ROWS = None
+        rs._NCAA_SEASON_ROWS = None
+
+    def test_d1_d2_d3_structured_and_tuple_outputs_remain_compatible(self):
+        for division, season_team_id in ((1, "614606"), (2, "615087"), (3, "615349")):
+            pages = {
+                "batting": fixture(f"d{division}_batting.html"),
+                "pitching": fixture(f"d{division}_pitching.html"),
+            }
+            with self.subTest(division=division), patch.object(
+                rs, "_fetch_ncaa_pages", return_value=pages
+            ):
+                structured = rs.collect_ncaa_by_id(
+                    season_team_id, f"d{division}", year=2026
+                )
+                players, label = rs.scrape_ncaa_by_id(
+                    season_team_id, f"d{division}", year=2026, force_refresh=True
+                )
+            self.assertEqual(players, list(structured.players))
+            self.assertEqual(label, structured.team_label)
+            self.assertEqual(
+                {section.name for section in structured.sections},
+                {"batting", "pitching"},
+            )
+
+
+class NcaaParserCorruptionTests(unittest.TestCase):
+    def setUp(self):
+        rs._NCAA_TEAM_ROWS = list(TEAM_ROWS)
+        rs._NCAA_SEASON_ROWS = list(SEASON_ROWS)
+
+    def tearDown(self):
+        rs._NCAA_TEAM_ROWS = None
+        rs._NCAA_SEASON_ROWS = None
+
+    @staticmethod
+    def table(header, rows=""):
+        return (
+            "<html><body><table id='stat_grid'>"
+            f"<thead><tr>{header}</tr></thead><tbody>{rows}</tbody>"
+            "</table></body></html>"
+        )
+
+    def assert_schema_error(self, html):
+        with self.assertRaisesRegex(rs.NcaaAccessError, "schema"):
+            rs._parse_ncaa_stat_table(html)
+
+    def test_rejects_missing_or_renamed_player_header(self):
+        self.assert_schema_error(self.table(
+            "<th>Athlete</th><th>AB</th>",
+            "<tr><td>Changed Header</td><td>3</td></tr>",
+        ))
+
+    def test_rejects_every_row_cell_mismatch(self):
+        self.assert_schema_error(self.table(
+            "<th>Player</th><th>AB</th>",
+            "<tr><td>Only One Cell</td></tr>",
+        ))
+
+    def test_rejects_one_malformed_player_row_among_valid_rows(self):
+        self.assert_schema_error(self.table(
+            "<th>Player</th><th>AB</th>",
+            "<tr><td>Valid Player</td><td>4</td></tr>"
+            "<tr><td>Partial Player</td></tr>",
+        ))
+
+    def test_valid_empty_tbody_and_explicit_marker_are_verified_empty(self):
+        empty = self.table("<th>Player</th><th>AB</th>")
+        marker = self.table(
+            "<th>Player</th><th>AB</th>",
+            "<tr><td colspan='2'>No data available</td></tr>",
+        )
+        for batting in (empty, marker):
+            with self.subTest(batting=batting):
+                with patch.object(rs, "_fetch_ncaa_pages", return_value={
+                    "batting": batting,
+                    "pitching": fixture("d1_pitching.html"),
+                }):
+                    collection = rs.collect_ncaa_by_id("615087", "d2", year=2026)
+                section = next(item for item in collection.sections if item.name == "batting")
+                self.assertEqual(section.rows, ())
+                self.assertTrue(section.verified_empty)
+
+    def test_aggregate_only_rows_are_verified_empty(self):
+        aggregate = self.table(
+            "<th>Player</th><th>AB</th>",
+            "<tr><td>Team Totals</td><td>30</td></tr>"
+            "<tr><td>Opponent Totals</td><td>28</td></tr>",
+        )
+        with patch.object(rs, "_fetch_ncaa_pages", return_value={
+            "batting": aggregate,
+            "pitching": fixture("d1_pitching.html"),
+        }):
+            collection = rs.collect_ncaa_by_id("615087", "d2", year=2026)
+        section = next(item for item in collection.sections if item.name == "batting")
+        self.assertEqual(section.rows, ())
+        self.assertTrue(section.verified_empty)
+
+    def test_missing_grid_is_not_verified_empty(self):
+        with patch.object(rs, "_fetch_ncaa_pages", return_value={
+            "batting": "<html><body>blocked</body></html>",
+            "pitching": fixture("d1_pitching.html"),
+        }):
+            with self.assertRaisesRegex(rs.NcaaAccessError, "missing or blocked"):
+                rs.collect_ncaa_by_id("615087", "d2", year=2026)
+
+
 if __name__ == "__main__":
     unittest.main()
