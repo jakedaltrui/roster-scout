@@ -129,20 +129,28 @@ Run the complete local gate from the repository root before a release. The
 PostgreSQL URL must point to the disposable database ending in `_test`:
 
 ```bash
-.venv/bin/python -m py_compile app.py roster_scraper.py usage_limits.py roster_scout/*.py scripts/live_ncaa_smoke.py scripts/validate_ncaa_catalog.py
-DATABASE_URL=postgresql+psycopg://roster_scout:roster_scout@localhost:5432/roster_scout_test .venv/bin/alembic upgrade head
-DATABASE_URL=postgresql+psycopg://roster_scout:roster_scout@localhost:5432/roster_scout_test .venv/bin/alembic check
-DATABASE_URL=postgresql+psycopg://roster_scout:roster_scout@localhost:5432/roster_scout_test .venv/bin/python -m unittest discover -s tests -v
-.venv/bin/python scripts/validate_ncaa_catalog.py
-git diff --check
+DATABASE_URL=postgresql+psycopg://roster_scout:roster_scout@localhost:5432/roster_scout_test .venv/bin/python scripts/validate_phase1_release.py
 ```
 
-The deterministic suite includes D1, D2, and D3 fixture publication, exact
-source-row traceability, duplicate delivery, same-job recovery, legacy cache,
-selector, workbook, branding, error, rate-limit, and Browserless-capacity
-regressions. Catalog validation must report `"valid": true`, 942 selectable
-teams, and the reviewed D1/D2/D3 counts unless a catalog update is part of the
-release.
+The validator first requires `valid: true` from the centralized user-story
+validator for the exact Phase 1 ROADMAP goal. It then fails fast on Python
+compilation, required template existence, migration upgrade/downgrade/re-upgrade
+or model drift, any full-suite test (including all 16 review regressions and the
+goal-level durable D1/D2/D3 flow), catalog validation, rendered Compose
+configuration, or `git diff --check`.
+
+The deterministic suite includes exact source-row traceability, duplicate
+delivery, same-job recovery, failure evidence and purge deadlines, distributed
+Browserless capacity, dispatch and purge scheduling, secure deployment
+configuration, legacy cache and selector behavior, and the unchanged two-sheet
+workbook contract. Catalog validation must report `"valid": true`, 942
+selectable teams, and the reviewed D1/D2/D3 counts unless a catalog update is
+part of the release.
+
+Passing this local gate does not authorize production launch. Production
+remains blocked until managed PostgreSQL, Redis, object/evidence storage, and
+uninterrupted Fly worker billing/capacity are all verified. Local Compose is
+development-only and cannot satisfy those production prerequisites.
 
 Confirm the worker stays inside the account-wide capacity boundary without
 starting a process:
