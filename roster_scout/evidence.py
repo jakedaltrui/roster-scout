@@ -2,6 +2,7 @@
 
 import gzip
 import hashlib
+import ipaddress
 import re
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlsplit, urlunsplit
@@ -18,12 +19,42 @@ FAILURE_EVIDENCE_BYTE_RETENTION = timedelta(hours=696)
 
 
 def _safe_source_url(source_url):
-    if not source_url:
+    if not isinstance(source_url, str) or not source_url:
         return None
-    parts = urlsplit(source_url)
-    if parts.scheme not in {"http", "https"}:
+    if any(character in source_url for character in "\r\n\t\\"):
         return None
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+    try:
+        parts = urlsplit(source_url)
+        scheme = parts.scheme.lower()
+        hostname = parts.hostname
+        port = parts.port
+    except (TypeError, ValueError):
+        return None
+    if scheme not in {"http", "https"} or not parts.netloc or not hostname:
+        return None
+
+    if ":" in hostname:
+        try:
+            ipaddress.IPv6Address(hostname)
+        except ValueError:
+            return None
+        authority = f"[{hostname}]"
+    else:
+        try:
+            ipaddress.IPv4Address(hostname)
+        except ValueError:
+            if len(hostname) > 253:
+                return None
+            labels = hostname.rstrip(".").split(".")
+            if not labels or any(
+                not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", label)
+                for label in labels
+            ):
+                return None
+        authority = hostname
+    if port is not None:
+        authority += f":{port}"
+    return urlunsplit((scheme, authority, parts.path, "", ""))
 
 
 def _safe_section(section):
