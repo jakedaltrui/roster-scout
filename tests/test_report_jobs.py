@@ -500,6 +500,240 @@ class FinalAttemptEvidenceRecoveryTests(PostgreSQLJobTestCase):
                 collector.assert_not_called()
 
 
+class PerSectionRecoveryTests(PostgreSQLJobTestCase):
+    def seed_partial_batting(self):
+        from roster_scout.jobs import (
+            CollectedSection,
+            _new_or_existing_snapshot,
+            _persist_sections,
+            accept_report_job,
+        )
+        from roster_scout.models import ReportJob, Report, Season, Team, TeamSeason
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session, organization_id, report_id, uuid.uuid4().hex, dispatch=None
+        )
+        with self.Session.begin() as session:
+            stored_job = session.get(ReportJob, job.id)
+            report = session.get(Report, stored_job.report_id)
+            team_season = session.get(TeamSeason, report.team_season_id)
+            team = session.get(Team, team_season.team_id)
+            season = session.get(Season, team_season.season_id)
+            source = {
+                "team_id": team.source_team_id,
+                "season_id": season.source_season_id,
+                "season_team_id": team_season.source_season_team_id,
+                "division": team_season.division,
+                "batting_id": team_season.batting_stat_category_id,
+                "pitching_id": team_season.pitching_stat_category_id,
+                "year": season.year,
+            }
+            batting = CollectedSection(
+                name="batting",
+                critical=True,
+                rows=({
+                    "Player": "Recovery Player",
+                    "AB": "10",
+                    "H": "4",
+                    "BB": "1",
+                    "K": "2",
+                    "AVG": ".400",
+                    "_player_id": "recovery-player",
+                    "_player_url": "https://stats.ncaa.org/players/recovery-player",
+                    "_payload_sha256": "a" * 64,
+                },),
+                source_url="https://stats.ncaa.org/batting-original",
+                source_team_id=source["team_id"],
+                source_season_id=source["season_id"],
+                source_season_team_id=source["season_team_id"],
+                source_stat_category_id=source["batting_id"],
+                collected_at=datetime(2026, 11, 8, 10, 0, tzinfo=UTC),
+                parser_version="parser-1",
+                schema_version="schema-1",
+            )
+            snapshot = _new_or_existing_snapshot(session, stored_job)
+            _persist_sections(session, stored_job, snapshot, (batting,))
+            snapshot_id = snapshot.id
+        return job, snapshot_id, batting, source
+
+    @staticmethod
+    def pitching_collection(source):
+        from roster_scraper import (
+            NcaaCollection,
+            NcaaCollectionMetadata,
+            NcaaSection,
+            NcaaSeason,
+            NcaaSourceRow,
+            NcaaTeam,
+        )
+
+        collected_at = datetime(2026, 11, 9, 11, 0, tzinfo=UTC)
+        row = NcaaSourceRow(
+            section="pitching",
+            row_ordinal=0,
+            source_url="https://stats.ncaa.org/pitching-new",
+            source_player_id="recovery-player",
+            player_url="https://stats.ncaa.org/players/recovery-player",
+            raw_values={
+                "Player": "Recovery Player",
+                "IP": "3.0",
+                "H": "2",
+                "ER": "1",
+                "BB": "1",
+                "SO": "4",
+                "ERA": "3.00",
+                "player_url": "https://stats.ncaa.org/players/recovery-player",
+            },
+            payload_sha256="b" * 64,
+        )
+        return NcaaCollection(
+            team=NcaaTeam(
+                team_id=source["team_id"],
+                name="Tampa",
+                season_team_id=source["season_team_id"],
+                division=f"d{source['division']}",
+            ),
+            season=NcaaSeason(
+                season_id=source["season_id"],
+                year=source["year"],
+                batting_category_id=source["batting_id"],
+                pitching_category_id=source["pitching_id"],
+            ),
+            metadata=NcaaCollectionMetadata(collected_at=collected_at),
+            sections=(NcaaSection(
+                name="pitching",
+                source_url="https://stats.ncaa.org/pitching-new",
+                stat_category_id=source["pitching_id"],
+                html_sha256="b" * 64,
+                rows=(row,),
+            ),),
+            players=(),
+            team_label="Tampa",
+        )
+
+    def test_only_missing_section_is_fetched_and_cached_section_stays_exact(self):
+        import roster_scraper as rs
+        from roster_scout.jobs import collect_ncaa_sections, run_report_job
+        from roster_scout.models import ReportSection, SourceRecord
+
+        job, snapshot_id, _batting, source = self.seed_partial_batting()
+        with self.Session() as session:
+            before_section = session.scalar(
+                select(ReportSection).where(ReportSection.section == "batting")
+            )
+            before_section_values = (
+                before_section.row_count,
+                before_section.source_url,
+                before_section.collected_at,
+                before_section.parser_version,
+                before_section.schema_version,
+            )
+            before_rows = [
+                (
+                    row.id,
+                    row.row_ordinal,
+                    row.raw_values,
+                    row.payload_sha256,
+                    row.collected_at,
+                    row.parser_version,
+                    row.schema_version,
+                )
+                for row in session.scalars(
+                    select(SourceRecord).where(SourceRecord.section == "batting")
+                )
+            ]
+
+        with patch.object(
+            rs, "collect_ncaa_by_id", return_value=self.pitching_collection(source)
+        ) as collect:
+            snapshot = run_report_job(
+                self.Session,
+                job.id,
+                collector=lambda job_id, cached_sections=frozenset(): collect_ncaa_sections(
+                    self.Session, job_id, cached_sections=cached_sections
+                ),
+            )
+
+        self.assertEqual(snapshot.status, "ready")
+        collect.assert_called_once_with(
+            source["season_team_id"],
+            division=source["division"],
+            year=source["year"],
+            force_refresh=True,
+            section_names=frozenset({"pitching"}),
+        )
+        with self.Session() as session:
+            batting = session.scalar(
+                select(ReportSection).where(ReportSection.section == "batting")
+            )
+            self.assertEqual(
+                (
+                    batting.row_count,
+                    batting.source_url,
+                    batting.collected_at,
+                    batting.parser_version,
+                    batting.schema_version,
+                ),
+                before_section_values,
+            )
+            after_rows = [
+                (
+                    row.id,
+                    row.row_ordinal,
+                    row.raw_values,
+                    row.payload_sha256,
+                    row.collected_at,
+                    row.parser_version,
+                    row.schema_version,
+                )
+                for row in session.scalars(
+                    select(SourceRecord)
+                    .where(SourceRecord.section == "batting")
+                    .order_by(SourceRecord.row_ordinal)
+                )
+            ]
+            self.assertEqual(after_rows, before_rows)
+            self.assertEqual(
+                session.scalar(
+                    select(func.count()).select_from(SourceRecord).where(
+                        SourceRecord.snapshot_id == snapshot_id
+                    )
+                ),
+                2,
+            )
+
+    def test_conflicting_content_cannot_extend_a_complete_section(self):
+        from dataclasses import replace
+
+        from roster_scout.jobs import DeterministicJobError, _persist_sections
+        from roster_scout.models import ReportJob, ReportSnapshot, SourceRecord
+
+        job, snapshot_id, batting, _source = self.seed_partial_batting()
+        conflicting = replace(
+            batting,
+            rows=batting.rows + ({
+                "Player": "Injected Player",
+                "AB": "1",
+                "_player_id": "injected",
+                "_payload_sha256": "c" * 64,
+            },),
+        )
+        with self.assertRaises(DeterministicJobError) as raised:
+            with self.Session.begin() as session:
+                _persist_sections(
+                    session,
+                    session.get(ReportJob, job.id),
+                    session.get(ReportSnapshot, snapshot_id),
+                    (conflicting,),
+                )
+        self.assertEqual(raised.exception.category, "schema_validation")
+        with self.Session() as session:
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(SourceRecord)), 1
+            )
+
+
 class ConcurrentExecutionClaimTests(PostgreSQLJobTestCase):
     def test_overlapping_deliveries_collect_and_count_one_attempt(self):
         from roster_scout.database import create_session_factory, get_engine
