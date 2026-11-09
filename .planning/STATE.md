@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-08-PLAN.md
-last_updated: "2026-11-09T21:10:18.564Z"
+stopped_at: Completed 01-12-PLAN.md
+last_updated: "2026-11-09T21:19:21.871Z"
 last_activity: 2026-11-09
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 13
-  completed_plans: 9
-  percent: 0
+  completed_plans: 10
+  percent: 77
 ---
 
 # Project State
@@ -26,25 +26,25 @@ See: `.planning/PROJECT.md` (updated 2026-11-01)
 ## Current Position
 
 Phase: 01 (canonical-snapshot-foundation) — EXECUTING
-Plan: 9 of 13
+Plan: 10 of 13
 Status: Ready to execute
 Last activity: 2026-11-09
 
-Progress: [███████░░░] 69%
+Progress: [████████░░] 77%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 8
-- Average duration: 1h 56m
-- Total execution time: 15h 28m
+- Total plans completed: 10
+- Average duration: 1h 34m
+- Total execution time: 15h 44m
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |---|---:|---:|---:|
-| 1. Canonical Snapshot Foundation | 8 | 15h 28m | 1h 56m |
+| 1. Canonical Snapshot Foundation | 10 | 15h 44m | 1h 34m |
 
 **Plan History:**
 
@@ -58,6 +58,8 @@ Progress: [███████░░░] 69%
 | 01 | 05 | 14h 8m | 2 | 7 |
 | 01 | 06 | 6 min | 2 | 3 |
 | 01 | 07 | 35 min | 2 | 7 |
+| 01 | 08 | 11 min | 3 | 5 |
+| 01 | 12 | 5 min | 2 | 7 |
 
 ## Accumulated Context
 
@@ -93,6 +95,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 01]: Only a structurally valid NCAA grid with exactly one Player column can assert verified emptiness. — Malformed upstream markup must fail closed instead of publishing silent data loss.
 - [Phase 01]: Complete exact same-job evidence is publication authority even after collection attempts are exhausted. — Redelivery can finalize committed source rows without another live fetch or attempt increment.
 - [Phase 01]: Complete report sections are immutable for their job and version. — Partial recovery fetches only missing sections and cannot mix ordinals, checksums, versions, or collection times.
+- [Phase 01]: Dispatch reconciliation runs as one dedicated scheduler process that calls existing job services instead of duplicating outbox SQL or state rules. — Preserves PostgreSQL outbox authority and keeps deployment glue separate from domain transitions.
+- [Phase 01]: The Fly scheduler replaces its inherited environment with an allowlist containing only PostgreSQL, Redis, and nonsecret timing configuration. — Keeps Browserless credentials and app-specific configuration outside the scheduler runtime.
+- [Phase 01]: Production remains blocked until managed PostgreSQL, Redis, object/evidence storage, and uninterrupted Fly worker billing/capacity are verified. — Local Compose is development-only and cannot satisfy durable production availability requirements.
 
 ### Pending Todos
 
@@ -112,10 +117,9 @@ Full decision log: `.planning/PROJECT.md`.
 | Comparison | Compare two snapshots of the same opponent | Future requirement | v2.0 initialization |
 | Collaboration | Notes and cross-organization sharing | Future requirement | v2.0 initialization |
 | Coverage | Full JUCO parity and arbitrary historical team-season reports | Future requirement | v2.0 initialization |
-| Phase 01 P08 | 11 min | 3 tasks | 5 files |
 
 ## Session Continuity
 
-Last session: 2026-11-09T21:09:43.633Z
-Stopped at: Completed 01-08-PLAN.md
+Last session: 2026-11-09T21:19:04.208Z
+Stopped at: Completed 01-12-PLAN.md
 Resume file: None
