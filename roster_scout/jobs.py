@@ -12,6 +12,7 @@ from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 
 from usage_limits import BrowserCapacityExceeded
 
+from .database import session_advisory_lock
 from .models import (
     BattingFact,
     MetricDefinition,
@@ -36,6 +37,7 @@ SCHEMA_VERSION = os.environ.get("REPORT_SCHEMA_VERSION", "schema-1")
 PARSER_VERSION = os.environ.get("NCAA_PARSER_VERSION", "parser-1")
 MAX_ATTEMPTS = max(1, min(10, int(os.environ.get("REPORT_JOB_MAX_ATTEMPTS", "3"))))
 SAFE_FAILURE_MESSAGES = {
+    "job_busy": "The report job is already running.",
     "browser_capacity": "Browser capacity is temporarily unavailable.",
     "network": "The NCAA source could not be reached.",
     "source_blocked": "The NCAA source blocked collection.",
@@ -573,68 +575,89 @@ def _record_failure(session_factory, job_id, error):
 def run_report_job(session_factory, job_id, *, collector):
     """Run or safely replay one accepted job using caller-injected collection."""
     job_id = uuid.UUID(str(job_id))
-    exhausted = False
-    with session_factory.begin() as session:
-        job = session.scalar(
-            select(ReportJob).where(ReportJob.id == job_id).with_for_update()
-        )
-        if job is None:
-            raise DeterministicJobError("schema_validation", "Report job does not exist.")
-        if job.status in {"ready", "partial"}:
-            return session.get(ReportSnapshot, job.result_snapshot_id)
-        if job.status in {"failed", "blocked"}:
-            raise DeterministicJobError(job.failure_category or "unexpected")
-        if job.attempt_count >= job.max_attempts:
-            job.status = "failed"
-            job.failure_category = "retry_exhausted"
-            job.failure_message = SAFE_FAILURE_MESSAGES["retry_exhausted"]
-            job.finished_at = _utcnow()
-            exhausted = True
-            cached = {}
-        else:
-            snapshot = _new_or_existing_snapshot(session, job)
-            cached = _load_cached_sections(session, job, snapshot)
-            job.status = "running"
-            job.attempt_count += 1
-            job.started_at = job.started_at or _utcnow()
-            job.failure_category = None
-            job.failure_message = None
-    if exhausted:
-        raise DeterministicJobError("retry_exhausted")
+    with session_advisory_lock(session_factory, job_id) as claim:
+        if claim is None:
+            with session_factory() as session:
+                job = session.get(ReportJob, job_id)
+                if job is None:
+                    raise DeterministicJobError(
+                        "schema_validation", "Report job does not exist."
+                    )
+                if job.status in {"ready", "partial"}:
+                    return session.get(ReportSnapshot, job.result_snapshot_id)
+                if job.status in {"failed", "blocked"}:
+                    raise DeterministicJobError(job.failure_category or "unexpected")
+            raise RetryableJobError("job_busy")
 
-    try:
-        sections = collector(str(job_id), cached_sections=frozenset(cached))
-        with session_factory.begin() as session:
+        claimed_sessions = claim.session_factory
+        exhausted = False
+        with claimed_sessions.begin() as session:
             job = session.scalar(
                 select(ReportJob).where(ReportJob.id == job_id).with_for_update()
             )
+            if job is None:
+                raise DeterministicJobError(
+                    "schema_validation", "Report job does not exist."
+                )
             if job.status in {"ready", "partial"}:
                 return session.get(ReportSnapshot, job.result_snapshot_id)
-            snapshot = session.get(ReportSnapshot, job.result_snapshot_id)
-            _persist_sections(session, job, snapshot, sections)
-            collected_times = [
-                item.collected_at for item in sections if item.collected_at is not None
-            ]
-            if collected_times:
-                snapshot.source_collected_at = min(collected_times)
+            if job.status in {"failed", "blocked"}:
+                raise DeterministicJobError(job.failure_category or "unexpected")
+            if job.attempt_count >= job.max_attempts:
+                job.status = "failed"
+                job.failure_category = "retry_exhausted"
+                job.failure_message = SAFE_FAILURE_MESSAGES["retry_exhausted"]
+                job.finished_at = _utcnow()
+                exhausted = True
+                cached = {}
+            else:
+                snapshot = _new_or_existing_snapshot(session, job)
+                cached = _load_cached_sections(session, job, snapshot)
+                job.status = "running"
+                job.attempt_count += 1
+                job.started_at = job.started_at or _utcnow()
+                job.failure_category = None
+                job.failure_message = None
+        if exhausted:
+            raise DeterministicJobError("retry_exhausted")
 
-        # Exact source evidence commits before typed facts/publication. A worker
-        # loss after this boundary can reuse only these same-job, versioned rows.
-        with session_factory.begin() as session:
-            job = session.scalar(
-                select(ReportJob).where(ReportJob.id == job_id).with_for_update()
+        try:
+            sections = collector(str(job_id), cached_sections=frozenset(cached))
+            with claimed_sessions.begin() as session:
+                job = session.scalar(
+                    select(ReportJob).where(ReportJob.id == job_id).with_for_update()
+                )
+                if job.status in {"ready", "partial"}:
+                    return session.get(ReportSnapshot, job.result_snapshot_id)
+                snapshot = session.get(ReportSnapshot, job.result_snapshot_id)
+                _persist_sections(session, job, snapshot, sections)
+                collected_times = [
+                    item.collected_at
+                    for item in sections
+                    if item.collected_at is not None
+                ]
+                if collected_times:
+                    snapshot.source_collected_at = min(collected_times)
+
+            # Exact source evidence commits before typed facts/publication. A worker
+            # loss after this boundary can reuse only these same-job, versioned rows.
+            with claimed_sessions.begin() as session:
+                job = session.scalar(
+                    select(ReportJob).where(ReportJob.id == job_id).with_for_update()
+                )
+                if job.status in {"ready", "partial"}:
+                    return session.get(ReportSnapshot, job.result_snapshot_id)
+                snapshot = session.get(ReportSnapshot, job.result_snapshot_id)
+                _persist_canonical(session, job, snapshot, sections)
+                published = publish_snapshot(session, snapshot.id)
+                job.status = published.status
+                job.finished_at = _utcnow()
+                return published
+        except Exception as exc:
+            safe_error = _record_failure(
+                claimed_sessions, job_id, _classified_error(exc)
             )
-            if job.status in {"ready", "partial"}:
-                return session.get(ReportSnapshot, job.result_snapshot_id)
-            snapshot = session.get(ReportSnapshot, job.result_snapshot_id)
-            _persist_canonical(session, job, snapshot, sections)
-            published = publish_snapshot(session, snapshot.id)
-            job.status = published.status
-            job.finished_at = _utcnow()
-            return published
-    except Exception as exc:
-        safe_error = _record_failure(session_factory, job_id, _classified_error(exc))
-        raise safe_error from None
+            raise safe_error from None
 
 
 def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset()):
