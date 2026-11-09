@@ -1238,5 +1238,30 @@ class RetentionAndCacheTests(PostgreSQLJobTestCase):
         )
 
 
+class FailureEvidenceIntegrationTests(PostgreSQLJobTestCase):
+    def test_successful_job_stores_no_html(self):
+        from roster_scout.jobs import accept_report_job, run_report_job
+        from roster_scout.models import FailureEvidence
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            "successful-job-no-html",
+            dispatch=None,
+        )
+        snapshot = run_report_job(
+            self.Session,
+            job.id,
+            collector=lambda *_args, **_kwargs: PublicationTests.successful_sections(),
+        )
+        self.assertEqual(snapshot.status, "ready")
+        with self.Session() as session:
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(FailureEvidence)), 0
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
