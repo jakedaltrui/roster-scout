@@ -357,6 +357,93 @@ class EvidencePurgeHealthTests(unittest.TestCase):
         self.assertEqual(health.last_purged_count, 4)
 
 
+class EvidencePurgeConfigTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.compose = render_compose()
+        with (PROJECT_ROOT / "fly.toml").open("rb") as handle:
+            cls.fly = tomllib.load(handle)
+
+    def test_scheduler_wiring_enforces_24_hour_maximum(self):
+        from scripts.run_scheduler import SchedulerConfig
+
+        exact = SchedulerConfig.from_environ({
+            "FAILURE_EVIDENCE_PURGE_SECONDS": "86400",
+        })
+        self.assertEqual(
+            exact.evidence_purge_interval,
+            timedelta(hours=24),
+        )
+        for invalid in ("86400.000001", "0", "-1", "not-a-number", "inf"):
+            with self.subTest(value=invalid), self.assertRaisesRegex(
+                ValueError,
+                "FAILURE_EVIDENCE_PURGE_SECONDS",
+            ):
+                SchedulerConfig.from_environ({
+                    "FAILURE_EVIDENCE_PURGE_SECONDS": invalid,
+                })
+
+        scheduler = self.compose["services"]["scheduler"]
+        self.assertEqual(
+            scheduler["environment"]["FAILURE_EVIDENCE_PURGE_SECONDS"],
+            "86400",
+        )
+        self.assertEqual(
+            self.fly["env"]["FAILURE_EVIDENCE_PURGE_SECONDS"],
+            "86400",
+        )
+        command = self.fly["processes"]["scheduler"]
+        self.assertIn(
+            'FAILURE_EVIDENCE_PURGE_SECONDS="$FAILURE_EVIDENCE_PURGE_SECONDS"',
+            command,
+        )
+        self.assertEqual(
+            sum(
+                "run_scheduler.py" in " ".join(service.get("command") or [])
+                for service in self.compose["services"].values()
+            ),
+            1,
+        )
+        self.assertEqual(
+            sum(
+                "run_scheduler.py" in process
+                for process in self.fly["processes"].values()
+            ),
+            1,
+        )
+
+    def test_purge_deadline_is_independent_of_dispatch_polling(self):
+        from scripts.run_scheduler import (
+            EvidencePurgeHealth,
+            SchedulerConfig,
+            run_scheduler,
+        )
+
+        start = datetime(2026, 1, 1, tzinfo=UTC)
+        times = iter((start, start, start + timedelta(hours=24)))
+        purge = Mock(return_value=0)
+        run_scheduler(
+            SchedulerConfig.from_environ({
+                "REPORT_DISPATCH_POLL_SECONDS": "300",
+                "REPORT_DISPATCH_LEASE_SECONDS": "300",
+                "FAILURE_EVIDENCE_PURGE_SECONDS": "86400",
+            }),
+            session_factory=object(),
+            dispatch=Mock(),
+            drain=Mock(return_value=_DrainResult()),
+            reconcile=Mock(return_value=_ReconcileResult()),
+            purge=purge,
+            purge_health=EvidencePurgeHealth(),
+            clock=lambda: next(times),
+            stop_event=_NoWaitStopEvent(),
+            max_cycles=2,
+        )
+        self.assertEqual(
+            [call.kwargs["now"] for call in purge.call_args_list],
+            [start, start + timedelta(hours=24)],
+        )
+
+
 class DispatchSchedulerConfigTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -398,6 +485,7 @@ class DispatchSchedulerConfigTests(unittest.TestCase):
             "REPORT_DISPATCH_LEASE_SECONDS": "60",
             "REPORT_QUEUED_REDISPATCH_SECONDS": "300",
             "REPORT_RUNNING_STALE_SECONDS": "1800",
+            "FAILURE_EVIDENCE_PURGE_SECONDS": "86400",
         }
         scheduler = self.compose["services"]["scheduler"]
         self.assertEqual(
@@ -463,6 +551,14 @@ class _ReconcileResult:
     reopened: int = 0
     closed: int = 0
     active: int = 0
+
+
+class _NoWaitStopEvent:
+    def is_set(self):
+        return False
+
+    def wait(self, _seconds):
+        return False
 
 
 if __name__ == "__main__":

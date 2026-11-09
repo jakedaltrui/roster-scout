@@ -35,6 +35,7 @@ class SchedulerConfig:
     dispatch_lease_duration: timedelta
     queued_redispatch_deadline: timedelta
     running_stale_threshold: timedelta
+    evidence_purge_interval: timedelta
 
     @classmethod
     def from_environ(cls, environ=None):
@@ -67,6 +68,13 @@ class SchedulerConfig:
                 1800,
                 minimum=60,
                 maximum=604800,
+            ),
+            evidence_purge_interval=_bounded_seconds(
+                environ,
+                "FAILURE_EVIDENCE_PURGE_SECONDS",
+                86400,
+                minimum=1,
+                maximum=86400,
             ),
         )
         if config.poll_interval > config.dispatch_lease_duration:
@@ -135,9 +143,13 @@ def run_scheduler(
     clock = clock or (lambda: datetime.now(UTC))
     purge_health = purge_health or EvidencePurgeHealth()
     cycles = 0
+    next_purge_at = None
     while not stop_event.is_set() or cycles == 0:
         cycle_now = clock()
-        if purge is not None:
+        purge_is_due = purge is not None and (
+            next_purge_at is None or cycle_now >= next_purge_at
+        )
+        if purge_is_due:
             try:
                 purged_count = purge(session_factory, now=cycle_now)
             except Exception:
@@ -149,6 +161,7 @@ def run_scheduler(
                     completed_at=cycle_now,
                     purged_count=purged_count,
                 )
+                next_purge_at = cycle_now + config.evidence_purge_interval
                 logger.info(
                     "evidence_purge health=fresh purged=%d",
                     purged_count,
@@ -186,7 +199,14 @@ def run_scheduler(
             max_cycles is not None and cycles >= max_cycles
         ):
             break
-        stop_event.wait(config.poll_interval.total_seconds())
+        wait_seconds = config.poll_interval.total_seconds()
+        if next_purge_at is not None:
+            until_purge = max(
+                0.0,
+                (next_purge_at - clock()).total_seconds(),
+            )
+            wait_seconds = min(wait_seconds, until_purge)
+        stop_event.wait(wait_seconds)
 
 
 def _runtime_dependencies():

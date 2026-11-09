@@ -54,6 +54,7 @@ services:
       REPORT_DISPATCH_LEASE_SECONDS: "60"
       REPORT_QUEUED_REDISPATCH_SECONDS: "300"
       REPORT_RUNNING_STALE_SECONDS: "1800"
+      FAILURE_EVIDENCE_PURGE_SECONDS: "86400"
     depends_on:
       postgres:
         condition: service_healthy

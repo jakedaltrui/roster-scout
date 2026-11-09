@@ -45,11 +45,32 @@ does not duplicate job-state SQL. Configure it with nonsecret timing values:
 | `REPORT_DISPATCH_LEASE_SECONDS` | `60` | 5-600 | Publisher lease held by one bounded drain |
 | `REPORT_QUEUED_REDISPATCH_SECONDS` | `300` | 30-86400 | Deadline before a lost queued delivery is eligible again |
 | `REPORT_RUNNING_STALE_SECONDS` | `1800` | 60-604800 | Minimum age before unclaimed running work is recovered |
+| `FAILURE_EVIDENCE_PURGE_SECONDS` | `86400` | 1-86400 | Independent failed-evidence purge cadence, capped at 24 hours |
 
 The poll interval may not exceed the lease duration, and the queued deadline
 must remain below the running stale threshold. Invalid values stop the process
 before database or broker clients are created. Scheduler logs contain health
 and aggregate counts only, never connection URLs, raw exceptions, or task data.
+
+### Failed HTML retention and purge readiness
+
+Failed or blocked NCAA HTML is retained for up to 30 days for restricted
+operator troubleshooting. The byte expiry is fixed at 696 hours after
+collection. The singleton scheduler runs the idempotent purge independently of
+dispatch reconciliation at least once every 24 hours, reserving the final
+24-hour window so expired bytes are physically absent no later than 720 hours
+after collection. Purging nulls the compressed HTML and sets `purged_at`; the
+checksum and sanitized D-18 audit metadata remain permanently available.
+
+Treat production readiness as blocked until the scheduler reports one
+successful evidence purge. Readiness also becomes blocked when the last
+successful purge is older than 24 hours; exactly 24 hours remains fresh. The
+scheduler emits only `evidence_purge` health, readiness, and aggregate purge
+counts. A `never_succeeded` or `stale` alert must be investigated by checking
+the singleton scheduler is running, validating PostgreSQL connectivity, and
+confirming `FAILURE_EVIDENCE_PURGE_SECONDS` is within 1-86400 before restoring
+production readiness. Never copy raw exception text, source payloads, or
+credential-bearing URLs into an alert or incident note.
 
 Apply migrations before starting either process and verify rollback safety in
 the disposable test database:
@@ -74,7 +95,7 @@ groups. Its release command
 runs `alembic upgrade head` once before the new release receives traffic. Only
 the app process has the HTTP service and `/data` volume; the worker and scheduler
 have neither. The scheduler command clears the inherited environment and passes
-only the database URL, broker URL, and four nonsecret timing values to Python,
+only the database URL, broker URL, and five nonsecret timing values to Python,
 so app-wide Browserless credentials are not exposed to the scheduler runtime.
 
 ```bash
