@@ -12,9 +12,9 @@ def parse_concurrency(raw_value):
     try:
         value = int(raw_value)
     except (TypeError, ValueError) as exc:
-        raise ValueError("BROWSERLESS_MAX_SESSIONS must be 1 or 2") from exc
+        raise ValueError("CELERY_WORKER_CONCURRENCY must be 1 or 2") from exc
     if value not in {1, 2}:
-        raise ValueError("BROWSERLESS_MAX_SESSIONS must be 1 or 2")
+        raise ValueError("CELERY_WORKER_CONCURRENCY must be 1 or 2")
     return value
 
 

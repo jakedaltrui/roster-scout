@@ -24,9 +24,10 @@ docker compose --profile worker up --build
 The app is available at [http://localhost:5050](http://localhost:5050). Compose persists lookup and successful-result caches in a named volume. Pass secrets at runtime through your shell, an untracked env file, or a secret manager; do not add them to `compose.yaml`.
 
 The `worker` profile starts the separate Celery process with PostgreSQL as the
-durable job store and Redis only as its broker. The worker uses
-`/tmp/roster-scout-worker` for machine-local Browserless locks and does not mount
-the app's persistent `/data` cache.
+durable job store and Redis only as its broker. Both app and worker use the same
+PostgreSQL advisory-lock namespace for Browserless account capacity; the worker
+does not mount the app's persistent `/data` cache. PostgreSQL and Redis host
+ports are development-only and bind to `127.0.0.1`.
 
 Apply migrations before starting either process and verify rollback safety in
 the disposable test database:
@@ -95,11 +96,11 @@ regressions. Catalog validation must report `"valid": true`, 942 selectable
 teams, and the reviewed D1/D2/D3 counts unless a catalog update is part of the
 release.
 
-Confirm the worker stays inside the one-machine capacity boundary without
+Confirm the worker stays inside the account-wide capacity boundary without
 starting a process:
 
 ```bash
-BROWSERLESS_MAX_SESSIONS=2 .venv/bin/python -c "from scripts.run_worker import worker_command; command = worker_command(); assert command[-2:] == ['--concurrency', '2']; print('worker concurrency: 2')"
+BROWSERLESS_ACCOUNT_MAX_SESSIONS=2 CELERY_WORKER_CONCURRENCY=2 .venv/bin/python -c "from scripts.run_worker import worker_command; command = worker_command(); assert command[-2:] == ['--concurrency', '2']; print('worker concurrency: 2')"
 docker compose config --quiet
 ```
 
@@ -118,7 +119,7 @@ but a production launch still requires one successful target-network smoke.
 | Variable | Default | Purpose |
 |---|---:|---|
 | `PORT` | `5000` | HTTP port |
-| `ROSTER_SCOUT_CACHE_DIR` | project `.cache/` | Lookup data, successful results, rate-limit state, and browser locks |
+| `ROSTER_SCOUT_CACHE_DIR` | project `.cache/` | Lookup data, successful results, rate-limit state, and local-development browser locks |
 | `LOG_LEVEL` | `INFO` | Python log level for the development entry point |
 | `SCRAPE_RATE_LIMIT` | `10` | Allowed workbook requests per client and window |
 | `SCRAPE_RATE_WINDOW_SECONDS` | `600` | Rate-limit window |
@@ -128,7 +129,10 @@ but a production launch still requires one successful target-network smoke.
 | `NCAA_SEASON_YEAR` | current season | Optional season override |
 | `NCAA_BROWSER_PROVIDER` | local browser | Set to `browserless` to use the hosted browser workflow |
 | `BROWSERLESS_TOKEN` | unset | Browserless API token |
-| `BROWSERLESS_MAX_SESSIONS` | `2` | Concurrent Browserless slots on one machine |
+| `BROWSERLESS_CAPACITY_BACKEND` | `local` | `local` for single-machine development; hosted app and worker must use `postgresql` |
+| `BROWSERLESS_CAPACITY_NAMESPACE` | `roster-scout-browserless-account` | Stable PostgreSQL advisory-lock namespace shared by every app/worker machine |
+| `BROWSERLESS_ACCOUNT_MAX_SESSIONS` | `2` | Account-wide Browserless session limit shared by all process groups (1-2) |
+| `CELERY_WORKER_CONCURRENCY` | `1` | Per-worker Celery concurrency, never greater than the account limit |
 | `DATABASE_URL` | required for jobs | Managed PostgreSQL URL; canonical job/snapshot source of truth |
 | `CELERY_BROKER_URL` | `redis://localhost:6379/0` | Redis broker URL; never used as customer-visible job state |
 | `REPORT_JOB_MAX_ATTEMPTS` | `3` | Total bounded job attempts (1-10); Celery retries are one fewer |
@@ -151,14 +155,20 @@ See `.env.example` for a safe starting configuration. Only successful parsed res
 
 ## Scaling boundaries
 
-The rate limiter and Browserless capacity locks coordinate processes on one machine through the cache directory. They are not global across multiple machines. Before horizontal scaling, move both controls to a shared store such as Redis or a transactional database.
+The request rate limiter remains machine-local. Browserless capacity does not:
+hosted app and worker processes use one PostgreSQL session-level advisory-lock
+semaphore identified by `BROWSERLESS_CAPACITY_NAMESPACE`. Every holder keeps a
+dedicated database connection for the Browserless operation, and normal exit,
+connection loss, or process loss releases its slot. A database failure rejects
+new Browserless work instead of falling back to machine-local locks.
 
-**Run exactly one worker machine. Horizontal worker scaling is prohibited until
-a distributed Browserless capacity lease exists.** Celery concurrency must match
-`BROWSERLESS_MAX_SESSIONS`, and `scripts/run_worker.py` rejects values other than
-1 or 2. Adding worker machines would multiply the machine-local allowance and
-could exceed the Browserless account limit even though each process is locally
-bounded.
+**Run exactly one worker machine by default.** `scripts/run_worker.py` rejects a
+`CELERY_WORKER_CONCURRENCY` greater than
+`BROWSERLESS_ACCOUNT_MAX_SESSIONS`. Additional worker machines are unsupported
+until an explicit deployment validation confirms every app/worker uses the same
+PostgreSQL database, namespace, and account limit. The shared lease remains the
+authoritative aggregate limit; per-process concurrency is not an independent
+Browserless quota.
 
 Snapshots that are already `ready` or `partial` reopen from PostgreSQL without an
 NCAA request. An explicit refresh creates a new accepted job and successor build;

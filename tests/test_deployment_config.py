@@ -3,6 +3,7 @@
 import copy
 import json
 import subprocess
+import tomllib
 import unittest
 from pathlib import Path
 
@@ -87,6 +88,65 @@ class LocalServiceBindingTests(unittest.TestCase):
         self.assertIn("authenticated, TLS-protected DATABASE_URL", contents)
         self.assertNotIn("postgresql+psycopg://roster_scout:roster_scout@", contents)
         self.assertNotIn("redis://redis:6379", contents)
+
+
+class BrowserlessCapacityConfigTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.compose = render_compose()
+        with (PROJECT_ROOT / "fly.toml").open("rb") as handle:
+            cls.fly = tomllib.load(handle)
+
+    def test_app_and_worker_share_backend_namespace_and_account_limit(self):
+        expected = {
+            "BROWSERLESS_CAPACITY_BACKEND": "postgresql",
+            "BROWSERLESS_CAPACITY_NAMESPACE": "roster-scout-browserless-account",
+            "BROWSERLESS_ACCOUNT_MAX_SESSIONS": "2",
+        }
+        compose_services = self.compose["services"]
+        for service_name in ("roster-scout", "worker"):
+            environment = compose_services[service_name]["environment"]
+            with self.subTest(platform="compose", service=service_name):
+                self.assertEqual(
+                    {key: environment.get(key) for key in expected},
+                    expected,
+                )
+        self.assertEqual(
+            {key: self.fly["env"].get(key) for key in expected},
+            expected,
+        )
+
+    def test_worker_concurrency_is_bounded_by_account_limit(self):
+        from scripts.run_worker import worker_command
+
+        fly_environment = self.fly["env"]
+        command = worker_command(fly_environment)
+        self.assertEqual(command[-2:], ["--concurrency", "1"])
+        with self.assertRaisesRegex(ValueError, "cannot exceed"):
+            worker_command({
+                **fly_environment,
+                "CELERY_WORKER_CONCURRENCY": "2",
+                "BROWSERLESS_ACCOUNT_MAX_SESSIONS": "1",
+            })
+
+    def test_fly_http_service_and_data_mount_are_app_only(self):
+        self.assertEqual(self.fly["http_service"]["processes"], ["app"])
+        self.assertEqual(len(self.fly["mounts"]), 1)
+        self.assertEqual(self.fly["mounts"][0]["processes"], ["app"])
+        self.assertIn("worker", self.fly["processes"])
+        self.assertNotIn("gunicorn", self.fly["processes"]["worker"])
+
+    def test_fly_config_contains_no_embedded_service_credentials(self):
+        sensitive_names = {
+            "BROWSERLESS_TOKEN",
+            "DATABASE_URL",
+            "CELERY_BROKER_URL",
+        }
+        self.assertTrue(sensitive_names.isdisjoint(self.fly["env"]))
+        source = (PROJECT_ROOT / "fly.toml").read_text(encoding="utf-8")
+        self.assertNotIn("postgresql://", source)
+        self.assertNotIn("postgresql+psycopg://", source)
+        self.assertNotIn("redis://", source)
 
 
 if __name__ == "__main__":
