@@ -256,6 +256,11 @@ class BattingFact(UUIDPrimaryKey, Base):
         ),
         CheckConstraint("at_bats IS NULL OR at_bats >= 0", name="ck_batting_facts_at_bats_nonnegative"),
         CheckConstraint("hits IS NULL OR hits >= 0", name="ck_batting_facts_hits_nonnegative"),
+        CheckConstraint("walks IS NULL OR walks >= 0", name="ck_batting_facts_walks_nonnegative"),
+        CheckConstraint(
+            "strikeouts IS NULL OR strikeouts >= 0",
+            name="ck_batting_facts_strikeouts_nonnegative",
+        ),
     )
 
 
@@ -286,6 +291,19 @@ class PitchingFact(UUIDPrimaryKey, Base):
             name="fk_pitching_facts_source_snapshot_organization",
         ),
         CheckConstraint("innings_outs IS NULL OR innings_outs >= 0", name="ck_pitching_facts_innings_outs_nonnegative"),
+        CheckConstraint(
+            "hits_allowed IS NULL OR hits_allowed >= 0",
+            name="ck_pitching_facts_hits_allowed_nonnegative",
+        ),
+        CheckConstraint(
+            "earned_runs IS NULL OR earned_runs >= 0",
+            name="ck_pitching_facts_earned_runs_nonnegative",
+        ),
+        CheckConstraint("walks IS NULL OR walks >= 0", name="ck_pitching_facts_walks_nonnegative"),
+        CheckConstraint(
+            "strikeouts IS NULL OR strikeouts >= 0",
+            name="ck_pitching_facts_strikeouts_nonnegative",
+        ),
     )
 
 

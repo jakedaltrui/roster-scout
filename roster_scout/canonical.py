@@ -90,9 +90,12 @@ def _integer(row: NcaaSourceRow, *keys: str) -> int | None:
     if value is None:
         return None
     try:
-        return int(value)
+        parsed = int(value)
     except ValueError as exc:
         raise ValueError(f"Invalid integer {value!r} for {keys[0]}.") from exc
+    if parsed < 0:
+        raise ValueError(f"Integer for {keys[0]} cannot be negative: {value!r}.")
+    return parsed
 
 
 def _decimal(row: NcaaSourceRow, *keys: str) -> Decimal | None:
