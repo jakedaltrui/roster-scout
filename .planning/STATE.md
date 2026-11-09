@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-06-PLAN.md
-last_updated: "2026-11-09T20:16:11.413Z"
-last_activity: 2026-11-09 -- Completed 01-06 whole-attempt report job claim
+stopped_at: Completed 01-07-PLAN.md
+last_updated: "2026-11-09T20:55:33.711Z"
+last_activity: 2026-11-09 -- Completed 01-07 transactional dispatch outbox and reconciliation
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 13
-  completed_plans: 7
-  percent: 54
+  completed_plans: 8
+  percent: 62
 ---
 
 # Project State
@@ -26,25 +26,25 @@ See: `.planning/PROJECT.md` (updated 2026-11-01)
 ## Current Position
 
 Phase: 01 (canonical-snapshot-foundation) — EXECUTING
-Plan: 7 of 13
+Plan: 8 of 13
 Status: Ready to execute
-Last activity: 2026-11-09 -- Completed 01-06 whole-attempt report job claim
+Last activity: 2026-11-09 -- Completed 01-07 transactional dispatch outbox and reconciliation
 
-Progress: [█████░░░░░] 54%
+Progress: [██████░░░░] 62%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 7
-- Average duration: 2h 8m
-- Total execution time: 14h 53m
+- Total plans completed: 8
+- Average duration: 1h 56m
+- Total execution time: 15h 28m
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |---|---:|---:|---:|
-| 1. Canonical Snapshot Foundation | 7 | 14h 53m | 2h 8m |
+| 1. Canonical Snapshot Foundation | 8 | 15h 28m | 1h 56m |
 
 **Plan History:**
 
@@ -57,6 +57,7 @@ Progress: [█████░░░░░] 54%
 | 01 | 10 | 11 min | 3 | 9 |
 | 01 | 05 | 14h 8m | 2 | 7 |
 | 01 | 06 | 6 min | 2 | 3 |
+| 01 | 07 | 35 min | 2 | 7 |
 
 ## Accumulated Context
 
@@ -86,6 +87,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 01]: Snapshot readiness requires exact snapshot-owned source, identity, and typed-fact traceability. — Section flags alone cannot prove canonical completeness.
 - [Phase 01]: A detached PostgreSQL session advisory claim owns one report job across collection and publication.
 - [Phase 01]: Claim contention returns a sanitized retry without incrementing attempts or mutating failure state.
+- [Phase 01]: Job acceptance and one active dispatch intent commit in the same PostgreSQL transaction; enqueued_at remains audit metadata only.
+- [Phase 01]: Publisher ownership uses token-matched PostgreSQL leases claimed with FOR UPDATE SKIP LOCKED; Redis carries only the opaque job UUID.
+- [Phase 01]: Stale running jobs are redispatched only after timeout when the whole-attempt advisory claim is absent.
 
 ### Pending Todos
 
@@ -108,6 +112,6 @@ Full decision log: `.planning/PROJECT.md`.
 
 ## Session Continuity
 
-Last session: 2026-11-09T20:16:11.405Z
-Stopped at: Completed 01-06-PLAN.md
+Last session: 2026-11-09T20:55:33.704Z
+Stopped at: Completed 01-07-PLAN.md
 Resume file: None
