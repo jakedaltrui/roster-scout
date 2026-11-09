@@ -614,6 +614,210 @@ class CeleryConcurrentDeliveryTests(PostgreSQLJobTestCase):
             self.assertNotIn("secret-token", stored.failure_message)
 
 
+class BrokerLossRecoveryTests(PostgreSQLJobTestCase):
+    def test_acknowledged_dropped_message_is_reconciled_without_new_acceptance(self):
+        from roster_scout.jobs import (
+            accept_report_job,
+            drain_report_dispatch_outbox,
+            reconcile_stale_report_jobs,
+            run_report_job,
+        )
+        from roster_scout.models import ReportJob, ReportJobDispatch, ReportSnapshot
+
+        organization_id, report_id = self.fixture()
+        dropped_payloads = []
+
+        def acknowledge_then_drop(job_id):
+            dropped_payloads.append(job_id)
+            return Mock(id="broker-accepted-but-dropped")
+
+        job = accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            "broker-loss",
+            dispatch=acknowledge_then_drop,
+        )
+        self.assertEqual(dropped_payloads, [str(job.id)])
+        with self.Session() as session:
+            intent = session.scalar(
+                select(ReportJobDispatch).where(ReportJobDispatch.job_id == job.id)
+            )
+            deadline = intent.redispatch_after
+
+        result = reconcile_stale_report_jobs(
+            self.Session,
+            now=deadline + timedelta(seconds=1),
+            queued_timeout=timedelta(minutes=5),
+            running_timeout=timedelta(minutes=30),
+        )
+        self.assertEqual(result.reopened, 1)
+        delivered_payloads = []
+
+        def redeliver(job_id):
+            delivered_payloads.append(job_id)
+            return Mock(id="broker-redelivery")
+
+        drained = drain_report_dispatch_outbox(
+            self.Session,
+            dispatch=redeliver,
+            now=deadline + timedelta(seconds=1),
+            limit=10,
+            lease_duration=timedelta(seconds=30),
+            redispatch_delay=timedelta(minutes=5),
+        )
+        self.assertEqual(drained.published, 1)
+        self.assertEqual(delivered_payloads, [str(job.id)])
+        self.assertEqual(uuid.UUID(delivered_payloads[0]), job.id)
+
+        snapshot = run_report_job(
+            self.Session,
+            delivered_payloads[0],
+            collector=Mock(return_value=PublicationTests.successful_sections()),
+        )
+        self.assertIn(snapshot.status, {"ready", "partial"})
+        with self.Session() as session:
+            stored = session.get(ReportJob, job.id)
+            self.assertIn(stored.status, {"ready", "partial"})
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(ReportJob)), 1
+            )
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(ReportSnapshot)), 1
+            )
+
+    def test_active_execution_and_terminal_jobs_are_never_redispatched(self):
+        from roster_scout.jobs import (
+            accept_report_job,
+            drain_report_dispatch_outbox,
+            reconcile_stale_report_jobs,
+            run_report_job,
+        )
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session, organization_id, report_id, "active-reconcile", dispatch=None
+        )
+        collector_started = threading.Event()
+        release_collector = threading.Event()
+        outcome = {}
+
+        def collector(_job_id, *, cached_sections=frozenset()):
+            collector_started.set()
+            self.assertTrue(release_collector.wait(timeout=5))
+            return PublicationTests.successful_sections()
+
+        def execute():
+            try:
+                outcome["snapshot"] = run_report_job(
+                    self.Session, job.id, collector=collector
+                )
+            except Exception as exc:
+                outcome["error"] = exc
+
+        worker = threading.Thread(target=execute)
+        worker.start()
+        self.assertTrue(collector_started.wait(timeout=5))
+        future = datetime.now(UTC) + timedelta(hours=2)
+        try:
+            reconciled = reconcile_stale_report_jobs(
+                self.Session,
+                now=future,
+                queued_timeout=timedelta(seconds=1),
+                running_timeout=timedelta(seconds=1),
+            )
+            self.assertEqual(reconciled.reopened, 0)
+            dispatch = Mock(return_value=Mock(id="must-not-publish"))
+            drained = drain_report_dispatch_outbox(
+                self.Session, dispatch=dispatch, now=future, limit=10
+            )
+            self.assertEqual(drained.published, 0)
+            dispatch.assert_not_called()
+        finally:
+            release_collector.set()
+            worker.join(timeout=5)
+
+        self.assertNotIn("error", outcome)
+        terminal = reconcile_stale_report_jobs(
+            self.Session,
+            now=future + timedelta(hours=1),
+            queued_timeout=timedelta(seconds=1),
+            running_timeout=timedelta(seconds=1),
+        )
+        self.assertEqual(terminal.reopened, 0)
+        dispatch = Mock(return_value=Mock(id="terminal-must-not-publish"))
+        drained = drain_report_dispatch_outbox(
+            self.Session,
+            dispatch=dispatch,
+            now=future + timedelta(hours=1),
+            limit=10,
+        )
+        self.assertEqual(drained.published, 0)
+        dispatch.assert_not_called()
+
+    def test_stale_running_without_execution_claim_reopens_and_crashed_lease_reclaims(self):
+        from roster_scout.jobs import (
+            accept_report_job,
+            drain_report_dispatch_outbox,
+            reconcile_stale_report_jobs,
+        )
+        from roster_scout.models import ReportJob, ReportJobDispatch
+        from roster_scout.repositories import claim_report_dispatches
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session, organization_id, report_id, "stale-running", dispatch=None
+        )
+        stale_started = datetime.now(UTC) - timedelta(hours=1)
+        with self.Session.begin() as session:
+            stored = session.get(ReportJob, job.id)
+            stored.status = "running"
+            stored.started_at = stale_started
+            intent = session.scalar(
+                select(ReportJobDispatch).where(ReportJobDispatch.job_id == job.id)
+            )
+            intent.status = "closed"
+
+        now = datetime.now(UTC)
+        reconciled = reconcile_stale_report_jobs(
+            self.Session,
+            now=now,
+            queued_timeout=timedelta(minutes=5),
+            running_timeout=timedelta(minutes=30),
+        )
+        self.assertEqual(reconciled.reopened, 1)
+        with self.Session.begin() as session:
+            leases = claim_report_dispatches(
+                session,
+                now=now,
+                limit=1,
+                lease_duration=timedelta(seconds=10),
+            )
+        self.assertEqual(len(leases), 1)
+
+        dispatch = Mock(return_value=Mock(id="reclaimed-message"))
+        drained = drain_report_dispatch_outbox(
+            self.Session,
+            dispatch=dispatch,
+            now=now + timedelta(seconds=11),
+            limit=1,
+            lease_duration=timedelta(seconds=10),
+            redispatch_delay=timedelta(minutes=5),
+        )
+        self.assertEqual(drained.published, 1)
+        dispatch.assert_called_once_with(str(job.id))
+        with self.Session() as session:
+            intent = session.scalar(
+                select(ReportJobDispatch).where(
+                    ReportJobDispatch.job_id == job.id,
+                    ReportJobDispatch.status == "acknowledged",
+                )
+            )
+            self.assertEqual(intent.publish_attempts, 2)
+            self.assertNotIn("postgresql", intent.message_id)
+            self.assertNotIn("redis", intent.message_id)
+
+
 class RetentionAndCacheTests(PostgreSQLJobTestCase):
     def test_evidence_is_failure_only_compressed_and_purges_bytes_not_metadata(self):
         from roster_scout.evidence import purge_expired_evidence, store_failure_evidence
