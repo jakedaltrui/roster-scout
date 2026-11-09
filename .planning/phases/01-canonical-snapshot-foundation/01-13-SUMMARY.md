@@ -40,7 +40,7 @@ patterns-established:
 
 requirements-completed: [DATA-07, OPS-04]
 
-duration: 6 min
+duration: 9 min
 completed: 2026-11-09
 ---
 
@@ -50,9 +50,9 @@ completed: 2026-11-09
 
 ## Performance
 
-- **Duration:** 6 min
+- **Duration:** 9 min
 - **Started:** 2026-11-09T21:33:18Z
-- **Completed:** 2026-11-09T21:39:08Z
+- **Completed:** 2026-11-09T21:42:01Z
 - **Tasks:** 2
 - **Files modified:** 7
 
@@ -71,6 +71,7 @@ Each task was committed atomically; Task 1 followed RED/GREEN TDD gates:
 1. **Task 1 RED: Prove purge deadlines and readiness boundaries** - `26dd003` (test)
 2. **Task 1 GREEN: Enforce purge health contract** - `1f2d2fd` (feat)
 3. **Task 2: Wire daily purge operations** - `f287cc6` (chore)
+4. **Rule 1 fix: Bound failed purge retries** - `83dca10` (fix)
 
 **Plan summary:** committed separately before project tracking updates.
 
@@ -92,7 +93,20 @@ Each task was committed atomically; Task 1 followed RED/GREEN TDD gates:
 
 ## Deviations from Plan
 
-None - plan executed exactly as written.
+### Auto-fixed Issues
+
+**1. [Rule 1 - Bug] Bounded failed purge retries**
+- **Found during:** Final scheduler review after Task 2
+- **Issue:** An overdue purge that failed could leave its wake deadline in the past, calculate a zero-second wait, and busy-loop instead of retrying at the validated poll interval.
+- **Fix:** Added a separate purge retry deadline that waits exactly one bounded dispatch poll interval after failure without advancing the successful daily cadence.
+- **Files modified:** `scripts/run_scheduler.py`, `tests/test_deployment_config.py`
+- **Verification:** The new retry regression proves two failed attempts are separated by the configured seven-second poll interval; all scheduler and repository tests pass.
+- **Committed in:** `83dca10`
+
+---
+
+**Total deviations:** 1 auto-fixed (1 Rule 1 bug).
+**Impact on plan:** The fix prevents scheduler CPU/log churn while preserving fail-closed readiness and timely retry behavior; no scope was added.
 
 ## Issues Encountered
 
@@ -106,8 +120,8 @@ Production launch remains blocked on the existing managed-service and uninterrup
 
 - Exact plan Task 1 target passed: worst-case physical deletion by 720 hours and exact 24-hour readiness boundary.
 - Exact plan Task 2 target passed: maximum-cadence wiring plus required retention-policy wording.
-- `EvidencePurgeDeadlineTests`, `EvidencePurgeHealthTests`, and `EvidencePurgeConfigTests`: 6 passed.
-- Full PostgreSQL-backed repository discovery: 180 tests passed.
+- `EvidencePurgeDeadlineTests`, `EvidencePurgeHealthTests`, and `EvidencePurgeConfigTests`: 7 passed.
+- Full PostgreSQL-backed repository discovery: 181 tests passed.
 - NCAA catalog validation: 942 selectable 2026 teams (308 D1, 253 D2, 381 D3), zero errors.
 - Required compilation, template existence, Compose rendering, and `git diff --check` passed.
 
@@ -126,7 +140,7 @@ PASSED - RED commit `26dd003` failed on the missing purge-health boundary, follo
 ## Self-Check: PASSED
 
 - All seven modified implementation, test, configuration, and documentation files exist.
-- Task commits `26dd003`, `1f2d2fd`, and `f287cc6` resolve in repository history.
+- Task/deviation commits `26dd003`, `1f2d2fd`, `f287cc6`, and `83dca10` resolve in repository history.
 - Every task acceptance criterion, plan-level verification command, and repository handoff check passed.
 
 ## Next Phase Readiness
