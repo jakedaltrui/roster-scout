@@ -1,6 +1,7 @@
 """Durable report-job, redelivery, cache, and evidence-retention contract."""
 
 import inspect as python_inspect
+import threading
 import unittest
 import uuid
 from datetime import UTC, datetime
@@ -262,6 +263,102 @@ class PublicationTests(PostgreSQLJobTestCase):
         finally:
             celery_app.conf.task_always_eager = previous_eager
         self.assertTrue(result.successful())
+
+
+class ConcurrentExecutionClaimTests(PostgreSQLJobTestCase):
+    def test_overlapping_deliveries_collect_and_count_one_attempt(self):
+        from roster_scout.database import create_session_factory, get_engine
+        from roster_scout.jobs import (
+            RetryableJobError,
+            SAFE_FAILURE_MESSAGES,
+            accept_report_job,
+            run_report_job,
+        )
+        from roster_scout.models import (
+            BattingFact,
+            PitchingFact,
+            ReportJob,
+            ReportSnapshot,
+            SourceRecord,
+        )
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session, organization_id, report_id, "overlapping", dispatch=None
+        )
+        first_engine = get_engine(self.database_url)
+        second_engine = get_engine(self.database_url)
+        first_session = create_session_factory(first_engine)
+        second_session = create_session_factory(second_engine)
+        collector_started = threading.Event()
+        release_collector = threading.Event()
+        collector_calls = []
+        outcomes = {}
+
+        def collector(job_id, *, cached_sections=frozenset()):
+            collector_calls.append((job_id, cached_sections))
+            collector_started.set()
+            self.assertTrue(release_collector.wait(timeout=5))
+            return PublicationTests.successful_sections()
+
+        def deliver(label, session_factory):
+            try:
+                outcomes[label] = run_report_job(
+                    session_factory, job.id, collector=collector
+                )
+            except Exception as exc:  # assertions below inspect the safe boundary
+                outcomes[label] = exc
+
+        winner = threading.Thread(target=deliver, args=("winner", first_session))
+        loser = threading.Thread(target=deliver, args=("loser", second_session))
+        try:
+            winner.start()
+            self.assertTrue(collector_started.wait(timeout=5))
+            loser.start()
+            loser.join(timeout=2)
+            self.assertFalse(loser.is_alive(), "duplicate delivery blocked instead of deferring")
+            self.assertIsInstance(outcomes.get("loser"), RetryableJobError)
+            self.assertEqual(outcomes["loser"].category, "job_busy")
+            self.assertEqual(str(outcomes["loser"]), SAFE_FAILURE_MESSAGES["job_busy"])
+        finally:
+            release_collector.set()
+            winner.join(timeout=5)
+            loser.join(timeout=5)
+            first_engine.dispose()
+            second_engine.dispose()
+
+        self.assertFalse(winner.is_alive())
+        self.assertFalse(loser.is_alive())
+        self.assertEqual(len(collector_calls), 1)
+        self.assertNotIsInstance(outcomes.get("winner"), Exception)
+        with self.Session() as session:
+            stored = session.get(ReportJob, job.id)
+            self.assertEqual(stored.attempt_count, 1)
+            self.assertEqual(stored.status, "ready")
+            self.assertIsNone(stored.failure_category)
+            self.assertIsNone(stored.failure_message)
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(ReportSnapshot)), 1
+            )
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(SourceRecord)), 0
+            )
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(BattingFact)), 0
+            )
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(PitchingFact)), 0
+            )
+
+    def test_closing_claim_connection_releases_job_for_redelivery(self):
+        from roster_scout.database import session_advisory_lock
+
+        job_id = uuid.uuid4()
+        with session_advisory_lock(self.Session, job_id) as first_claim:
+            self.assertIsNotNone(first_claim)
+            first_claim.connection.close()
+            with session_advisory_lock(self.Session, job_id) as replacement_claim:
+                self.assertIsNotNone(replacement_claim)
 
 
 class RetentionAndCacheTests(PostgreSQLJobTestCase):
