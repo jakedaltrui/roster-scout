@@ -8,6 +8,7 @@ import threading
 import tomllib
 import unittest
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -270,6 +271,90 @@ class DispatchSchedulerEntrypointTests(unittest.TestCase):
         self.assertNotIn(secret, rendered)
         self.assertNotIn("customer-payload", rendered)
         self.assertIn("degraded", rendered)
+
+
+class EvidencePurgeHealthTests(unittest.TestCase):
+    def test_exact_24_hour_boundary_is_fresh_and_next_increment_is_stale(self):
+        from scripts.run_scheduler import EvidencePurgeHealth
+
+        completed_at = datetime(2026, 1, 1, tzinfo=UTC)
+        health = EvidencePurgeHealth()
+
+        never = health.readiness(now=completed_at)
+        self.assertFalse(never.ready)
+        self.assertEqual(never.status, "never_succeeded")
+        self.assertIn("evidence_purge", never.alert)
+
+        health.record_success(completed_at=completed_at, purged_count=3)
+        exact_boundary = health.readiness(
+            now=completed_at + timedelta(hours=24)
+        )
+        self.assertTrue(exact_boundary.ready)
+        self.assertEqual(exact_boundary.status, "fresh")
+        self.assertIsNone(exact_boundary.alert)
+        self.assertEqual(health.last_purged_count, 3)
+
+        stale = health.readiness(
+            now=completed_at + timedelta(hours=24, microseconds=1)
+        )
+        self.assertFalse(stale.ready)
+        self.assertEqual(stale.status, "stale")
+        self.assertIn("evidence_purge", stale.alert)
+        rendered = " ".join(
+            value for value in (never.alert, stale.alert) if value
+        )
+        self.assertNotIn("http", rendered)
+        self.assertNotIn("restricted", rendered)
+
+    def test_scheduler_records_health_only_after_successful_purge_returns(self):
+        from scripts.run_scheduler import (
+            EvidencePurgeHealth,
+            SchedulerConfig,
+            run_scheduler,
+        )
+
+        now = datetime(2026, 1, 1, tzinfo=UTC)
+        health = EvidencePurgeHealth()
+        purge = Mock(side_effect=RuntimeError("restricted payload"))
+        logger = Mock(spec=logging.Logger)
+
+        run_scheduler(
+            SchedulerConfig.from_environ({}),
+            session_factory=object(),
+            dispatch=Mock(),
+            drain=Mock(return_value=_DrainResult()),
+            reconcile=Mock(return_value=_ReconcileResult()),
+            purge=purge,
+            purge_health=health,
+            clock=lambda: now,
+            stop_event=threading.Event(),
+            logger=logger,
+            max_cycles=1,
+        )
+
+        self.assertIsNone(health.last_success_at)
+        rendered = " ".join(str(call) for call in logger.method_calls)
+        self.assertIn("evidence_purge", rendered)
+        self.assertIn("never_succeeded", rendered)
+        self.assertNotIn("restricted payload", rendered)
+
+        purge.side_effect = None
+        purge.return_value = 4
+        run_scheduler(
+            SchedulerConfig.from_environ({}),
+            session_factory=object(),
+            dispatch=Mock(),
+            drain=Mock(return_value=_DrainResult()),
+            reconcile=Mock(return_value=_ReconcileResult()),
+            purge=purge,
+            purge_health=health,
+            clock=lambda: now,
+            stop_event=threading.Event(),
+            logger=logger,
+            max_cycles=1,
+        )
+        self.assertEqual(health.last_success_at, now)
+        self.assertEqual(health.last_purged_count, 4)
 
 
 class DispatchSchedulerConfigTests(unittest.TestCase):

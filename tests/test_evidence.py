@@ -248,5 +248,131 @@ class SafeEvidenceMetadataTests(PostgreSQLJobTestCase):
             self.assertNotIn(unsafe, serialized)
 
 
+class EvidencePurgeDeadlineTests(PostgreSQLJobTestCase):
+    def _stored_evidence(self, *, suffix, collected_at):
+        from roster_scout.evidence import store_failure_evidence
+        from roster_scout.jobs import accept_report_job
+        from roster_scout.models import ReportJob
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            f"purge-deadline-{suffix}",
+            dispatch=None,
+        )
+        with self.Session.begin() as session:
+            session.get(ReportJob, job.id).status = "failed"
+        evidence_id = store_failure_evidence(
+            self.Session,
+            job.id,
+            section="pitching",
+            source_url="https://stats.ncaa.org/team/123/stats",
+            html="<html>restricted failure evidence</html>",
+            failure_category="source_blocked",
+            collected_at=collected_at,
+        )
+        return evidence_id
+
+    def test_expiry_boundary_physically_deletes_bytes_and_preserves_metadata(self):
+        from roster_scout.evidence import purge_expired_evidence
+        from roster_scout.models import FailureEvidence
+
+        collected_at = datetime(2026, 1, 1, tzinfo=UTC)
+        evidence_id = self._stored_evidence(
+            suffix="boundary",
+            collected_at=collected_at,
+        )
+        expires_at = collected_at + timedelta(hours=696)
+
+        self.assertEqual(
+            purge_expired_evidence(
+                self.Session,
+                now=expires_at - timedelta(microseconds=1),
+            ),
+            0,
+        )
+        with self.Session() as session:
+            before = session.get(FailureEvidence, evidence_id)
+            self.assertIsNotNone(before.compressed_html)
+            self.assertIsNone(before.purged_at)
+            audit_before = {
+                "id": before.id,
+                "organization_id": before.organization_id,
+                "job_id": before.job_id,
+                "sha256": before.sha256,
+                "section": before.section,
+                "source_url": before.source_url,
+                "failure_category": before.failure_category,
+                "collected_at": before.collected_at,
+                "expires_at": before.expires_at,
+                "created_at": before.created_at,
+            }
+
+        self.assertEqual(
+            purge_expired_evidence(self.Session, now=expires_at),
+            1,
+        )
+        with self.Session() as session:
+            after = session.get(FailureEvidence, evidence_id)
+            self.assertIsNone(after.compressed_html)
+            self.assertEqual(after.purged_at, expires_at)
+            audit_after = {
+                "id": after.id,
+                "organization_id": after.organization_id,
+                "job_id": after.job_id,
+                "sha256": after.sha256,
+                "section": after.section,
+                "source_url": after.source_url,
+                "failure_category": after.failure_category,
+                "collected_at": after.collected_at,
+                "expires_at": after.expires_at,
+                "created_at": after.created_at,
+            }
+        self.assertEqual(audit_after, audit_before)
+
+        self.assertEqual(
+            purge_expired_evidence(
+                self.Session,
+                now=expires_at + timedelta(hours=1),
+            ),
+            0,
+        )
+        with self.Session() as session:
+            repeated = session.get(FailureEvidence, evidence_id)
+            self.assertEqual(repeated.purged_at, expires_at)
+
+    def test_immediately_after_prior_purge_is_deleted_by_720_hours(self):
+        from roster_scout.evidence import purge_expired_evidence
+        from roster_scout.models import FailureEvidence
+
+        previous_purge = datetime(2026, 1, 1, tzinfo=UTC)
+        collected_at = previous_purge + timedelta(microseconds=1)
+        evidence_id = self._stored_evidence(
+            suffix="worst-case",
+            collected_at=collected_at,
+        )
+
+        last_run_before_expiry = previous_purge + timedelta(hours=696)
+        next_allowed_run = previous_purge + timedelta(hours=720)
+        self.assertEqual(
+            purge_expired_evidence(self.Session, now=last_run_before_expiry),
+            0,
+        )
+        self.assertLessEqual(
+            next_allowed_run - collected_at,
+            timedelta(hours=720),
+        )
+        self.assertEqual(
+            purge_expired_evidence(self.Session, now=next_allowed_run),
+            1,
+        )
+        with self.Session() as session:
+            evidence = session.get(FailureEvidence, evidence_id)
+            self.assertIsNone(evidence.compressed_html)
+            self.assertEqual(evidence.purged_at, next_allowed_run)
+
+
 if __name__ == "__main__":
     unittest.main()
