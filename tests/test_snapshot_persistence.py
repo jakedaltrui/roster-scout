@@ -27,6 +27,22 @@ REQUIRED_TABLES = {
     "metric_values", "report_jobs", "report_artifacts", "failure_evidence",
 }
 
+FACT_COUNT_CHECKS = {
+    "batting_facts": {
+        "ck_batting_facts_at_bats_nonnegative",
+        "ck_batting_facts_hits_nonnegative",
+        "ck_batting_facts_walks_nonnegative",
+        "ck_batting_facts_strikeouts_nonnegative",
+    },
+    "pitching_facts": {
+        "ck_pitching_facts_innings_outs_nonnegative",
+        "ck_pitching_facts_hits_allowed_nonnegative",
+        "ck_pitching_facts_earned_runs_nonnegative",
+        "ck_pitching_facts_walks_nonnegative",
+        "ck_pitching_facts_strikeouts_nonnegative",
+    },
+}
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -72,6 +88,61 @@ class PostgreSQLSnapshotTestCase(unittest.TestCase):
 
 
 class CanonicalSchemaTests(PostgreSQLSnapshotTestCase):
+    def test_all_count_columns_have_named_nonnegative_checks(self):
+        from roster_scout.models import BattingFact, PitchingFact
+
+        model_tables = {
+            "batting_facts": BattingFact.__table__,
+            "pitching_facts": PitchingFact.__table__,
+        }
+        inspector = inspect(self.engine)
+        for table_name, expected_names in FACT_COUNT_CHECKS.items():
+            with self.subTest(table=table_name, layer="database"):
+                database_names = {
+                    check["name"]
+                    for check in inspector.get_check_constraints(table_name)
+                    if check.get("name")
+                }
+                self.assertEqual(expected_names - database_names, set())
+            with self.subTest(table=table_name, layer="orm"):
+                model_names = {
+                    constraint.name
+                    for constraint in model_tables[table_name].constraints
+                    if constraint.name
+                }
+                self.assertEqual(expected_names - model_names, set())
+
+    def test_database_rejects_negative_counts(self):
+        cases = {
+            "batting_facts": ("at_bats", "hits", "walks", "strikeouts"),
+            "pitching_facts": (
+                "innings_outs",
+                "hits_allowed",
+                "earned_runs",
+                "walks",
+                "strikeouts",
+            ),
+        }
+        with self.Session.begin() as session:
+            organization, _, _, snapshot = self.fixture(session)
+            organization_id = organization.id
+            snapshot_id = snapshot.id
+        for table_name, columns in cases.items():
+            for column_name in columns:
+                with self.subTest(table=table_name, column=column_name):
+                    statement = text(
+                        f"INSERT INTO {table_name} "
+                        f"(id, organization_id, snapshot_id, {column_name}) "
+                        f"VALUES (:id, :organization_id, :snapshot_id, -1)"
+                    )
+                    with self.Session.begin() as session:
+                        with self.assertRaises(DBAPIError):
+                            session.execute(statement, {
+                                "id": uuid.uuid4(),
+                                "organization_id": organization_id,
+                                "snapshot_id": snapshot_id,
+                            })
+
     def test_t_01_07_migration_defines_minimum_tables_and_named_checks(self):
         inspector = inspect(self.engine)
         self.assertEqual(REQUIRED_TABLES - set(inspector.get_table_names()), set())
@@ -270,6 +341,90 @@ class TenantAndPublicationTests(PostgreSQLSnapshotTestCase):
                 with self.assertRaises(DBAPIError):
                     session.execute(statement, {"id": fact_id})
 
+    def test_published_rows_cannot_be_reassigned_to_a_draft_snapshot(self):
+        from roster_scout.models import BattingFact, ReportSection, ReportSnapshot
+        from roster_scout.snapshots import publish_snapshot
+
+        with self.Session.begin() as session:
+            organization, _, report, published = self.fixture(session)
+            draft = ReportSnapshot(
+                organization_id=organization.id,
+                report_id=report.id,
+                schema_version="1",
+            )
+            fact = BattingFact(
+                organization_id=organization.id,
+                snapshot_id=published.id,
+                at_bats=1,
+                hits=0,
+            )
+            critical_section = ReportSection(
+                organization_id=organization.id,
+                snapshot_id=published.id,
+                section="fielding",
+                critical=True,
+                status="complete",
+                row_count=0,
+                verified_empty=True,
+            )
+            session.add_all([draft, fact, critical_section])
+            self.add_core_sections(session, organization.id, published.id)
+            session.flush()
+            published_id = published.id
+            draft_id = draft.id
+            fact_id = fact.id
+            section_id = critical_section.id
+        with self.Session.begin() as session:
+            publish_snapshot(session, published_id)
+
+        for table_name, identifier in (
+            ("batting_facts", fact_id),
+            ("report_sections", section_id),
+        ):
+            with self.subTest(table=table_name):
+                with self.Session.begin() as session:
+                    with self.assertRaises(DBAPIError):
+                        session.execute(
+                            text(
+                                f"UPDATE {table_name} "
+                                "SET snapshot_id = :draft_id WHERE id = :id"
+                            ),
+                            {"draft_id": draft_id, "id": identifier},
+                        )
+
+    def test_published_metric_definition_is_append_only(self):
+        from roster_scout.models import MetricDefinition, MetricValue
+        from roster_scout.snapshots import publish_snapshot
+
+        with self.Session.begin() as session:
+            organization, _, _, snapshot = self.fixture(session)
+            definition = MetricDefinition(code="ops", version="1", formula="obp + slg")
+            session.add(definition)
+            session.flush()
+            session.add(MetricValue(
+                organization_id=organization.id,
+                snapshot_id=snapshot.id,
+                metric_definition_id=definition.id,
+                value=1,
+            ))
+            self.add_core_sections(session, organization.id, snapshot.id)
+            session.flush()
+            definition_id = definition.id
+            snapshot_id = snapshot.id
+        with self.Session.begin() as session:
+            publish_snapshot(session, snapshot_id)
+
+        for statement in (
+            text("UPDATE metric_definitions SET formula = 'changed' WHERE id = :id"),
+            text("DELETE FROM metric_definitions WHERE id = :id"),
+        ):
+            with self.Session.begin() as session:
+                with self.assertRaises(DBAPIError):
+                    session.execute(statement, {"id": definition_id})
+
+        with self.Session.begin() as session:
+            session.add(MetricDefinition(code="ops", version="2", formula="new formula"))
+
     def test_published_snapshot_metadata_and_source_rows_are_immutable(self):
         from roster_scout.models import SourceRecord
         from roster_scout.snapshots import publish_snapshot
@@ -388,6 +543,20 @@ class TenantAndPublicationTests(PostgreSQLSnapshotTestCase):
 
 
 class MigrationTests(PostgreSQLSnapshotTestCase):
+    def test_0003_downgrade_and_reupgrade(self):
+        clean_database(self.database_url)
+        command.downgrade(alembic_config(self.database_url), "0002")
+        command.upgrade(alembic_config(self.database_url), "0003")
+        command.downgrade(alembic_config(self.database_url), "0002")
+        command.upgrade(alembic_config(self.database_url), "head")
+        self.assertIn(
+            "ck_batting_facts_walks_nonnegative",
+            {
+                check["name"]
+                for check in inspect(self.engine).get_check_constraints("batting_facts")
+            },
+        )
+
     def test_0001_boundary_is_frozen_and_complete(self):
         clean_database(self.database_url)
         downgrade_database(self.database_url)

@@ -34,6 +34,62 @@ def collection(batting, pitching, season_team_id="615087"):
 
 
 class CanonicalDataTests(unittest.TestCase):
+    def test_negative_count_values_are_rejected(self):
+        batting_cases = (
+            ("AB", "at-bats"),
+            ("H", "hits"),
+            ("BB", "walks"),
+            ("K", "strikeouts"),
+        )
+        for source_key, label in batting_cases:
+            with self.subTest(section="batting", field=label):
+                with self.assertRaisesRegex(ValueError, "cannot be negative"):
+                    canonicalize_ncaa_collection(collection([
+                        {"Player": "Negative", source_key: "-1", "_player_id": "1"},
+                    ], []))
+
+        pitching_cases = (
+            ("H", "hits allowed"),
+            ("ER", "earned runs"),
+            ("BB", "walks"),
+            ("SO", "strikeouts"),
+        )
+        for source_key, label in pitching_cases:
+            with self.subTest(section="pitching", field=label):
+                with self.assertRaisesRegex(ValueError, "cannot be negative"):
+                    canonicalize_ncaa_collection(collection([], [
+                        {"Player": "Negative", source_key: "-1", "_player_id": "1"},
+                    ]))
+
+        with self.assertRaisesRegex(ValueError, "Invalid baseball innings"):
+            canonicalize_ncaa_collection(collection([], [
+                {"Player": "Negative", "IP": "-1.0", "_player_id": "1"},
+            ]))
+
+    def test_zero_counts_remain_distinct_from_missing_counts(self):
+        canonical = canonicalize_ncaa_collection(collection([
+            {
+                "Player": "Zero",
+                "AB": "0",
+                "H": "0",
+                "BB": "0",
+                "K": "0",
+                "_player_id": "1",
+            },
+            {"Player": "Missing", "_player_id": "2"},
+        ], []))
+        facts = {player.display_name: fact.values for player, fact in zip(
+            canonical.players, canonical.facts, strict=True
+        )}
+        self.assertEqual(
+            facts["Zero"],
+            {"at_bats": 0, "hits": 0, "walks": 0, "strikeouts": 0},
+        )
+        self.assertEqual(
+            facts["Missing"],
+            {"at_bats": None, "hits": None, "walks": None, "strikeouts": None},
+        )
+
     def test_innings_are_outs_and_missing_is_not_zero(self):
         self.assertEqual(innings_to_outs("7.2"), 23)
         self.assertIsNone(innings_to_outs(""))
