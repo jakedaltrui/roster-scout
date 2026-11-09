@@ -8,7 +8,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
-from sqlalchemy import event, func, select
+from sqlalchemy import delete, event, func, inspect, select, update
+from sqlalchemy.exc import IntegrityError
 
 import roster_scraper as rs
 from tests.db_support import clean_database, require_test_database_url, upgrade_database
@@ -412,24 +413,22 @@ class ConcurrentSharedRecordTests(SharedRecordPublishCase):
             self.assertEqual([job.failure_category for job in stored_jobs], [None, None])
 
     def test_concurrent_player_creation_converges_without_unique_key_failure(self):
-        from roster_scout.models import Player
-
         jobs = self.seed_jobs()
         rendezvous = threading.Barrier(2)
 
-        def synchronize_legacy_player_flush(session, *_args):
-            if any(isinstance(item, Player) for item in session.new):
+        def synchronize_player_insert(_conn, _cursor, statement, *_args):
+            if statement.lstrip().startswith("INSERT INTO players"):
                 rendezvous.wait(timeout=10)
 
-        event.listen(self.Session.class_, "before_flush", synchronize_legacy_player_flush)
+        event.listen(self.engine, "before_cursor_execute", synchronize_player_insert)
         try:
             snapshots = self.run_jobs(jobs, self.sections())
         finally:
-            event.remove(self.Session.class_, "before_flush", synchronize_legacy_player_flush)
+            event.remove(self.engine, "before_cursor_execute", synchronize_player_insert)
         self._assert_shared_rows(jobs, snapshots)
 
     def test_concurrent_metric_definition_creation_converges(self):
-        from roster_scout.models import MetricDefinition, Player
+        from roster_scout.models import Player
 
         with self.Session.begin() as session:
             session.add(
@@ -441,27 +440,23 @@ class ConcurrentSharedRecordTests(SharedRecordPublishCase):
             )
         jobs = self.seed_jobs()
         rendezvous = threading.Barrier(2)
-        synchronized_sessions = set()
-        synchronized_sessions_lock = threading.Lock()
+        synchronized_connections = set()
+        synchronized_connections_lock = threading.Lock()
 
-        def synchronize_legacy_definition_flush(session, *_args):
-            if not any(isinstance(item, MetricDefinition) for item in session.new):
+        def synchronize_definition_insert(conn, _cursor, statement, *_args):
+            if not statement.lstrip().startswith("INSERT INTO metric_definitions"):
                 return
-            with synchronized_sessions_lock:
-                if id(session) in synchronized_sessions:
+            with synchronized_connections_lock:
+                if id(conn) in synchronized_connections:
                     return
-                synchronized_sessions.add(id(session))
+                synchronized_connections.add(id(conn))
             rendezvous.wait(timeout=10)
 
-        event.listen(
-            self.Session.class_, "before_flush", synchronize_legacy_definition_flush
-        )
+        event.listen(self.engine, "before_cursor_execute", synchronize_definition_insert)
         try:
             snapshots = self.run_jobs(jobs, self.sections())
         finally:
-            event.remove(
-                self.Session.class_, "before_flush", synchronize_legacy_definition_flush
-            )
+            event.remove(self.engine, "before_cursor_execute", synchronize_definition_insert)
         self._assert_shared_rows(jobs, snapshots)
 
 
@@ -520,6 +515,251 @@ class AuthoritativeIdentityTests(SharedRecordPublishCase):
         self.assertEqual(snapshot.status, "ready")
         with self.Session() as session:
             self.assertEqual(session.scalar(select(func.count()).select_from(Player)), 1)
+
+
+class PublicationIntegrityTests(CanonicalPublishTests):
+    def build_draft(self, division=1, *, include_canonical=True):
+        from roster_scout.jobs import (
+            _new_or_existing_snapshot,
+            _persist_canonical,
+            _persist_sections,
+        )
+        from roster_scout.models import ReportJob
+        from roster_scout.canonical import to_collected_sections
+
+        job = self.seed(division)
+        with patch.object(rs, "_fetch_ncaa_pages", return_value={
+            "batting": fixture(f"d{division}_batting.html"),
+            "pitching": fixture(f"d{division}_pitching.html"),
+        }):
+            collection = rs._collect_ncaa_team(TEAMS[division], 2026)
+        sections = to_collected_sections(collection)
+        with self.Session.begin() as session:
+            stored_job = session.get(ReportJob, job.id)
+            snapshot = _new_or_existing_snapshot(session, stored_job)
+            _persist_sections(session, stored_job, snapshot, sections)
+            snapshot.source_collected_at = collection.metadata.collected_at
+            snapshot_id = snapshot.id
+        if include_canonical:
+            with self.Session.begin() as session:
+                stored_job = session.get(ReportJob, job.id)
+                snapshot = session.get(type(snapshot), snapshot_id)
+                _persist_canonical(session, stored_job, snapshot, sections)
+        return job.id, snapshot_id
+
+    def assert_draft_unpublished(self, snapshot_id):
+        from roster_scout.models import ReportSnapshot
+
+        with self.Session() as session:
+            snapshot = session.get(ReportSnapshot, snapshot_id)
+            self.assertEqual(snapshot.status, "draft")
+            self.assertIsNone(snapshot.published_at)
+
+    def assert_publication_rejected(self, snapshot_id):
+        from roster_scout.snapshots import SnapshotPublicationError, publish_snapshot
+
+        with self.assertRaises(SnapshotPublicationError):
+            with self.Session.begin() as session:
+                publish_snapshot(session, snapshot_id)
+        self.assert_draft_unpublished(snapshot_id)
+
+    def test_section_flags_and_source_rows_without_typed_facts_do_not_publish(self):
+        _job_id, snapshot_id = self.build_draft(include_canonical=False)
+        self.assert_publication_rejected(snapshot_id)
+
+    def test_section_row_count_must_equal_source_and_typed_fact_counts(self):
+        from roster_scout.models import ReportSection
+
+        _job_id, snapshot_id = self.build_draft()
+        with self.Session.begin() as session:
+            section = session.scalar(
+                select(ReportSection).where(
+                    ReportSection.snapshot_id == snapshot_id,
+                    ReportSection.section == "batting",
+                )
+            )
+            section.row_count += 1
+        self.assert_publication_rejected(snapshot_id)
+
+    def test_missing_source_and_fact_row_do_not_publish(self):
+        from roster_scout.models import BattingFact, SourceRecord
+
+        _job_id, snapshot_id = self.build_draft()
+        with self.Session.begin() as session:
+            fact = session.scalar(
+                select(BattingFact).where(BattingFact.snapshot_id == snapshot_id).limit(1)
+            )
+            source_id = fact.source_record_id
+            session.delete(fact)
+            session.flush()
+            session.execute(delete(SourceRecord).where(SourceRecord.id == source_id))
+        self.assert_publication_rejected(snapshot_id)
+
+    def test_duplicate_source_mapping_is_rejected_even_when_fact_count_matches(self):
+        from roster_scout.models import BattingFact
+
+        _job_id, snapshot_id = self.build_draft()
+        with self.Session.begin() as session:
+            facts = list(
+                session.scalars(
+                    select(BattingFact)
+                    .where(BattingFact.snapshot_id == snapshot_id)
+                    .order_by(BattingFact.id)
+                    .limit(2)
+                )
+            )
+            self.assertEqual(len(facts), 2)
+            first, replaced = facts
+            session.delete(replaced)
+            session.add(BattingFact(
+                organization_id=first.organization_id,
+                snapshot_id=first.snapshot_id,
+                player_team_season_id=first.player_team_season_id,
+                source_record_id=first.source_record_id,
+                at_bats=first.at_bats,
+                hits=first.hits,
+                walks=first.walks,
+                strikeouts=first.strikeouts,
+            ))
+        self.assert_publication_rejected(snapshot_id)
+
+    def test_required_fact_links_are_database_non_null(self):
+        from roster_scout.models import BattingFact
+
+        _job_id, snapshot_id = self.build_draft()
+        with self.assertRaises(IntegrityError):
+            with self.Session.begin() as session:
+                fact_id = session.scalar(
+                    select(BattingFact.id)
+                    .where(BattingFact.snapshot_id == snapshot_id)
+                    .limit(1)
+                )
+                session.execute(
+                    update(BattingFact)
+                    .where(BattingFact.id == fact_id)
+                    .values(source_record_id=None)
+                )
+        self.assert_draft_unpublished(snapshot_id)
+
+    def test_cross_snapshot_fact_links_are_rejected_by_named_ownership_constraint(self):
+        from roster_scout.models import BattingFact, ReportSnapshot
+
+        _job_id, snapshot_id = self.build_draft()
+        with self.Session.begin() as session:
+            original = session.get(ReportSnapshot, snapshot_id)
+            other = ReportSnapshot(
+                organization_id=original.organization_id,
+                report_id=original.report_id,
+                schema_version=original.schema_version,
+            )
+            session.add(other)
+            session.flush()
+            other_id = other.id
+        with self.assertRaises(IntegrityError) as raised:
+            with self.Session.begin() as session:
+                fact_id = session.scalar(
+                    select(BattingFact.id)
+                    .where(BattingFact.snapshot_id == snapshot_id)
+                    .limit(1)
+                )
+                session.execute(
+                    update(BattingFact)
+                    .where(BattingFact.id == fact_id)
+                    .values(snapshot_id=other_id)
+                )
+        self.assertIn("fk_batting_facts_", str(raised.exception))
+        self.assert_draft_unpublished(snapshot_id)
+
+    def test_verified_empty_core_sections_remain_publishable(self):
+        from roster_scout.jobs import CollectedSection, run_report_job
+
+        job = self.seed(2)
+        sections = tuple(
+            CollectedSection(
+                name=name,
+                critical=True,
+                rows=(),
+                verified_empty=True,
+                source_url=f"https://stats.ncaa.org/{name}",
+                source_team_id="689",
+                source_season_id="17040",
+                source_season_team_id="615087",
+                source_stat_category_id=category,
+                collected_at=datetime(2026, 11, 8, 12, 0, tzinfo=UTC),
+                parser_version="parser-1",
+                schema_version="schema-1",
+            )
+            for name, category in (
+                ("batting", SEASON["batting_id"]),
+                ("pitching", SEASON["pitching_id"]),
+            )
+        )
+        snapshot = run_report_job(
+            self.Session,
+            job.id,
+            collector=lambda *args, **kwargs: sections,
+        )
+        self.assertEqual(snapshot.status, "ready")
+
+    def test_d1_d2_d3_paths_publish_with_exact_traceability(self):
+        from roster_scout.models import BattingFact, PitchingFact, ReportSection, SourceRecord
+
+        for division in (1, 2, 3):
+            with self.subTest(division=division):
+                clean_database(self.database_url)
+                _job, snapshot = self.publish(division)
+                self.assertEqual(snapshot.status, "ready")
+                with self.Session() as session:
+                    for section_name, fact_model in (
+                        ("batting", BattingFact),
+                        ("pitching", PitchingFact),
+                    ):
+                        row_count = session.scalar(
+                            select(ReportSection.row_count).where(
+                                ReportSection.snapshot_id == snapshot.id,
+                                ReportSection.section == section_name,
+                            )
+                        )
+                        source_count = session.scalar(
+                            select(func.count()).select_from(SourceRecord).where(
+                                SourceRecord.snapshot_id == snapshot.id,
+                                SourceRecord.section == section_name,
+                            )
+                        )
+                        fact_count = session.scalar(
+                            select(func.count()).select_from(fact_model).where(
+                                fact_model.snapshot_id == snapshot.id
+                            )
+                        )
+                        self.assertEqual(row_count, source_count)
+                        self.assertEqual(row_count, fact_count)
+
+    def test_revision_0004_is_reversible_and_preserves_published_facts(self):
+        from alembic import command
+        from tests.db_support import alembic_config
+        from roster_scout.models import BattingFact, PitchingFact
+
+        _job, snapshot = self.publish(1)
+        with self.Session() as session:
+            before = (
+                session.scalar(select(func.count()).select_from(BattingFact)),
+                session.scalar(select(func.count()).select_from(PitchingFact)),
+            )
+        command.downgrade(alembic_config(self.database_url), "0003")
+        command.upgrade(alembic_config(self.database_url), "head")
+        with self.Session() as session:
+            after = (
+                session.scalar(select(func.count()).select_from(BattingFact)),
+                session.scalar(select(func.count()).select_from(PitchingFact)),
+            )
+        self.assertEqual(before, after)
+        columns = {
+            table: {column["name"]: column for column in inspect(self.engine).get_columns(table)}
+            for table in ("batting_facts", "pitching_facts")
+        }
+        for table in columns.values():
+            self.assertFalse(table["player_team_season_id"]["nullable"])
+            self.assertFalse(table["source_record_id"]["nullable"])
 
 
 if __name__ == "__main__":
