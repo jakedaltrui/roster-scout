@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-05-PLAN.md
-last_updated: "2026-11-09T20:07:07.838Z"
-last_activity: 2026-11-09 -- Completed 01-05 concurrency-safe canonical publication
+stopped_at: Completed 01-06-PLAN.md
+last_updated: "2026-11-09T20:16:11.413Z"
+last_activity: 2026-11-09 -- Completed 01-06 whole-attempt report job claim
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 13
-  completed_plans: 6
-  percent: 46
+  completed_plans: 7
+  percent: 54
 ---
 
 # Project State
@@ -26,25 +26,25 @@ See: `.planning/PROJECT.md` (updated 2026-11-01)
 ## Current Position
 
 Phase: 01 (canonical-snapshot-foundation) — EXECUTING
-Plan: 6 of 13
+Plan: 7 of 13
 Status: Ready to execute
-Last activity: 2026-11-09 -- Completed 01-05 concurrency-safe canonical publication
+Last activity: 2026-11-09 -- Completed 01-06 whole-attempt report job claim
 
-Progress: [█████░░░░░] 46%
+Progress: [█████░░░░░] 54%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 6
-- Average duration: 2h 28m
-- Total execution time: 14h 47m
+- Total plans completed: 7
+- Average duration: 2h 8m
+- Total execution time: 14h 53m
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |---|---:|---:|---:|
-| 1. Canonical Snapshot Foundation | 6 | 14h 47m | 2h 28m |
+| 1. Canonical Snapshot Foundation | 7 | 14h 53m | 2h 8m |
 
 **Plan History:**
 
@@ -56,6 +56,7 @@ Progress: [█████░░░░░] 46%
 | 01 | 04 | 11 min | 2 | 6 |
 | 01 | 10 | 11 min | 3 | 9 |
 | 01 | 05 | 14h 8m | 2 | 7 |
+| 01 | 06 | 6 min | 2 | 3 |
 
 ## Accumulated Context
 
@@ -83,6 +84,8 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 01]: Production retains one worker machine by default even though the database lease enforces aggregate capacity across machines.
 - [Phase 01]: Authoritative NCAA players and metric definitions resolve through PostgreSQL conflict-safe inserts followed by scoped reselects. — Concurrent valid jobs converge without unique-key failure.
 - [Phase 01]: Snapshot readiness requires exact snapshot-owned source, identity, and typed-fact traceability. — Section flags alone cannot prove canonical completeness.
+- [Phase 01]: A detached PostgreSQL session advisory claim owns one report job across collection and publication.
+- [Phase 01]: Claim contention returns a sanitized retry without incrementing attempts or mutating failure state.
 
 ### Pending Todos
 
@@ -105,6 +108,6 @@ Full decision log: `.planning/PROJECT.md`.
 
 ## Session Continuity
 
-Last session: 2026-11-09T20:07:07.831Z
-Stopped at: Completed 01-05-PLAN.md
+Last session: 2026-11-09T20:16:11.405Z
+Stopped at: Completed 01-06-PLAN.md
 Resume file: None
