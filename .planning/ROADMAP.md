@@ -29,7 +29,7 @@ Roster Scout v2.0 is delivered in five dependency-ordered slices. The roadmap fi
 4. Innings, missing values, two-way players, transfers, raw values, and metric-definition lineage are represented without ambiguity.
 5. Existing selector, scraper, cache, and basic workbook regression tests continue to pass.
 
-**Plans:** 11/13 plans executed
+**Plans:** 12/13 plans executed
 
 Plans:
 **Wave 1**
@@ -72,7 +72,7 @@ Plans:
 
 **Wave 10** *(blocked on Wave 9 completion)*
 
-- [ ] 01-13: Enforce failed-evidence expiry, purge health, and the 30-day physical-deletion deadline.
+- [x] 01-13: Enforce failed-evidence expiry, purge health, and the 30-day physical-deletion deadline.
 
 **Wave 11** *(blocked on Wave 10 completion)*
 
@@ -178,7 +178,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |---|---:|---|---|
-| 1. Canonical Snapshot Foundation | 11/13 | In Progress|  |
+| 1. Canonical Snapshot Foundation | 12/13 | In Progress|  |
 | 2. Identity, Organizations, and Report Library | 0/3 | Not started | - |
 | 3. Detailed NCAA Intelligence | 0/4 | Not started | - |
 | 4. Detailed Excel Report | 0/3 | Not started | - |
