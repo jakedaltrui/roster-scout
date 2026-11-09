@@ -29,6 +29,22 @@ PostgreSQL advisory-lock namespace for Browserless account capacity; the worker
 does not mount the app's persistent `/data` cache. PostgreSQL and Redis host
 ports are development-only and bind to `127.0.0.1`.
 
+The dispatch scheduler is a separate long-running process. It calls the durable
+outbox drain and stale-job reconciliation services at bounded intervals; it
+does not duplicate job-state SQL. Configure it with nonsecret timing values:
+
+| Variable | Default | Valid range | Purpose |
+|---|---:|---:|---|
+| `REPORT_DISPATCH_POLL_SECONDS` | `5` | 1-300 | Delay between reconciliation cycles |
+| `REPORT_DISPATCH_LEASE_SECONDS` | `60` | 5-600 | Publisher lease held by one bounded drain |
+| `REPORT_QUEUED_REDISPATCH_SECONDS` | `300` | 30-86400 | Deadline before a lost queued delivery is eligible again |
+| `REPORT_RUNNING_STALE_SECONDS` | `1800` | 60-604800 | Minimum age before unclaimed running work is recovered |
+
+The poll interval may not exceed the lease duration, and the queued deadline
+must remain below the running stale threshold. Invalid values stop the process
+before database or broker clients are created. Scheduler logs contain health
+and aggregate counts only, never connection URLs, raw exceptions, or task data.
+
 Apply migrations before starting either process and verify rollback safety in
 the disposable test database:
 
@@ -63,10 +79,11 @@ Keep secrets out of command history when possible by using the Fly dashboard or 
 
 Before making a deployment public:
 
-1. Complete the manual billing/provisioning gate for one managed PostgreSQL
-   database, one managed Redis broker, one app machine, and exactly one worker
-   machine. Do not deploy a durable worker on trial capacity that can stop after
-   five minutes.
+1. Keep production launch blocked until all four prerequisites are verified:
+   managed PostgreSQL, managed Redis, managed object/evidence storage, and
+   uninterrupted Fly worker billing/capacity. Local Compose is development-only
+   and does not satisfy this production provisioning gate. Do not deploy a
+   durable worker on trial capacity that can stop after five minutes.
 2. Confirm the release migration succeeded before either process group starts.
 3. Run the deterministic suite and catalog validation.
 4. Run `python scripts/live_ncaa_smoke.py` from the target network.
