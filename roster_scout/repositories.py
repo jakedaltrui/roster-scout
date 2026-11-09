@@ -174,7 +174,9 @@ def acknowledge_report_dispatch(
     job = session.get(ReportJob, intent.job_id)
     if job is not None:
         job.enqueued_at = now
-        job.broker_message_id = str(broker_message_id)[:100]
+        # Persist the outbox-owned opaque identifier, never broker topology or
+        # implementation-specific acknowledgement text.
+        job.broker_message_id = intent.message_id
     return True
 
 
