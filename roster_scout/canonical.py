@@ -118,7 +118,8 @@ def innings_to_outs(value: str | None) -> int | None:
     return int(match.group(1)) * 3 + int(match.group(2) or 0)
 
 
-def _normalized_name(value: str | None) -> str:
+def normalize_material_name(value: str | None) -> str:
+    """Normalize NCAA names for authoritative identity evidence comparison."""
     return " ".join(re.sub(r"[^a-z0-9]+", " ", (value or "").casefold()).split())
 
 
@@ -154,7 +155,7 @@ def _identity_groups(collection: NcaaCollection) -> list[tuple[NcaaSourceRow, ..
 
     groups = []
     for player_id, player_rows in authoritative.items():
-        names = {_normalized_name(_raw(row, "Player")) for row in player_rows}
+        names = {normalize_material_name(_raw(row, "Player")) for row in player_rows}
         names.discard("")
         if len(names) > 1:
             raise IdentityConflictError(
@@ -169,14 +170,14 @@ def _identity_groups(collection: NcaaCollection) -> list[tuple[NcaaSourceRow, ..
         candidates = [
             pit for pit in pitching
             if id(pit) not in matched
-            and _normalized_name(_raw(pit, "Player")) == _normalized_name(_raw(bat, "Player"))
+            and normalize_material_name(_raw(pit, "Player")) == normalize_material_name(_raw(bat, "Player"))
             and _compatible(bat, pit)
         ]
         reciprocal = []
         for pit in candidates:
             reverse = [
                 other for other in batting
-                if _normalized_name(_raw(other, "Player")) == _normalized_name(_raw(pit, "Player"))
+                if normalize_material_name(_raw(other, "Player")) == normalize_material_name(_raw(pit, "Player"))
                 and _compatible(other, pit)
             ]
             if len(reverse) == 1:

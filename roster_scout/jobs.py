@@ -341,7 +341,11 @@ def _persist_canonical(session, job, snapshot, sections):
         NcaaSourceRow,
         NcaaTeam,
     )
-    from .canonical import canonicalize_ncaa_collection
+    from .canonical import (
+        IdentityConflictError,
+        canonicalize_ncaa_collection,
+        normalize_material_name,
+    )
 
     report = session.get(Report, job.report_id)
     team_season = session.get(TeamSeason, report.team_season_id)
@@ -415,16 +419,41 @@ def _persist_canonical(session, job, snapshot, sections):
     }
     identities = {}
     for item in canonical.players:
-        player = None
         if item.source_player_id:
-            player = session.scalar(select(Player).where(
-                Player.source == "ncaa",
-                Player.source_player_id == item.source_player_id,
-            ))
-        if player is None:
+            player_id = session.scalar(
+                postgresql_insert(Player)
+                .values(
+                    id=uuid.uuid4(),
+                    source="ncaa",
+                    source_player_id=item.source_player_id,
+                    display_name=item.display_name,
+                )
+                .on_conflict_do_nothing(
+                    index_elements=[Player.source, Player.source_player_id],
+                    index_where=Player.source_player_id.is_not(None),
+                )
+                .returning(Player.id)
+            )
+            if player_id is None:
+                player_id = session.scalar(
+                    select(Player.id).where(
+                        Player.source == "ncaa",
+                        Player.source_player_id == item.source_player_id,
+                    )
+                )
+            if player_id is None:
+                raise RuntimeError("authoritative player conflict was not visible")
+            player = session.get(Player, player_id)
+            if normalize_material_name(player.display_name) != normalize_material_name(
+                item.display_name
+            ):
+                raise IdentityConflictError(
+                    f"NCAA player ID {item.source_player_id} conflicts with stored identity"
+                )
+        else:
             player = Player(
                 source="ncaa",
-                source_player_id=item.source_player_id,
+                source_player_id=None,
                 display_name=item.display_name,
             )
             session.add(player)
@@ -468,22 +497,32 @@ def _persist_canonical(session, job, snapshot, sections):
 
     for metric in canonical.metrics:
         version = f"{metric.definition_version}:{metric.provenance}"
-        definition = session.scalar(select(MetricDefinition).where(
-            MetricDefinition.code == metric.code,
-            MetricDefinition.version == version,
-        ))
-        if definition is None:
-            definition = MetricDefinition(
+        definition_id = session.scalar(
+            postgresql_insert(MetricDefinition)
+            .values(
+                id=uuid.uuid4(),
                 code=metric.code,
                 version=version,
                 formula=metric.provenance,
             )
-            session.add(definition)
-            session.flush()
+            .on_conflict_do_nothing(
+                constraint="uq_metric_definitions_code_version"
+            )
+            .returning(MetricDefinition.id)
+        )
+        if definition_id is None:
+            definition_id = session.scalar(
+                select(MetricDefinition.id).where(
+                    MetricDefinition.code == metric.code,
+                    MetricDefinition.version == version,
+                )
+            )
+        if definition_id is None:
+            raise RuntimeError("metric definition conflict was not visible")
         session.add(MetricValue(
             organization_id=job.organization_id,
             snapshot_id=snapshot.id,
-            metric_definition_id=definition.id,
+            metric_definition_id=definition_id,
             player_team_season_id=identities[metric.identity_key].id,
             value=metric.value,
             unavailable_reason=(
