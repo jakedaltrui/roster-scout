@@ -7,7 +7,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 
 from usage_limits import BrowserCapacityExceeded
@@ -479,6 +479,100 @@ def _reconstruct_cached_sections(session, snapshot, matching):
     return tuple(reconstructed)
 
 
+def _source_row_values(collected, row):
+    raw_values = {
+        key: value for key, value in row.items()
+        if key not in {"_player_id", "_player_url", "_payload_sha256"}
+    }
+    if row.get("_player_url"):
+        raw_values["player_url"] = row["_player_url"]
+    encoded = json.dumps(raw_values, sort_keys=True, separators=(",", ":")).encode()
+    return raw_values, (
+        row.get("_payload_sha256") or hashlib.sha256(encoded).hexdigest()
+    )
+
+
+def _collected_section_signature(collected):
+    records = []
+    for ordinal, row in enumerate(collected.rows):
+        raw_values, payload_sha256 = _source_row_values(collected, row)
+        records.append((
+            ordinal,
+            collected.source_url or "unknown",
+            collected.source_team_id or "unknown",
+            collected.source_season_id or "unknown",
+            collected.source_season_team_id or "unknown",
+            collected.source_stat_category_id or "unknown",
+            row.get("_player_id"),
+            collected.collected_at,
+            collected.parser_version,
+            collected.schema_version,
+            payload_sha256,
+            raw_values,
+        ))
+    return (
+        collected.name,
+        collected.critical,
+        collected.status,
+        len(collected.rows),
+        collected.verified_empty,
+        collected.collected_at,
+        collected.failure_category,
+        collected.source_url,
+        collected.source_team_id,
+        collected.source_season_id,
+        collected.source_season_team_id,
+        collected.source_stat_category_id,
+        collected.schema_version,
+        collected.parser_version,
+        tuple(records),
+    )
+
+
+def _persisted_section_signature(session, snapshot, section):
+    records = tuple(
+        (
+            record.row_ordinal,
+            record.source_url,
+            record.source_team_id,
+            record.source_season_id,
+            record.source_season_team_id,
+            record.source_stat_category_id,
+            record.source_player_id,
+            record.collected_at,
+            record.parser_version,
+            record.schema_version,
+            record.payload_sha256,
+            record.raw_values,
+        )
+        for record in session.scalars(
+            select(SourceRecord)
+            .where(
+                SourceRecord.snapshot_id == snapshot.id,
+                SourceRecord.section == section.section,
+            )
+            .order_by(SourceRecord.row_ordinal)
+        )
+    )
+    return (
+        section.section,
+        section.critical,
+        section.status,
+        section.row_count,
+        section.verified_empty,
+        section.collected_at,
+        section.failure_category,
+        section.source_url,
+        section.source_team_id,
+        section.source_season_id,
+        section.source_season_team_id,
+        section.source_stat_category_id,
+        section.schema_version,
+        section.parser_version,
+        records,
+    )
+
+
 def _persist_sections(session, job, snapshot, sections):
     existing = {
         section.section: section
@@ -512,34 +606,25 @@ def _persist_sections(session, job, snapshot, sections):
             session.add(section)
             existing[collected.name] = section
         elif section.status != "complete":
-            for key, value in values.items():
-                setattr(section, key, value)
-        elif (
-            section.schema_version != collected.schema_version
-            or section.parser_version != collected.parser_version
-        ):
-            raise DeterministicJobError("schema_validation")
-
-        if collected.status != "complete" or not collected.rows:
-            continue
-        existing_ordinals = set(
-            session.scalars(
-                select(SourceRecord.row_ordinal).where(
+            session.execute(
+                delete(SourceRecord).where(
                     SourceRecord.snapshot_id == snapshot.id,
                     SourceRecord.section == collected.name,
                 )
             )
-        )
+            for key, value in values.items():
+                setattr(section, key, value)
+        elif _persisted_section_signature(
+            session, snapshot, section
+        ) != _collected_section_signature(collected):
+            raise DeterministicJobError("schema_validation")
+        else:
+            continue
+
+        if collected.status != "complete" or not collected.rows:
+            continue
         for ordinal, row in enumerate(collected.rows):
-            if ordinal in existing_ordinals:
-                continue
-            raw_values = {
-                key: value for key, value in row.items()
-                if key not in {"_player_id", "_player_url", "_payload_sha256"}
-            }
-            if row.get("_player_url"):
-                raw_values["player_url"] = row["_player_url"]
-            encoded = json.dumps(raw_values, sort_keys=True, separators=(",", ":")).encode()
+            raw_values, payload_sha256 = _source_row_values(collected, row)
             session.add(
                 SourceRecord(
                     organization_id=job.organization_id,
@@ -555,9 +640,7 @@ def _persist_sections(session, job, snapshot, sections):
                     collected_at=collected.collected_at or _utcnow(),
                     parser_version=collected.parser_version,
                     schema_version=collected.schema_version,
-                    payload_sha256=(
-                        row.get("_payload_sha256") or hashlib.sha256(encoded).hexdigest()
-                    ),
+                    payload_sha256=payload_sha256,
                     raw_values=raw_values,
                 )
             )
@@ -924,7 +1007,8 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
 
         matching_keys = {key: None for key in cached_sections}
         matching = _matching_cached_sections(session, job, matching_keys)
-        if snapshot_id and matching.keys() >= {"batting", "pitching"}:
+        reconstructed = ()
+        if snapshot_id and matching:
             stored = {
                 section.section: section
                 for section in session.scalars(
@@ -935,19 +1019,33 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
                     )
                 )
             }
-            return _reconstruct_cached_sections(
+            reconstructed = _reconstruct_cached_sections(
                 session,
                 session.get(ReportSnapshot, snapshot_id),
                 stored,
             )
+        missing = frozenset({"batting", "pitching"} - matching.keys())
+        season_team_id = team_season.source_season_team_id
+        division = team_season.division
+        year = season.year
+
+    if not missing:
+        return reconstructed
 
     try:
-        collection = collect_ncaa_by_id(
-            team_season.source_season_team_id,
-            division=team_season.division,
-            year=season.year,
-            force_refresh=True,
-        )
+        collection_kwargs = {
+            "division": division,
+            "year": year,
+            "force_refresh": True,
+        }
+        if missing != frozenset({"batting", "pitching"}):
+            collection_kwargs["section_names"] = missing
+        collection = collect_ncaa_by_id(season_team_id, **collection_kwargs)
     except NcaaAccessError as exc:
         raise RetryableJobError("source_blocked") from exc
-    return to_collected_sections(collection)
+    fetched = to_collected_sections(collection)
+    if {section.name for section in fetched} != set(missing):
+        raise DeterministicJobError("schema_validation")
+    return tuple(sorted(
+        (*reconstructed, *fetched), key=lambda section: section.name
+    ))

@@ -2183,22 +2183,33 @@ def _source_rows(
     return tuple(output)
 
 
-def _collect_ncaa_team(team: dict, year: int) -> NcaaCollection:
+def _collect_ncaa_team(
+    team: dict,
+    year: int,
+    *,
+    section_names: frozenset[str] | None = None,
+) -> NcaaCollection:
     """Collect one NCAA team without consulting the legacy result cache."""
     season = _find_ncaa_season(year)
     base_url = f"{NCAA_BASE}/teams/{team['season_team_id']}/season_to_date_stats"
-    urls = {
+    all_urls = {
         "batting": f"{base_url}?year_stat_category_id={season['batting_id']}",
         "pitching": f"{base_url}?year_stat_category_id={season['pitching_id']}",
     }
+    selected = frozenset(all_urls) if section_names is None else frozenset(section_names)
+    if not selected or not selected <= all_urls.keys():
+        raise NcaaError("NCAA section selection must contain batting or pitching.")
+    urls = {name: all_urls[name] for name in all_urls if name in selected}
     pages = _fetch_ncaa_pages(urls)
     collected_at = datetime.now(timezone.utc)
-    parsed = {}
+    parsed = {"batting": [], "pitching": []}
     sections = []
     for name, category_id in (
         ("batting", season["batting_id"]),
         ("pitching", season["pitching_id"]),
     ):
+        if name not in selected:
+            continue
         html = pages.get(name)
         if html is None:
             raise NcaaAccessError(f"NCAA did not return the {name} section.")
@@ -2217,12 +2228,12 @@ def _collect_ncaa_team(team: dict, year: int) -> NcaaCollection:
             verified_empty=parse_result.verified_empty,
         ))
 
-    if not parsed["batting"] and not parsed["pitching"]:
+    if selected == frozenset(all_urls) and not parsed["batting"] and not parsed["pitching"]:
         raise NcaaAccessError(
             f"Found '{team['team_name']}' but NCAA has no batting or pitching rows for {year}."
         )
     players = _normalize_ncaa_players(parsed["batting"], parsed["pitching"])
-    if not players:
+    if selected == frozenset(all_urls) and not players:
         raise NcaaAccessError(
             f"NCAA returned stats for '{team['team_name']}', but no players could be parsed."
         )
@@ -2284,6 +2295,7 @@ def collect_ncaa_by_id(
     division=None,
     year: int | None = None,
     force_refresh: bool = True,
+    section_names: frozenset[str] | None = None,
 ) -> NcaaCollection:
     """Return provenance-rich NCAA data for a durable report build."""
     year = year or _current_ncaa_year()
@@ -2294,7 +2306,7 @@ def collect_ncaa_by_id(
     )
     if not force_refresh:
         raise NcaaError("Structured NCAA collection is live-only; force_refresh is required.")
-    return _collect_ncaa_team(team, year)
+    return _collect_ncaa_team(team, year, section_names=section_names)
 
 
 def scrape_ncaa_by_name(
