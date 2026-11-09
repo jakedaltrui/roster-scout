@@ -144,15 +144,21 @@ def run_scheduler(
     purge_health = purge_health or EvidencePurgeHealth()
     cycles = 0
     next_purge_at = None
+    purge_retry_at = None
     while not stop_event.is_set() or cycles == 0:
         cycle_now = clock()
         purge_is_due = purge is not None and (
-            next_purge_at is None or cycle_now >= next_purge_at
+            (purge_retry_at is not None and cycle_now >= purge_retry_at)
+            or (
+                purge_retry_at is None
+                and (next_purge_at is None or cycle_now >= next_purge_at)
+            )
         )
         if purge_is_due:
             try:
                 purged_count = purge(session_factory, now=cycle_now)
             except Exception:
+                purge_retry_at = cycle_now + config.poll_interval
                 readiness = purge_health.readiness(now=cycle_now)
                 logger.error("%s", readiness.alert)
             else:
@@ -162,6 +168,7 @@ def run_scheduler(
                     purged_count=purged_count,
                 )
                 next_purge_at = cycle_now + config.evidence_purge_interval
+                purge_retry_at = None
                 logger.info(
                     "evidence_purge health=fresh purged=%d",
                     purged_count,
@@ -200,10 +207,11 @@ def run_scheduler(
         ):
             break
         wait_seconds = config.poll_interval.total_seconds()
-        if next_purge_at is not None:
+        purge_wakeup_at = purge_retry_at or next_purge_at
+        if purge_wakeup_at is not None:
             until_purge = max(
                 0.0,
-                (next_purge_at - clock()).total_seconds(),
+                (purge_wakeup_at - clock()).total_seconds(),
             )
             wait_seconds = min(wait_seconds, until_purge)
         stop_event.wait(wait_seconds)

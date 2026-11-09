@@ -356,6 +356,37 @@ class EvidencePurgeHealthTests(unittest.TestCase):
         self.assertEqual(health.last_success_at, now)
         self.assertEqual(health.last_purged_count, 4)
 
+    def test_failed_purge_retries_at_poll_interval_without_busy_loop(self):
+        from scripts.run_scheduler import (
+            EvidencePurgeHealth,
+            SchedulerConfig,
+            run_scheduler,
+        )
+
+        start = datetime(2026, 1, 1, tzinfo=UTC)
+        times = iter((start, start, start + timedelta(seconds=7)))
+        stop_event = _RecordingStopEvent()
+        purge = Mock(side_effect=RuntimeError("restricted payload"))
+        run_scheduler(
+            SchedulerConfig.from_environ({
+                "REPORT_DISPATCH_POLL_SECONDS": "7",
+                "REPORT_DISPATCH_LEASE_SECONDS": "45",
+            }),
+            session_factory=object(),
+            dispatch=Mock(),
+            drain=Mock(return_value=_DrainResult()),
+            reconcile=Mock(return_value=_ReconcileResult()),
+            purge=purge,
+            purge_health=EvidencePurgeHealth(),
+            clock=lambda: next(times),
+            stop_event=stop_event,
+            logger=Mock(spec=logging.Logger),
+            max_cycles=2,
+        )
+
+        self.assertEqual(purge.call_count, 2)
+        self.assertEqual(stop_event.waits, [7.0])
+
 
 class EvidencePurgeConfigTests(unittest.TestCase):
     @classmethod
@@ -558,6 +589,15 @@ class _NoWaitStopEvent:
         return False
 
     def wait(self, _seconds):
+        return False
+
+
+class _RecordingStopEvent(_NoWaitStopEvent):
+    def __init__(self):
+        self.waits = []
+
+    def wait(self, seconds):
+        self.waits.append(seconds)
         return False
 
 
