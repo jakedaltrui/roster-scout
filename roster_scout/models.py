@@ -233,8 +233,8 @@ class BattingFact(UUIDPrimaryKey, Base):
     __tablename__ = "batting_facts"
     organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     snapshot_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
-    player_team_season_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
-    source_record_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    player_team_season_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    source_record_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     at_bats: Mapped[int | None] = mapped_column(Integer)
     hits: Mapped[int | None] = mapped_column(Integer)
     walks: Mapped[int | None] = mapped_column(Integer)
@@ -268,8 +268,8 @@ class PitchingFact(UUIDPrimaryKey, Base):
     __tablename__ = "pitching_facts"
     organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     snapshot_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
-    player_team_season_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
-    source_record_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    player_team_season_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    source_record_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     innings_outs: Mapped[int | None] = mapped_column(Integer)
     hits_allowed: Mapped[int | None] = mapped_column(Integer)
     earned_runs: Mapped[int | None] = mapped_column(Integer)
