@@ -2,10 +2,14 @@
 
 import copy
 import json
+import logging
 import subprocess
+import threading
 import tomllib
 import unittest
+from dataclasses import dataclass
 from pathlib import Path
+from unittest.mock import Mock
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -147,6 +151,137 @@ class BrowserlessCapacityConfigTests(unittest.TestCase):
         self.assertNotIn("postgresql://", source)
         self.assertNotIn("postgresql+psycopg://", source)
         self.assertNotIn("redis://", source)
+
+
+class DispatchSchedulerEntrypointTests(unittest.TestCase):
+    def test_valid_configuration_invokes_bounded_service_boundary(self):
+        from scripts.run_scheduler import SchedulerConfig, run_scheduler
+
+        config = SchedulerConfig.from_environ({
+            "REPORT_DISPATCH_POLL_SECONDS": "7",
+            "REPORT_DISPATCH_LEASE_SECONDS": "45",
+            "REPORT_QUEUED_REDISPATCH_SECONDS": "180",
+            "REPORT_RUNNING_STALE_SECONDS": "900",
+        })
+        session_factory = object()
+        drain = Mock(return_value=_DrainResult(claimed=2, published=1, released=1))
+        reconcile = Mock(
+            return_value=_ReconcileResult(reopened=3, closed=4, active=1)
+        )
+        dispatch = Mock()
+
+        run_scheduler(
+            config,
+            session_factory=session_factory,
+            dispatch=dispatch,
+            drain=drain,
+            reconcile=reconcile,
+            stop_event=threading.Event(),
+            max_cycles=1,
+        )
+
+        reconcile.assert_called_once_with(
+            session_factory,
+            queued_timeout=config.queued_redispatch_deadline,
+            running_timeout=config.running_stale_threshold,
+        )
+        drain.assert_called_once_with(
+            session_factory,
+            dispatch=dispatch,
+            limit=10,
+            lease_duration=config.dispatch_lease_duration,
+            redispatch_delay=config.queued_redispatch_deadline,
+            failure_backoff=config.poll_interval,
+        )
+
+    def test_invalid_timing_values_fail_before_startup(self):
+        from scripts.run_scheduler import SchedulerConfig
+
+        variables = (
+            "REPORT_DISPATCH_POLL_SECONDS",
+            "REPORT_DISPATCH_LEASE_SECONDS",
+            "REPORT_QUEUED_REDISPATCH_SECONDS",
+            "REPORT_RUNNING_STALE_SECONDS",
+        )
+        for variable in variables:
+            with self.subTest(variable=variable):
+                with self.assertRaisesRegex(ValueError, variable):
+                    SchedulerConfig.from_environ({variable: "0"})
+                with self.assertRaisesRegex(ValueError, variable):
+                    SchedulerConfig.from_environ({variable: "not-a-number"})
+
+        with self.assertRaisesRegex(ValueError, "must not exceed"):
+            SchedulerConfig.from_environ({
+                "REPORT_DISPATCH_POLL_SECONDS": "120",
+                "REPORT_DISPATCH_LEASE_SECONDS": "60",
+            })
+        with self.assertRaisesRegex(ValueError, "must be less than"):
+            SchedulerConfig.from_environ({
+                "REPORT_QUEUED_REDISPATCH_SECONDS": "900",
+                "REPORT_RUNNING_STALE_SECONDS": "600",
+            })
+
+    def test_shutdown_finishes_in_flight_cycle_before_stopping(self):
+        from scripts.run_scheduler import SchedulerConfig, run_scheduler
+
+        stop_event = threading.Event()
+        calls = []
+
+        def reconcile(*args, **kwargs):
+            calls.append("reconcile-start")
+            stop_event.set()
+            calls.append("reconcile-commit")
+            return _ReconcileResult()
+
+        def drain(*args, **kwargs):
+            calls.append("drain")
+            return _DrainResult()
+
+        run_scheduler(
+            SchedulerConfig.from_environ({}),
+            session_factory=object(),
+            dispatch=Mock(),
+            drain=drain,
+            reconcile=reconcile,
+            stop_event=stop_event,
+        )
+
+        self.assertEqual(calls, ["reconcile-start", "reconcile-commit", "drain"])
+
+    def test_logs_only_safe_counts_and_health(self):
+        from scripts.run_scheduler import SchedulerConfig, run_scheduler
+
+        logger = Mock(spec=logging.Logger)
+        secret = "redis://user:password@example.invalid/customer-payload"
+        run_scheduler(
+            SchedulerConfig.from_environ({}),
+            session_factory=object(),
+            dispatch=Mock(),
+            drain=Mock(side_effect=RuntimeError(secret)),
+            reconcile=Mock(return_value=_ReconcileResult()),
+            stop_event=threading.Event(),
+            logger=logger,
+            max_cycles=1,
+        )
+
+        rendered = " ".join(str(call) for call in logger.method_calls)
+        self.assertNotIn(secret, rendered)
+        self.assertNotIn("customer-payload", rendered)
+        self.assertIn("degraded", rendered)
+
+
+@dataclass(frozen=True)
+class _DrainResult:
+    claimed: int = 0
+    published: int = 0
+    released: int = 0
+
+
+@dataclass(frozen=True)
+class _ReconcileResult:
+    reopened: int = 0
+    closed: int = 0
+    active: int = 0
 
 
 if __name__ == "__main__":
