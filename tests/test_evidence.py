@@ -138,5 +138,115 @@ class FailedCollectionEvidenceTests(PostgreSQLJobTestCase):
         self.assertEqual(evidence[0].compressed_html, evidence[1].compressed_html)
 
 
+class SafeSourceUrlTests(unittest.TestCase):
+    def test_credentials_queries_fragments_and_invalid_authorities(self):
+        from roster_scout.evidence import _safe_source_url
+
+        cases = {
+            "https://user:pass@example.com:8443/path?q=x#frag": (
+                "https://example.com:8443/path"
+            ),
+            "https://user%40mail:pass%3Aword@example.com/path?token=secret#private": (
+                "https://example.com/path"
+            ),
+            "http://192.0.2.10:8080/stats?q=1": "http://192.0.2.10:8080/stats",
+            "https://[2001:db8::1]/stats#section": "https://[2001:db8::1]/stats",
+            "https://[2001:db8::1]:8443/stats?q=1": (
+                "https://[2001:db8::1]:8443/stats"
+            ),
+            "ftp://user:pass@example.com/file": None,
+            "https:///missing-host": None,
+            "https://example.com:not-a-port/path": None,
+            "https://example.com:99999/path": None,
+            "https://[broken/path": None,
+            "not a URL": None,
+        }
+        for source_url, expected in cases.items():
+            with self.subTest(source_url=source_url):
+                self.assertEqual(_safe_source_url(source_url), expected)
+                if expected is not None:
+                    self.assertNotIn("@", expected)
+                    self.assertNotIn("?", expected)
+                    self.assertNotIn("#", expected)
+                    self.assertNotIn("user", expected)
+                    self.assertNotIn("pass", expected)
+
+
+class SafeEvidenceMetadataTests(PostgreSQLJobTestCase):
+    def test_persisted_failure_metadata_is_allowlisted(self):
+        from roster_scout.evidence import store_failure_evidence
+        from roster_scout.jobs import accept_report_job
+        from roster_scout.models import FailureEvidence, ReportJob
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            "safe-evidence-metadata",
+            dispatch=None,
+        )
+        with self.Session.begin() as session:
+            session.get(ReportJob, job.id).status = "blocked"
+        collected_at = datetime(2026, 11, 9, 14, 30, tzinfo=UTC)
+        evidence_id = store_failure_evidence(
+            self.Session,
+            job.id,
+            section="batting",
+            source_url=(
+                "https://proxy-user:proxy-password@example.com:8443/stats"
+                "?token=customer-secret#raw-fragment"
+            ),
+            html="<html>customer-secret raw failure body</html>",
+            failure_category="source_blocked",
+            collected_at=collected_at,
+        )
+
+        with self.Session() as session:
+            evidence = session.get(FailureEvidence, evidence_id)
+            metadata = {
+                "id": evidence.id,
+                "organization_id": evidence.organization_id,
+                "job_id": evidence.job_id,
+                "sha256": evidence.sha256,
+                "section": evidence.section,
+                "source_url": evidence.source_url,
+                "failure_category": evidence.failure_category,
+                "collected_at": evidence.collected_at,
+                "expires_at": evidence.expires_at,
+                "purged_at": evidence.purged_at,
+                "created_at": evidence.created_at,
+            }
+
+        self.assertEqual(
+            set(metadata),
+            {
+                "id",
+                "organization_id",
+                "job_id",
+                "sha256",
+                "section",
+                "source_url",
+                "failure_category",
+                "collected_at",
+                "expires_at",
+                "purged_at",
+                "created_at",
+            },
+        )
+        self.assertEqual(metadata["source_url"], "https://example.com:8443/stats")
+        serialized = " ".join(str(value) for value in metadata.values())
+        for unsafe in (
+            "proxy-user",
+            "proxy-password",
+            "customer-secret",
+            "raw-fragment",
+            "<html>",
+            "?token=",
+            "#",
+        ):
+            self.assertNotIn(unsafe, serialized)
+
+
 if __name__ == "__main__":
     unittest.main()
