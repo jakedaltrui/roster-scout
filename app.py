@@ -18,7 +18,7 @@ from PIL import Image, ImageDraw, UnidentifiedImageError
 from flask import Flask, jsonify, render_template, request, send_file
 from werkzeug.exceptions import RequestEntityTooLarge
 from xlsxwriter.utility import xl_pixel_width
-from usage_limits import BrowserCapacityExceeded, check_request_limit
+from usage_limits import BrowserCapacityError, check_request_limit
 
 from roster_scraper import (
     HITTER_HEADERS,
@@ -258,7 +258,7 @@ def scrape():
         response.headers["X-Roster-Scout-Pitchers"] = str(len(pitchers))
         return response
 
-    except BrowserCapacityExceeded as exc:
+    except BrowserCapacityError as exc:
         response = jsonify({"error": str(exc)})
         response.status_code = 503
         response.headers["Retry-After"] = "30"

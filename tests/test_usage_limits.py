@@ -3,6 +3,7 @@
 import multiprocessing
 import os
 import tempfile
+import time
 import unittest
 import uuid
 from unittest.mock import patch
@@ -42,6 +43,22 @@ def _capacity_contender(
         result_queue.put((role, "capacity-exceeded"))
     except Exception as exc:  # pragma: no cover - surfaced to the parent assertion
         result_queue.put((role, "error", type(exc).__name__, str(exc)))
+
+
+def _crash_capacity_holder(database_url, namespace, cache_dir, result_queue):
+    """Hold a lease until the parent terminates this process."""
+    os.environ.update({
+        "DATABASE_URL": database_url,
+        "BROWSERLESS_CAPACITY_BACKEND": "postgresql",
+        "BROWSERLESS_CAPACITY_NAMESPACE": namespace,
+        "BROWSERLESS_ACCOUNT_MAX_SESSIONS": "1",
+        "ROSTER_SCOUT_CACHE_DIR": cache_dir,
+    })
+    from usage_limits import browserless_slot
+
+    with browserless_slot():
+        result_queue.put(("crashed-holder", "acquired"))
+        time.sleep(30)
 
 
 class DistributedBrowserlessCapacityTests(unittest.TestCase):
@@ -110,20 +127,15 @@ class DistributedBrowserlessCapacityTests(unittest.TestCase):
             self.assertEqual(process.exitcode, 0)
 
     def test_process_loss_releases_slot_without_cleanup(self):
-        release = self.context.Event()
         results = self.context.Queue()
         opener_count = self.context.Value("i", 0)
         holder = self.context.Process(
-            target=_capacity_contender,
+            target=_crash_capacity_holder,
             args=(
                 self.database_url,
-                "crashed-holder",
                 self.namespace_value,
-                1,
                 os.path.join(self.temp_dir.name, "crash-machine"),
-                release,
                 results,
-                opener_count,
             ),
         )
         holder.start()
@@ -132,7 +144,8 @@ class DistributedBrowserlessCapacityTests(unittest.TestCase):
         holder.join(10)
         self.assertIsNotNone(holder.exitcode)
 
-        release.set()
+        replacement_release = self.context.Event()
+        replacement_release.set()
         replacement = self.context.Process(
             target=_capacity_contender,
             args=(
@@ -141,7 +154,7 @@ class DistributedBrowserlessCapacityTests(unittest.TestCase):
                 self.namespace_value,
                 1,
                 os.path.join(self.temp_dir.name, "replacement-machine"),
-                release,
+                replacement_release,
                 results,
                 opener_count,
             ),
@@ -171,6 +184,51 @@ class DistributedBrowserlessCapacityTests(unittest.TestCase):
                 with browserless_slot():
                     self.fail("uncoordinated local fallback opened Browserless")
         self.assertNotIn("secret", str(raised.exception))
+
+    def test_capacity_backend_failure_returns_sanitized_http_response(self):
+        import app as app_module
+        from usage_limits import BrowserCapacityUnavailable
+
+        app_module.app.config.update(TESTING=True)
+        with patch.object(app_module, "check_request_limit", return_value=0), patch.object(
+            app_module,
+            "scrape_ncaa_by_name",
+            side_effect=BrowserCapacityUnavailable(
+                "Browserless capacity service is unavailable. Please try again shortly."
+            ),
+        ):
+            response = app_module.app.test_client().post(
+                "/scrape",
+                json={"team": "Tampa", "division": "d1"},
+            )
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.headers["Retry-After"], "30")
+        self.assertEqual(
+            response.get_json(),
+            {
+                "error": (
+                    "Browserless capacity service is unavailable. "
+                    "Please try again shortly."
+                )
+            },
+        )
+
+    def test_worker_concurrency_cannot_exceed_account_capacity(self):
+        from scripts.run_worker import worker_command
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "CELERY_WORKER_CONCURRENCY cannot exceed",
+        ):
+            worker_command({
+                "CELERY_WORKER_CONCURRENCY": "2",
+                "BROWSERLESS_ACCOUNT_MAX_SESSIONS": "1",
+            })
+        command = worker_command({
+            "CELERY_WORKER_CONCURRENCY": "2",
+            "BROWSERLESS_ACCOUNT_MAX_SESSIONS": "2",
+        })
+        self.assertEqual(command[-2:], ["--concurrency", "2"])
 
     def setUp(self):
         self.namespace_value = self.namespace()
