@@ -228,7 +228,7 @@ class TransactionalOutboxTests(PostgreSQLJobTestCase):
         job = accept_report_job(
             self.Session, organization_id, report_id, "claim-race", dispatch=None
         )
-        now = datetime(2026, 11, 9, 12, 0, tzinfo=UTC)
+        now = datetime.now(UTC) + timedelta(seconds=1)
         ready = threading.Barrier(2)
         outcomes = []
         errors = []

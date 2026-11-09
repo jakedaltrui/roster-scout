@@ -5,7 +5,7 @@ import json
 import os
 import uuid
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
@@ -30,6 +30,12 @@ from .models import (
     TeamSeason,
 )
 from .snapshots import SnapshotPublicationError, publish_snapshot
+from .repositories import (
+    acknowledge_report_dispatch,
+    claim_report_dispatches,
+    ensure_report_dispatch,
+    release_report_dispatch,
+)
 
 
 TERMINAL_JOB_STATUSES = frozenset({"ready", "partial", "failed", "blocked"})
@@ -131,7 +137,9 @@ def create_or_get_job(session, organization_id, report_id, idempotency_key):
     )
     inserted_id = session.scalar(statement)
     if inserted_id is not None:
-        return session.get(ReportJob, inserted_id)
+        job = session.get(ReportJob, inserted_id)
+        ensure_report_dispatch(session, job)
+        return job
     job = session.scalar(
         select(ReportJob)
         .where(
@@ -146,6 +154,7 @@ def create_or_get_job(session, organization_id, report_id, idempotency_key):
         raise RuntimeError("idempotent job conflict was not visible")
     if job.report_id != report_id:
         raise ValueError("idempotency_key is already bound to another report")
+    ensure_report_dispatch(session, job)
     return job
 
 
@@ -157,11 +166,7 @@ def accept_report_job(
     *,
     dispatch,
 ):
-    """Commit acceptance before best-effort broker publication.
-
-    A failed broker handoff deliberately leaves ``enqueued_at`` null so a
-    repeated accepted request can dispatch the same durable row.
-    """
+    """Atomically accept a job and durable dispatch intent, then publish a lease."""
     with session_factory.begin() as session:
         job = create_or_get_job(
             session, organization_id, report_id, idempotency_key
@@ -171,28 +176,33 @@ def accept_report_job(
         with session_factory() as session:
             return session.get(ReportJob, job_id)
 
-    with session_factory() as session:
-        stored = session.get(ReportJob, job_id)
-        should_dispatch = (
-            stored.status not in TERMINAL_JOB_STATUSES and stored.enqueued_at is None
+    with session_factory.begin() as session:
+        leases = claim_report_dispatches(
+            session,
+            limit=1,
+            job_id=job_id,
+            lease_duration=timedelta(seconds=60),
         )
-    if should_dispatch:
+    for lease in leases:
         try:
-            message = dispatch(str(job_id))
+            message = dispatch(str(lease.job_id))
         except Exception:
-            # Broker details may include credentials or topology and are never
-            # persisted as customer-visible failure state.
-            pass
-        else:
             with session_factory.begin() as session:
-                stored = session.scalar(
-                    select(ReportJob)
-                    .where(ReportJob.id == job_id)
-                    .with_for_update()
+                release_report_dispatch(
+                    session,
+                    lease,
+                    next_attempt_at=_utcnow(),
                 )
-                if stored.enqueued_at is None:
-                    stored.enqueued_at = _utcnow()
-                    stored.broker_message_id = str(message.id)
+        else:
+            now = _utcnow()
+            with session_factory.begin() as session:
+                acknowledge_report_dispatch(
+                    session,
+                    lease,
+                    broker_message_id=message.id,
+                    now=now,
+                    redispatch_after=now + timedelta(minutes=5),
+                )
     with session_factory() as session:
         return session.get(ReportJob, job_id)
 

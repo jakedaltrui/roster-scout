@@ -371,6 +371,74 @@ class ReportJob(UUIDPrimaryKey, Timestamped, Base):
     )
 
 
+class ReportJobDispatch(UUIDPrimaryKey, Timestamped, Base):
+    __tablename__ = "report_job_dispatch_outbox"
+    organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    job_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pending", server_default="pending"
+    )
+    message_id: Mapped[str] = mapped_column(
+        String(100), nullable=False, default=lambda: str(uuid.uuid4())
+    )
+    lease_token: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    leased_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
+    lease_expires_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
+    next_attempt_at: Mapped[object] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    publish_attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    acknowledged_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
+    redispatch_after: Mapped[object | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[object] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["job_id", "organization_id"],
+            ["report_jobs.id", "report_jobs.organization_id"],
+            name="fk_report_job_dispatch_job_organization",
+            ondelete="CASCADE",
+        ),
+        CheckConstraint(
+            _allowed(
+                "status", ("pending", "leased", "acknowledged", "closed")
+            ),
+            name="ck_report_job_dispatch_status",
+        ),
+        CheckConstraint(
+            "publish_attempts >= 0",
+            name="ck_report_job_dispatch_publish_attempts_nonnegative",
+        ),
+        CheckConstraint(
+            "(status = 'leased' AND lease_token IS NOT NULL "
+            "AND lease_expires_at IS NOT NULL) OR "
+            "(status <> 'leased' AND lease_token IS NULL "
+            "AND lease_expires_at IS NULL)",
+            name="ck_report_job_dispatch_lease_state",
+        ),
+        Index(
+            "uq_report_job_dispatch_active_job",
+            "job_id",
+            unique=True,
+            postgresql_where=text(
+                "status IN ('pending', 'leased', 'acknowledged')"
+            ),
+        ),
+        Index(
+            "ix_report_job_dispatch_due",
+            "status",
+            "next_attempt_at",
+            "lease_expires_at",
+        ),
+        Index(
+            "ix_report_job_dispatch_organization", "organization_id", "job_id"
+        ),
+    )
+
+
 class ReportArtifact(UUIDPrimaryKey, Timestamped, Base):
     __tablename__ = "report_artifacts"
     organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
