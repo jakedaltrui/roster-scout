@@ -1,11 +1,14 @@
 """Fixture-to-PostgreSQL publication coverage for NCAA D1, D2, and D3."""
 
+import threading
 import unittest
 import uuid
+from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 
 import roster_scraper as rs
 from tests.db_support import clean_database, require_test_database_url, upgrade_database
@@ -255,6 +258,268 @@ class CanonicalPublishTests(unittest.TestCase):
         self.assertNotEqual(second.id, first_snapshot.id)
         with self.Session() as session:
             self.assertEqual(session.scalar(select(func.count()).select_from(ReportSnapshot)), 2)
+
+
+class SharedRecordPublishCase(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.database_url = require_test_database_url()
+        upgrade_database(cls.database_url)
+        from roster_scout.database import create_session_factory, get_engine
+
+        cls.engine = get_engine(cls.database_url)
+        cls.Session = create_session_factory(cls.engine)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.engine.dispose()
+
+    def setUp(self):
+        clean_database(self.database_url)
+
+    def seed_jobs(self, count=2):
+        from roster_scout.jobs import accept_report_job
+        from roster_scout.models import Organization, Report, Season, Team, TeamSeason
+
+        with self.Session.begin() as session:
+            team = Team(source="ncaa", source_team_id="shared-team", name="Shared Team")
+            season = Season(source="ncaa", source_season_id="shared-season", year=2026)
+            session.add_all([team, season])
+            session.flush()
+            team_season = TeamSeason(
+                team_id=team.id,
+                season_id=season.id,
+                source_season_team_id="shared-team-season",
+                division="1",
+                batting_stat_category_id="batting-category",
+                pitching_stat_category_id="pitching-category",
+            )
+            session.add(team_season)
+            session.flush()
+            job_inputs = []
+            for index in range(count):
+                organization = Organization(name=f"Organization {index}")
+                session.add(organization)
+                session.flush()
+                report = Report(
+                    organization_id=organization.id,
+                    team_season_id=team_season.id,
+                    name=f"Shared Team 2026 ({index})",
+                )
+                session.add(report)
+                session.flush()
+                job_inputs.append((organization.id, report.id))
+        return [
+            accept_report_job(
+                self.Session,
+                organization_id,
+                report_id,
+                f"shared-{index}-{uuid.uuid4().hex}",
+                dispatch=None,
+            )
+            for index, (organization_id, report_id) in enumerate(job_inputs)
+        ]
+
+    @staticmethod
+    def sections(display_name="Alex Smith", player_id="shared-player"):
+        from roster_scout.jobs import CollectedSection
+
+        collected_at = datetime(2026, 11, 8, 12, 0, tzinfo=UTC)
+        common = {
+            "critical": True,
+            "verified_empty": False,
+            "source_url": "https://stats.ncaa.org/shared",
+            "source_team_id": "shared-team",
+            "source_season_id": "shared-season",
+            "source_season_team_id": "shared-team-season",
+            "collected_at": collected_at,
+            "parser_version": "parser-1",
+            "schema_version": "schema-1",
+        }
+        return (
+            CollectedSection(
+                name="batting",
+                rows=({
+                    "Player": display_name,
+                    "AB": "10",
+                    "H": "4",
+                    "BB": "1",
+                    "K": "2",
+                    "AVG": ".400",
+                    "_player_id": player_id,
+                },),
+                source_stat_category_id="batting-category",
+                **common,
+            ),
+            CollectedSection(
+                name="pitching",
+                rows=({
+                    "Player": display_name,
+                    "IP": "3.0",
+                    "H": "2",
+                    "ER": "1",
+                    "BB": "1",
+                    "SO": "4",
+                    "ERA": "3.00",
+                    "_player_id": player_id,
+                },),
+                source_stat_category_id="pitching-category",
+                **common,
+            ),
+        )
+
+    def run_jobs(self, jobs, sections):
+        from roster_scout.jobs import run_report_job
+
+        start = threading.Barrier(len(jobs))
+
+        def publish(job):
+            start.wait(timeout=10)
+            return run_report_job(
+                self.Session,
+                job.id,
+                collector=lambda *args, **kwargs: sections,
+            )
+
+        with ThreadPoolExecutor(max_workers=len(jobs)) as executor:
+            return list(executor.map(publish, jobs))
+
+
+class ConcurrentSharedRecordTests(SharedRecordPublishCase):
+    def _assert_shared_rows(self, jobs, snapshots):
+        from roster_scout.models import MetricDefinition, Player, ReportJob
+
+        self.assertEqual([snapshot.status for snapshot in snapshots], ["ready", "ready"])
+        with self.Session() as session:
+            self.assertEqual(session.scalar(select(func.count()).select_from(Player)), 1)
+            self.assertEqual(
+                session.scalar(
+                    select(func.count()).select_from(MetricDefinition).where(
+                        MetricDefinition.code == "AVG"
+                    )
+                ),
+                1,
+            )
+            self.assertEqual(
+                session.scalar(
+                    select(func.count()).select_from(MetricDefinition).where(
+                        MetricDefinition.code == "ERA"
+                    )
+                ),
+                1,
+            )
+            stored_jobs = [session.get(ReportJob, job.id) for job in jobs]
+            self.assertEqual([job.failure_category for job in stored_jobs], [None, None])
+
+    def test_concurrent_player_creation_converges_without_unique_key_failure(self):
+        from roster_scout.models import Player
+
+        jobs = self.seed_jobs()
+        rendezvous = threading.Barrier(2)
+
+        def synchronize_legacy_player_flush(session, *_args):
+            if any(isinstance(item, Player) for item in session.new):
+                rendezvous.wait(timeout=10)
+
+        event.listen(self.Session.class_, "before_flush", synchronize_legacy_player_flush)
+        try:
+            snapshots = self.run_jobs(jobs, self.sections())
+        finally:
+            event.remove(self.Session.class_, "before_flush", synchronize_legacy_player_flush)
+        self._assert_shared_rows(jobs, snapshots)
+
+    def test_concurrent_metric_definition_creation_converges(self):
+        from roster_scout.models import MetricDefinition, Player
+
+        with self.Session.begin() as session:
+            session.add(
+                Player(
+                    source="ncaa",
+                    source_player_id="shared-player",
+                    display_name="Alex Smith",
+                )
+            )
+        jobs = self.seed_jobs()
+        rendezvous = threading.Barrier(2)
+        synchronized_sessions = set()
+        synchronized_sessions_lock = threading.Lock()
+
+        def synchronize_legacy_definition_flush(session, *_args):
+            if not any(isinstance(item, MetricDefinition) for item in session.new):
+                return
+            with synchronized_sessions_lock:
+                if id(session) in synchronized_sessions:
+                    return
+                synchronized_sessions.add(id(session))
+            rendezvous.wait(timeout=10)
+
+        event.listen(
+            self.Session.class_, "before_flush", synchronize_legacy_definition_flush
+        )
+        try:
+            snapshots = self.run_jobs(jobs, self.sections())
+        finally:
+            event.remove(
+                self.Session.class_, "before_flush", synchronize_legacy_definition_flush
+            )
+        self._assert_shared_rows(jobs, snapshots)
+
+
+class AuthoritativeIdentityTests(SharedRecordPublishCase):
+    def test_materially_conflicting_name_fails_closed_and_preserves_source_row(self):
+        from roster_scout.jobs import DeterministicJobError, run_report_job
+        from roster_scout.models import ReportJob, ReportSnapshot, SourceRecord
+
+        first, conflicting = self.seed_jobs()
+        first_snapshot = run_report_job(
+            self.Session,
+            first.id,
+            collector=lambda *args, **kwargs: self.sections("Alex Smith"),
+        )
+        self.assertEqual(first_snapshot.status, "ready")
+
+        with self.assertRaises(DeterministicJobError) as raised:
+            run_report_job(
+                self.Session,
+                conflicting.id,
+                collector=lambda *args, **kwargs: self.sections("Jordan Jones"),
+            )
+        self.assertEqual(raised.exception.category, "identity_conflict")
+        with self.Session() as session:
+            stored_job = session.get(ReportJob, conflicting.id)
+            self.assertEqual(stored_job.status, "failed")
+            self.assertEqual(stored_job.failure_category, "identity_conflict")
+            snapshot = session.get(ReportSnapshot, stored_job.result_snapshot_id)
+            self.assertEqual(snapshot.status, "draft")
+            self.assertIsNone(snapshot.published_at)
+            sources = list(
+                session.scalars(
+                    select(SourceRecord).where(SourceRecord.snapshot_id == snapshot.id)
+                )
+            )
+            self.assertEqual(len(sources), 2)
+            self.assertEqual(
+                {source.raw_values["Player"] for source in sources}, {"Jordan Jones"}
+            )
+
+    def test_case_and_whitespace_equivalent_name_reuses_authoritative_player(self):
+        from roster_scout.jobs import run_report_job
+        from roster_scout.models import Player
+
+        first, benign = self.seed_jobs()
+        run_report_job(
+            self.Session,
+            first.id,
+            collector=lambda *args, **kwargs: self.sections("Alex Smith"),
+        )
+        snapshot = run_report_job(
+            self.Session,
+            benign.id,
+            collector=lambda *args, **kwargs: self.sections("  ALEX   smith  "),
+        )
+        self.assertEqual(snapshot.status, "ready")
+        with self.Session() as session:
+            self.assertEqual(session.scalar(select(func.count()).select_from(Player)), 1)
 
 
 if __name__ == "__main__":
