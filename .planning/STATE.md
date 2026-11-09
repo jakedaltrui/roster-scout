@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-10-PLAN.md
-last_updated: "2026-11-09T02:52:49.296Z"
-last_activity: 2026-11-09 -- Completed 01-10 distributed capacity and secure local bindings
+stopped_at: Completed 01-05-PLAN.md
+last_updated: "2026-11-09T20:07:07.838Z"
+last_activity: 2026-11-09 -- Completed 01-05 concurrency-safe canonical publication
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 13
-  completed_plans: 5
-  percent: 38
+  completed_plans: 6
+  percent: 46
 ---
 
 # Project State
@@ -26,25 +26,25 @@ See: `.planning/PROJECT.md` (updated 2026-11-01)
 ## Current Position
 
 Phase: 01 (canonical-snapshot-foundation) — EXECUTING
-Plan: 5 of 13
+Plan: 6 of 13
 Status: Ready to execute
-Last activity: 2026-11-09 -- Completed 01-10 distributed capacity and secure local bindings
+Last activity: 2026-11-09 -- Completed 01-05 concurrency-safe canonical publication
 
-Progress: [████░░░░░░] 38%
+Progress: [█████░░░░░] 46%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 5
-- Average duration: 8 min
-- Total execution time: 39 min
+- Total plans completed: 6
+- Average duration: 2h 28m
+- Total execution time: 14h 47m
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |---|---:|---:|---:|
-| 1. Canonical Snapshot Foundation | 5 | 39 min | 8 min |
+| 1. Canonical Snapshot Foundation | 6 | 14h 47m | 2h 28m |
 
 **Plan History:**
 
@@ -55,6 +55,7 @@ Progress: [████░░░░░░] 38%
 | 01 | 03 | 6 min | 3 | 9 |
 | 01 | 04 | 11 min | 2 | 6 |
 | 01 | 10 | 11 min | 3 | 9 |
+| 01 | 05 | 14h 8m | 2 | 7 |
 
 ## Accumulated Context
 
@@ -80,6 +81,8 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 01]: Hosted app and worker processes share one PostgreSQL advisory-lock namespace and account-wide Browserless limit.
 - [Phase 01]: Each Browserless lease owns a dedicated database connection so normal exit, connection loss, and process loss release capacity.
 - [Phase 01]: Production retains one worker machine by default even though the database lease enforces aggregate capacity across machines.
+- [Phase 01]: Authoritative NCAA players and metric definitions resolve through PostgreSQL conflict-safe inserts followed by scoped reselects. — Concurrent valid jobs converge without unique-key failure.
+- [Phase 01]: Snapshot readiness requires exact snapshot-owned source, identity, and typed-fact traceability. — Section flags alone cannot prove canonical completeness.
 
 ### Pending Todos
 
@@ -102,6 +105,6 @@ Full decision log: `.planning/PROJECT.md`.
 
 ## Session Continuity
 
-Last session: 2026-11-09T02:52:49.282Z
-Stopped at: Completed 01-10-PLAN.md
+Last session: 2026-11-09T20:07:07.831Z
+Stopped at: Completed 01-05-PLAN.md
 Resume file: None
