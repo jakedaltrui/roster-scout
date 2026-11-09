@@ -393,6 +393,92 @@ def _load_cached_sections(session, job, snapshot):
     }
 
 
+def _matching_cached_sections(session, job, cached):
+    """Return complete current-version sections for this exact job source."""
+    report = session.get(Report, job.report_id)
+    team_season = session.get(TeamSeason, report.team_season_id)
+    team = session.get(Team, team_season.team_id)
+    season = session.get(Season, team_season.season_id)
+    expected_categories = {
+        "batting": team_season.batting_stat_category_id,
+        "pitching": team_season.pitching_stat_category_id,
+    }
+    return {
+        key.section: section
+        for key, section in cached.items()
+        if key.job_id == job.id
+        and key.section in expected_categories
+        and key.source_team_id == team.source_team_id
+        and key.source_season_id == season.source_season_id
+        and key.source_season_team_id == team_season.source_season_team_id
+        and key.source_stat_category_id == expected_categories[key.section]
+        and key.schema_version == SCHEMA_VERSION
+        and key.parser_version == PARSER_VERSION
+    }
+
+
+def _reconstruct_cached_sections(session, snapshot, matching):
+    """Rebuild immutable collected sections from their exact source records."""
+    if not matching:
+        return ()
+    records = list(
+        session.scalars(
+            select(SourceRecord).where(
+                SourceRecord.snapshot_id == snapshot.id,
+                SourceRecord.section.in_(tuple(matching)),
+            )
+        )
+    )
+    by_section = {}
+    for record in records:
+        by_section.setdefault(record.section, []).append(record)
+
+    reconstructed = []
+    for name in sorted(matching):
+        section = matching[name]
+        section_records = sorted(
+            by_section.get(name, ()), key=lambda item: item.row_ordinal
+        )
+        if [record.row_ordinal for record in section_records] != list(
+            range(section.row_count)
+        ):
+            raise DeterministicJobError("schema_validation")
+        if bool(section.row_count) == bool(section.verified_empty):
+            raise DeterministicJobError("schema_validation")
+        for record in section_records:
+            if (
+                record.source_url != section.source_url
+                or record.source_team_id != section.source_team_id
+                or record.source_season_id != section.source_season_id
+                or record.source_season_team_id != section.source_season_team_id
+                or record.source_stat_category_id != section.source_stat_category_id
+                or record.collected_at != section.collected_at
+                or record.parser_version != section.parser_version
+                or record.schema_version != section.schema_version
+            ):
+                raise DeterministicJobError("schema_validation")
+        reconstructed.append(CollectedSection(
+            name=section.section,
+            critical=section.critical,
+            rows=tuple({
+                **record.raw_values,
+                "_player_id": record.source_player_id,
+                "_player_url": record.raw_values.get("player_url"),
+                "_payload_sha256": record.payload_sha256,
+            } for record in section_records),
+            verified_empty=section.verified_empty,
+            source_url=section.source_url,
+            source_team_id=section.source_team_id,
+            source_season_id=section.source_season_id,
+            source_season_team_id=section.source_season_team_id,
+            source_stat_category_id=section.source_stat_category_id,
+            collected_at=section.collected_at,
+            parser_version=section.parser_version,
+            schema_version=section.schema_version,
+        ))
+    return tuple(reconstructed)
+
+
 def _persist_sections(session, job, snapshot, sections):
     existing = {
         section.section: section
@@ -737,6 +823,7 @@ def run_report_job(session_factory, job_id, *, collector):
 
         claimed_sessions = claim.session_factory
         exhausted = False
+        recovered_sections = ()
         with claimed_sessions.begin() as session:
             job = session.scalar(
                 select(ReportJob).where(ReportJob.id == job_id).with_for_update()
@@ -749,17 +836,26 @@ def run_report_job(session_factory, job_id, *, collector):
                 return session.get(ReportSnapshot, job.result_snapshot_id)
             if job.status in {"failed", "blocked"}:
                 raise DeterministicJobError(job.failure_category or "unexpected")
-            if job.attempt_count >= job.max_attempts:
+            snapshot = _new_or_existing_snapshot(session, job)
+            cached = _load_cached_sections(session, job, snapshot)
+            matching = _matching_cached_sections(session, job, cached)
+            if matching.keys() >= {"batting", "pitching"}:
+                recovered_sections = _reconstruct_cached_sections(
+                    session, snapshot, matching
+                )
+                job.status = "running"
+                job.started_at = job.started_at or _utcnow()
+                job.failure_category = None
+                job.failure_message = None
+                close_report_dispatches(session, job.id)
+            elif job.attempt_count >= job.max_attempts:
                 job.status = "failed"
                 job.failure_category = "retry_exhausted"
                 job.failure_message = SAFE_FAILURE_MESSAGES["retry_exhausted"]
                 job.finished_at = _utcnow()
                 close_report_dispatches(session, job.id)
                 exhausted = True
-                cached = {}
             else:
-                snapshot = _new_or_existing_snapshot(session, job)
-                cached = _load_cached_sections(session, job, snapshot)
                 job.status = "running"
                 job.attempt_count += 1
                 job.started_at = _utcnow()
@@ -770,7 +866,9 @@ def run_report_job(session_factory, job_id, *, collector):
             raise DeterministicJobError("retry_exhausted")
 
         try:
-            sections = collector(str(job_id), cached_sections=frozenset(cached))
+            sections = recovered_sections or collector(
+                str(job_id), cached_sections=frozenset(cached)
+            )
             with claimed_sessions.begin() as session:
                 job = session.scalar(
                     select(ReportJob).where(ReportJob.id == job_id).with_for_update()
@@ -824,53 +922,24 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
         season = session.get(Season, team_season.season_id)
         snapshot_id = job.result_snapshot_id
 
-        expected = {
-            "batting": team_season.batting_stat_category_id,
-            "pitching": team_season.pitching_stat_category_id,
-        }
-        matching = {
-            key.section: key for key in cached_sections
-            if key.job_id == job.id
-            and key.source_team_id == session.get(Team, team_season.team_id).source_team_id
-            and key.source_season_id == season.source_season_id
-            and key.source_season_team_id == team_season.source_season_team_id
-            and key.source_stat_category_id == expected.get(key.section)
-            and key.schema_version == SCHEMA_VERSION
-            and key.parser_version == PARSER_VERSION
-        }
+        matching_keys = {key: None for key in cached_sections}
+        matching = _matching_cached_sections(session, job, matching_keys)
         if snapshot_id and matching.keys() >= {"batting", "pitching"}:
-            stored = list(session.scalars(
-                select(ReportSection).where(
-                    ReportSection.snapshot_id == snapshot_id,
-                    ReportSection.job_id == job.id,
-                    ReportSection.section.in_(("batting", "pitching")),
+            stored = {
+                section.section: section
+                for section in session.scalars(
+                    select(ReportSection).where(
+                        ReportSection.snapshot_id == snapshot_id,
+                        ReportSection.job_id == job.id,
+                        ReportSection.section.in_(tuple(matching)),
+                    )
                 )
-            ))
-            rows = list(session.scalars(
-                select(SourceRecord).where(SourceRecord.snapshot_id == snapshot_id)
-            ))
-            by_section = {}
-            for row in rows:
-                by_section.setdefault(row.section, []).append(row)
-            return tuple(CollectedSection(
-                name=section.section,
-                critical=section.critical,
-                rows=tuple({
-                    **record.raw_values,
-                    "_player_id": record.source_player_id,
-                    "_player_url": record.raw_values.get("player_url"),
-                    "_payload_sha256": record.payload_sha256,
-                } for record in sorted(by_section.get(section.section, ()), key=lambda item: item.row_ordinal)),
-                verified_empty=section.verified_empty,
-                source_url=section.source_url,
-                source_team_id=section.source_team_id,
-                source_season_id=section.source_season_id,
-                source_season_team_id=section.source_season_team_id,
-                source_stat_category_id=section.source_stat_category_id,
-                collected_at=section.collected_at,
-                parser_version=section.parser_version,
-                schema_version=section.schema_version,
-            ) for section in stored)
+            }
+            return _reconstruct_cached_sections(
+                session,
+                session.get(ReportSnapshot, snapshot_id),
+                stored,
+            )
 
     try:
         collection = collect_ncaa_by_id(
