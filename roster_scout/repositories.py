@@ -199,3 +199,39 @@ def release_report_dispatch(session, lease, *, next_attempt_at, now=None):
     intent.next_attempt_at = next_attempt_at
     intent.updated_at = now
     return True
+
+
+def reopen_report_dispatch(session, intent, *, now=None):
+    """Make an acknowledged, deadline-expired intent immediately claimable."""
+    now = now or datetime.now(UTC)
+    if intent.status != "acknowledged":
+        return False
+    intent.status = "pending"
+    intent.lease_token = None
+    intent.lease_expires_at = None
+    intent.redispatch_after = None
+    intent.next_attempt_at = now
+    intent.updated_at = now
+    return True
+
+
+def close_report_dispatches(session, job_id, *, now=None):
+    """Close every active intent once worker progress or terminal state is durable."""
+    now = now or datetime.now(UTC)
+    intents = list(
+        session.scalars(
+            select(ReportJobDispatch)
+            .where(
+                ReportJobDispatch.job_id == job_id,
+                ReportJobDispatch.status.in_(ACTIVE_DISPATCH_STATUSES),
+            )
+            .with_for_update()
+        )
+    )
+    for intent in intents:
+        intent.status = "closed"
+        intent.lease_token = None
+        intent.lease_expires_at = None
+        intent.redispatch_after = None
+        intent.updated_at = now
+    return len(intents)

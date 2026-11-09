@@ -22,6 +22,7 @@ from .models import (
     PlayerTeamSeason,
     Report,
     ReportJob,
+    ReportJobDispatch,
     ReportSection,
     ReportSnapshot,
     Season,
@@ -33,7 +34,9 @@ from .snapshots import SnapshotPublicationError, publish_snapshot
 from .repositories import (
     acknowledge_report_dispatch,
     claim_report_dispatches,
+    close_report_dispatches,
     ensure_report_dispatch,
+    reopen_report_dispatch,
     release_report_dispatch,
 )
 
@@ -111,8 +114,159 @@ class CollectedSection:
         )
 
 
+@dataclass(frozen=True)
+class DispatchDrainResult:
+    claimed: int = 0
+    published: int = 0
+    released: int = 0
+
+
+@dataclass(frozen=True)
+class ReconciliationResult:
+    reopened: int = 0
+    closed: int = 0
+    active: int = 0
+
+
 def _utcnow():
     return datetime.now(UTC)
+
+
+def drain_report_dispatch_outbox(
+    session_factory,
+    *,
+    dispatch,
+    limit=10,
+    now=None,
+    lease_duration=timedelta(seconds=60),
+    redispatch_delay=timedelta(minutes=5),
+    failure_backoff=timedelta(seconds=30),
+    job_id=None,
+):
+    """Publish a bounded batch of UUID-only messages from durable leases."""
+    now = now or _utcnow()
+    with session_factory.begin() as session:
+        leases = claim_report_dispatches(
+            session,
+            now=now,
+            limit=limit,
+            lease_duration=lease_duration,
+            job_id=job_id,
+        )
+    published = 0
+    released = 0
+    for lease in leases:
+        job_id = str(uuid.UUID(str(lease.job_id)))
+        try:
+            message = dispatch(job_id)
+        except Exception:
+            with session_factory.begin() as session:
+                if release_report_dispatch(
+                    session,
+                    lease,
+                    now=now,
+                    next_attempt_at=now + failure_backoff,
+                ):
+                    released += 1
+        else:
+            with session_factory.begin() as session:
+                if acknowledge_report_dispatch(
+                    session,
+                    lease,
+                    broker_message_id=message.id,
+                    now=now,
+                    redispatch_after=now + redispatch_delay,
+                ):
+                    published += 1
+    return DispatchDrainResult(
+        claimed=len(leases), published=published, released=released
+    )
+
+
+def reconcile_stale_report_jobs(
+    session_factory,
+    *,
+    now=None,
+    queued_timeout=timedelta(minutes=5),
+    running_timeout=timedelta(minutes=30),
+):
+    """Reopen lost queued messages and stale unclaimed running work safely."""
+    now = now or _utcnow()
+    reopened = 0
+    closed = 0
+    active = 0
+    with session_factory.begin() as session:
+        terminal_ids = list(
+            session.scalars(
+                select(ReportJob.id).where(
+                    ReportJob.status.in_(TERMINAL_JOB_STATUSES)
+                )
+            )
+        )
+        for job_id in terminal_ids:
+            closed += close_report_dispatches(session, job_id, now=now)
+
+        queued_jobs = list(
+            session.scalars(
+                select(ReportJob)
+                .where(ReportJob.status.in_(("queued", "retrying")))
+                .with_for_update(skip_locked=True)
+            )
+        )
+        for job in queued_jobs:
+            intent = session.scalar(
+                select(ReportJobDispatch)
+                .where(
+                    ReportJobDispatch.job_id == job.id,
+                    ReportJobDispatch.status.in_(
+                        ("pending", "leased", "acknowledged")
+                    ),
+                )
+                .with_for_update()
+            )
+            if intent is None:
+                age_from = job.enqueued_at or job.created_at
+                if age_from is None or age_from <= now - queued_timeout:
+                    ensure_report_dispatch(session, job, now=now)
+                    reopened += 1
+            elif (
+                intent.status == "acknowledged"
+                and intent.redispatch_after is not None
+                and intent.redispatch_after <= now
+            ):
+                reopened += int(reopen_report_dispatch(session, intent, now=now))
+
+        stale_running_ids = list(
+            session.scalars(
+                select(ReportJob.id).where(
+                    ReportJob.status == "running",
+                    ReportJob.started_at.is_not(None),
+                    ReportJob.started_at <= now - running_timeout,
+                )
+            )
+        )
+
+    for job_id in stale_running_ids:
+        with session_advisory_lock(session_factory, job_id) as claim:
+            if claim is None:
+                active += 1
+                continue
+            with claim.session_factory.begin() as session:
+                job = session.scalar(
+                    select(ReportJob)
+                    .where(ReportJob.id == job_id)
+                    .with_for_update()
+                )
+                if (
+                    job is not None
+                    and job.status == "running"
+                    and job.started_at is not None
+                    and job.started_at <= now - running_timeout
+                ):
+                    job.status = "retrying"
+                    ensure_report_dispatch(session, job, now=now)
+                    reopened += 1
+    return ReconciliationResult(reopened=reopened, closed=closed, active=active)
 
 
 def create_or_get_job(session, organization_id, report_id, idempotency_key):
@@ -176,33 +330,13 @@ def accept_report_job(
         with session_factory() as session:
             return session.get(ReportJob, job_id)
 
-    with session_factory.begin() as session:
-        leases = claim_report_dispatches(
-            session,
-            limit=1,
-            job_id=job_id,
-            lease_duration=timedelta(seconds=60),
-        )
-    for lease in leases:
-        try:
-            message = dispatch(str(lease.job_id))
-        except Exception:
-            with session_factory.begin() as session:
-                release_report_dispatch(
-                    session,
-                    lease,
-                    next_attempt_at=_utcnow(),
-                )
-        else:
-            now = _utcnow()
-            with session_factory.begin() as session:
-                acknowledge_report_dispatch(
-                    session,
-                    lease,
-                    broker_message_id=message.id,
-                    now=now,
-                    redispatch_after=now + timedelta(minutes=5),
-                )
+    drain_report_dispatch_outbox(
+        session_factory,
+        dispatch=dispatch,
+        limit=1,
+        failure_backoff=timedelta(0),
+        job_id=job_id,
+    )
     with session_factory() as session:
         return session.get(ReportJob, job_id)
 
@@ -572,11 +706,13 @@ def _record_failure(session_factory, job_id, error):
         retryable = isinstance(error, RetryableJobError)
         if retryable and job.attempt_count < job.max_attempts:
             job.status = "retrying"
+            ensure_report_dispatch(session, job, now=now)
         else:
             if retryable:
                 error = DeterministicJobError("retry_exhausted")
             job.status = "failed"
             job.finished_at = now
+            close_report_dispatches(session, job.id, now=now)
         job.failure_category = error.category
         job.failure_message = str(error)
     return error
@@ -618,6 +754,7 @@ def run_report_job(session_factory, job_id, *, collector):
                 job.failure_category = "retry_exhausted"
                 job.failure_message = SAFE_FAILURE_MESSAGES["retry_exhausted"]
                 job.finished_at = _utcnow()
+                close_report_dispatches(session, job.id)
                 exhausted = True
                 cached = {}
             else:
@@ -625,9 +762,10 @@ def run_report_job(session_factory, job_id, *, collector):
                 cached = _load_cached_sections(session, job, snapshot)
                 job.status = "running"
                 job.attempt_count += 1
-                job.started_at = job.started_at or _utcnow()
+                job.started_at = _utcnow()
                 job.failure_category = None
                 job.failure_message = None
+                close_report_dispatches(session, job.id)
         if exhausted:
             raise DeterministicJobError("retry_exhausted")
 
@@ -662,6 +800,7 @@ def run_report_job(session_factory, job_id, *, collector):
                 published = publish_snapshot(session, snapshot.id)
                 job.status = published.status
                 job.finished_at = _utcnow()
+                close_report_dispatches(session, job.id)
                 return published
         except Exception as exc:
             safe_error = _record_failure(

@@ -17,5 +17,6 @@ celery_app.conf.update(
     task_reject_on_worker_lost=True,
     worker_prefetch_multiplier=1,
     task_ignore_result=True,
+    task_track_started=False,
     result_backend=None,
 )

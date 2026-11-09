@@ -1,5 +1,6 @@
 """Opaque job-ID-only Celery entry point."""
 
+import uuid
 from functools import lru_cache
 
 from .celery_app import celery_app
@@ -47,4 +48,6 @@ def build_report_job(self, job_id):
 
 
 def dispatch_report_job(job_id):
-    return build_report_job.apply_async(args=(job_id,))
+    """Publish exactly one registered task carrying one opaque UUID argument."""
+    normalized_job_id = str(uuid.UUID(str(job_id)))
+    return build_report_job.apply_async(args=(normalized_job_id,))
