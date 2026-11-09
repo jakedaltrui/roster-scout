@@ -78,6 +78,8 @@ Each task followed RED/GREEN TDD gates and was committed atomically:
 5. **Task 3 RED: Expose cross-collection section mixing** - `53c6218` (test)
 6. **Task 3 GREEN: Recover missing sections without mixing evidence** - `181fb98` (feat)
 
+**Plan summary:** `a25b207` (docs)
+
 ## Files Created/Modified
 
 - `roster_scraper.py` - Dedicated schema errors, validated structural-empty parsing, and internal section-selective NCAA collection.

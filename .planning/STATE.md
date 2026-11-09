@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-07-PLAN.md
-last_updated: "2026-11-09T20:55:33.711Z"
-last_activity: 2026-11-09 -- Completed 01-07 transactional dispatch outbox and reconciliation
+stopped_at: Completed 01-08-PLAN.md
+last_updated: "2026-11-09T21:10:18.564Z"
+last_activity: 2026-11-09
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 13
-  completed_plans: 8
-  percent: 62
+  completed_plans: 9
+  percent: 0
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-11-01)
 ## Current Position
 
 Phase: 01 (canonical-snapshot-foundation) — EXECUTING
-Plan: 8 of 13
+Plan: 9 of 13
 Status: Ready to execute
-Last activity: 2026-11-09 -- Completed 01-07 transactional dispatch outbox and reconciliation
+Last activity: 2026-11-09
 
-Progress: [██████░░░░] 62%
+Progress: [███████░░░] 69%
 
 ## Performance Metrics
 
@@ -90,6 +90,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 01]: Job acceptance and one active dispatch intent commit in the same PostgreSQL transaction; enqueued_at remains audit metadata only.
 - [Phase 01]: Publisher ownership uses token-matched PostgreSQL leases claimed with FOR UPDATE SKIP LOCKED; Redis carries only the opaque job UUID.
 - [Phase 01]: Stale running jobs are redispatched only after timeout when the whole-attempt advisory claim is absent.
+- [Phase 01]: Only a structurally valid NCAA grid with exactly one Player column can assert verified emptiness. — Malformed upstream markup must fail closed instead of publishing silent data loss.
+- [Phase 01]: Complete exact same-job evidence is publication authority even after collection attempts are exhausted. — Redelivery can finalize committed source rows without another live fetch or attempt increment.
+- [Phase 01]: Complete report sections are immutable for their job and version. — Partial recovery fetches only missing sections and cannot mix ordinals, checksums, versions, or collection times.
 
 ### Pending Todos
 
@@ -109,9 +112,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Comparison | Compare two snapshots of the same opponent | Future requirement | v2.0 initialization |
 | Collaboration | Notes and cross-organization sharing | Future requirement | v2.0 initialization |
 | Coverage | Full JUCO parity and arbitrary historical team-season reports | Future requirement | v2.0 initialization |
+| Phase 01 P08 | 11 min | 3 tasks | 5 files |
 
 ## Session Continuity
 
-Last session: 2026-11-09T20:55:33.704Z
-Stopped at: Completed 01-07-PLAN.md
+Last session: 2026-11-09T21:09:43.633Z
+Stopped at: Completed 01-08-PLAN.md
 Resume file: None

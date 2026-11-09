@@ -29,7 +29,7 @@ Roster Scout v2.0 is delivered in five dependency-ordered slices. The roadmap fi
 4. Innings, missing values, two-way players, transfers, raw values, and metric-definition lineage are represented without ambiguity.
 5. Existing selector, scraper, cache, and basic workbook regression tests continue to pass.
 
-**Plans:** 8/13 plans executed
+**Plans:** 9/13 plans executed
 
 Plans:
 **Wave 1**
@@ -63,7 +63,7 @@ Plans:
 
 **Wave 8** *(blocked on Wave 7 completion)*
 
-- [ ] 01-08: Distinguish malformed NCAA tables from verified-empty sections and recover same-job evidence safely.
+- [x] 01-08: Distinguish malformed NCAA tables from verified-empty sections and recover same-job evidence safely.
 - [ ] 01-12: Deploy one focused scheduler for dispatch reconciliation.
 
 **Wave 9** *(blocked on Wave 8 completion)*
@@ -178,7 +178,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |---|---:|---|---|
-| 1. Canonical Snapshot Foundation | 8/13 | In Progress | - |
+| 1. Canonical Snapshot Foundation | 9/13 | In Progress|  |
 | 2. Identity, Organizations, and Report Library | 0/3 | Not started | - |
 | 3. Detailed NCAA Intelligence | 0/4 | Not started | - |
 | 4. Detailed Excel Report | 0/3 | Not started | - |
