@@ -157,4 +157,4 @@ def purge_expired_evidence(session_factory, *, now=None):
             )
             .values(compressed_html=None, purged_at=now)
         )
-        return result.rowcount
+        return int(result.rowcount or 0)

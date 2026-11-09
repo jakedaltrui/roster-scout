@@ -8,11 +8,12 @@ import signal
 import sys
 import threading
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 
 LOGGER = logging.getLogger("roster_scout.scheduler")
 DISPATCH_BATCH_LIMIT = 10
+EVIDENCE_PURGE_MAX_AGE = timedelta(hours=24)
 
 
 def _bounded_seconds(environ, name, default, *, minimum, maximum):
@@ -81,6 +82,41 @@ class SchedulerConfig:
         return config
 
 
+@dataclass(frozen=True)
+class PurgeReadiness:
+    ready: bool
+    status: str
+    alert: str | None
+
+
+@dataclass
+class EvidencePurgeHealth:
+    """Process-local safe health for the singleton evidence purge owner."""
+
+    last_success_at: datetime | None = None
+    last_purged_count: int | None = None
+
+    def record_success(self, *, completed_at, purged_count):
+        self.last_success_at = completed_at
+        self.last_purged_count = int(purged_count)
+
+    def readiness(self, *, now=None):
+        now = now or datetime.now(UTC)
+        if self.last_success_at is None:
+            return PurgeReadiness(
+                ready=False,
+                status="never_succeeded",
+                alert="evidence_purge health=never_succeeded readiness=blocked",
+            )
+        if now - self.last_success_at > EVIDENCE_PURGE_MAX_AGE:
+            return PurgeReadiness(
+                ready=False,
+                status="stale",
+                alert="evidence_purge health=stale readiness=blocked",
+            )
+        return PurgeReadiness(ready=True, status="fresh", alert=None)
+
+
 def run_scheduler(
     config,
     *,
@@ -89,12 +125,34 @@ def run_scheduler(
     drain,
     reconcile,
     stop_event,
+    purge=None,
+    purge_health=None,
+    clock=None,
     logger=LOGGER,
     max_cycles=None,
 ):
     """Poll service boundaries; a shutdown request never interrupts a cycle."""
+    clock = clock or (lambda: datetime.now(UTC))
+    purge_health = purge_health or EvidencePurgeHealth()
     cycles = 0
     while not stop_event.is_set() or cycles == 0:
+        cycle_now = clock()
+        if purge is not None:
+            try:
+                purged_count = purge(session_factory, now=cycle_now)
+            except Exception:
+                readiness = purge_health.readiness(now=cycle_now)
+                logger.error("%s", readiness.alert)
+            else:
+                # purge_expired_evidence returns only after its transaction commits.
+                purge_health.record_success(
+                    completed_at=cycle_now,
+                    purged_count=purged_count,
+                )
+                logger.info(
+                    "evidence_purge health=fresh purged=%d",
+                    purged_count,
+                )
         try:
             reconciliation = reconcile(
                 session_factory,
@@ -134,6 +192,7 @@ def run_scheduler(
 def _runtime_dependencies():
     """Construct network-capable dependencies only after config validation."""
     from roster_scout.database import create_session_factory, get_engine
+    from roster_scout.evidence import purge_expired_evidence
     from roster_scout.jobs import (
         drain_report_dispatch_outbox,
         reconcile_stale_report_jobs,
@@ -147,6 +206,7 @@ def _runtime_dependencies():
         dispatch_report_job,
         drain_report_dispatch_outbox,
         reconcile_stale_report_jobs,
+        purge_expired_evidence,
     )
 
 
@@ -164,7 +224,7 @@ def main(environ=None):
 
     signal.signal(signal.SIGTERM, request_shutdown)
     signal.signal(signal.SIGINT, request_shutdown)
-    engine, session_factory, dispatch, drain, reconcile = _runtime_dependencies()
+    engine, session_factory, dispatch, drain, reconcile, purge = _runtime_dependencies()
     try:
         run_scheduler(
             config,
@@ -172,6 +232,8 @@ def main(environ=None):
             dispatch=dispatch,
             drain=drain,
             reconcile=reconcile,
+            purge=purge,
+            purge_health=EvidencePurgeHealth(),
             stop_event=stop_event,
         )
     finally:
