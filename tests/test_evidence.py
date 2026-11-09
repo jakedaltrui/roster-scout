@@ -67,7 +67,7 @@ class FailedCollectionEvidenceTests(PostgreSQLJobTestCase):
             with self.assertRaises(DeterministicJobError) as raised:
                 run_report_job(self.Session, job.id, collector=failed_collector)
 
-        self.assertEqual(raised.exception.category, "retry_exhausted")
+        self.assertEqual(raised.exception.category, "schema_validation")
         with self.Session() as session:
             stored_job = session.get(ReportJob, job.id)
             evidence_rows = list(session.scalars(select(FailureEvidence)))

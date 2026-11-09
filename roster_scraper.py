@@ -1000,6 +1000,43 @@ class NcaaSchemaError(NcaaAccessError):
     """Raised when an NCAA stat grid violates the expected safe schema."""
 
 
+FAILURE_EVIDENCE_MAX_BYTES = 64 * 1024
+
+
+@dataclass(frozen=True)
+class _NcaaFailureEvidence:
+    section: str
+    source_url: str
+    html: bytes
+    failure_category: str
+    collected_at: datetime
+
+
+class _NcaaFailureEvidenceError(NcaaAccessError):
+    """Private carrier for bounded failure HTML across the job boundary."""
+
+    def __init__(self, *, section, source_url, html, failure_category):
+        if isinstance(html, str):
+            raw_html = html.encode("utf-8")
+        elif isinstance(html, (bytes, bytearray, memoryview)):
+            raw_html = bytes(html)
+        else:
+            raw_html = b""
+        self.evidence = _NcaaFailureEvidence(
+            section=section,
+            source_url=source_url,
+            html=raw_html[:FAILURE_EVIDENCE_MAX_BYTES],
+            failure_category=failure_category,
+            collected_at=datetime.now(timezone.utc),
+        )
+        safe_message = (
+            "NCAA stats schema validation failed."
+            if failure_category == "schema_validation"
+            else "NCAA stats table is missing or blocked."
+        )
+        super().__init__(safe_message)
+
+
 def _ncaa_cache_dir() -> Path:
     configured = os.environ.get("ROSTER_SCOUT_CACHE_DIR")
     path = Path(configured) if configured else Path(__file__).resolve().parent / ".cache"
@@ -1598,11 +1635,21 @@ def _fetch_ncaa_http(url: str, session: requests.Session) -> str:
     if last_response is None:
         raise NcaaAccessError("NCAA did not return a response.")
     if last_response.status_code == 403 or _is_ncaa_blocked(last_response.text):
-        raise NcaaAccessError("NCAA returned an Akamai verification page.")
+        raise _NcaaFailureEvidenceError(
+            section="unknown",
+            source_url=url,
+            html=last_response.text,
+            failure_category="source_blocked",
+        )
     if last_response.status_code != 200:
         raise NcaaAccessError(f"NCAA returned HTTP {last_response.status_code}.")
     if not _has_ncaa_stat_grid(last_response.text):
-        raise NcaaAccessError("NCAA returned a page without the expected stats table.")
+        raise _NcaaFailureEvidenceError(
+            section="unknown",
+            source_url=url,
+            html=last_response.text,
+            failure_category="source_blocked",
+        )
     return last_response.text
 
 
@@ -1785,24 +1832,11 @@ def _fetch_ncaa_browser_pages_locked(urls: dict[str, str]) -> dict[str, str]:
                         break
                     page.wait_for_timeout(1000)
                 if not _has_ncaa_stat_grid(html):
-                    if os.environ.get("NCAA_BROWSER_PROXY"):
-                        guidance = (
-                            "NCAA verification did not complete through the "
-                            "configured proxy."
-                        )
-                    elif headless:
-                        guidance = (
-                            "Run locally with NCAA_BROWSER_HEADLESS=0 and complete "
-                            "the NCAA prompt in the opened browser."
-                        )
-                    else:
-                        guidance = (
-                            "NCAA rejected this browser build. On macOS, run "
-                            "scripts/run_local.sh so Roster Scout can use installed Chrome."
-                        )
-                    raise NcaaAccessError(
-                        "NCAA browser verification did not produce the expected stats table. "
-                        + guidance
+                    raise _NcaaFailureEvidenceError(
+                        section=key,
+                        source_url=url,
+                        html=html,
+                        failure_category="source_blocked",
                     )
                 rendered[key] = html
 
@@ -1917,8 +1951,11 @@ def _fetch_ncaa_browserless_pages(urls: dict[str, str]) -> dict[str, str]:
                     break
                 page.wait_for_timeout(1000)
             if not _has_ncaa_stat_grid(html):
-                raise NcaaAccessError(
-                    "Browserless did not produce the expected NCAA stats table."
+                raise _NcaaFailureEvidenceError(
+                    section=key,
+                    source_url=url,
+                    html=html,
+                    failure_category="source_blocked",
                 )
             rendered[key] = html
     except NcaaAccessError:
@@ -1943,6 +1980,7 @@ def _fetch_ncaa_pages(urls: dict[str, str]) -> dict[str, str]:
 
     direct = {}
     blocked = {}
+    blocked_evidence = {}
     session = requests.Session()
     http_proxy = os.environ.get("NCAA_HTTP_PROXY") or os.environ.get(
         "NCAA_BROWSER_PROXY"
@@ -1959,15 +1997,27 @@ def _fetch_ncaa_pages(urls: dict[str, str]) -> dict[str, str]:
     for key, url in urls.items():
         try:
             direct[key] = _fetch_ncaa_http(url, session)
+        except _NcaaFailureEvidenceError as exc:
+            blocked[key] = url
+            blocked_evidence[key] = exc
         except NcaaAccessError:
             blocked[key] = url
 
     if blocked:
         if os.environ.get("NCAA_BROWSER_FALLBACK", "1") == "0":
+            if blocked_evidence:
+                raise next(iter(blocked_evidence.values()))
             raise NcaaAccessError(
                 "NCAA blocked the direct request and browser fallback is disabled."
             )
-        direct.update(_fetch_ncaa_browser_pages(blocked))
+        try:
+            direct.update(_fetch_ncaa_browser_pages(blocked))
+        except _NcaaFailureEvidenceError:
+            raise
+        except NcaaAccessError:
+            if blocked_evidence:
+                raise next(iter(blocked_evidence.values()))
+            raise
     return direct
 
 
@@ -2213,7 +2263,22 @@ def _collect_ncaa_team(
         html = pages.get(name)
         if html is None:
             raise NcaaAccessError(f"NCAA did not return the {name} section.")
-        parse_result = _parse_ncaa_stat_table_result(html)
+        try:
+            parse_result = _parse_ncaa_stat_table_result(html)
+        except NcaaSchemaError:
+            raise _NcaaFailureEvidenceError(
+                section=name,
+                source_url=urls[name],
+                html=html,
+                failure_category="schema_validation",
+            ) from None
+        except NcaaAccessError:
+            raise _NcaaFailureEvidenceError(
+                section=name,
+                source_url=urls[name],
+                html=html,
+                failure_category="source_blocked",
+            ) from None
         rows = list(parse_result.rows)
         html_sha256 = hashlib.sha256(html.encode("utf-8")).hexdigest()
         for row in rows:

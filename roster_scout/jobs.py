@@ -61,16 +61,18 @@ SAFE_FAILURE_MESSAGES = {
 class RetryableJobError(RuntimeError):
     """Safe signal that Celery may retry this job."""
 
-    def __init__(self, category, message=None):
+    def __init__(self, category, message=None, *, evidence=None):
         self.category = category
+        self.evidence = evidence
         super().__init__(message or SAFE_FAILURE_MESSAGES[category])
 
 
 class DeterministicJobError(ValueError):
     """Safe signal that retrying the same evidence cannot succeed."""
 
-    def __init__(self, category, message=None):
+    def __init__(self, category, message=None, *, evidence=None):
         self.category = category
+        self.evidence = evidence
         super().__init__(message or SAFE_FAILURE_MESSAGES[category])
 
 
@@ -866,6 +868,7 @@ def _classified_error(exc):
 
 def _record_failure(session_factory, job_id, error):
     now = _utcnow()
+    evidence = error.evidence
     with session_factory.begin() as session:
         job = session.scalar(
             select(ReportJob).where(ReportJob.id == job_id).with_for_update()
@@ -884,6 +887,18 @@ def _record_failure(session_factory, job_id, error):
             close_report_dispatches(session, job.id, now=now)
         job.failure_category = error.category
         job.failure_message = str(error)
+        if job.status in {"failed", "blocked"} and evidence is not None:
+            from .evidence import store_failure_evidence
+
+            store_failure_evidence(
+                session,
+                job.id,
+                section=evidence.section,
+                source_url=evidence.source_url,
+                html=evidence.html,
+                failure_category=evidence.failure_category,
+                collected_at=evidence.collected_at,
+            )
     return error
 
 
@@ -992,7 +1007,11 @@ def run_report_job(session_factory, job_id, *, collector):
 
 def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset()):
     """Collect live NCAA sections or reuse only same-job version-matched evidence."""
-    from roster_scraper import NcaaAccessError, collect_ncaa_by_id
+    from roster_scraper import (
+        NcaaAccessError,
+        _NcaaFailureEvidenceError,
+        collect_ncaa_by_id,
+    )
     from .canonical import to_collected_sections
 
     job_uuid = uuid.UUID(str(job_id))
@@ -1041,6 +1060,14 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
         if missing != frozenset({"batting", "pitching"}):
             collection_kwargs["section_names"] = missing
         collection = collect_ncaa_by_id(season_team_id, **collection_kwargs)
+    except _NcaaFailureEvidenceError as exc:
+        category = exc.evidence.failure_category
+        error_type = (
+            DeterministicJobError
+            if category == "schema_validation"
+            else RetryableJobError
+        )
+        raise error_type(category, evidence=exc.evidence) from None
     except NcaaAccessError as exc:
         raise RetryableJobError("source_blocked") from exc
     fetched = to_collected_sections(collection)
