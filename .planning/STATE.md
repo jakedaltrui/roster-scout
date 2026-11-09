@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-03-PLAN.md
-last_updated: "2026-11-09T01:09:57.983Z"
-last_activity: 2026-11-09 -- Phase 01 planning complete
+stopped_at: Completed 01-04-PLAN.md
+last_updated: "2026-11-09T02:38:23.068Z"
+last_activity: 2026-11-09 -- Completed 01-04 snapshot integrity hardening
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 13
-  completed_plans: 3
-  percent: 23
+  completed_plans: 4
+  percent: 31
 ---
 
 # Project State
@@ -26,25 +26,25 @@ See: `.planning/PROJECT.md` (updated 2026-11-01)
 ## Current Position
 
 Phase: 01 (canonical-snapshot-foundation) — EXECUTING
-Plan: 3 of 13
+Plan: 4 of 13
 Status: Ready to execute
-Last activity: 2026-11-09 -- Phase 01 planning complete
+Last activity: 2026-11-09 -- Completed 01-04 snapshot integrity hardening
 
-Progress: [██░░░░░░░░] 23%
+Progress: [███░░░░░░░] 31%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 3
-- Average duration: 6 min
-- Total execution time: 17 min
+- Total plans completed: 4
+- Average duration: 7 min
+- Total execution time: 28 min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |---|---:|---:|---:|
-| 1. Canonical Snapshot Foundation | 3 | 17 min | 6 min |
+| 1. Canonical Snapshot Foundation | 4 | 28 min | 7 min |
 
 **Plan History:**
 
@@ -53,6 +53,7 @@ Progress: [██░░░░░░░░] 23%
 | 01 | 01 | 6 min | 3 | 16 |
 | 01 | 02 | 5 min | 3 | 17 |
 | 01 | 03 | 6 min | 3 | 9 |
+| 01 | 04 | 11 min | 2 | 6 |
 
 ## Accumulated Context
 
@@ -73,6 +74,8 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 01]: Keep the tuple scraper for workbooks and use live structured collection for durable jobs — Preserves the public API while making refresh provenance explicit.
 - [Phase 01]: Scope ID-less fallback identities to one team-season and merge only reciprocal unique matches — Prevents silent teammate and transfer identity collisions.
 - [Phase 01]: Commit exact source rows before canonical facts and publication — Allows same-job redelivery recovery without exposing half-ready snapshots.
+- [Phase 01]: Revision 0001 is frozen from the schema that originally shipped rather than reconstructed from current ORM metadata.
+- [Phase 01]: Canonical count validity is enforced at both the NCAA parsing boundary and the PostgreSQL storage boundary.
 
 ### Pending Todos
 
@@ -95,6 +98,6 @@ Full decision log: `.planning/PROJECT.md`.
 
 ## Session Continuity
 
-Last session: 2026-11-01T23:22:32.389Z
-Stopped at: Completed 01-03-PLAN.md
+Last session: 2026-11-09T02:38:23.061Z
+Stopped at: Completed 01-04-PLAN.md
 Resume file: None

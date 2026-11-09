@@ -95,6 +95,7 @@ None - plan executed exactly as written.
 ## Issues Encountered
 
 - The managed sandbox blocked localhost PostgreSQL connections. Scoped approved execution was used for the disposable `roster_scout_test` database; no external service or production data was accessed.
+- The state SDK advanced from a stale execution-start counter and misplaced the new metric row; the tracking artifact was reconciled to the four committed summaries before final commit.
 
 ## User Setup Required
 
