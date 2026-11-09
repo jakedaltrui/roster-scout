@@ -135,6 +135,12 @@ class NcaaCollection:
     players: tuple[dict, ...]
     team_label: str
 
+
+@dataclass(frozen=True)
+class NcaaTableParseResult:
+    rows: tuple[dict, ...]
+    verified_empty: bool
+
 CURRENT_YEAR = datetime.now().year
 CLASS_TO_GRAD = {
     "fr": CURRENT_YEAR + 3, "so": CURRENT_YEAR + 2,
@@ -988,6 +994,10 @@ class NcaaTeamNotFound(NcaaError):
 
 class NcaaAccessError(NcaaError):
     """Raised when NCAA blocks or withholds a requested stats page."""
+
+
+class NcaaSchemaError(NcaaAccessError):
+    """Raised when an NCAA stat grid violates the expected safe schema."""
 
 
 def _ncaa_cache_dir() -> Path:
@@ -1978,31 +1988,59 @@ def _is_ncaa_aggregate_name(name: str) -> bool:
     return bool(re.fullmatch(r"(?:(?:team|opponent)\s+)?totals?", normalized))
 
 
-def _parse_ncaa_stat_table(html: str) -> list[dict]:
+def _is_ncaa_empty_marker(row) -> bool:
+    text = re.sub(r"\s+", " ", row.get_text(" ", strip=True).lower())
+    return text in {
+        "no data",
+        "no data available",
+        "no results found",
+        "no statistics available",
+    }
+
+
+def _parse_ncaa_stat_table_result(html: str) -> NcaaTableParseResult:
     if not _has_ncaa_stat_grid(html):
         raise NcaaAccessError("NCAA stats table is missing or blocked.")
     soup = BeautifulSoup(html, "html.parser")
     table = soup.select_one("#stat_grid")
     header_rows = table.select("thead tr")
     header_row = header_rows[-1] if header_rows else table.find("tr")
-    headers = _unique_headers([
+    raw_headers = [
         cell.get_text(" ", strip=True)
         for cell in header_row.find_all(["th", "td"], recursive=False)
-    ])
+    ]
+    player_indexes = [
+        index for index, header in enumerate(raw_headers)
+        if header.strip().lower() == "player"
+    ]
+    if len(player_indexes) != 1:
+        raise NcaaSchemaError(
+            "NCAA stats schema validation failed: expected one Player column."
+        )
+    player_index = player_indexes[0]
+    headers = _unique_headers(raw_headers)
     rows = []
     body_rows = table.select("tbody tr") or table.find_all("tr")[1:]
     for tr in body_rows:
         cells = tr.find_all(["th", "td"], recursive=False)
+        if _is_ncaa_empty_marker(tr):
+            continue
         if len(cells) != len(headers):
-            continue
+            raise NcaaSchemaError(
+                "NCAA stats schema validation failed: row shape changed."
+            )
         values = [cell.get_text(" ", strip=True) for cell in cells]
+        if not any(values):
+            continue
         row = dict(zip(headers, values))
-        player_key = next((key for key in row if key.lower() == "player"), None)
-        if not player_key:
-            continue
+        player_key = headers[player_index]
         name = re.sub(r"^x\s+", "", row[player_key], flags=re.IGNORECASE).strip()
-        if not name or name.lower() == "team" or _is_ncaa_aggregate_name(name):
+        if name.lower() == "team" or _is_ncaa_aggregate_name(name):
             continue
+        if not name:
+            raise NcaaSchemaError(
+                "NCAA stats schema validation failed: player value is missing."
+            )
         row[player_key] = name
         player_link = tr.find("a", href=re.compile(r"/players/\d+"))
         if player_link:
@@ -2014,7 +2052,12 @@ def _parse_ncaa_stat_table(html: str) -> list[dict]:
             row["_player_id"] = ""
             row["_player_url"] = ""
         rows.append(row)
-    return rows
+    return NcaaTableParseResult(rows=tuple(rows), verified_empty=not rows)
+
+
+def _parse_ncaa_stat_table(html: str) -> list[dict]:
+    """Return player rows while retaining the historical internal list API."""
+    return list(_parse_ncaa_stat_table_result(html).rows)
 
 
 def _stat(row: dict, *keys: str) -> str:
@@ -2159,7 +2202,8 @@ def _collect_ncaa_team(team: dict, year: int) -> NcaaCollection:
         html = pages.get(name)
         if html is None:
             raise NcaaAccessError(f"NCAA did not return the {name} section.")
-        rows = _parse_ncaa_stat_table(html)
+        parse_result = _parse_ncaa_stat_table_result(html)
+        rows = list(parse_result.rows)
         html_sha256 = hashlib.sha256(html.encode("utf-8")).hexdigest()
         for row in rows:
             row["_source_url"] = urls[name]
@@ -2170,7 +2214,7 @@ def _collect_ncaa_team(team: dict, year: int) -> NcaaCollection:
             stat_category_id=category_id,
             html_sha256=html_sha256,
             rows=_source_rows(name, urls[name], html_sha256, rows),
-            verified_empty=not rows,
+            verified_empty=parse_result.verified_empty,
         ))
 
     if not parsed["batting"] and not parsed["pitching"]:
