@@ -4,8 +4,10 @@ import os
 import unittest
 import uuid
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from unittest.mock import patch
 
+from alembic import command
 from sqlalchemy import event, inspect, select, text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
@@ -24,6 +26,8 @@ REQUIRED_TABLES = {
     "source_records", "batting_facts", "pitching_facts", "metric_definitions",
     "metric_values", "report_jobs", "report_artifacts", "failure_evidence",
 }
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 class PostgreSQLSnapshotTestCase(unittest.TestCase):
@@ -383,7 +387,90 @@ class TenantAndPublicationTests(PostgreSQLSnapshotTestCase):
                 session.flush()
 
 
-class MigrationLifecycleTests(PostgreSQLSnapshotTestCase):
+class MigrationTests(PostgreSQLSnapshotTestCase):
+    def test_0001_boundary_is_frozen_and_complete(self):
+        clean_database(self.database_url)
+        downgrade_database(self.database_url)
+        self.addCleanup(upgrade_database, self.database_url)
+        command.upgrade(alembic_config(self.database_url), "0001")
+
+        inspector = inspect(self.engine)
+        self.assertEqual(REQUIRED_TABLES - set(inspector.get_table_names()), set())
+        self.assertNotIn(
+            "failure_message",
+            {column["name"] for column in inspector.get_columns("report_jobs")},
+        )
+        self.assertNotIn(
+            "job_id",
+            {column["name"] for column in inspector.get_columns("report_sections")},
+        )
+        self.assertNotIn(
+            "section",
+            {column["name"] for column in inspector.get_columns("failure_evidence")},
+        )
+
+        index_names = {
+            index["name"]
+            for index in inspector.get_indexes("players")
+            if index.get("name")
+        }
+        self.assertIn("uq_players_authoritative_source_id", index_names)
+
+        check_names = {
+            check["name"]
+            for table in REQUIRED_TABLES
+            for check in inspector.get_check_constraints(table)
+            if check.get("name")
+        }
+        self.assertIn("ck_report_snapshots_status", check_names)
+        self.assertIn("ck_batting_facts_at_bats_nonnegative", check_names)
+        self.assertIn("ck_failure_evidence_sha256_length", check_names)
+
+        foreign_key_names = {
+            foreign_key["name"]
+            for table in REQUIRED_TABLES
+            for foreign_key in inspector.get_foreign_keys(table)
+            if foreign_key.get("name")
+        }
+        self.assertIn("fk_report_snapshots_report_organization", foreign_key_names)
+        self.assertIn("fk_batting_facts_source_snapshot_organization", foreign_key_names)
+        self.assertIn("fk_failure_evidence_job_organization", foreign_key_names)
+
+        with self.engine.connect() as connection:
+            trigger_names = set(connection.scalars(text("""
+                SELECT trigger_name
+                FROM information_schema.triggers
+                WHERE trigger_schema = current_schema()
+            """)))
+            function_names = set(connection.scalars(text("""
+                SELECT routine_name
+                FROM information_schema.routines
+                WHERE routine_schema = current_schema()
+                  AND routine_type = 'FUNCTION'
+            """)))
+        self.assertIn("trg_report_snapshots_immutable", trigger_names)
+        self.assertIn("trg_batting_facts_immutable", trigger_names)
+        self.assertIn("trg_failure_evidence_failed_jobs_only", trigger_names)
+        self.assertIn("reject_published_snapshot_mutation", function_names)
+        self.assertIn("reject_published_snapshot_child_mutation", function_names)
+        self.assertIn("reject_nonfailure_evidence", function_names)
+
+        command.upgrade(alembic_config(self.database_url), "head")
+        downgrade_database(self.database_url)
+        upgrade_database(self.database_url)
+        self.assertIn("report_snapshots", inspect(self.engine).get_table_names())
+
+    def test_0001_revision_does_not_depend_on_runtime_metadata(self):
+        source = (
+            PROJECT_ROOT
+            / "migrations"
+            / "versions"
+            / "0001_canonical_snapshot_foundation.py"
+        ).read_text()
+        for forbidden in ("roster_scout.models", "Base", "create_all", "drop_all"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, source)
+
     def test_t_01_07_downgrade_and_reupgrade(self):
         clean_database(self.database_url)
         downgrade_database(self.database_url)
