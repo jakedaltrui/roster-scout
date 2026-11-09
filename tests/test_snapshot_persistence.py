@@ -86,6 +86,58 @@ class PostgreSQLSnapshotTestCase(unittest.TestCase):
         session.flush()
         return organization, team_season, report, snapshot
 
+    def traceable_fact_links(
+        self,
+        session,
+        organization,
+        team_season,
+        snapshot,
+        *,
+        sections=("batting", "pitching"),
+    ):
+        from roster_scout.models import Player, PlayerTeamSeason, SourceRecord
+
+        player = Player(
+            source="ncaa",
+            source_player_id=str(uuid.uuid4()),
+            display_name="Traceable Player",
+        )
+        session.add(player)
+        session.flush()
+        identity = PlayerTeamSeason(
+            organization_id=organization.id,
+            snapshot_id=snapshot.id,
+            player_id=player.id,
+            team_season_id=team_season.id,
+            identity_status="authoritative",
+            identity_key=f"ncaa:{player.source_player_id}",
+            display_name=player.display_name,
+        )
+        session.add(identity)
+        session.flush()
+        sources = {}
+        for ordinal, section in enumerate(sections):
+            source = SourceRecord(
+                organization_id=organization.id,
+                snapshot_id=snapshot.id,
+                section=section,
+                row_ordinal=ordinal,
+                source_url=f"https://stats.ncaa.org/{section}",
+                source_team_id="689",
+                source_season_id="17040",
+                source_season_team_id="615087",
+                source_stat_category_id=section,
+                collected_at=datetime.now(UTC),
+                parser_version="1",
+                schema_version="1",
+                payload_sha256=section[0] * 64,
+                raw_values={"Player": player.display_name},
+            )
+            session.add(source)
+            session.flush()
+            sources[section] = source
+        return identity, sources
+
 
 class CanonicalSchemaTests(PostgreSQLSnapshotTestCase):
     def test_all_count_columns_have_named_nonnegative_checks(self):
@@ -124,16 +176,24 @@ class CanonicalSchemaTests(PostgreSQLSnapshotTestCase):
             ),
         }
         with self.Session.begin() as session:
-            organization, _, _, snapshot = self.fixture(session)
+            organization, team_season, _, snapshot = self.fixture(session)
+            identity, sources = self.traceable_fact_links(
+                session, organization, team_season, snapshot
+            )
             organization_id = organization.id
             snapshot_id = snapshot.id
+            identity_id = identity.id
+            source_ids = {name: source.id for name, source in sources.items()}
         for table_name, columns in cases.items():
             for column_name in columns:
                 with self.subTest(table=table_name, column=column_name):
+                    section = table_name.removesuffix("_facts")
                     statement = text(
                         f"INSERT INTO {table_name} "
-                        f"(id, organization_id, snapshot_id, {column_name}) "
-                        f"VALUES (:id, :organization_id, :snapshot_id, -1)"
+                        f"(id, organization_id, snapshot_id, player_team_season_id, "
+                        f"source_record_id, {column_name}) "
+                        f"VALUES (:id, :organization_id, :snapshot_id, :identity_id, "
+                        f":source_record_id, -1)"
                     )
                     with self.Session.begin() as session:
                         with self.assertRaises(DBAPIError):
@@ -141,6 +201,8 @@ class CanonicalSchemaTests(PostgreSQLSnapshotTestCase):
                                 "id": uuid.uuid4(),
                                 "organization_id": organization_id,
                                 "snapshot_id": snapshot_id,
+                                "identity_id": identity_id,
+                                "source_record_id": source_ids[section],
                             })
 
     def test_t_01_07_migration_defines_minimum_tables_and_named_checks(self):
@@ -268,29 +330,60 @@ class CanonicalSchemaTests(PostgreSQLSnapshotTestCase):
 
 
 class TenantAndPublicationTests(PostgreSQLSnapshotTestCase):
-    def add_core_sections(self, session, organization_id, snapshot_id):
+    def add_core_sections(self, session, organization_id, snapshot_id, *, batting_rows=0):
         from roster_scout.models import ReportSection
         for section in ("batting", "pitching"):
+            row_count = batting_rows if section == "batting" else 0
             session.add(ReportSection(
                 organization_id=organization_id,
                 snapshot_id=snapshot_id,
                 section=section,
                 critical=True,
                 status="complete",
-                row_count=0,
-                verified_empty=True,
+                row_count=row_count,
+                verified_empty=row_count == 0,
                 collected_at=datetime.now(UTC),
             ))
+
+    def add_traceable_batting_fact(self, session, organization, team_season, snapshot):
+        from roster_scout.models import BattingFact
+
+        identity, sources = self.traceable_fact_links(
+            session,
+            organization,
+            team_season,
+            snapshot,
+            sections=("batting",),
+        )
+        fact = BattingFact(
+            organization_id=organization.id,
+            snapshot_id=snapshot.id,
+            player_team_season_id=identity.id,
+            source_record_id=sources["batting"].id,
+            at_bats=1,
+            hits=0,
+        )
+        session.add(fact)
+        session.flush()
+        return fact, sources["batting"]
 
     def test_t_01_01_cross_organization_fact_is_rejected(self):
         from roster_scout.models import BattingFact, Organization
         with self.Session.begin() as session:
-            organization, _, _, snapshot = self.fixture(session)
+            organization, team_season, _, snapshot = self.fixture(session)
+            fact, _source = self.add_traceable_batting_fact(
+                session, organization, team_season, snapshot
+            )
             other = Organization(name="Other Org")
             session.add(other)
             session.flush()
             session.add(BattingFact(
-                organization_id=other.id, snapshot_id=snapshot.id, at_bats=0, hits=0
+                organization_id=other.id,
+                snapshot_id=snapshot.id,
+                player_team_season_id=fact.player_team_season_id,
+                source_record_id=fact.source_record_id,
+                at_bats=0,
+                hits=0,
             ))
             with self.assertRaises(IntegrityError):
                 session.flush()
@@ -322,12 +415,13 @@ class TenantAndPublicationTests(PostgreSQLSnapshotTestCase):
         from roster_scout.models import BattingFact
         from roster_scout.snapshots import publish_snapshot
         with self.Session.begin() as session:
-            organization, _, _, snapshot = self.fixture(session)
-            fact = BattingFact(
-                organization_id=organization.id, snapshot_id=snapshot.id, at_bats=1, hits=0
+            organization, team_season, _, snapshot = self.fixture(session)
+            fact, _source = self.add_traceable_batting_fact(
+                session, organization, team_season, snapshot
             )
-            session.add(fact)
-            self.add_core_sections(session, organization.id, snapshot.id)
+            self.add_core_sections(
+                session, organization.id, snapshot.id, batting_rows=1
+            )
             session.flush()
             fact_id = fact.id
             snapshot_id = snapshot.id
@@ -346,17 +440,14 @@ class TenantAndPublicationTests(PostgreSQLSnapshotTestCase):
         from roster_scout.snapshots import publish_snapshot
 
         with self.Session.begin() as session:
-            organization, _, report, published = self.fixture(session)
+            organization, team_season, report, published = self.fixture(session)
             draft = ReportSnapshot(
                 organization_id=organization.id,
                 report_id=report.id,
                 schema_version="1",
             )
-            fact = BattingFact(
-                organization_id=organization.id,
-                snapshot_id=published.id,
-                at_bats=1,
-                hits=0,
+            fact, _source = self.add_traceable_batting_fact(
+                session, organization, team_season, published
             )
             critical_section = ReportSection(
                 organization_id=organization.id,
@@ -367,8 +458,10 @@ class TenantAndPublicationTests(PostgreSQLSnapshotTestCase):
                 row_count=0,
                 verified_empty=True,
             )
-            session.add_all([draft, fact, critical_section])
-            self.add_core_sections(session, organization.id, published.id)
+            session.add_all([draft, critical_section])
+            self.add_core_sections(
+                session, organization.id, published.id, batting_rows=1
+            )
             session.flush()
             published_id = published.id
             draft_id = draft.id
@@ -426,28 +519,15 @@ class TenantAndPublicationTests(PostgreSQLSnapshotTestCase):
             session.add(MetricDefinition(code="ops", version="2", formula="new formula"))
 
     def test_published_snapshot_metadata_and_source_rows_are_immutable(self):
-        from roster_scout.models import SourceRecord
         from roster_scout.snapshots import publish_snapshot
         with self.Session.begin() as session:
-            organization, _, _, snapshot = self.fixture(session)
-            source = SourceRecord(
-                organization_id=organization.id,
-                snapshot_id=snapshot.id,
-                section="batting",
-                row_ordinal=0,
-                source_url="https://stats.ncaa.org/example",
-                source_team_id="689",
-                source_season_id="17040",
-                source_season_team_id="615087",
-                source_stat_category_id="15867",
-                collected_at=datetime.now(UTC),
-                parser_version="1",
-                schema_version="1",
-                payload_sha256="b" * 64,
-                raw_values={"H": "1"},
+            organization, team_season, _, snapshot = self.fixture(session)
+            _fact, source = self.add_traceable_batting_fact(
+                session, organization, team_season, snapshot
             )
-            session.add(source)
-            self.add_core_sections(session, organization.id, snapshot.id)
+            self.add_core_sections(
+                session, organization.id, snapshot.id, batting_rows=1
+            )
             session.flush()
             snapshot_id = snapshot.id
             source_id = source.id
