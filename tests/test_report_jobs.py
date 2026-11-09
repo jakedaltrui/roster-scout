@@ -361,6 +361,121 @@ class ConcurrentExecutionClaimTests(PostgreSQLJobTestCase):
                 self.assertIsNotNone(replacement_claim)
 
 
+class CeleryConcurrentDeliveryTests(PostgreSQLJobTestCase):
+    def test_overlapping_task_entrypoints_collect_once_and_replay_terminal_result(self):
+        from celery.exceptions import Retry
+
+        from roster_scout.celery_app import celery_app
+        from roster_scout.jobs import SAFE_FAILURE_MESSAGES, accept_report_job
+        from roster_scout.models import ReportJob, ReportSnapshot, SourceRecord
+        from roster_scout.tasks import build_report_job
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session, organization_id, report_id, "celery-overlap", dispatch=None
+        )
+        collector_started = threading.Event()
+        release_collector = threading.Event()
+        collector_calls = []
+        outcomes = {}
+
+        def collector(job_id, *, cached_sections=frozenset()):
+            collector_calls.append((job_id, cached_sections))
+            collector_started.set()
+            self.assertTrue(release_collector.wait(timeout=5))
+            return PublicationTests.successful_sections()
+
+        def deliver(label):
+            try:
+                result = build_report_job.apply(args=(str(job.id),), throw=True)
+                outcomes[label] = result.result
+            except Exception as exc:  # task retry is an observable delivery outcome
+                outcomes[label] = exc
+
+        with patch("roster_scout.tasks._session_factory", return_value=self.Session), patch(
+            "roster_scout.tasks.collect_report_sections", side_effect=collector
+        ):
+            winner = threading.Thread(target=deliver, args=("winner",))
+            loser = threading.Thread(target=deliver, args=("loser",))
+            try:
+                winner.start()
+                self.assertTrue(collector_started.wait(timeout=5))
+                loser.start()
+                loser.join(timeout=2)
+                self.assertFalse(loser.is_alive())
+                self.assertIsInstance(outcomes.get("loser"), Retry)
+                self.assertIn(SAFE_FAILURE_MESSAGES["job_busy"], str(outcomes["loser"]))
+            finally:
+                release_collector.set()
+                winner.join(timeout=5)
+                loser.join(timeout=5)
+
+        self.assertFalse(winner.is_alive())
+        self.assertFalse(loser.is_alive())
+        self.assertEqual(len(collector_calls), 1)
+        snapshot_id = outcomes.get("winner")
+        self.assertIsInstance(snapshot_id, str)
+        with self.Session() as session:
+            stored = session.get(ReportJob, job.id)
+            self.assertEqual(stored.attempt_count, 1)
+            self.assertEqual(stored.status, "ready")
+            self.assertIsNone(stored.failure_category)
+            self.assertIsNone(stored.failure_message)
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(ReportSnapshot)), 1
+            )
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(SourceRecord)), 0
+            )
+
+        terminal_collector = Mock(
+            side_effect=AssertionError("terminal replay contacted Browserless")
+        )
+        with patch("roster_scout.tasks._session_factory", return_value=self.Session), patch(
+            "roster_scout.tasks.collect_report_sections", terminal_collector
+        ):
+            replayed_snapshot_id = build_report_job.apply(
+                args=(str(job.id),), throw=True
+            ).result
+        self.assertEqual(replayed_snapshot_id, snapshot_id)
+        terminal_collector.assert_not_called()
+
+        self.assertTrue(celery_app.conf.task_acks_late)
+        self.assertTrue(celery_app.conf.task_reject_on_worker_lost)
+        self.assertEqual(celery_app.conf.worker_prefetch_multiplier, 1)
+        self.assertIsNone(celery_app.conf.result_backend)
+
+    def test_task_failure_persists_only_allowlisted_safe_text(self):
+        from roster_scout.jobs import (
+            DeterministicJobError,
+            SAFE_FAILURE_MESSAGES,
+            accept_report_job,
+        )
+        from roster_scout.models import ReportJob
+        from roster_scout.tasks import build_report_job
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session, organization_id, report_id, "celery-safe-failure", dispatch=None
+        )
+        with patch("roster_scout.tasks._session_factory", return_value=self.Session), patch(
+            "roster_scout.tasks.collect_report_sections",
+            side_effect=ValueError("schema response contained secret-token"),
+        ):
+            with self.assertRaises(DeterministicJobError):
+                build_report_job.apply(args=(str(job.id),), throw=True)
+
+        with self.Session() as session:
+            stored = session.get(ReportJob, job.id)
+            self.assertEqual(stored.status, "failed")
+            self.assertEqual(stored.failure_category, "schema_validation")
+            self.assertEqual(
+                stored.failure_message, SAFE_FAILURE_MESSAGES["schema_validation"]
+            )
+            self.assertIn(stored.failure_message, SAFE_FAILURE_MESSAGES.values())
+            self.assertNotIn("secret-token", stored.failure_message)
+
+
 class RetentionAndCacheTests(PostgreSQLJobTestCase):
     def test_evidence_is_failure_only_compressed_and_purges_bytes_not_metadata(self):
         from roster_scout.evidence import purge_expired_evidence, store_failure_evidence
