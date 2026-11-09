@@ -4,7 +4,7 @@ import inspect as python_inspect
 import threading
 import unittest
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import Mock, patch
 
 from sqlalchemy import func, select
@@ -154,6 +154,144 @@ class JobLifecycleTests(PostgreSQLJobTestCase):
         self.assertEqual(build_report_job.max_retries, 2)
         self.assertTrue(build_report_job.retry_backoff)
         self.assertTrue(build_report_job.retry_jitter)
+
+
+class TransactionalOutboxTests(PostgreSQLJobTestCase):
+    def test_acceptance_and_dispatch_intent_roll_back_together(self):
+        from roster_scout.jobs import create_or_get_job
+        from roster_scout.models import ReportJob, ReportJobDispatch
+
+        organization_id, report_id = self.fixture()
+        with self.assertRaisesRegex(RuntimeError, "forced rollback"):
+            with self.Session.begin() as session:
+                create_or_get_job(session, organization_id, report_id, "rollback")
+                raise RuntimeError("forced rollback")
+
+        with self.Session() as session:
+            self.assertEqual(session.scalar(select(func.count()).select_from(ReportJob)), 0)
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(ReportJobDispatch)), 0
+            )
+
+    def test_barrier_released_acceptance_converges_on_one_job_and_intent(self):
+        from roster_scout.database import create_session_factory, get_engine
+        from roster_scout.jobs import accept_report_job
+        from roster_scout.models import ReportJob, ReportJobDispatch
+
+        organization_id, report_id = self.fixture()
+        ready = threading.Barrier(2)
+        outcomes = []
+        errors = []
+
+        def accept_once():
+            engine = get_engine(self.database_url)
+            Session = create_session_factory(engine)
+            try:
+                ready.wait(timeout=5)
+                outcomes.append(
+                    accept_report_job(
+                        Session,
+                        organization_id,
+                        report_id,
+                        "acceptance-race",
+                        dispatch=None,
+                    ).id
+                )
+            except Exception as exc:
+                errors.append(exc)
+            finally:
+                engine.dispose()
+
+        threads = [threading.Thread(target=accept_once) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+
+        self.assertFalse(any(thread.is_alive() for thread in threads))
+        self.assertEqual(errors, [])
+        self.assertEqual(len(set(outcomes)), 1)
+        with self.Session() as session:
+            self.assertEqual(session.scalar(select(func.count()).select_from(ReportJob)), 1)
+            intents = list(session.scalars(select(ReportJobDispatch)))
+            self.assertEqual(len(intents), 1)
+            self.assertEqual(intents[0].job_id, outcomes[0])
+            self.assertEqual(intents[0].status, "pending")
+
+    def test_barrier_released_publishers_claim_once_and_expired_lease_reclaims(self):
+        from roster_scout.database import create_session_factory, get_engine
+        from roster_scout.jobs import accept_report_job
+        from roster_scout.models import ReportJobDispatch
+        from roster_scout.repositories import claim_report_dispatches
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session, organization_id, report_id, "claim-race", dispatch=None
+        )
+        now = datetime(2026, 11, 9, 12, 0, tzinfo=UTC)
+        ready = threading.Barrier(2)
+        outcomes = []
+        errors = []
+
+        def claim_once():
+            engine = get_engine(self.database_url)
+            Session = create_session_factory(engine)
+            try:
+                with Session.begin() as session:
+                    ready.wait(timeout=5)
+                    outcomes.append(
+                        claim_report_dispatches(
+                            session,
+                            now=now,
+                            limit=1,
+                            lease_duration=timedelta(seconds=30),
+                        )
+                    )
+            except Exception as exc:
+                errors.append(exc)
+            finally:
+                engine.dispose()
+
+        threads = [threading.Thread(target=claim_once) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+
+        self.assertFalse(any(thread.is_alive() for thread in threads))
+        self.assertEqual(errors, [])
+        leases = [lease for claimed in outcomes for lease in claimed]
+        self.assertEqual(len(leases), 1)
+        self.assertEqual(leases[0].job_id, job.id)
+        self.assertIsNotNone(leases[0].lease_token)
+
+        with self.Session.begin() as session:
+            reclaimed = claim_report_dispatches(
+                session,
+                now=now + timedelta(seconds=31),
+                limit=1,
+                lease_duration=timedelta(seconds=30),
+            )
+        self.assertEqual(len(reclaimed), 1)
+        self.assertEqual(reclaimed[0].dispatch_id, leases[0].dispatch_id)
+        self.assertNotEqual(reclaimed[0].lease_token, leases[0].lease_token)
+        with self.Session() as session:
+            intent = session.get(ReportJobDispatch, leases[0].dispatch_id)
+            self.assertEqual(intent.publish_attempts, 2)
+
+    def test_revision_0005_downgrades_and_reupgrades_cleanly(self):
+        from alembic import command
+        from sqlalchemy import inspect
+
+        from tests.db_support import alembic_config
+
+        command.downgrade(alembic_config(self.database_url), "0004")
+        self.assertNotIn("report_job_dispatch_outbox", inspect(self.engine).get_table_names())
+        command.upgrade(alembic_config(self.database_url), "0005")
+        self.assertIn("report_job_dispatch_outbox", inspect(self.engine).get_table_names())
+        command.downgrade(alembic_config(self.database_url), "0004")
+        command.upgrade(alembic_config(self.database_url), "head")
+        command.check(alembic_config(self.database_url))
 
 
 class PublicationTests(PostgreSQLJobTestCase):
