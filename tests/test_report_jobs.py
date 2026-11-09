@@ -403,6 +403,103 @@ class PublicationTests(PostgreSQLJobTestCase):
         self.assertTrue(result.successful())
 
 
+class FinalAttemptEvidenceRecoveryTests(PostgreSQLJobTestCase):
+    def evidence_sections(self, job_id, *, parser_version="parser-1"):
+        from roster_scout.jobs import CollectedSection
+        from roster_scout.models import ReportJob, Report, Season, Team, TeamSeason
+
+        with self.Session() as session:
+            job = session.get(ReportJob, job_id)
+            report = session.get(Report, job.report_id)
+            team_season = session.get(TeamSeason, report.team_season_id)
+            team = session.get(Team, team_season.team_id)
+            season = session.get(Season, team_season.season_id)
+            common = {
+                "critical": True,
+                "rows": (),
+                "verified_empty": True,
+                "source_team_id": team.source_team_id,
+                "source_season_id": season.source_season_id,
+                "source_season_team_id": team_season.source_season_team_id,
+                "collected_at": datetime(2026, 11, 9, 12, 0, tzinfo=UTC),
+                "parser_version": parser_version,
+                "schema_version": "schema-1",
+            }
+            return tuple(
+                CollectedSection(
+                    name=name,
+                    source_url=f"https://stats.ncaa.org/{name}",
+                    source_stat_category_id=category,
+                    **common,
+                )
+                for name, category in (
+                    ("batting", team_season.batting_stat_category_id),
+                    ("pitching", team_season.pitching_stat_category_id),
+                )
+            )
+
+    def crash_after_source_commit(self, *, max_attempts, attempt_count):
+        from roster_scout.jobs import accept_report_job, run_report_job
+        from roster_scout.models import ReportJob
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session, organization_id, report_id, uuid.uuid4().hex, dispatch=None
+        )
+        with self.Session.begin() as session:
+            stored = session.get(ReportJob, job.id)
+            stored.max_attempts = max_attempts
+            stored.attempt_count = attempt_count
+        sections = self.evidence_sections(job.id)
+        with patch("roster_scout.jobs._persist_canonical", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                run_report_job(self.Session, job.id, collector=Mock(return_value=sections))
+        return job
+
+    def assert_evidence_only_replay(self, job, expected_attempts):
+        from roster_scout.jobs import run_report_job
+        from roster_scout.models import ReportJob
+
+        collector = Mock(side_effect=AssertionError("finalization collected twice"))
+        snapshot = run_report_job(self.Session, job.id, collector=collector)
+        self.assertEqual(snapshot.status, "ready")
+        collector.assert_not_called()
+        with self.Session() as session:
+            stored = session.get(ReportJob, job.id)
+            self.assertEqual(stored.attempt_count, expected_attempts)
+            self.assertEqual(stored.status, "ready")
+
+    def test_max_attempts_one_replays_complete_evidence_without_collection(self):
+        job = self.crash_after_source_commit(max_attempts=1, attempt_count=0)
+        self.assert_evidence_only_replay(job, 1)
+
+    def test_final_configured_attempt_replays_complete_evidence_without_collection(self):
+        job = self.crash_after_source_commit(max_attempts=2, attempt_count=1)
+        self.assert_evidence_only_replay(job, 2)
+
+    def test_incomplete_or_version_mismatched_evidence_still_exhausts(self):
+        from roster_scout.jobs import DeterministicJobError, run_report_job
+        from roster_scout.models import ReportSection
+
+        for mutation in ("missing", "version"):
+            with self.subTest(mutation=mutation):
+                clean_database(self.database_url)
+                job = self.crash_after_source_commit(max_attempts=1, attempt_count=0)
+                with self.Session.begin() as session:
+                    pitching = session.scalar(
+                        select(ReportSection).where(ReportSection.section == "pitching")
+                    )
+                    if mutation == "missing":
+                        session.delete(pitching)
+                    else:
+                        pitching.parser_version = "parser-stale"
+                collector = Mock(side_effect=AssertionError("exhausted job collected"))
+                with self.assertRaises(DeterministicJobError) as raised:
+                    run_report_job(self.Session, job.id, collector=collector)
+                self.assertEqual(raised.exception.category, "retry_exhausted")
+                collector.assert_not_called()
+
+
 class ConcurrentExecutionClaimTests(PostgreSQLJobTestCase):
     def test_overlapping_deliveries_collect_and_count_one_attempt(self):
         from roster_scout.database import create_session_factory, get_engine

@@ -6,7 +6,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from sqlalchemy import delete, event, func, inspect, select, update
 from sqlalchemy.exc import IntegrityError
@@ -259,6 +259,78 @@ class CanonicalPublishTests(unittest.TestCase):
         self.assertNotEqual(second.id, first_snapshot.id)
         with self.Session() as session:
             self.assertEqual(session.scalar(select(func.count()).select_from(ReportSnapshot)), 2)
+
+
+class FinalAttemptPublicationTests(CanonicalPublishTests):
+    def test_complete_final_attempt_evidence_publishes_original_source_rows(self):
+        from roster_scout.jobs import collect_ncaa_sections, run_report_job
+        from roster_scout.models import (
+            BattingFact,
+            PitchingFact,
+            ReportJob,
+            SourceRecord,
+        )
+
+        job = self.seed(1)
+        with self.Session.begin() as session:
+            stored = session.get(ReportJob, job.id)
+            stored.max_attempts = 1
+        pages = {
+            "batting": fixture("d1_batting.html"),
+            "pitching": fixture("d1_pitching.html"),
+        }
+        with patch.object(rs, "_fetch_ncaa_pages", return_value=pages), patch(
+            "roster_scout.jobs._persist_canonical", side_effect=KeyboardInterrupt
+        ):
+            with self.assertRaises(KeyboardInterrupt):
+                run_report_job(
+                    self.Session,
+                    job.id,
+                    collector=lambda job_id, cached_sections=frozenset(): collect_ncaa_sections(
+                        self.Session, job_id, cached_sections=cached_sections
+                    ),
+                )
+
+        with self.Session() as session:
+            original = {
+                source.id: (
+                    source.section,
+                    source.row_ordinal,
+                    source.payload_sha256,
+                    source.collected_at,
+                    source.raw_values,
+                )
+                for source in session.scalars(select(SourceRecord))
+            }
+            self.assertTrue(original)
+
+        collector = Mock(
+            side_effect=AssertionError("evidence replay collected live data")
+        )
+        snapshot = run_report_job(self.Session, job.id, collector=collector)
+        self.assertEqual(snapshot.status, "ready")
+        collector.assert_not_called()
+
+        with self.Session() as session:
+            stored = session.get(ReportJob, job.id)
+            self.assertEqual(stored.attempt_count, 1)
+            replayed = {
+                source.id: (
+                    source.section,
+                    source.row_ordinal,
+                    source.payload_sha256,
+                    source.collected_at,
+                    source.raw_values,
+                )
+                for source in session.scalars(select(SourceRecord))
+            }
+            self.assertEqual(replayed, original)
+            source_ids = set(original)
+            facts = list(session.scalars(select(BattingFact))) + list(
+                session.scalars(select(PitchingFact))
+            )
+            self.assertTrue(facts)
+            self.assertTrue(all(fact.source_record_id in source_ids for fact in facts))
 
 
 class SharedRecordPublishCase(unittest.TestCase):
