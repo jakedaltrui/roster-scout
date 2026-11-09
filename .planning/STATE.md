@@ -76,7 +76,7 @@ Full decision log: `.planning/PROJECT.md`.
 
 ### Pending Todos
 
-None recorded under `.planning/todos/pending/`.
+- Add last-10 and conference-only stats (Phase 3) — define auditable recent-form and conference-only batting, pitching, and fielding scopes for canonical storage, Excel, and Power BI.
 
 ### Blockers/Concerns
 
