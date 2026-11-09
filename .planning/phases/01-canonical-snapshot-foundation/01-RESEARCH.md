@@ -256,8 +256,8 @@ Every tenant-owned child table should carry `organization_id` and use a composit
 
 ### Pitfall 6: Browser Capacity Escapes the Old File Lock
 **What goes wrong:** Multiple worker machines each honor a local lock but exceed the Browserless account limit globally.
-**Avoidance:** Phase 1 deploys one worker process group with bounded Celery concurrency matching `BROWSERLESS_MAX_SESSIONS`; do not scale workers horizontally until a distributed capacity lease is implemented and tested.
-**Warning signs:** `fly scale count worker` exceeds one while capacity control remains filesystem-local.
+**Avoidance:** Use one PostgreSQL-backed distributed lease shared by synchronous app and worker acquisition paths; aggregate active leases must never exceed `BROWSERLESS_ACCOUNT_MAX_SESSIONS`.
+**Warning signs:** Any hosted acquisition path uses a process-local/file lock, a per-process quota, or a namespace/account limit different from the other paths.
 
 ### Pitfall 7: Successful HTML Retained Forever
 **What goes wrong:** Raw pages become an unbounded duplicate archive and broaden data-retention exposure.
@@ -345,21 +345,21 @@ These examples illustrate the boundary only. Migration and service code must use
 | Migration creates unscoped data window | HIGH | Non-null tenant keys, reviewed migration, release command failure blocks rollout. |
 </threat_research>
 
-<open_questions>
-## Open Questions
+<resolved_questions>
+## Open Questions — RESOLVED
 
-1. **Production managed-service provisioning and cost**
-   - Fly Managed Postgres currently starts at a paid managed tier, and Redis adds another service dependency.
-   - Recommendation: Phase 1 prepares and verifies configuration locally; provisioning/deployment is a manual release gate after billing is confirmed.
+1. **Production managed-service provisioning and cost — RESOLVED**
+   - Production launch remains blocked until managed PostgreSQL, Redis, object/evidence storage, and uninterrupted Fly worker billing/capacity are verified.
+   - Local Compose is development-only and does not satisfy the production provisioning gate.
 
-2. **Global Browserless capacity after horizontal worker scaling**
-   - One worker machine with bounded concurrency preserves the current capacity contract.
-   - Recommendation: prohibit horizontal worker scaling in Phase 1 deployment docs. Add a distributed lease before scaling beyond one worker machine.
+2. **Global Browserless capacity after horizontal worker scaling — RESOLVED**
+   - Use a PostgreSQL-backed distributed lease shared by both synchronous app and worker paths.
+   - Aggregate active leases must never exceed the account-wide configured limit; no process group receives an independent quota.
 
-3. **Thirty-day failed HTML storage location**
-   - Durable object storage is formally introduced in Phase 4, while Phase 1 already requires a reliable 30-day troubleshooting window.
-   - Recommendation: use a dedicated PostgreSQL `failure_evidence` table with gzip-compressed bytes, checksum, `expires_at`, and `purged_at`. Successful builds never create evidence rows; purge clears bytes while retaining sanitized metadata.
-</open_questions>
+3. **Thirty-day failed HTML storage location — RESOLVED**
+   - Keep gzip failed/blocked HTML in PostgreSQL `failure_evidence` with a hard 30-day maximum and scheduled purge.
+   - Successful HTML is never retained; purge clears expired bytes while preserving sanitized audit metadata.
+</resolved_questions>
 
 <sources>
 ## Sources

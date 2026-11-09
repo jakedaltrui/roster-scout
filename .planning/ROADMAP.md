@@ -16,7 +16,7 @@ Roster Scout v2.0 is delivered in five dependency-ordered slices. The roadmap fi
 
 ### Phase 1: Canonical Snapshot Foundation
 
-**Goal:** Existing NCAA results can be published through a durable job into immutable, provenance-rich canonical storage without regressing D1/D2/D3 behavior.
+**Goal:** As a Roster Scout operator, I want to publish existing NCAA D1/D2/D3 results through a durable job into an immutable, provenance-rich canonical snapshot, so that every downstream report can rely on one auditable source of truth without breaking today's workbook workflow.
 **Mode:** mvp
 **UI hint:** no
 **Depends on:** Nothing
@@ -29,7 +29,7 @@ Roster Scout v2.0 is delivered in five dependency-ordered slices. The roadmap fi
 4. Innings, missing values, two-way players, transfers, raw values, and metric-definition lineage are represented without ambiguity.
 5. Existing selector, scraper, cache, and basic workbook regression tests continue to pass.
 
-**Plans:** 3/3 plans complete
+**Plans:** 3/13 plans complete
 
 Plans:
 **Wave 1**
@@ -43,6 +43,40 @@ Plans:
 **Wave 3** *(blocked on Wave 2 completion)*
 
 - [x] 01-03: Adapt the existing NCAA workflow to canonical facts and verify D1/D2/D3 regression behavior.
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 01-04: Harden published-snapshot integrity, metric lineage, canonical counts, and migration reproducibility.
+- [ ] 01-10: Enforce account-wide Browserless capacity and loopback-only local database/broker exposure.
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 01-05: Enforce publication traceability and concurrency-safe shared player and metric identities.
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [ ] 01-06: Add an exclusive whole-attempt execution claim for duplicate Celery deliveries.
+
+**Wave 7** *(blocked on Wave 6 completion)*
+
+- [ ] 01-07: Replace the permanent sent bit with a transactional dispatch outbox and safe reconciliation.
+
+**Wave 8** *(blocked on Wave 7 completion)*
+
+- [ ] 01-08: Distinguish malformed NCAA tables from verified-empty sections and recover same-job evidence safely.
+- [ ] 01-12: Deploy one focused scheduler for dispatch reconciliation.
+
+**Wave 9** *(blocked on Wave 8 completion)*
+
+- [ ] 01-09: Capture bounded failed/blocked HTML evidence with credential-safe metadata.
+
+**Wave 10** *(blocked on Wave 9 completion)*
+
+- [ ] 01-13: Enforce failed-evidence expiry, purge health, and the 30-day physical-deletion deadline.
+
+**Wave 11** *(blocked on Wave 10 completion)*
+
+- [ ] 01-11: Run the goal-level D1/D2/D3, migration, deployment, and workbook release gate.
 
 ### Phase 2: Identity, Organizations, and Report Library
 
@@ -144,7 +178,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |---|---:|---|---|
-| 1. Canonical Snapshot Foundation | 3/3 | Complete   | 2026-11-01 |
+| 1. Canonical Snapshot Foundation | 3/13 | In progress | - |
 | 2. Identity, Organizations, and Report Library | 0/3 | Not started | - |
 | 3. Detailed NCAA Intelligence | 0/4 | Not started | - |
 | 4. Detailed Excel Report | 0/3 | Not started | - |
