@@ -296,6 +296,189 @@ class TransactionalOutboxTests(PostgreSQLJobTestCase):
         command.check(alembic_config(self.database_url))
 
 
+class AttemptGenerationSchemaTests(PostgreSQLJobTestCase):
+    def test_new_job_and_initial_intent_start_at_generation_one(self):
+        from roster_scout.jobs import accept_report_job
+        from roster_scout.models import ReportJob, ReportJobDispatch
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            "generation-defaults",
+            dispatch=None,
+        )
+
+        with self.Session() as session:
+            stored = session.get(ReportJob, job.id)
+            intent = session.scalar(
+                select(ReportJobDispatch).where(ReportJobDispatch.job_id == job.id)
+            )
+            self.assertEqual(stored.dispatch_generation, 1)
+            self.assertEqual(stored.started_generation, 0)
+            self.assertEqual(intent.generation, 1)
+
+    def test_bounded_retry_delay_has_exact_cap_and_injected_jitter(self):
+        from roster_scout.jobs import bounded_retry_delay
+
+        self.assertEqual(bounded_retry_delay(1, jitter=lambda _base: 0), 1)
+        self.assertEqual(bounded_retry_delay(4, jitter=lambda _base: 3), 11)
+        self.assertEqual(bounded_retry_delay(10, jitter=lambda _base: 0), 300)
+        self.assertEqual(bounded_retry_delay(8, jitter=lambda _base: 500), 300)
+
+    def test_retryable_failure_advances_once_and_persists_due_generation(self):
+        from roster_scout.jobs import (
+            RetryableJobError,
+            _record_failure,
+            accept_report_job,
+        )
+        from roster_scout.models import ReportJob, ReportJobDispatch
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            "generation-retry",
+            dispatch=None,
+        )
+        started_at = datetime(2026, 11, 9, 18, 0, tzinfo=UTC)
+        with self.Session.begin() as session:
+            stored = session.get(ReportJob, job.id)
+            stored.status = "running"
+            stored.attempt_count = 1
+            stored.started_generation = 1
+
+        first = _record_failure(
+            self.Session,
+            job.id,
+            1,
+            RetryableJobError("network"),
+            now=started_at,
+            jitter=lambda _base: 4,
+        )
+        second = _record_failure(
+            self.Session,
+            job.id,
+            1,
+            RetryableJobError("network"),
+            now=started_at + timedelta(seconds=1),
+            jitter=lambda _base: 99,
+        )
+
+        self.assertEqual(first.category, "network")
+        self.assertEqual(second.category, "network")
+        with self.Session() as session:
+            stored = session.get(ReportJob, job.id)
+            intents = list(
+                session.scalars(
+                    select(ReportJobDispatch)
+                    .where(ReportJobDispatch.job_id == job.id)
+                    .order_by(ReportJobDispatch.generation)
+                )
+            )
+            self.assertEqual(stored.dispatch_generation, 2)
+            self.assertEqual(stored.started_generation, 1)
+            self.assertEqual(stored.attempt_count, 1)
+            self.assertEqual([intent.generation for intent in intents], [1, 2])
+            self.assertEqual([intent.status for intent in intents], ["closed", "pending"])
+            self.assertEqual(
+                intents[1].next_attempt_at,
+                started_at + timedelta(seconds=5),
+            )
+
+    def test_lease_mutations_require_matching_generation_and_token(self):
+        from roster_scout.jobs import accept_report_job
+        from roster_scout.models import ReportJobDispatch
+        from roster_scout.repositories import (
+            ReportDispatchLease,
+            acknowledge_report_dispatch,
+            claim_report_dispatches,
+            close_report_dispatches,
+            release_report_dispatch,
+        )
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            "generation-lease",
+            dispatch=None,
+        )
+        now = datetime.now(UTC) + timedelta(seconds=1)
+        with self.Session.begin() as session:
+            lease = claim_report_dispatches(session, now=now, limit=1)[0]
+
+        wrong_generation = ReportDispatchLease(
+            dispatch_id=lease.dispatch_id,
+            organization_id=lease.organization_id,
+            job_id=lease.job_id,
+            generation=lease.generation + 1,
+            message_id=lease.message_id,
+            lease_token=lease.lease_token,
+            lease_expires_at=lease.lease_expires_at,
+        )
+        with self.Session.begin() as session:
+            self.assertFalse(
+                acknowledge_report_dispatch(
+                    session,
+                    wrong_generation,
+                    broker_message_id="ignored",
+                    now=now,
+                    redispatch_after=now + timedelta(minutes=5),
+                )
+            )
+            self.assertFalse(
+                release_report_dispatch(
+                    session,
+                    wrong_generation,
+                    next_attempt_at=now + timedelta(seconds=30),
+                    now=now,
+                )
+            )
+            self.assertEqual(
+                close_report_dispatches(
+                    session,
+                    job.id,
+                    generation=lease.generation + 1,
+                    now=now,
+                ),
+                0,
+            )
+
+        with self.Session() as session:
+            intent = session.get(ReportJobDispatch, lease.dispatch_id)
+            self.assertEqual(intent.status, "leased")
+            self.assertEqual(intent.generation, 1)
+
+    def test_revision_0007_downgrades_reupgrades_and_fresh_installs(self):
+        from alembic import command
+        from sqlalchemy import inspect
+
+        from tests.db_support import alembic_config
+
+        config = alembic_config(self.database_url)
+        command.downgrade(config, "0006")
+        inspector = inspect(self.engine)
+        self.assertNotIn(
+            "dispatch_generation",
+            {column["name"] for column in inspector.get_columns("report_jobs")},
+        )
+        command.upgrade(config, "0007")
+        self.assertIn(
+            "dispatch_generation",
+            {
+                column["name"]
+                for column in inspect(self.engine).get_columns("report_jobs")
+            },
+        )
+        command.downgrade(config, "base")
+        command.upgrade(config, "head")
+        command.check(config)
+
+
 class PublicationTests(PostgreSQLJobTestCase):
     @staticmethod
     def successful_sections(collected_at=None, *, supplemental_failed=False):
