@@ -2,20 +2,19 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 01-20-PLAN.md
-last_updated: "2026-11-10T03:03:31.511Z"
+status: verifying
+stopped_at: Completed 01-21-PLAN.md
+last_updated: "2026-11-10T03:19:17.914Z"
 last_activity: 2026-11-10
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 21
-  completed_plans: 20
-  percent: 95
+  completed_plans: 21
+  percent: 20
 ---
 
 # Project State
-
 ## Project Reference
 
 See: `.planning/PROJECT.md` (updated 2026-11-01)
@@ -25,29 +24,26 @@ See: `.planning/PROJECT.md` (updated 2026-11-01)
 
 ## Current Position
 
-Phase: 01 (canonical-snapshot-foundation) — EXECUTING
+Phase: 01 (canonical-snapshot-foundation) — COMPLETE
 Plan: 21 of 21
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-11-10
 
-Progress: [██████████] 95%
+Progress: [██████████] 100%
 
 ## Performance Metrics
-
 **Velocity:**
 
-- Total plans completed: 20
-- Average duration: 52m
-- Total execution time: 17h 25m
+- Total plans completed: 21
+- Average duration: 50m
+- Total execution time: 17h 35m
 
 **By Phase:**
-
 | Phase | Plans | Total | Avg/Plan |
 |---|---:|---:|---:|
-| 1. Canonical Snapshot Foundation | 20 | 17h 25m | 52m |
+| 1. Canonical Snapshot Foundation | 21 | 17h 35m | 50m |
 
 **Plan History:**
-
 | Phase | Plan | Duration | Tasks | Files |
 |---|---|---:|---:|---:|
 | 01 | 01 | 6 min | 3 | 16 |
@@ -70,9 +66,9 @@ Progress: [██████████] 95%
 | 01 | 18 | 7 min | 2 | 3 |
 | 01 | 19 | 8 min | 2 | 4 |
 | 01 | 20 | 10 min | 2 | 9 |
+| 01 | 21 | 10 min | 3 | 9 |
 
 ## Accumulated Context
-
 ### Decisions
 
 Full decision log: `.planning/PROJECT.md`.
@@ -123,6 +119,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 01]: Repeated ID-less names are fallback only with unique nonempty support signatures; duplicate or missing support is unresolved. — Makes ambiguity explicit and deterministic within one team-season.
 - [Phase 01]: Existing canonical persistence remains status-transparent, so unresolved publication reuses the Plan 01-17 source identity binding. — Avoids parallel linkage logic and preserves exact source/fact ownership enforcement.
 - [Phase 01]: Failure evidence retention is strictly limited to 1-28 days; deletion and the singleton heartbeat commit together; readiness stays fresh for exactly six hours only when no expired bytes remain. — Preserves a 47-hour deadline reserve, prevents false health, and survives restart.
+- [Phase 01]: Keep /healthz connection-free for liveness and gate traffic on persisted purge state through /readyz. — Prevents process survival from spoofing compliance readiness.
+- [Phase 01]: Assign health semantics per runtime instead of at the shared image layer. — Compose checks app, worker, scheduler, and purge truthfully while Fly HTTP and mounts stay app-only.
+- [Phase 01]: Pass bounded retention only to evidence creators and run explicit gap regressions before full discovery. — Preserves least privilege and a reproducible complete release gate.
 
 ### Pending Todos
 
@@ -145,6 +144,6 @@ Full decision log: `.planning/PROJECT.md`.
 
 ## Session Continuity
 
-Last session: 2026-11-10T03:03:31.504Z
-Stopped at: Completed 01-20-PLAN.md
+Last session: 2026-11-10T03:18:29.720Z
+Stopped at: Completed 01-21-PLAN.md
 Resume file: None
