@@ -2097,16 +2097,19 @@ def _parse_ncaa_stat_table_result(
         for cell in header_row.find_all(["th", "td"], recursive=False)
     ]
     normalized_headers = [_normalize_ncaa_header(header) for header in raw_headers]
+    required_header_counts = {
+        header: normalized_headers.count(header)
+        for header in signature["required_headers"]
+    }
     player_indexes = [
         index for index, header in enumerate(normalized_headers)
         if header == "player"
     ]
-    if len(player_indexes) != 1:
+    if required_header_counts["player"] != 1:
         raise NcaaSchemaError(
             "NCAA stats schema validation failed: expected one Player column."
         )
-    missing_headers = signature["required_headers"] - set(normalized_headers)
-    if missing_headers:
+    if any(count != 1 for count in required_header_counts.values()):
         raise NcaaSchemaError(
             f"NCAA stats schema validation failed: unsupported {section} headers."
         )
