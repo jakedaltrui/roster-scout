@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-21-PLAN.md
-last_updated: "2026-11-10T16:24:56.845Z"
-last_activity: 2026-11-10 -- Phase 01 planning complete
+stopped_at: Completed 01-22-PLAN.md
+last_updated: "2026-11-10T16:37:52.213Z"
+last_activity: 2026-11-10
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 30
-  completed_plans: 21
+  completed_plans: 22
   percent: 0
 ---
 
@@ -25,12 +25,12 @@ See: `.planning/PROJECT.md` (updated 2026-11-01)
 
 ## Current Position
 
-Phase: 01 (canonical-snapshot-foundation) — COMPLETE
-Plan: 21 of 21
+Phase: 01 (canonical-snapshot-foundation) — EXECUTING
+Plan: 23 of 30
 Status: Ready to execute
-Last activity: 2026-11-10 -- Phase 01 planning complete
+Last activity: 2026-11-10
 
-Progress: [██████████] 100%
+Progress: [███████░░░] 73%
 
 ## Performance Metrics
 
@@ -125,6 +125,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 01]: Keep /healthz connection-free for liveness and gate traffic on persisted purge state through /readyz. — Prevents process survival from spoofing compliance readiness.
 - [Phase 01]: Assign health semantics per runtime instead of at the shared image layer. — Compose checks app, worker, scheduler, and purge truthfully while Fly HTTP and mounts stay app-only.
 - [Phase 01]: Pass bounded retention only to evidence creators and run explicit gap regressions before full discovery. — Preserves least privilege and a reproducible complete release gate.
+- [Phase 01]: The persisted NCAA parser identity is parser-2+ncaa-core-v2, binding implementation and accepted core-header contract in one cache key. — Pre-contract evidence must not satisfy a parser deployment with stricter accepted headers.
+- [Phase 01]: A complete section may be replaced only when its schema/parser identity is stale; conflicting content under the current identity remains immutable and fails closed. — This permits deployment-safe recollection without weakening same-version evidence immutability.
+- [Phase 01]: PostgreSQL generation compare-and-swap and outbox due times are the sole retry authority; Celery carries only (job_id, generation) and never calls self.retry. — One durable retry clock prevents broker retries from competing with persisted backoff.
 
 ### Pending Todos
 
@@ -144,9 +147,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Comparison | Compare two snapshots of the same opponent | Future requirement | v2.0 initialization |
 | Collaboration | Notes and cross-organization sharing | Future requirement | v2.0 initialization |
 | Coverage | Full JUCO parity and arbitrary historical team-season reports | Future requirement | v2.0 initialization |
+| Phase 01 P22 | 6 min | 3 tasks | 6 files |
 
 ## Session Continuity
 
-Last session: 2026-11-10T03:18:29.720Z
-Stopped at: Completed 01-21-PLAN.md
+Last session: 2026-11-10T16:37:52.206Z
+Stopped at: Completed 01-22-PLAN.md
 Resume file: None
