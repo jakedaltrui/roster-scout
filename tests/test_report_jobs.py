@@ -960,6 +960,128 @@ class PublicationTests(PostgreSQLJobTestCase):
         self.assertTrue(result.successful())
 
 
+class ParserContractRecoveryTests(PostgreSQLJobTestCase):
+    def _sections(self, job_id, *, parser_version, collected_at):
+        from roster_scout.jobs import CollectedSection
+        from roster_scout.models import Report, ReportJob, Season, Team, TeamSeason
+
+        with self.Session() as session:
+            job = session.get(ReportJob, job_id)
+            report = session.get(Report, job.report_id)
+            team_season = session.get(TeamSeason, report.team_season_id)
+            team = session.get(Team, team_season.team_id)
+            season = session.get(Season, team_season.season_id)
+            common = {
+                "critical": True,
+                "rows": (),
+                "verified_empty": True,
+                "source_team_id": team.source_team_id,
+                "source_season_id": season.source_season_id,
+                "source_season_team_id": team_season.source_season_team_id,
+                "collected_at": collected_at,
+                "parser_version": parser_version,
+                "schema_version": "schema-1",
+            }
+            return tuple(
+                CollectedSection(
+                    name=name,
+                    source_url=f"https://stats.ncaa.org/{name}",
+                    source_stat_category_id=category,
+                    **common,
+                )
+                for name, category in (
+                    ("batting", team_season.batting_stat_category_id),
+                    ("pitching", team_season.pitching_stat_category_id),
+                )
+            )
+
+    def test_parser_one_sections_are_recollected_then_current_evidence_is_reused(self):
+        from roster_scout.jobs import (
+            PARSER_VERSION,
+            _new_or_existing_snapshot,
+            accept_report_job,
+            reconcile_stale_report_jobs,
+            run_report_job,
+        )
+        from roster_scout.models import ReportJob, ReportSection
+
+        self.assertIn("parser-2", PARSER_VERSION)
+        self.assertIn("ncaa-core-v2", PARSER_VERSION)
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            "parser-contract-recovery",
+            dispatch=None,
+        )
+        stale_time = datetime(2026, 11, 8, 10, 0, tzinfo=UTC)
+        current_time = datetime(2026, 11, 9, 11, 0, tzinfo=UTC)
+        stale_sections = self._sections(
+            job.id, parser_version="parser-1", collected_at=stale_time
+        )
+        with self.Session.begin() as session:
+            stored_job = session.get(ReportJob, job.id)
+            snapshot = _new_or_existing_snapshot(session, stored_job)
+            for collected in stale_sections:
+                session.add(ReportSection(
+                    organization_id=stored_job.organization_id,
+                    snapshot_id=snapshot.id,
+                    job_id=stored_job.id,
+                    section=collected.name,
+                    critical=True,
+                    status="complete",
+                    row_count=0,
+                    verified_empty=True,
+                    collected_at=stale_time,
+                    source_url=collected.source_url,
+                    source_team_id=collected.source_team_id,
+                    source_season_id=collected.source_season_id,
+                    source_season_team_id=collected.source_season_team_id,
+                    source_stat_category_id=collected.source_stat_category_id,
+                    schema_version="schema-1",
+                    parser_version="parser-1",
+                ))
+
+        current_sections = self._sections(
+            job.id, parser_version=PARSER_VERSION, collected_at=current_time
+        )
+        collector = Mock(return_value=current_sections)
+        with patch(
+            "roster_scout.jobs._persist_canonical", side_effect=KeyboardInterrupt
+        ):
+            with self.assertRaises(KeyboardInterrupt):
+                run_report_job(self.Session, job.id, collector=collector)
+        collector.assert_called_once()
+        self.assertEqual(collector.call_args.kwargs["cached_sections"], frozenset())
+
+        with self.Session() as session:
+            stored_job = session.get(ReportJob, job.id)
+            started_at = stored_job.started_at
+            sections = list(session.scalars(select(ReportSection)))
+            self.assertEqual({item.parser_version for item in sections}, {PARSER_VERSION})
+            self.assertEqual({item.collected_at for item in sections}, {current_time})
+
+        reconciled = reconcile_stale_report_jobs(
+            self.Session,
+            now=started_at + timedelta(hours=1),
+            running_timeout=timedelta(minutes=30),
+        )
+        self.assertEqual(reconciled.reopened, 1)
+        duplicate_collector = Mock(
+            side_effect=AssertionError("current evidence should be reused")
+        )
+        snapshot = run_report_job(
+            self.Session, job.id, collector=duplicate_collector
+        )
+        self.assertEqual(snapshot.status, "ready")
+        duplicate_collector.assert_not_called()
+        with self.Session() as session:
+            sections = list(session.scalars(select(ReportSection)))
+            self.assertEqual({item.parser_version for item in sections}, {PARSER_VERSION})
+            self.assertEqual({item.collected_at for item in sections}, {current_time})
+
+
 class FinalAttemptEvidenceRecoveryTests(PostgreSQLJobTestCase):
     def evidence_sections(self, job_id, *, parser_version="parser-1"):
         from roster_scout.jobs import CollectedSection
