@@ -2,6 +2,8 @@
 
 import gzip
 import inspect as python_inspect
+import multiprocessing
+import os
 import threading
 import unittest
 import uuid
@@ -12,6 +14,19 @@ from unittest.mock import Mock, patch
 from sqlalchemy import func, select
 
 from tests.db_support import clean_database, require_test_database_url, upgrade_database
+
+
+def _crash_after_generation_cas(database_url, job_id):
+    from roster_scout.database import create_session_factory, get_engine
+    from roster_scout.jobs import run_report_job
+
+    engine = get_engine(database_url)
+    Session = create_session_factory(engine)
+
+    def terminate(_job_id, *, cached_sections=frozenset()):
+        os._exit(0)
+
+    run_report_job(Session, job_id, 1, collector=terminate)
 
 
 class PostgreSQLJobTestCase(unittest.TestCase):
@@ -477,6 +492,305 @@ class AttemptGenerationSchemaTests(PostgreSQLJobTestCase):
         command.downgrade(config, "base")
         command.upgrade(config, "head")
         command.check(config)
+
+
+class AttemptGenerationDeliveryTests(PostgreSQLJobTestCase):
+    def test_sequential_duplicate_and_stale_generation_are_precollection_noops(self):
+        from roster_scout.jobs import RetryableJobError, accept_report_job, run_report_job
+        from roster_scout.models import ReportJob, ReportJobDispatch
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            "generation-sequential",
+            dispatch=None,
+        )
+        with self.assertRaises(RetryableJobError):
+            run_report_job(
+                self.Session,
+                job.id,
+                1,
+                collector=Mock(side_effect=ConnectionError("temporary")),
+            )
+
+        stale_collector = Mock(side_effect=AssertionError("stale generation collected"))
+        outcome = run_report_job(
+            self.Session, job.id, 1, collector=stale_collector
+        )
+        self.assertEqual(outcome, "stale")
+        stale_collector.assert_not_called()
+
+        with self.Session() as session:
+            stored = session.get(ReportJob, job.id)
+            intent = session.scalar(
+                select(ReportJobDispatch).where(
+                    ReportJobDispatch.job_id == job.id,
+                    ReportJobDispatch.generation == 2,
+                )
+            )
+            before = (
+                stored.attempt_count,
+                stored.failure_category,
+                stored.failure_message,
+                intent.status,
+                intent.next_attempt_at,
+            )
+
+        snapshot = run_report_job(
+            self.Session,
+            job.id,
+            2,
+            collector=Mock(return_value=PublicationTests.successful_sections()),
+        )
+        self.assertEqual(snapshot.status, "ready")
+        with self.Session() as session:
+            stored = session.get(ReportJob, job.id)
+            self.assertEqual(stored.attempt_count, 2)
+            self.assertEqual(stored.started_generation, 2)
+            self.assertEqual(before[0], 1)
+
+    def test_overlapping_same_generation_returns_duplicate_without_retry(self):
+        from roster_scout.database import create_session_factory, get_engine
+        from roster_scout.jobs import accept_report_job, run_report_job
+        from roster_scout.models import ReportJob
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            "generation-overlap",
+            dispatch=None,
+        )
+        first_engine = get_engine(self.database_url)
+        second_engine = get_engine(self.database_url)
+        first_session = create_session_factory(first_engine)
+        second_session = create_session_factory(second_engine)
+        started = threading.Event()
+        release = threading.Event()
+        calls = []
+        outcomes = {}
+
+        def collector(job_id, *, cached_sections=frozenset()):
+            calls.append(job_id)
+            started.set()
+            self.assertTrue(release.wait(timeout=5))
+            return PublicationTests.successful_sections()
+
+        def deliver(label, Session):
+            try:
+                outcomes[label] = run_report_job(
+                    Session, job.id, 1, collector=collector
+                )
+            except Exception as exc:
+                outcomes[label] = exc
+
+        winner = threading.Thread(target=deliver, args=("winner", first_session))
+        loser = threading.Thread(target=deliver, args=("loser", second_session))
+        try:
+            winner.start()
+            self.assertTrue(started.wait(timeout=5))
+            loser.start()
+            loser.join(timeout=2)
+            self.assertFalse(loser.is_alive())
+            self.assertEqual(outcomes.get("loser"), "duplicate")
+        finally:
+            release.set()
+            winner.join(timeout=5)
+            loser.join(timeout=5)
+            first_engine.dispose()
+            second_engine.dispose()
+
+        self.assertEqual(len(calls), 1)
+        with self.Session() as session:
+            stored = session.get(ReportJob, job.id)
+            self.assertEqual(stored.attempt_count, 1)
+            self.assertEqual(stored.started_generation, 1)
+
+    def test_task_acknowledges_retry_scheduling_without_celery_retry(self):
+        from roster_scout.jobs import accept_report_job
+        from roster_scout.models import ReportJob, ReportJobDispatch
+        from roster_scout.tasks import build_report_job
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            "generation-task-retry",
+            dispatch=None,
+        )
+        with patch("roster_scout.tasks._session_factory", return_value=self.Session), patch(
+            "roster_scout.tasks.collect_report_sections",
+            side_effect=ConnectionError("temporary"),
+        ):
+            result = build_report_job.apply(args=(str(job.id), 1), throw=True)
+
+        self.assertEqual(result.result, "retry_scheduled")
+        with self.Session() as session:
+            stored = session.get(ReportJob, job.id)
+            intent = session.scalar(
+                select(ReportJobDispatch).where(
+                    ReportJobDispatch.job_id == job.id,
+                    ReportJobDispatch.generation == 2,
+                )
+            )
+            self.assertEqual(stored.attempt_count, 1)
+            self.assertEqual(stored.dispatch_generation, 2)
+            self.assertGreater(intent.next_attempt_at, stored.started_at)
+
+    def test_retry_budget_is_started_generation_bounded(self):
+        from roster_scout.jobs import DeterministicJobError, accept_report_job, run_report_job
+        from roster_scout.models import ReportJob, ReportJobDispatch
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            "generation-exhausted",
+            dispatch=None,
+        )
+        with self.Session.begin() as session:
+            session.get(ReportJob, job.id).max_attempts = 1
+
+        with self.assertRaises(DeterministicJobError) as raised:
+            run_report_job(
+                self.Session,
+                job.id,
+                1,
+                collector=Mock(side_effect=ConnectionError("temporary")),
+            )
+        self.assertEqual(raised.exception.category, "retry_exhausted")
+        with self.Session() as session:
+            stored = session.get(ReportJob, job.id)
+            self.assertEqual(stored.status, "failed")
+            self.assertEqual(stored.attempt_count, 1)
+            self.assertEqual(stored.dispatch_generation, 1)
+            self.assertEqual(
+                session.scalar(
+                    select(func.count())
+                    .select_from(ReportJobDispatch)
+                    .where(
+                        ReportJobDispatch.job_id == job.id,
+                        ReportJobDispatch.generation == 2,
+                    )
+                ),
+                0,
+            )
+
+    def test_task_payload_requires_uuid_and_positive_integer_generation(self):
+        from roster_scout.tasks import build_report_job, dispatch_report_job
+
+        parameters = list(python_inspect.signature(build_report_job.run).parameters)
+        self.assertEqual(parameters, ["job_id", "generation"])
+        for invalid in (0, -1, True, "1"):
+            with self.assertRaises(ValueError):
+                dispatch_report_job(uuid.uuid4(), invalid)
+        with self.assertRaises(ValueError):
+            dispatch_report_job("not-a-uuid", 1)
+
+
+class CrashAfterGenerationCasRecoveryTests(PostgreSQLJobTestCase):
+    def test_process_loss_advances_exactly_once_and_next_generation_completes(self):
+        from roster_scout.celery_app import celery_app
+        from roster_scout.database import session_advisory_lock
+        from roster_scout.jobs import (
+            accept_report_job,
+            drain_report_dispatch_outbox,
+            reconcile_stale_report_jobs,
+            run_report_job,
+        )
+        from roster_scout.models import ReportJob, ReportJobDispatch, ReportSnapshot
+        from roster_scout.tasks import dispatch_report_job
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            "generation-process-crash",
+            dispatch=None,
+        )
+
+        process = multiprocessing.get_context("spawn").Process(
+            target=_crash_after_generation_cas,
+            args=(self.database_url, str(job.id)),
+        )
+        process.start()
+        process.join(timeout=10)
+        self.assertFalse(process.is_alive())
+        self.assertEqual(process.exitcode, 0)
+
+        with self.Session() as session:
+            stored = session.get(ReportJob, job.id)
+            self.assertEqual(stored.status, "running")
+            self.assertEqual(stored.attempt_count, 1)
+            self.assertEqual(stored.started_generation, 1)
+            stale_started_at = stored.started_at
+        with session_advisory_lock(self.Session, job.id) as replacement:
+            self.assertIsNotNone(replacement)
+
+        recovery_time = stale_started_at + timedelta(hours=1)
+        first = reconcile_stale_report_jobs(
+            self.Session,
+            now=recovery_time,
+            running_timeout=timedelta(minutes=30),
+        )
+        second = reconcile_stale_report_jobs(
+            self.Session,
+            now=recovery_time + timedelta(seconds=1),
+            running_timeout=timedelta(minutes=30),
+        )
+        self.assertEqual(first.reopened, 1)
+        self.assertEqual(second.reopened, 0)
+
+        stale_collector = Mock(side_effect=AssertionError("generation 1 reran"))
+        self.assertEqual(
+            run_report_job(self.Session, job.id, 1, collector=stale_collector),
+            "stale",
+        )
+        stale_collector.assert_not_called()
+
+        previous_eager = celery_app.conf.task_always_eager
+        celery_app.conf.task_always_eager = True
+        try:
+            with patch(
+                "roster_scout.tasks._session_factory", return_value=self.Session
+            ), patch(
+                "roster_scout.tasks.collect_report_sections",
+                return_value=PublicationTests.successful_sections(),
+            ):
+                drain_report_dispatch_outbox(
+                    self.Session,
+                    dispatch=dispatch_report_job,
+                    now=recovery_time + timedelta(seconds=1),
+                    limit=1,
+                )
+        finally:
+            celery_app.conf.task_always_eager = previous_eager
+
+        with self.Session() as session:
+            stored = session.get(ReportJob, job.id)
+            intents = list(
+                session.scalars(
+                    select(ReportJobDispatch).where(
+                        ReportJobDispatch.job_id == job.id
+                    )
+                )
+            )
+            self.assertEqual(stored.status, "ready")
+            self.assertEqual(stored.attempt_count, 2)
+            self.assertEqual(stored.started_generation, 2)
+            self.assertEqual(stored.dispatch_generation, 2)
+            self.assertEqual(
+                [intent.generation for intent in intents], [1, 2]
+            )
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(ReportSnapshot)), 1
+            )
 
 
 class PublicationTests(PostgreSQLJobTestCase):
