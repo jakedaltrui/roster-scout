@@ -10,7 +10,7 @@ import unittest
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -271,6 +271,172 @@ class DispatchSchedulerEntrypointTests(unittest.TestCase):
         self.assertNotIn(secret, rendered)
         self.assertNotIn("customer-payload", rendered)
         self.assertIn("degraded", rendered)
+
+
+class EvidencePurgeEntrypointTests(unittest.TestCase):
+    def test_configuration_defaults_to_one_hour_and_rejects_unsafe_values(self):
+        from scripts.run_purge import PurgeConfig
+
+        self.assertEqual(
+            PurgeConfig.from_environ({}).interval,
+            timedelta(hours=1),
+        )
+        for value in (
+            "0",
+            "-1",
+            "59.999",
+            "3600.001",
+            "not-a-number",
+            "inf",
+            "nan",
+        ):
+            with self.subTest(value=value), self.assertRaisesRegex(
+                ValueError,
+                "FAILURE_EVIDENCE_PURGE_SECONDS",
+            ):
+                PurgeConfig.from_environ({
+                    "FAILURE_EVIDENCE_PURGE_SECONDS": value,
+                })
+
+    def test_invalid_configuration_fails_before_runtime_dependencies(self):
+        from scripts import run_purge
+
+        with patch.object(run_purge, "_runtime_dependencies") as dependencies:
+            with self.assertRaises(ValueError):
+                run_purge.main(
+                    [],
+                    environ={"FAILURE_EVIDENCE_PURGE_SECONDS": "secret-invalid"},
+                )
+        dependencies.assert_not_called()
+
+    def test_first_purge_is_immediate_then_waits_on_monotonic_deadline(self):
+        from scripts.run_purge import PurgeConfig, run_purge
+
+        stop_event = _RecordingStopEvent()
+        purge = Mock(return_value=2)
+        readiness = Mock(return_value=_PurgeReadiness(
+            ready=True,
+            status="fresh",
+            last_purged_count=2,
+            expired_bytes_count=0,
+        ))
+        monotonic_values = iter((10.0, 10.0, 11.0, 71.0, 71.0))
+
+        run_purge(
+            PurgeConfig.from_environ({
+                "FAILURE_EVIDENCE_PURGE_SECONDS": "60",
+            }),
+            session_factory=object(),
+            purge=purge,
+            readiness=readiness,
+            stop_event=stop_event,
+            monotonic=lambda: next(monotonic_values),
+            max_cycles=2,
+        )
+
+        self.assertEqual(purge.call_count, 2)
+        self.assertEqual(stop_event.waits, [59.0])
+
+    def test_failure_retries_are_bounded_and_log_no_exception_payload(self):
+        from scripts.run_purge import PurgeConfig, run_purge
+
+        stop_event = _RecordingStopEvent()
+        secret = "postgresql://user:password@example.invalid/restricted-html"
+        purge = Mock(side_effect=RuntimeError(secret))
+        readiness = Mock()
+        logger = Mock(spec=logging.Logger)
+        monotonic_values = iter((10.0, 10.0, 11.0, 71.0, 71.0))
+
+        run_purge(
+            PurgeConfig.from_environ({}),
+            session_factory=object(),
+            purge=purge,
+            readiness=readiness,
+            stop_event=stop_event,
+            logger=logger,
+            monotonic=lambda: next(monotonic_values),
+            max_cycles=2,
+        )
+
+        self.assertEqual(purge.call_count, 2)
+        self.assertEqual(stop_event.waits, [59.0])
+        readiness.assert_not_called()
+        rendered = " ".join(str(call) for call in logger.method_calls)
+        self.assertIn("evidence_purge health=degraded", rendered)
+        self.assertNotIn(secret, rendered)
+        self.assertNotIn("restricted-html", rendered)
+
+    def test_shutdown_finishes_active_purge_and_persisted_readiness_query(self):
+        from scripts.run_purge import PurgeConfig, run_purge
+
+        stop_event = threading.Event()
+        calls = []
+
+        def purge(*_args, **_kwargs):
+            calls.append("purge-start")
+            stop_event.set()
+            calls.append("purge-commit")
+            return 1
+
+        def readiness(*_args, **_kwargs):
+            calls.append("readiness")
+            return _PurgeReadiness(
+                ready=True,
+                status="fresh",
+                last_purged_count=1,
+                expired_bytes_count=0,
+            )
+
+        run_purge(
+            PurgeConfig.from_environ({}),
+            session_factory=object(),
+            purge=purge,
+            readiness=readiness,
+            stop_event=stop_event,
+            monotonic=lambda: 10.0,
+        )
+
+        self.assertEqual(calls, ["purge-start", "purge-commit", "readiness"])
+
+    def test_check_mode_uses_persisted_readiness_and_safe_output(self):
+        from scripts import run_purge
+
+        cases = (
+            ("fresh", True, 0),
+            ("never_succeeded", False, 1),
+            ("stale", False, 1),
+            ("expired_bytes_present", False, 1),
+            ("database_unavailable", False, 1),
+        )
+        for status, ready, expected_exit in cases:
+            with self.subTest(status=status):
+                engine = Mock()
+                readiness = Mock(return_value=_PurgeReadiness(
+                    ready=ready,
+                    status=status,
+                    last_purged_count=3,
+                    expired_bytes_count=0 if ready else 1,
+                ))
+                secret = "postgresql://user:password@example.invalid/private"
+                logger = Mock(spec=logging.Logger)
+                with patch.object(
+                    run_purge,
+                    "_runtime_dependencies",
+                    return_value=(engine, object(), Mock(), readiness),
+                ):
+                    result = run_purge.main(
+                        ["--check"],
+                        environ={"DATABASE_URL": secret},
+                        logger=logger,
+                    )
+
+                self.assertEqual(result, expected_exit)
+                readiness.assert_called_once()
+                engine.dispose.assert_called_once_with()
+                rendered = " ".join(str(call) for call in logger.method_calls)
+                self.assertIn(status, rendered)
+                self.assertNotIn(secret, rendered)
+                self.assertNotIn("password", rendered)
 
 
 class EvidencePurgeHealthTests(unittest.TestCase):
@@ -582,6 +748,14 @@ class _ReconcileResult:
     reopened: int = 0
     closed: int = 0
     active: int = 0
+
+
+@dataclass(frozen=True)
+class _PurgeReadiness:
+    ready: bool
+    status: str
+    last_purged_count: int
+    expired_bytes_count: int
 
 
 class _NoWaitStopEvent:
