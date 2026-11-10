@@ -33,6 +33,13 @@ from .enums import (
 )
 
 
+AUTHORITATIVE_SOURCE_PLAYER_TRIGGER_NAMES = (
+    "trg_source_records_authoritative_source_player",
+    "trg_players_authoritative_source_player",
+    "trg_player_team_seasons_authoritative_source_player",
+)
+
+
 def _allowed(column, values):
     return f"{column} IN ({', '.join(repr(value) for value in values)})"
 
@@ -97,6 +104,13 @@ class Player(UUIDPrimaryKey, Timestamped, Base):
             unique=True,
             postgresql_where=text("source_player_id IS NOT NULL"),
         ),
+        {
+            "info": {
+                "database_triggers": (
+                    "trg_players_authoritative_source_player",
+                )
+            }
+        },
     )
 
 
@@ -162,6 +176,13 @@ class PlayerTeamSeason(UUIDPrimaryKey, Base):
             name="fk_player_team_seasons_snapshot_organization",
         ),
         CheckConstraint(_allowed("identity_status", IDENTITY_STATUSES), name="ck_player_team_seasons_identity_status"),
+        {
+            "info": {
+                "database_triggers": (
+                    "trg_player_team_seasons_authoritative_source_player",
+                )
+            }
+        },
     )
 
 
@@ -244,6 +265,13 @@ class SourceRecord(UUIDPrimaryKey, Base):
         ),
         CheckConstraint("row_ordinal >= 0", name="ck_source_records_row_ordinal_nonnegative"),
         CheckConstraint("char_length(payload_sha256) = 64", name="ck_source_records_sha256_length"),
+        {
+            "info": {
+                "database_triggers": (
+                    "trg_source_records_authoritative_source_player",
+                )
+            }
+        },
     )
 
 

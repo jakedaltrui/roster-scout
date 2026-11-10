@@ -1324,12 +1324,15 @@ class AuthoritativeSourcePlayerConstraintTests(PostgreSQLSnapshotTestCase):
                     text(f"ALTER TABLE {table_name} DISABLE TRIGGER {trigger_name}")
                 )
             try:
-                with connection.begin_nested():
+                savepoint = connection.begin_nested()
+                try:
                     with self.assertRaisesRegex(
                         DBAPIError,
                         "authoritative source player mismatch",
                     ):
                         connection.execute(text(statement), parameters)
+                finally:
+                    savepoint.rollback()
             finally:
                 for table_name, trigger_name in reversed(disabled_triggers):
                     connection.execute(
@@ -1631,7 +1634,7 @@ class MigrationTests(PostgreSQLSnapshotTestCase):
             snapshot_id = snapshot.id
             source_id = source.id
             expected_identity_id = identities[0].id
-            player_id = identities[0].player_id
+            conflicting_identity_id = identities[1].id
 
         command.downgrade(alembic_config(self.database_url), "0007")
         conflicting_fact_id = uuid.uuid4()
