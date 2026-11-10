@@ -808,6 +808,115 @@ class DispatchSchedulerConfigTests(unittest.TestCase):
         self.assertIn("Local Compose is development-only", guide)
 
 
+class FailureEvidenceRetentionConfigTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.compose = render_compose()
+        with (PROJECT_ROOT / "fly.toml").open("rb") as handle:
+            cls.fly = tomllib.load(handle)
+
+    def test_default_is_exposed_only_to_evidence_creator_processes(self):
+        self.assertIn("FAILURE_EVIDENCE_RETENTION_DAYS=28", (
+            PROJECT_ROOT / ".env.example"
+        ).read_text(encoding="utf-8"))
+        services = self.compose["services"]
+        for service_name in ("roster-scout", "worker"):
+            with self.subTest(platform="compose", service=service_name):
+                self.assertEqual(
+                    services[service_name]["environment"].get(
+                        "FAILURE_EVIDENCE_RETENTION_DAYS"
+                    ),
+                    "28",
+                )
+        for service_name in ("scheduler", "purge"):
+            with self.subTest(platform="compose", service=service_name):
+                self.assertNotIn(
+                    "FAILURE_EVIDENCE_RETENTION_DAYS",
+                    services[service_name]["environment"],
+                )
+
+        self.assertEqual(self.fly["env"]["FAILURE_EVIDENCE_RETENTION_DAYS"], "28")
+        for process_name in ("scheduler", "purge"):
+            with self.subTest(platform="fly", process=process_name):
+                self.assertNotIn(
+                    "FAILURE_EVIDENCE_RETENTION_DAYS",
+                    self.fly["processes"][process_name],
+                )
+
+    def test_runbook_states_bounded_operational_contract(self):
+        guide = (PROJECT_ROOT / "DEPLOYMENT.md").read_text(encoding="utf-8")
+        normalized_guide = " ".join(guide.split())
+        for statement in (
+            "integer days from 1 through 28",
+            "28 days (672 hours)",
+            "default and non-extendable hard cap",
+            "moves each new evidence row's `expires_at` earlier",
+            "fail closed before evidence insertion",
+            "at least hourly",
+            "exactly six hours",
+            "independently supervised purge process",
+            "physically absent before 720 hours",
+        ):
+            with self.subTest(statement=statement):
+                self.assertIn(statement, normalized_guide)
+
+
+class Phase1ReleaseValidatorContractTests(unittest.TestCase):
+    def test_manifest_names_every_plan_14_through_21_regression_class(self):
+        from scripts.validate_phase1_release import GAP_REGRESSION_TESTS
+
+        expected = {
+            "tests.test_report_jobs.SectionHeaderPublicationTests",
+            "tests.test_snapshot_persistence.SnapshotMutationSerializationTests",
+            "tests.test_snapshot_persistence.SnapshotMutationRaceTests",
+            "tests.test_report_jobs.AttemptGenerationSchemaTests",
+            "tests.test_report_jobs.AttemptGenerationDeliveryTests",
+            "tests.test_report_jobs.CrashAfterGenerationCasRecoveryTests",
+            "tests.test_snapshot_persistence.SourceIdentityConstraintTests",
+            "tests.test_canonical_publish.SourceIdentityBindingTests",
+            "tests.test_canonical_data.CanonicalIdentityResolutionTests",
+            "tests.test_canonical_publish.UnresolvedIdentityPersistenceTests",
+            "tests.test_evidence.EvidencePurgePersistenceTests",
+            "tests.test_evidence.PersistedPurgeReadinessTests",
+            "tests.test_deployment_config.EvidencePurgeEntrypointTests",
+            "tests.test_deployment_config.PurgeIsolationTests",
+            "tests.test_deployment_config.EvidencePurgeDeploymentTests",
+            "tests.test_app_routes.AppReadinessTests",
+            "tests.test_deployment_config.ProcessHealthCheckTests",
+            "tests.test_deployment_config.IndependentPurgeConfigTests",
+            "tests.test_phase1_release.Phase1ReleaseTests",
+            "tests.test_app_routes.AppRouteTests",
+        }
+        self.assertTrue(expected.issubset(GAP_REGRESSION_TESTS))
+
+    def test_manifest_contains_migrations_catalog_compose_full_suite_and_diff(self):
+        from scripts.validate_phase1_release import release_command_manifest
+
+        rendered = "\n".join(
+            " ".join(command)
+            for _label, command in release_command_manifest("python")
+        )
+        for command in (
+            "python -m alembic upgrade head",
+            "python -m alembic downgrade base",
+            "python -m alembic check",
+            "python -m unittest discover -s tests -v",
+            "scripts/validate_ncaa_catalog.py",
+            "docker compose config --quiet",
+            "git diff --check",
+            "tests.test_phase1_release.Phase1ReleaseTests",
+            "tests.test_app_routes.AppRouteTests",
+        ):
+            with self.subTest(command=command):
+                self.assertIn(command, rendered)
+
+    def test_missing_database_url_fails_closed_before_release_commands(self):
+        from scripts.validate_phase1_release import _validate_database_url
+
+        with self.assertRaisesRegex(SystemExit, "DATABASE_URL is required"):
+            _validate_database_url({})
+
+
 @dataclass(frozen=True)
 class _DrainResult:
     claimed: int = 0

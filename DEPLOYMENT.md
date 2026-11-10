@@ -62,6 +62,15 @@ at least hourly, leaving at least 47 hours before the 720-hour hard deadline.
 Purging nulls the compressed HTML and sets `purged_at`; the checksum and
 sanitized D-18 audit metadata remain permanently available.
 
+`FAILURE_EVIDENCE_RETENTION_DAYS` is the single operational retention control.
+The production parser accepts only integer days from 1 through 28. A permitted
+shorter value moves each new evidence row's `expires_at` earlier; the default
+and non-extendable hard cap are 28 days (672 hours). Blank, fractional,
+malformed, zero, negative, or greater-than-28 values fail closed before evidence
+insertion and never silently fall back to a longer retention period. Only the
+app and worker evidence-creator processes receive this setting; scheduler and
+purge do not.
+
 Configure `FAILURE_EVIDENCE_PURGE_SECONDS` from 60 through 3600 seconds; the
 default is 3600. The purge runner validates this setting before constructing a
 database engine, retries failures after a bounded 60-second delay, and never
@@ -75,6 +84,16 @@ contract with `python scripts/run_purge.py --check`; operators can run the same
 safe command in the Fly purge machine. Logs expose only fixed health/status
 tokens and aggregate counts. Never copy raw exception text, source payloads, or
 credential-bearing URLs into an alert or incident note.
+
+Fly gates app traffic on `/readyz`, which projects the same persisted purge
+state and returns HTTP 503 for every non-fresh state or database/configuration
+failure. `/healthz` remains a shallow process-liveness check and must not be
+used as the production traffic-readiness gate. Alert immediately on a 503,
+`never_succeeded`, `stale`, `expired_bytes_present`, or `database_unavailable`:
+keep traffic blocked, verify the independently supervised purge process and
+PostgreSQL connectivity, run the safe `--check`, and confirm eligible bytes are
+physically absent before 720 hours after collection. Do not waive readiness or
+extend retention while responding.
 
 Apply migrations before starting either process and verify rollback safety in
 the disposable test database:
@@ -124,9 +143,11 @@ Before making a deployment public:
 3. Run the deterministic suite and catalog validation.
 4. Run `python scripts/live_ncaa_smoke.py` from the target network.
 5. Confirm `/healthz` returns `{"status":"ok"}` over HTTPS.
-6. Confirm rate limiting returns HTTP 429 with `Retry-After`.
-7. Confirm a real workbook download opens in Excel and contains both worksheets.
-8. Review memory use during one uncached browser session.
+6. Confirm `/readyz` returns HTTP 200 only after persisted purge readiness is
+   `fresh`; verify each non-fresh state returns HTTP 503.
+7. Confirm rate limiting returns HTTP 429 with `Retry-After`.
+8. Confirm a real workbook download opens in Excel and contains both worksheets.
+9. Review memory use during one uncached browser session.
 
 ## Deterministic release verification
 
@@ -144,11 +165,12 @@ or model drift, any full-suite test (including all 16 review regressions and the
 goal-level durable D1/D2/D3 flow), catalog validation, rendered Compose
 configuration, or `git diff --check`.
 
-The deterministic suite includes exact source-row traceability, duplicate
-delivery, same-job recovery, failure evidence and purge deadlines, distributed
-Browserless capacity, dispatch and purge scheduling, secure deployment
-configuration, legacy cache and selector behavior, and the unchanged two-sheet
-workbook contract. Catalog validation must report `"valid": true`, 942
+The deterministic suite explicitly runs every Plan 14-20 gap-regression class,
+then full discovery for exact source-row traceability, duplicate delivery,
+same-job recovery, failure evidence and purge deadlines, distributed Browserless
+capacity, dispatch and purge scheduling, secure deployment configuration,
+legacy cache and selector behavior, and the unchanged two-sheet workbook
+contract. Catalog validation must report `"valid": true`, 942
 selectable teams, and the reviewed D1/D2/D3 counts unless a catalog update is
 part of the release.
 

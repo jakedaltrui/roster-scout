@@ -17,6 +17,28 @@ MVP_STORY = (
     "snapshot, so that every downstream report can rely on one auditable source "
     "of truth without breaking today's workbook workflow."
 )
+GAP_REGRESSION_TESTS = (
+    "tests.test_report_jobs.SectionHeaderPublicationTests",
+    "tests.test_snapshot_persistence.SnapshotMutationSerializationTests",
+    "tests.test_snapshot_persistence.SnapshotMutationRaceTests",
+    "tests.test_report_jobs.AttemptGenerationSchemaTests",
+    "tests.test_report_jobs.AttemptGenerationDeliveryTests",
+    "tests.test_report_jobs.CrashAfterGenerationCasRecoveryTests",
+    "tests.test_snapshot_persistence.SourceIdentityConstraintTests",
+    "tests.test_canonical_publish.SourceIdentityBindingTests",
+    "tests.test_canonical_data.CanonicalIdentityResolutionTests",
+    "tests.test_canonical_publish.UnresolvedIdentityPersistenceTests",
+    "tests.test_evidence.EvidencePurgePersistenceTests",
+    "tests.test_evidence.PersistedPurgeReadinessTests",
+    "tests.test_deployment_config.EvidencePurgeEntrypointTests",
+    "tests.test_deployment_config.PurgeIsolationTests",
+    "tests.test_deployment_config.EvidencePurgeDeploymentTests",
+    "tests.test_app_routes.AppReadinessTests",
+    "tests.test_deployment_config.ProcessHealthCheckTests",
+    "tests.test_deployment_config.IndependentPurgeConfigTests",
+    "tests.test_phase1_release.Phase1ReleaseTests",
+    "tests.test_app_routes.AppRouteTests",
+)
 
 
 def _run(label, command, *, env):
@@ -81,54 +103,63 @@ def _validate_templates():
     print("templates/index.html and templates/demo.html exist", flush=True)
 
 
+def release_command_manifest(python):
+    """Return every deterministic release command in fail-fast order."""
+    return (
+        (
+            "Python compilation",
+            [python, "-m", "py_compile", *_python_sources()],
+        ),
+        (
+            "Alembic upgrade to head",
+            [python, "-m", "alembic", "upgrade", "head"],
+        ),
+        (
+            "Alembic downgrade to base",
+            [python, "-m", "alembic", "downgrade", "base"],
+        ),
+        (
+            "Alembic re-upgrade to head",
+            [python, "-m", "alembic", "upgrade", "head"],
+        ),
+        (
+            "Alembic model drift check",
+            [python, "-m", "alembic", "check"],
+        ),
+        (
+            "Plans 14-21 gap and workbook regressions",
+            [python, "-m", "unittest", *GAP_REGRESSION_TESTS, "-v"],
+        ),
+        (
+            "Full unittest discovery with PostgreSQL integrations",
+            [python, "-m", "unittest", "discover", "-s", "tests", "-v"],
+        ),
+        (
+            "NCAA D1/D2/D3 catalog validation",
+            [python, "scripts/validate_ncaa_catalog.py"],
+        ),
+        (
+            "Rendered Docker Compose deployment configuration",
+            ["docker", "compose", "config", "--quiet"],
+        ),
+        (
+            "Git diff hygiene",
+            ["git", "diff", "--check"],
+        ),
+    )
+
+
 def main():
     env = os.environ.copy()
     _validate_story(env)
     _validate_database_url(env)
 
     python = sys.executable
-    _run(
-        "Python compilation",
-        [python, "-m", "py_compile", *_python_sources()],
-        env=env,
-    )
+    commands = release_command_manifest(python)
+    _run(*commands[0], env=env)
     _validate_templates()
-    _run(
-        "Alembic upgrade to head",
-        [python, "-m", "alembic", "upgrade", "head"],
-        env=env,
-    )
-    _run(
-        "Alembic downgrade to base",
-        [python, "-m", "alembic", "downgrade", "base"],
-        env=env,
-    )
-    _run(
-        "Alembic re-upgrade to head",
-        [python, "-m", "alembic", "upgrade", "head"],
-        env=env,
-    )
-    _run(
-        "Alembic model drift check",
-        [python, "-m", "alembic", "check"],
-        env=env,
-    )
-    _run(
-        "Full unittest discovery with PostgreSQL integrations",
-        [python, "-m", "unittest", "discover", "-s", "tests", "-v"],
-        env=env,
-    )
-    _run(
-        "NCAA D1/D2/D3 catalog validation",
-        [python, "scripts/validate_ncaa_catalog.py"],
-        env=env,
-    )
-    _run(
-        "Rendered Docker Compose deployment configuration",
-        ["docker", "compose", "config", "--quiet"],
-        env=env,
-    )
-    _run("Git diff hygiene", ["git", "diff", "--check"], env=env)
+    for label, command in commands[1:]:
+        _run(label, command, env=env)
     print("\nPhase 1 release gate: PASS", flush=True)
     return 0
 
