@@ -11,7 +11,7 @@ primary_region = "ord"
   app = "xvfb-run -a gunicorn --bind 0.0.0.0:5000 --workers 1 --threads 4 --timeout 180 app:app"
   worker = "python scripts/run_worker.py"
   scheduler = "/bin/sh -c 'exec env -i PATH=\"$PATH\" PYTHONUNBUFFERED=1 DATABASE_URL=\"$DATABASE_URL\" CELERY_BROKER_URL=\"$CELERY_BROKER_URL\" REPORT_DISPATCH_POLL_SECONDS=\"$REPORT_DISPATCH_POLL_SECONDS\" REPORT_DISPATCH_LEASE_SECONDS=\"$REPORT_DISPATCH_LEASE_SECONDS\" REPORT_QUEUED_REDISPATCH_SECONDS=\"$REPORT_QUEUED_REDISPATCH_SECONDS\" REPORT_RUNNING_STALE_SECONDS=\"$REPORT_RUNNING_STALE_SECONDS\" python scripts/run_scheduler.py'"
-  purge = "/bin/sh -c 'exec env -i PATH=\"$PATH\" PYTHONUNBUFFERED=1 DATABASE_URL=\"$DATABASE_URL\" FAILURE_EVIDENCE_PURGE_SECONDS=\"$FAILURE_EVIDENCE_PURGE_SECONDS\" python scripts/run_purge.py'"
+  purge = "/bin/sh -c 'exec env -i PATH=\"$PATH\" PYTHONUNBUFFERED=1 LOG_LEVEL=INFO DATABASE_URL=\"$DATABASE_URL\" FAILURE_EVIDENCE_PURGE_SECONDS=\"$FAILURE_EVIDENCE_PURGE_SECONDS\" python scripts/run_purge.py'"
 
 [env]
   PORT = "5000"
@@ -60,7 +60,7 @@ primary_region = "ord"
     interval = "30s"
     method = "GET"
     timeout = "5s"
-    path = "/healthz"
+    path = "/readyz"
 
 [[vm]]
   memory = "1gb"

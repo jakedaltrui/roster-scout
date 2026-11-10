@@ -574,7 +574,7 @@ class EvidencePurgeDeploymentTests(unittest.TestCase):
         self.assertEqual(purge["command"], ["python", "scripts/run_purge.py"])
         self.assertEqual(
             set(purge["environment"]),
-            {"DATABASE_URL", "FAILURE_EVIDENCE_PURGE_SECONDS"},
+            {"DATABASE_URL", "FAILURE_EVIDENCE_PURGE_SECONDS", "LOG_LEVEL"},
         )
         self.assertEqual(
             self.fly["env"]["FAILURE_EVIDENCE_PURGE_SECONDS"],
@@ -607,6 +607,110 @@ class EvidencePurgeDeploymentTests(unittest.TestCase):
         for forbidden in ("purge", "EvidencePurgeHealth", "FAILURE_EVIDENCE"):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, source)
+
+
+class ProcessHealthCheckTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.compose = render_compose()
+        with (PROJECT_ROOT / "fly.toml").open("rb") as handle:
+            cls.fly = tomllib.load(handle)
+
+    def test_shared_image_has_no_global_http_healthcheck(self):
+        dockerfile = (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8")
+        self.assertNotIn("HEALTHCHECK", dockerfile)
+
+    def test_compose_assigns_one_role_specific_check_per_process(self):
+        services = self.compose["services"]
+        app_check = " ".join(services["roster-scout"]["healthcheck"]["test"])
+        worker_check = " ".join(services["worker"]["healthcheck"]["test"])
+        scheduler_check = " ".join(services["scheduler"]["healthcheck"]["test"])
+        purge_check = services["purge"]["healthcheck"]["test"]
+
+        self.assertIn("http://127.0.0.1:5000/healthz", app_check)
+        self.assertNotIn("/readyz", app_check)
+        self.assertIn("celery", worker_check)
+        self.assertIn("inspect ping", worker_check)
+        self.assertNotIn("http", worker_check)
+        self.assertIn("os.kill(1, 0)", scheduler_check)
+        self.assertNotIn("http", scheduler_check)
+        self.assertEqual(
+            purge_check,
+            ["CMD", "python", "scripts/run_purge.py", "--check"],
+        )
+
+    def test_fly_readiness_is_app_only_and_uses_persisted_route(self):
+        service = self.fly["http_service"]
+        self.assertEqual(service["processes"], ["app"])
+        self.assertEqual(service["checks"][0]["path"], "/readyz")
+        self.assertEqual(self.fly["mounts"][0]["processes"], ["app"])
+
+
+class IndependentPurgeConfigTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.compose = render_compose()
+        with (PROJECT_ROOT / "fly.toml").open("rb") as handle:
+            cls.fly = tomllib.load(handle)
+
+    def test_compose_has_exactly_one_postgresql_only_purge_service(self):
+        services = self.compose["services"]
+        purge_services = [
+            service
+            for service in services.values()
+            if "run_purge.py" in " ".join(service.get("command") or [])
+        ]
+        self.assertEqual(len(purge_services), 1)
+        purge = purge_services[0]
+        self.assertEqual(
+            set(purge["environment"]),
+            {"DATABASE_URL", "FAILURE_EVIDENCE_PURGE_SECONDS", "LOG_LEVEL"},
+        )
+        self.assertEqual(purge["environment"]["FAILURE_EVIDENCE_PURGE_SECONDS"], "3600")
+        self.assertEqual(purge["environment"]["LOG_LEVEL"], "INFO")
+        self.assertNotIn("ports", purge)
+        self.assertNotIn("volumes", purge)
+        for forbidden in ("CELERY_BROKER_URL", "BROWSERLESS", "PORT", "ROSTER_SCOUT_CACHE_DIR"):
+            with self.subTest(forbidden=forbidden):
+                self.assertFalse(
+                    any(forbidden in name for name in purge["environment"])
+                )
+
+    def test_fly_has_exactly_one_allowlisted_purge_process(self):
+        purge_commands = [
+            command
+            for command in self.fly["processes"].values()
+            if "run_purge.py" in command
+        ]
+        self.assertEqual(len(purge_commands), 1)
+        command = purge_commands[0]
+        self.assertIn("env -i", command)
+        self.assertIn('DATABASE_URL="$DATABASE_URL"', command)
+        self.assertIn(
+            'FAILURE_EVIDENCE_PURGE_SECONDS="$FAILURE_EVIDENCE_PURGE_SECONDS"',
+            command,
+        )
+        self.assertIn("LOG_LEVEL=INFO", command)
+        for forbidden in (
+            "CELERY_BROKER_URL",
+            "BROWSERLESS",
+            "FAILURE_EVIDENCE_RETENTION_DAYS",
+            "ROSTER_SCOUT_CACHE_DIR",
+            "PORT=",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, command)
+
+    def test_dispatch_and_purge_are_each_defined_once(self):
+        services = self.compose["services"].values()
+        self.assertEqual(
+            sum("run_scheduler.py" in " ".join(service.get("command") or []) for service in services),
+            1,
+        )
+        self.assertEqual(
+            sum("run_scheduler.py" in command for command in self.fly["processes"].values()),
+            1,
+        )
 
 
 class DispatchSchedulerConfigTests(unittest.TestCase):
