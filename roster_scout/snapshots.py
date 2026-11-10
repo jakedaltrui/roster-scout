@@ -87,6 +87,10 @@ def publish_snapshot(session, snapshot_id):
             .join(
                 SourceRecord,
                 (SourceRecord.id == fact_model.source_record_id)
+                & (
+                    SourceRecord.player_team_season_id
+                    == fact_model.player_team_season_id
+                )
                 & (SourceRecord.snapshot_id == fact_model.snapshot_id)
                 & (SourceRecord.organization_id == fact_model.organization_id)
                 & (SourceRecord.section == required),
@@ -94,6 +98,7 @@ def publish_snapshot(session, snapshot_id):
             .where(
                 fact_model.snapshot_id == snapshot.id,
                 fact_model.organization_id == snapshot.organization_id,
+                SourceRecord.player_team_season_id.is_not(None),
             )
         ).one()
         traced_fact_count, traced_source_count = traced

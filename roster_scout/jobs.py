@@ -868,6 +868,15 @@ def _persist_canonical(session, job, snapshot, sections):
     for fact in canonical.facts:
         source = source_by_key[fact.source_record]
         identity = identities[fact.identity_key]
+        if source.player_team_season_id is None:
+            source.player_team_season_id = identity.id
+        elif source.player_team_season_id != identity.id:
+            raise DeterministicJobError("schema_validation")
+    session.flush()
+
+    for fact in canonical.facts:
+        source = source_by_key[fact.source_record]
+        identity = identities[fact.identity_key]
         if fact.section == "batting":
             session.add(BattingFact(
                 organization_id=job.organization_id,

@@ -47,6 +47,10 @@ def upgrade():
         """
     )
     op.execute(
+        "ALTER TABLE source_records "
+        "DISABLE TRIGGER trg_source_records_immutable"
+    )
+    op.execute(
         """
         WITH mappings AS (
             SELECT source_record_id, player_team_season_id
@@ -67,6 +71,10 @@ def upgrade():
         FROM unique_mappings AS mapping
         WHERE source.id = mapping.source_record_id
         """
+    )
+    op.execute(
+        "ALTER TABLE source_records "
+        "ENABLE TRIGGER trg_source_records_immutable"
     )
 
     op.create_foreign_key(
