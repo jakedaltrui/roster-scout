@@ -635,6 +635,156 @@ class TenantAndPublicationTests(PostgreSQLSnapshotTestCase):
                 session.flush()
 
 
+class AuthoritativeSourcePlayerPublicationTests(PostgreSQLSnapshotTestCase):
+    def build_publishable_batting_snapshot(
+        self,
+        *,
+        source_player_id,
+        canonical_player_id,
+        identity_status="authoritative",
+    ):
+        from roster_scout.models import (
+            BattingFact,
+            Player,
+            PlayerTeamSeason,
+            ReportSection,
+            SourceRecord,
+        )
+
+        with self.Session.begin() as session:
+            organization, team_season, _, snapshot = self.fixture(session)
+            player = Player(
+                source="ncaa",
+                source_player_id=canonical_player_id,
+                display_name="Publication Player",
+            )
+            session.add(player)
+            session.flush()
+            identity = PlayerTeamSeason(
+                organization_id=organization.id,
+                snapshot_id=snapshot.id,
+                player_id=player.id,
+                team_season_id=team_season.id,
+                identity_status=identity_status,
+                identity_key=(
+                    f"ncaa:{canonical_player_id}"
+                    if canonical_player_id is not None
+                    else "fallback:publication-player"
+                ),
+                display_name=player.display_name,
+            )
+            session.add(identity)
+            session.flush()
+            source = SourceRecord(
+                organization_id=organization.id,
+                snapshot_id=snapshot.id,
+                player_team_season_id=identity.id,
+                section="batting",
+                row_ordinal=0,
+                source_url="https://stats.ncaa.org/publication-player",
+                source_team_id="689",
+                source_season_id="17040",
+                source_season_team_id="615087",
+                source_stat_category_id="15867",
+                source_player_id=source_player_id,
+                collected_at=datetime.now(UTC),
+                parser_version="2",
+                schema_version="core-v2",
+                payload_sha256="d" * 64,
+                raw_values={"Player": "Publication Player"},
+            )
+            session.add(source)
+            session.flush()
+            session.add(
+                BattingFact(
+                    organization_id=organization.id,
+                    snapshot_id=snapshot.id,
+                    player_team_season_id=identity.id,
+                    source_record_id=source.id,
+                    at_bats=1,
+                    hits=1,
+                )
+            )
+            for section, row_count in (("batting", 1), ("pitching", 0)):
+                session.add(
+                    ReportSection(
+                        organization_id=organization.id,
+                        snapshot_id=snapshot.id,
+                        section=section,
+                        critical=True,
+                        status="complete",
+                        row_count=row_count,
+                        verified_empty=row_count == 0,
+                        collected_at=datetime.now(UTC),
+                    )
+                )
+            session.flush()
+            return snapshot.id, source.id
+
+    def publish(self, snapshot_id):
+        from roster_scout.snapshots import publish_snapshot
+
+        with self.Session.begin() as session:
+            return publish_snapshot(session, snapshot_id).status
+
+    def test_publication_rejects_historical_authoritative_id_mismatch(self):
+        from roster_scout.models import ReportSnapshot
+        from roster_scout.snapshots import SnapshotPublicationError
+
+        snapshot_id, source_id = self.build_publishable_batting_snapshot(
+            source_player_id="99",
+            canonical_player_id="99",
+        )
+        with self.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "ALTER TABLE source_records DISABLE TRIGGER "
+                    "trg_source_records_authoritative_source_player"
+                )
+            )
+            try:
+                connection.execute(
+                    text(
+                        "UPDATE source_records SET source_player_id = '42' "
+                        "WHERE id = :source_id"
+                    ),
+                    {"source_id": source_id},
+                )
+            finally:
+                connection.execute(
+                    text(
+                        "ALTER TABLE source_records ENABLE TRIGGER "
+                        "trg_source_records_authoritative_source_player"
+                    )
+                )
+
+        with self.assertRaises(SnapshotPublicationError) as raised:
+            self.publish(snapshot_id)
+        message = str(raised.exception)
+        self.assertNotIn("42", message)
+        self.assertNotIn("99", message)
+        self.assertNotIn("stats.ncaa.org", message)
+        with self.Session() as session:
+            snapshot = session.get(ReportSnapshot, snapshot_id)
+            self.assertEqual(snapshot.status, "draft")
+            self.assertIsNone(snapshot.published_at)
+
+    def test_correct_authoritative_source_player_publishes(self):
+        snapshot_id, _ = self.build_publishable_batting_snapshot(
+            source_player_id="42",
+            canonical_player_id="42",
+        )
+        self.assertEqual(self.publish(snapshot_id), "ready")
+
+    def test_idless_fallback_source_player_publishes(self):
+        snapshot_id, _ = self.build_publishable_batting_snapshot(
+            source_player_id=None,
+            canonical_player_id=None,
+            identity_status="fallback",
+        )
+        self.assertEqual(self.publish(snapshot_id), "ready")
+
+
 class SnapshotMutationSerializationTests(PostgreSQLSnapshotTestCase):
     def function_definition(self, function_name):
         with self.engine.connect() as connection:
