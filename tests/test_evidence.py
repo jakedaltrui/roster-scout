@@ -4,6 +4,7 @@ import gzip
 import hashlib
 import os
 import unittest
+from dataclasses import FrozenInstanceError, asdict
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
@@ -584,6 +585,159 @@ class EvidencePurgePersistenceTests(PostgreSQLJobTestCase):
         command.downgrade(config, "base")
         command.upgrade(config, "head")
         self.assertIn("evidence_purge_state", inspect(self.engine).get_table_names())
+
+
+class PersistedPurgeReadinessTests(PostgreSQLJobTestCase):
+    def _store_expired_evidence(self, *, suffix, now):
+        from roster_scout.evidence import store_failure_evidence
+        from roster_scout.jobs import accept_report_job
+        from roster_scout.models import ReportJob
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            f"readiness-{suffix}",
+            dispatch=None,
+        )
+        with self.Session.begin() as session:
+            session.get(ReportJob, job.id).status = "failed"
+        return store_failure_evidence(
+            self.Session,
+            job.id,
+            section="pitching",
+            source_url=(
+                "https://operator:password@stats.ncaa.org/team/123/stats"
+                "?token=secret#private"
+            ),
+            html="<html>customer-secret evidence bytes</html>",
+            failure_category="source_blocked",
+            collected_at=now - timedelta(hours=672),
+        )
+
+    def test_never_succeeded_is_blocked_and_result_is_frozen(self):
+        from roster_scout.evidence import get_evidence_purge_readiness
+
+        now = datetime(2026, 3, 1, tzinfo=UTC)
+        result = get_evidence_purge_readiness(self.Session, now=now)
+
+        self.assertFalse(result.ready)
+        self.assertEqual(result.status, "never_succeeded")
+        self.assertIsNone(result.last_success_at)
+        self.assertEqual(result.last_purged_count, 0)
+        self.assertEqual(result.expired_bytes_count, 0)
+        with self.assertRaises(FrozenInstanceError):
+            result.ready = True
+
+    def test_exact_six_hour_boundary_is_fresh_and_next_microsecond_is_stale(self):
+        from roster_scout.evidence import (
+            get_evidence_purge_readiness,
+            purge_expired_evidence,
+        )
+
+        success_at = datetime(2026, 3, 1, tzinfo=UTC)
+        self.assertEqual(
+            purge_expired_evidence(self.Session, now=success_at),
+            0,
+        )
+
+        exact = get_evidence_purge_readiness(
+            self.Session,
+            now=success_at + timedelta(hours=6),
+        )
+        stale = get_evidence_purge_readiness(
+            self.Session,
+            now=success_at + timedelta(hours=6, microseconds=1),
+        )
+        self.assertTrue(exact.ready)
+        self.assertEqual(exact.status, "fresh")
+        self.assertFalse(stale.ready)
+        self.assertEqual(stale.status, "stale")
+
+    def test_expired_bytes_block_fresh_heartbeat_until_purge_clears_them(self):
+        from roster_scout.evidence import (
+            get_evidence_purge_readiness,
+            purge_expired_evidence,
+        )
+
+        now = datetime(2026, 3, 1, tzinfo=UTC)
+        purge_expired_evidence(self.Session, now=now - timedelta(hours=1))
+        self._store_expired_evidence(suffix="outstanding", now=now)
+
+        blocked = get_evidence_purge_readiness(self.Session, now=now)
+        self.assertFalse(blocked.ready)
+        self.assertEqual(blocked.status, "expired_bytes_present")
+        self.assertEqual(blocked.expired_bytes_count, 1)
+
+        self.assertEqual(purge_expired_evidence(self.Session, now=now), 1)
+        cleared = get_evidence_purge_readiness(self.Session, now=now)
+        self.assertTrue(cleared.ready)
+        self.assertEqual(cleared.status, "fresh")
+        self.assertEqual(cleared.last_purged_count, 1)
+        self.assertEqual(cleared.expired_bytes_count, 0)
+
+    def test_recreated_session_factory_observes_persisted_success(self):
+        from roster_scout.database import create_session_factory
+        from roster_scout.evidence import (
+            get_evidence_purge_readiness,
+            purge_expired_evidence,
+        )
+
+        success_at = datetime(2026, 3, 1, tzinfo=UTC)
+        purge_expired_evidence(self.Session, now=success_at)
+        restarted_session_factory = create_session_factory(self.engine)
+
+        result = get_evidence_purge_readiness(
+            restarted_session_factory,
+            now=success_at + timedelta(hours=1),
+        )
+        self.assertTrue(result.ready)
+        self.assertEqual(result.status, "fresh")
+        self.assertEqual(result.last_success_at, success_at)
+
+    def test_database_failure_is_sanitized_and_fails_closed(self):
+        from roster_scout.evidence import get_evidence_purge_readiness
+
+        class FailingSessionFactory:
+            def __call__(self):
+                raise RuntimeError(
+                    "postgresql://user:password@private/customer-secret"
+                )
+
+        result = get_evidence_purge_readiness(
+            FailingSessionFactory(),
+            now=datetime(2026, 3, 1, tzinfo=UTC),
+        )
+        self.assertFalse(result.ready)
+        self.assertEqual(result.status, "database_unavailable")
+        serialized = " ".join(str(value) for value in asdict(result).values())
+        for unsafe in (
+            "password",
+            "private",
+            "customer-secret",
+            "postgresql://",
+            "<html>",
+        ):
+            self.assertNotIn(unsafe, serialized)
+
+    def test_result_exposes_only_safe_health_fields(self):
+        from roster_scout.evidence import get_evidence_purge_readiness
+
+        result = get_evidence_purge_readiness(
+            self.Session,
+            now=datetime(2026, 3, 1, tzinfo=UTC),
+        )
+        self.assertEqual(
+            set(asdict(result)),
+            {
+                "ready",
+                "status",
+                "last_success_at",
+                "last_purged_count",
+                "expired_bytes_count",
+            },
+        )
 
 
 if __name__ == "__main__":
