@@ -43,6 +43,15 @@ FACT_COUNT_CHECKS = {
     },
 }
 
+SNAPSHOT_CHILD_TABLES = (
+    "player_team_seasons",
+    "report_sections",
+    "source_records",
+    "batting_facts",
+    "pitching_facts",
+    "metric_values",
+)
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -622,7 +631,109 @@ class TenantAndPublicationTests(PostgreSQLSnapshotTestCase):
                 session.flush()
 
 
+class SnapshotMutationSerializationTests(PostgreSQLSnapshotTestCase):
+    def function_definition(self, function_name):
+        with self.engine.connect() as connection:
+            return connection.scalar(
+                text(
+                    """
+                    SELECT pg_get_functiondef(procedure.oid)
+                    FROM pg_proc AS procedure
+                    JOIN pg_namespace AS namespace
+                      ON namespace.oid = procedure.pronamespace
+                    WHERE namespace.nspname = current_schema()
+                      AND procedure.proname = :function_name
+                    """
+                ),
+                {"function_name": function_name},
+            )
+
+    def test_snapshot_lock_helper_and_every_child_trigger_share_one_protocol(self):
+        lock_definition = self.function_definition("lock_snapshot_mutation")
+        trigger_definition = self.function_definition(
+            "reject_published_snapshot_child_mutation"
+        )
+
+        self.assertIsNotNone(lock_definition)
+        self.assertIn("pg_advisory_xact_lock", lock_definition)
+        self.assertIn("hashtextextended", lock_definition)
+        self.assertIsNotNone(trigger_definition)
+        self.assertIn("lock_snapshot_mutation", trigger_definition)
+        self.assertIn("ORDER BY snapshot_id", trigger_definition)
+
+        with self.engine.connect() as connection:
+            trigger_tables = set(
+                connection.scalars(
+                    text(
+                        """
+                        SELECT relation.relname
+                        FROM pg_trigger AS trigger
+                        JOIN pg_class AS relation ON relation.oid = trigger.tgrelid
+                        JOIN pg_proc AS procedure ON procedure.oid = trigger.tgfoid
+                        JOIN pg_namespace AS namespace
+                          ON namespace.oid = relation.relnamespace
+                        WHERE namespace.nspname = current_schema()
+                          AND NOT trigger.tgisinternal
+                          AND procedure.proname =
+                              'reject_published_snapshot_child_mutation'
+                        """
+                    )
+                )
+            )
+        self.assertEqual(trigger_tables, set(SNAPSHOT_CHILD_TABLES))
+
+    def test_publisher_acquires_snapshot_lock_before_parent_row_lock(self):
+        source = (PROJECT_ROOT / "roster_scout" / "snapshots.py").read_text()
+        lock_position = source.index("lock_snapshot_mutation")
+        row_lock_position = source.index("with_for_update")
+        self.assertLess(lock_position, row_lock_position)
+
+
 class MigrationTests(PostgreSQLSnapshotTestCase):
+    def function_definition(self, function_name):
+        with self.engine.connect() as connection:
+            return connection.scalar(
+                text(
+                    """
+                    SELECT pg_get_functiondef(procedure.oid)
+                    FROM pg_proc AS procedure
+                    JOIN pg_namespace AS namespace
+                      ON namespace.oid = procedure.pronamespace
+                    WHERE namespace.nspname = current_schema()
+                      AND procedure.proname = :function_name
+                    """
+                ),
+                {"function_name": function_name},
+            )
+
+    def test_0006_downgrade_reupgrade_and_fresh_install(self):
+        clean_database(self.database_url)
+        command.downgrade(alembic_config(self.database_url), "0005")
+        self.addCleanup(command.upgrade, alembic_config(self.database_url), "head")
+
+        self.assertIsNone(self.function_definition("lock_snapshot_mutation"))
+        command.upgrade(alembic_config(self.database_url), "0006")
+        self.assertIsNotNone(self.function_definition("lock_snapshot_mutation"))
+
+        command.downgrade(alembic_config(self.database_url), "0005")
+        self.assertIsNone(self.function_definition("lock_snapshot_mutation"))
+        restored_child = self.function_definition(
+            "reject_published_snapshot_child_mutation"
+        )
+        restored_definition = self.function_definition(
+            "reject_published_metric_definition_mutation"
+        )
+        self.assertIn("old_status", restored_child)
+        self.assertIn("new_status", restored_child)
+        self.assertNotIn("lock_snapshot_mutation", restored_child)
+        self.assertNotIn("lock_metric_definition_mutation", restored_definition)
+
+        command.upgrade(alembic_config(self.database_url), "head")
+        self.assertIsNotNone(self.function_definition("lock_snapshot_mutation"))
+        downgrade_database(self.database_url)
+        upgrade_database(self.database_url)
+        self.assertIsNotNone(self.function_definition("lock_snapshot_mutation"))
+
     def test_0003_downgrade_and_reupgrade(self):
         clean_database(self.database_url)
         command.downgrade(alembic_config(self.database_url), "0002")
