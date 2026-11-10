@@ -1,10 +1,12 @@
 """Durable report-job, redelivery, cache, and evidence-retention contract."""
 
+import gzip
 import inspect as python_inspect
 import threading
 import unittest
 import uuid
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 from sqlalchemy import func, select
@@ -1261,6 +1263,249 @@ class FailureEvidenceIntegrationTests(PostgreSQLJobTestCase):
             self.assertEqual(
                 session.scalar(select(func.count()).select_from(FailureEvidence)), 0
             )
+
+
+class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
+    TEAMS = {
+        1: {
+            "team_id": "234",
+            "team_name": "Florida St.",
+            "season_team_id": "614606",
+        },
+        2: {
+            "team_id": "689",
+            "team_name": "Tampa",
+            "season_team_id": "615087",
+        },
+        3: {
+            "team_id": "633",
+            "team_name": "Scranton",
+            "season_team_id": "615349",
+        },
+    }
+    SEASON_ID = "17040"
+    BATTING_ID = "15867"
+    PITCHING_ID = "15868"
+
+    def setUp(self):
+        super().setUp()
+        import roster_scraper as scraper
+
+        self._previous_team_rows = scraper._NCAA_TEAM_ROWS
+        self._previous_season_rows = scraper._NCAA_SEASON_ROWS
+        scraper._NCAA_TEAM_ROWS = [
+            {
+                **team,
+                "division": str(division),
+                "year": "2026",
+                "season_id": self.SEASON_ID,
+            }
+            for division, team in self.TEAMS.items()
+        ]
+        scraper._NCAA_SEASON_ROWS = [{
+            "season": "2026",
+            "id": self.SEASON_ID,
+            "batting_id": self.BATTING_ID,
+            "pitching_id": self.PITCHING_ID,
+        }]
+
+    def tearDown(self):
+        import roster_scraper as scraper
+
+        scraper._NCAA_TEAM_ROWS = self._previous_team_rows
+        scraper._NCAA_SEASON_ROWS = self._previous_season_rows
+        super().tearDown()
+
+    @staticmethod
+    def _fixture(name):
+        return (
+            Path(__file__).parent / "fixtures" / name
+        ).read_text(encoding="utf-8")
+
+    @staticmethod
+    def _table(headers, rows=""):
+        return (
+            "<html><body><table id='stat_grid'>"
+            f"<thead><tr>{headers}</tr></thead><tbody>{rows}</tbody>"
+            "</table></body></html>"
+        )
+
+    def _accepted_job(self, division, idempotency_key):
+        from roster_scout.jobs import accept_report_job
+        from roster_scout.models import Report, Season, Team, TeamSeason
+
+        organization_id, report_id = self.fixture()
+        source = self.TEAMS[division]
+        with self.Session.begin() as session:
+            report = session.get(Report, report_id)
+            team_season = session.get(TeamSeason, report.team_season_id)
+            team = session.get(Team, team_season.team_id)
+            season = session.get(Season, team_season.season_id)
+            team.source_team_id = source["team_id"]
+            team.name = source["team_name"]
+            season.source_season_id = self.SEASON_ID
+            season.year = 2026
+            team_season.source_season_team_id = source["season_team_id"]
+            team_season.division = str(division)
+            team_season.batting_stat_category_id = self.BATTING_ID
+            team_season.pitching_stat_category_id = self.PITCHING_ID
+        return accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            idempotency_key,
+            dispatch=None,
+        )
+
+    def _run_real_collector(self, job):
+        from roster_scout.jobs import collect_ncaa_sections, run_report_job
+
+        return run_report_job(
+            self.Session,
+            job.id,
+            collector=lambda job_id, cached_sections=frozenset(): collect_ncaa_sections(
+                self.Session,
+                job_id,
+                cached_sections=cached_sections,
+            ),
+        )
+
+    def test_malformed_core_headers_fail_closed_with_bounded_evidence(self):
+        import roster_scraper as scraper
+        from roster_scout.jobs import DeterministicJobError, SAFE_FAILURE_MESSAGES
+        from roster_scout.models import (
+            BattingFact,
+            FailureEvidence,
+            PitchingFact,
+            ReportJob,
+            ReportSnapshot,
+        )
+        from tests.db_support import clean_database
+
+        corruptions = {
+            "player-only": "<th>Player</th>",
+            "unrelated": "<th>Player</th><th>Unrelated</th>",
+            "renamed": None,
+        }
+        renamed = {
+            "batting": "<th>Player</th><th>At Bats</th><th>Hits</th>",
+            "pitching": (
+                "<th>Player</th><th>Innings</th>"
+                "<th>Earned Run Average</th>"
+            ),
+        }
+        for section in ("batting", "pitching"):
+            for case, headers in corruptions.items():
+                clean_database(self.database_url)
+                job = self._accepted_job(2, f"{section}-{case}")
+                pages = {
+                    "batting": self._fixture("d2_batting.html"),
+                    "pitching": self._fixture("d2_pitching.html"),
+                    section: self._table(headers or renamed[section]),
+                }
+                with self.subTest(section=section, case=case), patch.object(
+                    scraper, "_fetch_ncaa_pages", return_value=pages
+                ) as fetch:
+                    with self.assertRaises(DeterministicJobError) as caught:
+                        self._run_real_collector(job)
+                self.assertEqual(caught.exception.category, "schema_validation")
+                fetch.assert_called_once()
+
+                with self.Session() as session:
+                    stored = session.get(ReportJob, job.id)
+                    evidence = list(session.scalars(select(FailureEvidence)))
+                    self.assertEqual(stored.status, "failed")
+                    self.assertEqual(stored.failure_category, "schema_validation")
+                    self.assertEqual(
+                        stored.failure_message,
+                        SAFE_FAILURE_MESSAGES["schema_validation"],
+                    )
+                    self.assertEqual(len(evidence), 1)
+                    self.assertEqual(evidence[0].section, section)
+                    self.assertEqual(evidence[0].failure_category, "schema_validation")
+                    self.assertLessEqual(
+                        len(gzip.decompress(evidence[0].compressed_html)),
+                        scraper.FAILURE_EVIDENCE_MAX_BYTES,
+                    )
+                    self.assertNotIn("?", evidence[0].source_url or "")
+                    self.assertNotIn("#", evidence[0].source_url or "")
+                    self.assertNotIn("@", evidence[0].source_url or "")
+                    self.assertNotIn("<html", stored.failure_message.casefold())
+                    self.assertEqual(
+                        session.scalar(
+                            select(func.count())
+                            .select_from(ReportSnapshot)
+                            .where(ReportSnapshot.status.in_(("ready", "partial")))
+                        ),
+                        0,
+                    )
+                    self.assertEqual(
+                        session.scalar(select(func.count()).select_from(BattingFact)),
+                        0,
+                    )
+                    self.assertEqual(
+                        session.scalar(select(func.count()).select_from(PitchingFact)),
+                        0,
+                    )
+
+    def test_matching_core_headers_allow_verified_empty_sections(self):
+        import roster_scraper as scraper
+        from roster_scout.models import FailureEvidence, ReportSection
+        from tests.db_support import clean_database
+
+        empty_headers = {
+            "batting": "<th>Player</th><th>AB</th><th>H</th>",
+            "pitching": "<th>Player</th><th>IP</th><th>ERA</th>",
+        }
+        for section, headers in empty_headers.items():
+            clean_database(self.database_url)
+            job = self._accepted_job(2, f"valid-empty-{section}")
+            pages = {
+                "batting": self._fixture("d2_batting.html"),
+                "pitching": self._fixture("d2_pitching.html"),
+                section: self._table(headers),
+            }
+            with self.subTest(section=section), patch.object(
+                scraper, "_fetch_ncaa_pages", return_value=pages
+            ):
+                snapshot = self._run_real_collector(job)
+            self.assertEqual(snapshot.status, "ready")
+            with self.Session() as session:
+                stored_section = session.scalar(select(ReportSection).where(
+                    ReportSection.snapshot_id == snapshot.id,
+                    ReportSection.section == section,
+                ))
+                self.assertEqual(stored_section.row_count, 0)
+                self.assertTrue(stored_section.verified_empty)
+                self.assertEqual(
+                    session.scalar(select(func.count()).select_from(FailureEvidence)),
+                    0,
+                )
+
+    def test_valid_d1_d2_d3_pages_still_publish(self):
+        import roster_scraper as scraper
+        from roster_scout.models import BattingFact, PitchingFact
+        from tests.db_support import clean_database
+
+        for division in (1, 2, 3):
+            clean_database(self.database_url)
+            job = self._accepted_job(division, f"valid-d{division}")
+            pages = {
+                "batting": self._fixture(f"d{division}_batting.html"),
+                "pitching": self._fixture(f"d{division}_pitching.html"),
+            }
+            with self.subTest(division=division), patch.object(
+                scraper, "_fetch_ncaa_pages", return_value=pages
+            ):
+                snapshot = self._run_real_collector(job)
+            self.assertEqual(snapshot.status, "ready")
+            with self.Session() as session:
+                self.assertGreater(
+                    session.scalar(select(func.count()).select_from(BattingFact)), 0
+                )
+                self.assertGreater(
+                    session.scalar(select(func.count()).select_from(PitchingFact)), 0
+                )
 
 
 if __name__ == "__main__":
