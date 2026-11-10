@@ -1,6 +1,7 @@
 """Deployment topology and local-service exposure regressions."""
 
 import copy
+import inspect
 import json
 import logging
 import subprocess
@@ -11,6 +12,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import Mock, patch
+
+from sqlalchemy import text
+
+from tests.test_report_jobs import PostgreSQLJobTestCase
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -439,206 +444,169 @@ class EvidencePurgeEntrypointTests(unittest.TestCase):
                 self.assertNotIn("password", rendered)
 
 
-class EvidencePurgeHealthTests(unittest.TestCase):
-    def test_exact_24_hour_boundary_is_fresh_and_next_increment_is_stale(self):
-        from scripts.run_scheduler import EvidencePurgeHealth
+class PurgeIsolationTests(PostgreSQLJobTestCase):
+    def _expired_evidence(self):
+        from roster_scout.evidence import store_failure_evidence
+        from roster_scout.jobs import accept_report_job
+        from roster_scout.models import ReportJob
 
-        completed_at = datetime(2026, 1, 1, tzinfo=UTC)
-        health = EvidencePurgeHealth()
-
-        never = health.readiness(now=completed_at)
-        self.assertFalse(never.ready)
-        self.assertEqual(never.status, "never_succeeded")
-        self.assertIn("evidence_purge", never.alert)
-
-        health.record_success(completed_at=completed_at, purged_count=3)
-        exact_boundary = health.readiness(
-            now=completed_at + timedelta(hours=24)
+        now = datetime.now(UTC)
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            "blocked-dispatch-isolation",
+            dispatch=None,
         )
-        self.assertTrue(exact_boundary.ready)
-        self.assertEqual(exact_boundary.status, "fresh")
-        self.assertIsNone(exact_boundary.alert)
-        self.assertEqual(health.last_purged_count, 3)
+        with self.Session.begin() as session:
+            session.get(ReportJob, job.id).status = "failed"
+        with patch.dict(
+            "os.environ",
+            {"FAILURE_EVIDENCE_RETENTION_DAYS": "1"},
+            clear=False,
+        ):
+            evidence_id = store_failure_evidence(
+                self.Session,
+                job.id,
+                section="batting",
+                source_url="https://stats.ncaa.org/team/123/stats",
+                html="<html>independent purge bytes</html>",
+                failure_category="source_blocked",
+                collected_at=now - timedelta(days=1, minutes=1),
+            )
+        return evidence_id
 
-        stale = health.readiness(
-            now=completed_at + timedelta(hours=24, microseconds=1)
+    def test_blocked_dispatch_reconciliation_cannot_delay_real_purge_commit(self):
+        from roster_scout.database import create_session_factory, get_engine
+        from roster_scout.evidence import (
+            get_evidence_purge_readiness,
+            purge_expired_evidence,
         )
-        self.assertFalse(stale.ready)
-        self.assertEqual(stale.status, "stale")
-        self.assertIn("evidence_purge", stale.alert)
-        rendered = " ".join(
-            value for value in (never.alert, stale.alert) if value
-        )
-        self.assertNotIn("http", rendered)
-        self.assertNotIn("restricted", rendered)
+        from roster_scout.models import EvidencePurgeState, FailureEvidence
+        from scripts.run_purge import PurgeConfig, run_purge
+        from scripts.run_scheduler import SchedulerConfig, run_scheduler
 
-    def test_scheduler_records_health_only_after_successful_purge_returns(self):
-        from scripts.run_scheduler import (
-            EvidencePurgeHealth,
-            SchedulerConfig,
-            run_scheduler,
-        )
+        evidence_id = self._expired_evidence()
+        scheduler_engine = get_engine(self.database_url)
+        purge_engine = get_engine(self.database_url)
+        self.addCleanup(scheduler_engine.dispose)
+        self.addCleanup(purge_engine.dispose)
+        scheduler_sessions = create_session_factory(scheduler_engine)
+        purge_sessions = create_session_factory(purge_engine)
+        self.assertIsNot(scheduler_sessions, purge_sessions)
+        self.assertIsNot(scheduler_engine, purge_engine)
 
-        now = datetime(2026, 1, 1, tzinfo=UTC)
-        health = EvidencePurgeHealth()
-        purge = Mock(side_effect=RuntimeError("restricted payload"))
-        logger = Mock(spec=logging.Logger)
+        reconcile_started = threading.Event()
+        release_reconcile = threading.Event()
+        scheduler_stop = threading.Event()
+        purge_stop = threading.Event()
+        scheduler_errors = []
+        scheduler_pid = []
 
-        run_scheduler(
-            SchedulerConfig.from_environ({}),
-            session_factory=object(),
-            dispatch=Mock(),
-            drain=Mock(return_value=_DrainResult()),
-            reconcile=Mock(return_value=_ReconcileResult()),
-            purge=purge,
-            purge_health=health,
-            clock=lambda: now,
-            stop_event=threading.Event(),
-            logger=logger,
-            max_cycles=1,
-        )
+        def blocked_reconcile(*_args, **_kwargs):
+            with scheduler_sessions() as session:
+                scheduler_pid.append(session.scalar(text("SELECT pg_backend_pid()")))
+                reconcile_started.set()
+                release_reconcile.wait(10)
+            return _ReconcileResult()
 
-        self.assertIsNone(health.last_success_at)
-        rendered = " ".join(str(call) for call in logger.method_calls)
-        self.assertIn("evidence_purge", rendered)
-        self.assertIn("never_succeeded", rendered)
-        self.assertNotIn("restricted payload", rendered)
+        def scheduler_target():
+            try:
+                run_scheduler(
+                    SchedulerConfig.from_environ({}),
+                    session_factory=scheduler_sessions,
+                    dispatch=Mock(),
+                    drain=Mock(return_value=_DrainResult()),
+                    reconcile=blocked_reconcile,
+                    stop_event=scheduler_stop,
+                    max_cycles=1,
+                )
+            except Exception as exc:  # pragma: no cover - asserted below
+                scheduler_errors.append(exc)
 
-        purge.side_effect = None
-        purge.return_value = 4
-        run_scheduler(
-            SchedulerConfig.from_environ({}),
-            session_factory=object(),
-            dispatch=Mock(),
-            drain=Mock(return_value=_DrainResult()),
-            reconcile=Mock(return_value=_ReconcileResult()),
-            purge=purge,
-            purge_health=health,
-            clock=lambda: now,
-            stop_event=threading.Event(),
-            logger=logger,
-            max_cycles=1,
-        )
-        self.assertEqual(health.last_success_at, now)
-        self.assertEqual(health.last_purged_count, 4)
+        scheduler_thread = threading.Thread(target=scheduler_target, daemon=True)
+        scheduler_thread.start()
+        self.assertTrue(reconcile_started.wait(5))
+        self.assertTrue(scheduler_thread.is_alive())
 
-    def test_failed_purge_retries_at_poll_interval_without_busy_loop(self):
-        from scripts.run_scheduler import (
-            EvidencePurgeHealth,
-            SchedulerConfig,
-            run_scheduler,
-        )
+        with purge_sessions() as session:
+            purge_pid = session.scalar(text("SELECT pg_backend_pid()"))
+        self.assertNotEqual(scheduler_pid, [purge_pid])
+        self.assertIsNot(scheduler_stop, purge_stop)
 
-        start = datetime(2026, 1, 1, tzinfo=UTC)
-        times = iter((start, start, start + timedelta(seconds=7)))
-        stop_event = _RecordingStopEvent()
-        purge = Mock(side_effect=RuntimeError("restricted payload"))
-        run_scheduler(
-            SchedulerConfig.from_environ({
-                "REPORT_DISPATCH_POLL_SECONDS": "7",
-                "REPORT_DISPATCH_LEASE_SECONDS": "45",
-            }),
-            session_factory=object(),
-            dispatch=Mock(),
-            drain=Mock(return_value=_DrainResult()),
-            reconcile=Mock(return_value=_ReconcileResult()),
-            purge=purge,
-            purge_health=EvidencePurgeHealth(),
-            clock=lambda: next(times),
-            stop_event=stop_event,
+        run_purge(
+            PurgeConfig.from_environ({}),
+            session_factory=purge_sessions,
+            purge=purge_expired_evidence,
+            readiness=get_evidence_purge_readiness,
+            stop_event=purge_stop,
             logger=Mock(spec=logging.Logger),
-            max_cycles=2,
+            max_cycles=1,
         )
 
-        self.assertEqual(purge.call_count, 2)
-        self.assertEqual(stop_event.waits, [7.0])
+        with self.Session() as session:
+            evidence = session.get(FailureEvidence, evidence_id)
+            state = session.get(EvidencePurgeState, 1)
+            self.assertIsNone(evidence.compressed_html)
+            self.assertIsNotNone(evidence.purged_at)
+            self.assertIsNotNone(state.last_success_at)
+            self.assertEqual(state.last_purged_count, 1)
+        self.assertTrue(scheduler_thread.is_alive())
+
+        release_reconcile.set()
+        scheduler_thread.join(5)
+        self.assertFalse(scheduler_thread.is_alive())
+        self.assertEqual(scheduler_errors, [])
 
 
-class EvidencePurgeConfigTests(unittest.TestCase):
+class EvidencePurgeDeploymentTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.compose = render_compose()
         with (PROJECT_ROOT / "fly.toml").open("rb") as handle:
             cls.fly = tomllib.load(handle)
 
-    def test_scheduler_wiring_enforces_24_hour_maximum(self):
-        from scripts.run_scheduler import SchedulerConfig
-
-        exact = SchedulerConfig.from_environ({
-            "FAILURE_EVIDENCE_PURGE_SECONDS": "86400",
-        })
-        self.assertEqual(
-            exact.evidence_purge_interval,
-            timedelta(hours=24),
-        )
-        for invalid in ("86400.000001", "0", "-1", "not-a-number", "inf"):
-            with self.subTest(value=invalid), self.assertRaisesRegex(
-                ValueError,
-                "FAILURE_EVIDENCE_PURGE_SECONDS",
-            ):
-                SchedulerConfig.from_environ({
-                    "FAILURE_EVIDENCE_PURGE_SECONDS": invalid,
-                })
-
+    def test_purge_has_one_independently_supervised_process_per_topology(self):
         scheduler = self.compose["services"]["scheduler"]
+        purge = self.compose["services"]["purge"]
+        self.assertEqual(purge["profiles"], ["scheduler"])
+        self.assertEqual(purge["command"], ["python", "scripts/run_purge.py"])
         self.assertEqual(
-            scheduler["environment"]["FAILURE_EVIDENCE_PURGE_SECONDS"],
-            "86400",
+            set(purge["environment"]),
+            {"DATABASE_URL", "FAILURE_EVIDENCE_PURGE_SECONDS"},
         )
         self.assertEqual(
             self.fly["env"]["FAILURE_EVIDENCE_PURGE_SECONDS"],
-            "86400",
+            "3600",
         )
-        command = self.fly["processes"]["scheduler"]
+        command = self.fly["processes"]["purge"]
         self.assertIn(
             'FAILURE_EVIDENCE_PURGE_SECONDS="$FAILURE_EVIDENCE_PURGE_SECONDS"',
             command,
         )
+        self.assertIn("run_purge.py", command)
+        self.assertNotIn("CELERY_BROKER_URL", command)
+        self.assertNotIn("BROWSERLESS", command)
+        self.assertNotIn("FAILURE_EVIDENCE_PURGE_SECONDS", scheduler["environment"])
+
+        dockerfile = (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8")
+        self.assertIn("COPY scripts/run_purge.py ./scripts/run_purge.py", dockerfile)
+
+    def test_purge_readiness_check_is_the_container_health_contract(self):
+        purge = self.compose["services"]["purge"]
         self.assertEqual(
-            sum(
-                "run_scheduler.py" in " ".join(service.get("command") or [])
-                for service in self.compose["services"].values()
-            ),
-            1,
-        )
-        self.assertEqual(
-            sum(
-                "run_scheduler.py" in process
-                for process in self.fly["processes"].values()
-            ),
-            1,
+            purge["healthcheck"]["test"],
+            ["CMD", "python", "scripts/run_purge.py", "--check"],
         )
 
-    def test_purge_deadline_is_independent_of_dispatch_polling(self):
-        from scripts.run_scheduler import (
-            EvidencePurgeHealth,
-            SchedulerConfig,
-            run_scheduler,
-        )
+    def test_dispatch_scheduler_source_has_no_purge_ownership(self):
+        import scripts.run_scheduler as scheduler
 
-        start = datetime(2026, 1, 1, tzinfo=UTC)
-        times = iter((start, start, start + timedelta(hours=24)))
-        purge = Mock(return_value=0)
-        run_scheduler(
-            SchedulerConfig.from_environ({
-                "REPORT_DISPATCH_POLL_SECONDS": "300",
-                "REPORT_DISPATCH_LEASE_SECONDS": "300",
-                "FAILURE_EVIDENCE_PURGE_SECONDS": "86400",
-            }),
-            session_factory=object(),
-            dispatch=Mock(),
-            drain=Mock(return_value=_DrainResult()),
-            reconcile=Mock(return_value=_ReconcileResult()),
-            purge=purge,
-            purge_health=EvidencePurgeHealth(),
-            clock=lambda: next(times),
-            stop_event=_NoWaitStopEvent(),
-            max_cycles=2,
-        )
-        self.assertEqual(
-            [call.kwargs["now"] for call in purge.call_args_list],
-            [start, start + timedelta(hours=24)],
-        )
+        source = inspect.getsource(scheduler)
+        for forbidden in ("purge", "EvidencePurgeHealth", "FAILURE_EVIDENCE"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, source)
 
 
 class DispatchSchedulerConfigTests(unittest.TestCase):
@@ -682,7 +650,6 @@ class DispatchSchedulerConfigTests(unittest.TestCase):
             "REPORT_DISPATCH_LEASE_SECONDS": "60",
             "REPORT_QUEUED_REDISPATCH_SECONDS": "300",
             "REPORT_RUNNING_STALE_SECONDS": "1800",
-            "FAILURE_EVIDENCE_PURGE_SECONDS": "86400",
         }
         scheduler = self.compose["services"]["scheduler"]
         self.assertEqual(
@@ -707,6 +674,7 @@ class DispatchSchedulerConfigTests(unittest.TestCase):
         self.assertIn("env -i", command)
         self.assertIn('DATABASE_URL="$DATABASE_URL"', command)
         self.assertIn('CELERY_BROKER_URL="$CELERY_BROKER_URL"', command)
+        self.assertNotIn("FAILURE_EVIDENCE", command)
         self.assertNotIn("BROWSERLESS", command)
 
     def test_scheduler_owns_no_http_service_or_app_volume(self):
