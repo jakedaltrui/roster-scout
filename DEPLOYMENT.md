@@ -53,6 +53,12 @@ must remain below the running stale threshold. Invalid values stop the process
 before database or broker clients are created. Scheduler logs contain health
 and aggregate counts only, never connection URLs, raw exceptions, or task data.
 
+PostgreSQL is the sole retry authority. `REPORT_JOB_MAX_ATTEMPTS` is enforced
+by a generation compare-and-swap, and the outbox stores every retry due time
+and backoff. Each broker delivery carries exactly `(job_id, generation)`;
+workers never call Celery `self.retry` and Redis owns no independent retry
+clock or customer-visible job state.
+
 ### Failed HTML retention and purge readiness
 
 Failed or blocked NCAA HTML is retained for 1-28 days for restricted operator
@@ -218,11 +224,11 @@ but a production launch still requires one successful target-network smoke.
 | `CELERY_WORKER_CONCURRENCY` | `1` | Per-worker Celery concurrency, never greater than the account limit |
 | `DATABASE_URL` | required for jobs | Managed PostgreSQL URL; canonical job/snapshot source of truth |
 | `CELERY_BROKER_URL` | `redis://localhost:6379/0` | Redis broker URL; never used as customer-visible job state |
-| `REPORT_JOB_MAX_ATTEMPTS` | `3` | Total bounded job attempts (1-10); Celery retries are one fewer |
+| `REPORT_JOB_MAX_ATTEMPTS` | `3` | Total bounded job attempts (1-10), enforced by PostgreSQL generation compare-and-swap |
 | `FAILURE_EVIDENCE_RETENTION_DAYS` | `28` | Failed/blocked compressed HTML retention, strictly limited to 1-28 days |
 | `FAILURE_EVIDENCE_PURGE_SECONDS` | `3600` | Independent purge cadence, strictly limited to 60-3600 seconds |
 | `REPORT_SCHEMA_VERSION` | `schema-1` | Same-build section-cache schema identity |
-| `NCAA_PARSER_VERSION` | `parser-1` | Same-build section-cache parser identity |
+| `NCAA_PARSER_VERSION` | `parser-2+ncaa-core-v2` | Same-build parser and accepted core-header contract identity |
 | `BROWSERLESS_PROXY` | `residential` | Browserless proxy network |
 | `BROWSERLESS_PROXY_COUNTRY` | `us` | Browserless proxy country |
 | `NCAA_BROWSER_FALLBACK` | `1` | Enable the local Patchright fallback |

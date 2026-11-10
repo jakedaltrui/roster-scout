@@ -61,7 +61,7 @@ SAFE_FAILURE_MESSAGES = {
 
 
 class RetryableJobError(RuntimeError):
-    """Safe signal that Celery may retry this job."""
+    """Safe signal for PostgreSQL to schedule a later job generation."""
 
     def __init__(self, category, message=None, *, evidence=None):
         self.category = category
@@ -156,7 +156,7 @@ def drain_report_dispatch_outbox(
     failure_backoff=timedelta(seconds=30),
     job_id=None,
 ):
-    """Publish a bounded batch of UUID-only messages from durable leases."""
+    """Publish bounded ``(job_id, generation)`` messages from durable leases."""
     now = now or _utcnow()
     with session_factory.begin() as session:
         leases = claim_report_dispatches(
