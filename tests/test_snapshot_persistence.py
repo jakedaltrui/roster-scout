@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from alembic import command
-from sqlalchemy import create_engine, event, func, inspect, select, text
+from sqlalchemy import CheckConstraint, create_engine, event, func, inspect, select, text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from tests.db_support import (
@@ -1659,6 +1659,124 @@ class AuthoritativeSourcePlayerConstraintTests(PostgreSQLSnapshotTestCase):
                         ),
                     ) if published else (),
                 )
+
+
+class FailureEvidenceRetentionMigrationTests(PostgreSQLSnapshotTestCase):
+    """Revision 0011 makes the 28-day evidence window a durable invariant."""
+
+    CONSTRAINT_NAME = "ck_failure_evidence_retention_window"
+
+    def add_evidence(self, session, *, expires_delta, suffix):
+        from roster_scout.models import FailureEvidence, ReportJob
+
+        organization, _, report, _ = self.fixture(
+            session,
+            organization_name=f"Retention Migration {suffix}",
+        )
+        job = ReportJob(
+            organization_id=organization.id,
+            report_id=report.id,
+            idempotency_key=f"retention-migration-{suffix}",
+            status="failed",
+        )
+        session.add(job)
+        session.flush()
+        collected_at = datetime(2026, 11, 10, 12, 0, tzinfo=UTC)
+        evidence = FailureEvidence(
+            organization_id=organization.id,
+            job_id=job.id,
+            compressed_html=b"migration evidence",
+            sha256=f"{len(suffix) % 10}" * 64,
+            section="batting",
+            source_url="https://stats.ncaa.org/retention-migration",
+            failure_category="source_blocked",
+            collected_at=collected_at,
+            expires_at=collected_at + expires_delta,
+        )
+        session.add(evidence)
+        session.flush()
+        return evidence.id
+
+    def database_constraint_names(self):
+        return {
+            check["name"]
+            for check in inspect(self.engine).get_check_constraints(
+                "failure_evidence"
+            )
+            if check.get("name")
+        }
+
+    def test_0011_rejects_invalid_historical_windows(self):
+        invalid_windows = (
+            ("zero", timedelta(0)),
+            ("negative", -timedelta(microseconds=1)),
+            ("too-long", timedelta(days=28, microseconds=1)),
+        )
+        for suffix, expires_delta in invalid_windows:
+            with self.subTest(window=suffix):
+                clean_database(self.database_url)
+                command.downgrade(alembic_config(self.database_url), "0010")
+                with self.Session.begin() as session:
+                    evidence_id = self.add_evidence(
+                        session,
+                        expires_delta=expires_delta,
+                        suffix=suffix,
+                    )
+
+                try:
+                    with self.assertRaisesRegex(
+                        DBAPIError,
+                        "invalid failure evidence retention history",
+                    ):
+                        command.upgrade(alembic_config(self.database_url), "0011")
+                finally:
+                    with self.engine.begin() as connection:
+                        connection.execute(
+                            text(
+                                "DELETE FROM failure_evidence WHERE id = :evidence_id"
+                            ),
+                            {"evidence_id": evidence_id},
+                        )
+                    command.upgrade(alembic_config(self.database_url), "head")
+
+    def test_0011_valid_history_downgrade_reupgrade_and_fresh_install(self):
+        command.downgrade(alembic_config(self.database_url), "0010")
+        with self.Session.begin() as session:
+            self.add_evidence(
+                session,
+                expires_delta=timedelta(microseconds=1),
+                suffix="minimum",
+            )
+            self.add_evidence(
+                session,
+                expires_delta=timedelta(days=28),
+                suffix="maximum",
+            )
+
+        command.upgrade(alembic_config(self.database_url), "head")
+        self.assertIn(self.CONSTRAINT_NAME, self.database_constraint_names())
+
+        command.downgrade(alembic_config(self.database_url), "0010")
+        self.assertNotIn(self.CONSTRAINT_NAME, self.database_constraint_names())
+        command.upgrade(alembic_config(self.database_url), "head")
+        self.assertIn(self.CONSTRAINT_NAME, self.database_constraint_names())
+
+        downgrade_database(self.database_url)
+        upgrade_database(self.database_url)
+        self.assertIn(self.CONSTRAINT_NAME, self.database_constraint_names())
+
+    def test_model_metadata_matches_0011_retention_constraint(self):
+        from roster_scout.models import FailureEvidence
+
+        constraints = {
+            constraint.name: str(constraint.sqltext)
+            for constraint in FailureEvidence.__table__.constraints
+            if isinstance(constraint, CheckConstraint) and constraint.name
+        }
+        self.assertIn(self.CONSTRAINT_NAME, constraints)
+        expression = constraints[self.CONSTRAINT_NAME].lower()
+        self.assertIn("expires_at > collected_at", expression)
+        self.assertIn("expires_at <= collected_at + interval '28 days'", expression)
 
 
 class MigrationTests(PostgreSQLSnapshotTestCase):
