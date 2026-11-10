@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-15-PLAN.md
-last_updated: "2026-11-10T01:42:39.167Z"
-last_activity: 2026-11-10 -- Completed Plan 01-15
+stopped_at: Completed 01-16-PLAN.md
+last_updated: "2026-11-10T02:07:13.237Z"
+last_activity: 2026-11-10
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 21
-  completed_plans: 15
-  percent: 71
+  completed_plans: 16
+  percent: 76
 ---
 
 # Project State
@@ -26,25 +26,25 @@ See: `.planning/PROJECT.md` (updated 2026-11-01)
 ## Current Position
 
 Phase: 01 (canonical-snapshot-foundation) — EXECUTING
-Plan: 16 of 21
+Plan: 17 of 21
 Status: Ready to execute
-Last activity: 2026-11-10 -- Completed Plan 01-15
+Last activity: 2026-11-10
 
-Progress: [███████░░░] 71%
+Progress: [████████░░] 76%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 15
-- Average duration: 1h 6m
-- Total execution time: 16h 30m
+- Total plans completed: 16
+- Average duration: 1h 3m
+- Total execution time: 16h 47m
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |---|---:|---:|---:|
-| 1. Canonical Snapshot Foundation | 15 | 16h 30m | 1h 6m |
+| 1. Canonical Snapshot Foundation | 16 | 16h 47m | 1h 3m |
 
 **Plan History:**
 
@@ -65,6 +65,7 @@ Progress: [███████░░░] 71%
 | 01 | 11 | 11 min | 2 | 3 |
 | 01 | 14 | 7 min | 2 | 5 |
 | 01 | 15 | 11 min | 2 | 3 |
+| 01 | 16 | 17 min | 2 | 8 |
 
 ## Accumulated Context
 
@@ -116,6 +117,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 01]: Header matching normalizes case and whitespace only; renamed or fuzzy lookalikes require explicit fixture-backed support. — Fail-closed aliases keep accepted NCAA schemas auditable and versioned.
 - [Phase 01]: Publication and every snapshot child mutation share one transaction-scoped snapshot advisory lock. — Validation cannot race a child commit across the publication boundary.
 - [Phase 01]: Metric mutations lock definition UUIDs before snapshot UUIDs in deterministic order. — First-reference insertion cannot escape enumeration, and ordered locking prevents deadlocks.
+- [Phase 01]: PostgreSQL outbox state is the sole retry authority; Celery returns after durable scheduling and never retries independently. — Prevents broker retries from competing with persisted backoff.
+- [Phase 01]: Every delivery carries only job UUID and generation; only the matching generation CAS may increment attempts or collect. — Makes stale and duplicate deliveries pre-collection no-ops.
+- [Phase 01]: Abandoned started generation N advances once to N+1; complete committed evidence may finalize without another collector attempt. — Recovers process loss without double-counting attempts or discarding durable evidence.
 
 ### Pending Todos
 
@@ -138,6 +142,6 @@ Full decision log: `.planning/PROJECT.md`.
 
 ## Session Continuity
 
-Last session: 2026-11-10T01:42:39.159Z
-Stopped at: Completed 01-15-PLAN.md
+Last session: 2026-11-10T02:07:13.229Z
+Stopped at: Completed 01-16-PLAN.md
 Resume file: None
