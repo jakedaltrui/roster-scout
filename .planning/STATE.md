@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-18-PLAN.md
-last_updated: "2026-11-10T02:37:35.339Z"
+stopped_at: Completed 01-19-PLAN.md
+last_updated: "2026-11-10T02:48:25.596Z"
 last_activity: 2026-11-10
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 21
-  completed_plans: 18
-  percent: 0
+  completed_plans: 19
+  percent: 90
 ---
 
 # Project State
@@ -26,25 +26,25 @@ See: `.planning/PROJECT.md` (updated 2026-11-01)
 ## Current Position
 
 Phase: 01 (canonical-snapshot-foundation) — EXECUTING
-Plan: 19 of 21
+Plan: 20 of 21
 Status: Ready to execute
 Last activity: 2026-11-10
 
-Progress: [█████████░] 86%
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 18
-- Average duration: 57m
-- Total execution time: 17h 7m
+- Total plans completed: 19
+- Average duration: 54m
+- Total execution time: 17h 15m
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |---|---:|---:|---:|
-| 1. Canonical Snapshot Foundation | 18 | 17h 7m | 57m |
+| 1. Canonical Snapshot Foundation | 19 | 17h 15m | 54m |
 
 **Plan History:**
 
@@ -68,6 +68,7 @@ Progress: [█████████░] 86%
 | 01 | 16 | 17 min | 2 | 8 |
 | 01 | 17 | 13 min | 2 | 6 |
 | 01 | 18 | 7 min | 2 | 3 |
+| 01 | 19 | 8 min | 2 | 4 |
 
 ## Accumulated Context
 
@@ -75,9 +76,6 @@ Progress: [█████████░] 86%
 
 Full decision log: `.planning/PROJECT.md`.
 
-- v2.0 uses immutable snapshots and explicit refresh-to-successor behavior.
-- Organizations share reports through explicit membership; email domain is not authorization.
-- Excel and Power BI are sibling projections of one canonical snapshot.
 - The existing Python/Browserless NCAA acquisition boundary remains in place.
 - [Phase 01]: Every tenant-owned snapshot child carries organization_id and uses a composite ownership foreign key.
 - [Phase 01]: Published canonical data is protected by PostgreSQL triggers while artifact lifecycle state remains independently mutable.
@@ -107,11 +105,8 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 01]: The Fly scheduler replaces its inherited environment with an allowlist containing only PostgreSQL, Redis, and nonsecret timing configuration. — Keeps Browserless credentials and app-specific configuration outside the scheduler runtime.
 - [Phase 01]: Production remains blocked until managed PostgreSQL, Redis, object/evidence storage, and uninterrupted Fly worker billing/capacity are verified. — Local Compose is development-only and cannot satisfy durable production availability requirements.
 - [Phase 01]: Failure HTML crosses the acquisition-to-job boundary only as a private 64 KiB byte payload with safe category, section, URL, and collection time.
-- [Phase 01]: Evidence byte expiry is fixed at collected_at plus 696 hours; Plan 01-13 owns purge cadence and the 720-hour deletion guarantee.
 - [Phase 01]: Evidence URLs rebuild authority from validated hostname and optional port, excluding userinfo, query, fragment, and malformed authorities.
-- [Phase 01]: Purge health is process-local to the singleton scheduler and starts blocked after restart until one purge transaction succeeds. — A restart cannot inherit stale in-memory success and the immediate startup purge re-establishes readiness without a schema change.
 - [Phase 01]: The scheduler wakes against the earlier dispatch or purge deadline, advances the purge deadline only after success, and retries failures at the normal poll cadence. — Dispatch polling cannot postpone purge and a failed purge cannot defer its retry for another day.
-- [Phase 01]: Exactly 24 hours since the last successful purge is fresh; the smallest later increment is stale and blocks readiness. — This matches the reserved 24-hour window between 696-hour expiry and the 720-hour deletion maximum.
 - [Phase 01]: The exact ROADMAP user story is the first release precondition; technical checks do not run when it is invalid. — Preserves goal-first MVP verification.
 - [Phase 01]: One validator runs existing assertions while the goal-level suite composes public Phase 1 service boundaries. — Keeps one reproducible gate without duplicating domain logic.
 - [Phase 01]: A green deterministic gate does not authorize production launch. — Managed PostgreSQL, Redis, object/evidence storage, and uninterrupted Fly worker capacity remain mandatory.
@@ -126,6 +121,7 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 01]: Only reciprocal-unique compatible batting/pitching evidence merges; ambiguous ID-less graph edges remain isolated unresolved rows. — Prevents silent teammate collisions while preserving safe two-way fallback matches.
 - [Phase 01]: Repeated ID-less names are fallback only with unique nonempty support signatures; duplicate or missing support is unresolved. — Makes ambiguity explicit and deterministic within one team-season.
 - [Phase 01]: Existing canonical persistence remains status-transparent, so unresolved publication reuses the Plan 01-17 source identity binding. — Avoids parallel linkage logic and preserves exact source/fact ownership enforcement.
+- [Phase 01]: Failure evidence retention is strictly limited to 1-28 days; deletion and the singleton heartbeat commit together; readiness stays fresh for exactly six hours only when no expired bytes remain. — Preserves a 47-hour deadline reserve, prevents false health, and survives restart.
 
 ### Pending Todos
 
@@ -148,6 +144,6 @@ Full decision log: `.planning/PROJECT.md`.
 
 ## Session Continuity
 
-Last session: 2026-11-10T02:37:35.332Z
-Stopped at: Completed 01-18-PLAN.md
+Last session: 2026-11-10T02:48:25.588Z
+Stopped at: Completed 01-19-PLAN.md
 Resume file: None
