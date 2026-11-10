@@ -80,7 +80,13 @@ _NCAA_BROWSER_LOCK = threading.Lock()
 _NCAA_TEAM_ROWS = None
 _NCAA_SEASON_ROWS = None
 
-NCAA_PARSER_VERSION = os.environ.get("NCAA_PARSER_VERSION", "parser-1")
+NCAA_CORE_HEADER_CONTRACT_VERSION = "ncaa-core-v2"
+DEFAULT_NCAA_PARSER_VERSION = (
+    f"parser-2+{NCAA_CORE_HEADER_CONTRACT_VERSION}"
+)
+NCAA_PARSER_VERSION = os.environ.get(
+    "NCAA_PARSER_VERSION", DEFAULT_NCAA_PARSER_VERSION
+)
 NCAA_SCHEMA_VERSION = os.environ.get("REPORT_SCHEMA_VERSION", "schema-1")
 
 
@@ -1004,11 +1010,11 @@ class NcaaSchemaError(NcaaAccessError):
 
 NCAA_CORE_HEADER_SIGNATURES = {
     "batting": {
-        "version": "ncaa-core-v1",
+        "version": NCAA_CORE_HEADER_CONTRACT_VERSION,
         "required_headers": frozenset({"player", "ab", "h"}),
     },
     "pitching": {
-        "version": "ncaa-core-v1",
+        "version": NCAA_CORE_HEADER_CONTRACT_VERSION,
         "required_headers": frozenset({"player", "ip", "era"}),
     },
 }

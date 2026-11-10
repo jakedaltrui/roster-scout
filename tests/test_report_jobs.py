@@ -854,7 +854,7 @@ class CrashAfterGenerationCasRecoveryTests(PostgreSQLJobTestCase):
 class PublicationTests(PostgreSQLJobTestCase):
     @staticmethod
     def successful_sections(collected_at=None, *, supplemental_failed=False):
-        from roster_scout.jobs import CollectedSection
+        from roster_scout.jobs import CollectedSection, PARSER_VERSION
 
         collected_at = collected_at or datetime.now(UTC)
         sections = [
@@ -869,7 +869,7 @@ class PublicationTests(PostgreSQLJobTestCase):
                 source_season_team_id="team-season",
                 source_stat_category_id=name,
                 collected_at=collected_at,
-                parser_version="parser-1",
+                parser_version=PARSER_VERSION,
                 schema_version="schema-1",
             )
             for name in ("batting", "pitching")
@@ -996,6 +996,7 @@ class ParserContractRecoveryTests(PostgreSQLJobTestCase):
             )
 
     def test_parser_one_sections_are_recollected_then_current_evidence_is_reused(self):
+        import roster_scraper as scraper
         from roster_scout.jobs import (
             PARSER_VERSION,
             _new_or_existing_snapshot,
@@ -1007,6 +1008,11 @@ class ParserContractRecoveryTests(PostgreSQLJobTestCase):
 
         self.assertIn("parser-2", PARSER_VERSION)
         self.assertIn("ncaa-core-v2", PARSER_VERSION)
+        self.assertEqual(PARSER_VERSION, scraper.NCAA_PARSER_VERSION)
+        self.assertEqual(
+            {item["version"] for item in scraper.NCAA_CORE_HEADER_SIGNATURES.values()},
+            {"ncaa-core-v2"},
+        )
         organization_id, report_id = self.fixture()
         job = accept_report_job(
             self.Session,
@@ -1083,9 +1089,11 @@ class ParserContractRecoveryTests(PostgreSQLJobTestCase):
 
 
 class FinalAttemptEvidenceRecoveryTests(PostgreSQLJobTestCase):
-    def evidence_sections(self, job_id, *, parser_version="parser-1"):
-        from roster_scout.jobs import CollectedSection
+    def evidence_sections(self, job_id, *, parser_version=None):
+        from roster_scout.jobs import CollectedSection, PARSER_VERSION
         from roster_scout.models import ReportJob, Report, Season, Team, TeamSeason
+
+        parser_version = parser_version or PARSER_VERSION
 
         with self.Session() as session:
             job = session.get(ReportJob, job_id)
@@ -1195,6 +1203,7 @@ class PerSectionRecoveryTests(PostgreSQLJobTestCase):
     def seed_partial_batting(self):
         from roster_scout.jobs import (
             CollectedSection,
+            PARSER_VERSION,
             _new_or_existing_snapshot,
             _persist_sections,
             accept_report_job,
@@ -1240,7 +1249,7 @@ class PerSectionRecoveryTests(PostgreSQLJobTestCase):
                 source_season_team_id=source["season_team_id"],
                 source_stat_category_id=source["batting_id"],
                 collected_at=datetime(2026, 11, 8, 10, 0, tzinfo=UTC),
-                parser_version="parser-1",
+                parser_version=PARSER_VERSION,
                 schema_version="schema-1",
             )
             snapshot = _new_or_existing_snapshot(session, stored_job)

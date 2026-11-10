@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 
+from roster_scraper import NCAA_PARSER_VERSION
 from usage_limits import BrowserCapacityExceeded
 
 from .database import session_advisory_lock
@@ -44,7 +45,7 @@ from .repositories import (
 
 TERMINAL_JOB_STATUSES = frozenset({"ready", "partial", "failed", "blocked"})
 SCHEMA_VERSION = os.environ.get("REPORT_SCHEMA_VERSION", "schema-1")
-PARSER_VERSION = os.environ.get("NCAA_PARSER_VERSION", "parser-1")
+PARSER_VERSION = NCAA_PARSER_VERSION
 MAX_ATTEMPTS = max(1, min(10, int(os.environ.get("REPORT_JOB_MAX_ATTEMPTS", "3"))))
 SAFE_FAILURE_MESSAGES = {
     "job_busy": "The report job is already running.",
@@ -658,6 +659,11 @@ def _persist_sections(session, job, snapshot, sections):
         )
     }
     for collected in sections:
+        if collected.status == "complete" and (
+            collected.schema_version != SCHEMA_VERSION
+            or collected.parser_version != PARSER_VERSION
+        ):
+            raise DeterministicJobError("schema_validation")
         section = existing.get(collected.name)
         values = {
             "organization_id": job.organization_id,
@@ -682,7 +688,10 @@ def _persist_sections(session, job, snapshot, sections):
             section = ReportSection(**values)
             session.add(section)
             existing[collected.name] = section
-        elif section.status != "complete":
+        elif section.status != "complete" or (
+            section.schema_version != collected.schema_version
+            or section.parser_version != collected.parser_version
+        ):
             session.execute(
                 delete(SourceRecord).where(
                     SourceRecord.snapshot_id == snapshot.id,
