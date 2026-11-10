@@ -266,3 +266,26 @@ later than 28 days after collection, and is purged by nulling the bytes while
 retaining its checksum and sanitized metadata. Successful HTML is never stored.
 
 NCAA availability is an external boundary. A healthy container and `/healthz` response do not guarantee that the current hosting network can retrieve a live stats page. Keep the credential-free smoke test in the release checklist.
+
+## Browserless hotfix — November 10, 2026
+
+Production image `deployment-01M732E8XAKJPEE6EDYGZF5CPA` is a focused patch
+on live revision `2929a4fc68471a4884369681fadddd5b39d2dfe7`, not a release
+of the newer database/worker architecture in this workspace. It adds per-team
+file locking around the legacy result-cache check/collection/write, an
+in-flight form guard, explicit CDP `Browser.close` before capacity release,
+and a retryable HTTP 503 response for upstream Browserless 429s. The per-team
+file lock coalesces callers sharing one machine/cache; it is not a distributed
+lock for multiple machines. Explicit force-refresh requests remain fresh.
+
+Verification: all 51 tests against the focused production tree passed. The
+workspace suite ran 119 tests successfully with 35 database-dependent skips;
+the catalog validator accepted all 942 teams. Two simultaneous production
+Scranton requests both returned valid workbooks with 44 players in about 41
+seconds. Browserless logs showed exactly one unblock/reconnect pair and no
+429s for that verification. Fly health checks and HTTPS `/healthz` passed.
+
+The original burst callers cannot be identified retrospectively from the
+Browserless logs. Account capacity may still be exhausted by other consumers
+of the same Browserless account. Genuine contention returns the busy response
+instead of an upstream-data error.

@@ -1277,8 +1277,10 @@
       }
     });
 
+    let scrapeInFlight = false;
     document.getElementById('scout-form').addEventListener('submit', async (e) => {
       e.preventDefault();
+      if (scrapeInFlight) return;
 
       const seasonTeamId = selectedTeam?.season_team_id || '';
       const team = selectedTeam?.name || '';
@@ -1293,6 +1295,7 @@
       }
       if (!team) return;
 
+      scrapeInFlight = true;
       const runStarted = performance.now();
       document.getElementById('submit-btn').disabled = true;
       document.getElementById('loading-download-step').className = 'loading-step loading-activity';
@@ -1346,6 +1349,8 @@
         document.getElementById('error-msg').textContent =
           'Could not connect to the server. Is it running?';
         show('error');
+      } finally {
+        scrapeInFlight = false;
       }
     });
 

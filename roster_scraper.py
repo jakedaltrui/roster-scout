@@ -13,6 +13,8 @@ Usage:
 """
 
 import re
+import fcntl
+from contextlib import contextmanager
 import json
 import argparse
 import csv
@@ -1910,6 +1912,9 @@ def _fetch_ncaa_browserless_pages(urls: dict[str, str]) -> dict[str, str]:
         )
     except requests.RequestException as exc:
         raise NcaaAccessError("Browserless could not start the NCAA session.") from exc
+    if response.status_code == 429:
+        from usage_limits import BrowserCapacityExceeded
+        raise BrowserCapacityExceeded("Roster Scout is busy. Please try again shortly.")
     if response.status_code != 200:
         raise NcaaAccessError(
             f"Browserless session creation returned HTTP {response.status_code}."
@@ -1977,10 +1982,17 @@ def _fetch_ncaa_browserless_pages(urls: dict[str, str]) -> dict[str, str]:
         # contain the authenticated endpoint.
         raise NcaaAccessError("Browserless NCAA browser session failed.") from exc
     finally:
-        if browser is not None:
-            browser.close()
-        if playwright is not None:
-            playwright.stop()
+        try:
+            if browser is not None:
+                # Closing a CDP client only disconnects it. End the remote
+                # reconnect session before the account-capacity lease is freed.
+                try:
+                    browser.new_browser_cdp_session().send("Browser.close")
+                finally:
+                    browser.close()
+        finally:
+            if playwright is not None:
+                playwright.stop()
     return rendered
 
 
@@ -2353,7 +2365,39 @@ def _collect_ncaa_team(
     )
 
 
+@contextmanager
+def _ncaa_team_lock(team, year):
+    """Coalesce legacy workbook requests sharing this machine's result cache."""
+    from usage_limits import BrowserCapacityExceeded
+
+    key = f"ncaa:{year}:{team['season_team_id']}"
+    digest = hashlib.sha256(key.encode()).hexdigest()[:24]
+    with (_ncaa_cache_dir() / f"team-{digest}.lock").open("a") as handle:
+        deadline = time.monotonic() + 90
+        while True:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise BrowserCapacityExceeded(
+                        "This team is still being collected. Please try again shortly."
+                    )
+                time.sleep(0.1)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
 def _scrape_ncaa_team(team: dict, year: int, force_refresh: bool = False) -> tuple:
+    # Recheck the cache only after acquiring the team lock: concurrent callers
+    # reuse the first successful collection instead of starting another browser.
+    with _ncaa_team_lock(team, year):
+        return _scrape_ncaa_team_locked(team, year, force_refresh)
+
+
+def _scrape_ncaa_team_locked(team: dict, year: int, force_refresh: bool = False) -> tuple:
     """Scrape one already-resolved NCAA catalog row."""
     label = team["team_name"]
     season_team_id = team["season_team_id"]
