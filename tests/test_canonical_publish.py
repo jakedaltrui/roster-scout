@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from sqlalchemy import delete, event, func, inspect, select, update
+from sqlalchemy import delete, event, func, inspect, select, text, update
 from sqlalchemy.exc import IntegrityError
 
 import roster_scraper as rs
@@ -864,6 +864,237 @@ class PublicationIntegrityTests(CanonicalPublishTests):
         for table in columns.values():
             self.assertFalse(table["player_team_season_id"]["nullable"])
             self.assertFalse(table["source_record_id"]["nullable"])
+
+
+class SourceIdentityBindingTests(CanonicalPublishTests):
+    def build_source_draft(self, division=1):
+        from roster_scout.canonical import to_collected_sections
+        from roster_scout.jobs import _new_or_existing_snapshot, _persist_sections
+        from roster_scout.models import ReportJob
+
+        job = self.seed(division)
+        with patch.object(
+            rs,
+            "_fetch_ncaa_pages",
+            return_value={
+                "batting": fixture(f"d{division}_batting.html"),
+                "pitching": fixture(f"d{division}_pitching.html"),
+            },
+        ):
+            collection = rs._collect_ncaa_team(TEAMS[division], 2026)
+        sections = to_collected_sections(collection)
+        with self.Session.begin() as session:
+            stored_job = session.get(ReportJob, job.id)
+            snapshot = _new_or_existing_snapshot(session, stored_job)
+            _persist_sections(session, stored_job, snapshot, sections)
+            snapshot.source_collected_at = collection.metadata.collected_at
+            snapshot_id = snapshot.id
+        return job.id, snapshot_id, sections
+
+    def build_canonical_draft(self, division=1):
+        from roster_scout.jobs import _persist_canonical
+        from roster_scout.models import ReportJob, ReportSnapshot
+
+        job_id, snapshot_id, sections = self.build_source_draft(division)
+        with self.Session.begin() as session:
+            _persist_canonical(
+                session,
+                session.get(ReportJob, job_id),
+                session.get(ReportSnapshot, snapshot_id),
+                sections,
+            )
+        return job_id, snapshot_id
+
+    def test_all_published_sources_bind_to_their_fact_identity(self):
+        from roster_scout.models import (
+            BattingFact,
+            PitchingFact,
+            PlayerTeamSeason,
+            SourceRecord,
+        )
+
+        for division in (1, 2, 3):
+            with self.subTest(division=division):
+                clean_database(self.database_url)
+                _job, snapshot = self.publish(division)
+                with self.Session() as session:
+                    sources = {
+                        source.id: source
+                        for source in session.scalars(
+                            select(SourceRecord).where(
+                                SourceRecord.snapshot_id == snapshot.id
+                            )
+                        )
+                    }
+                    facts = [
+                        *session.scalars(
+                            select(BattingFact).where(
+                                BattingFact.snapshot_id == snapshot.id
+                            )
+                        ),
+                        *session.scalars(
+                            select(PitchingFact).where(
+                                PitchingFact.snapshot_id == snapshot.id
+                            )
+                        ),
+                    ]
+                    self.assertTrue(facts)
+                    self.assertTrue(
+                        all(source.player_team_season_id for source in sources.values())
+                    )
+                    for fact in facts:
+                        self.assertEqual(
+                            sources[fact.source_record_id].player_team_season_id,
+                            fact.player_team_season_id,
+                        )
+
+                    if division == 1:
+                        two_way = session.scalar(
+                            select(PlayerTeamSeason).where(
+                                PlayerTeamSeason.snapshot_id == snapshot.id,
+                                PlayerTeamSeason.display_name == "D One Two Way",
+                            )
+                        )
+                        self.assertIsNotNone(two_way)
+                        two_way_source_ids = {
+                            fact.source_record_id
+                            for fact in facts
+                            if fact.player_team_season_id == two_way.id
+                        }
+                        self.assertEqual(len(two_way_source_ids), 2)
+                        self.assertEqual(
+                            {
+                                sources[source_id].player_team_season_id
+                                for source_id in two_way_source_ids
+                            },
+                            {two_way.id},
+                        )
+
+    def test_swapped_fact_identity_is_rejected_by_orm_and_direct_sql(self):
+        from roster_scout.models import BattingFact
+
+        _job_id, snapshot_id = self.build_canonical_draft()
+        with self.assertRaises(IntegrityError) as orm_error:
+            with self.Session.begin() as session:
+                facts = list(
+                    session.scalars(
+                        select(BattingFact)
+                        .where(BattingFact.snapshot_id == snapshot_id)
+                        .order_by(BattingFact.id)
+                        .limit(2)
+                    )
+                )
+                self.assertEqual(len(facts), 2)
+                facts[0].player_team_season_id = facts[1].player_team_season_id
+                session.flush()
+        self.assertIn("fk_batting_facts_source_identity", str(orm_error.exception))
+
+        with self.assertRaises(IntegrityError) as sql_error:
+            with self.Session.begin() as session:
+                facts = list(
+                    session.execute(
+                        text(
+                            """
+                            SELECT id, player_team_season_id
+                            FROM batting_facts
+                            WHERE snapshot_id = :snapshot_id
+                            ORDER BY id
+                            LIMIT 2
+                            """
+                        ),
+                        {"snapshot_id": snapshot_id},
+                    )
+                )
+                self.assertEqual(len(facts), 2)
+                session.execute(
+                    text(
+                        """
+                        UPDATE batting_facts
+                        SET player_team_season_id = :swapped_identity_id
+                        WHERE id = :fact_id
+                        """
+                    ),
+                    {
+                        "fact_id": facts[0].id,
+                        "swapped_identity_id": facts[1].player_team_season_id,
+                    },
+                )
+        self.assertIn("fk_batting_facts_source_identity", str(sql_error.exception))
+
+    def test_one_source_cannot_be_assigned_to_two_canonical_identities(self):
+        from roster_scout.canonical import (
+            CanonicalCollection,
+            CanonicalFact,
+            CanonicalPlayer,
+        )
+        from roster_scout.jobs import DeterministicJobError, _persist_canonical
+        from roster_scout.models import ReportJob, ReportSnapshot
+
+        job_id, snapshot_id, sections = self.build_source_draft()
+        players = tuple(
+            CanonicalPlayer(
+                identity_key=f"ncaa:conflict-{label}",
+                identity_status="authoritative",
+                source_player_id=f"conflict-{label}",
+                display_name=f"Conflict {label}",
+                jersey_number=None,
+                position=None,
+                batting_source=("batting", 0),
+                pitching_source=None,
+            )
+            for label in ("a", "b")
+        )
+        canonical = CanonicalCollection(
+            source_records=(),
+            players=players,
+            facts=tuple(
+                CanonicalFact(
+                    section="batting",
+                    identity_key=player.identity_key,
+                    source_record=("batting", 0),
+                    values={
+                        "at_bats": 1,
+                        "hits": 1,
+                        "walks": 0,
+                        "strikeouts": 0,
+                    },
+                )
+                for player in players
+            ),
+            metrics=(),
+        )
+        with patch(
+            "roster_scout.canonical.canonicalize_ncaa_collection",
+            return_value=canonical,
+        ):
+            with self.assertRaises(DeterministicJobError) as raised:
+                with self.Session.begin() as session:
+                    _persist_canonical(
+                        session,
+                        session.get(ReportJob, job_id),
+                        session.get(ReportSnapshot, snapshot_id),
+                        sections,
+                    )
+        self.assertEqual(raised.exception.category, "schema_validation")
+
+    def test_source_first_draft_stays_unbound_and_cannot_publish(self):
+        from roster_scout.models import SourceRecord
+        from roster_scout.snapshots import SnapshotPublicationError, publish_snapshot
+
+        _job_id, snapshot_id, _sections = self.build_source_draft()
+        with self.Session() as session:
+            sources = list(
+                session.scalars(
+                    select(SourceRecord).where(SourceRecord.snapshot_id == snapshot_id)
+                )
+            )
+            self.assertTrue(sources)
+            self.assertTrue(
+                all(source.player_team_season_id is None for source in sources)
+            )
+        with self.assertRaises(SnapshotPublicationError):
+            with self.Session.begin() as session:
+                publish_snapshot(session, snapshot_id)
 
 
 if __name__ == "__main__":
