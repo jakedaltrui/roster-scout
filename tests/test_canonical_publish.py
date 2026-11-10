@@ -866,6 +866,285 @@ class PublicationIntegrityTests(CanonicalPublishTests):
             self.assertFalse(table["source_record_id"]["nullable"])
 
 
+class UnresolvedIdentityPersistenceTests(CanonicalPublishTests):
+    @staticmethod
+    def ambiguous_sections():
+        from roster_scout.jobs import CollectedSection
+
+        collected_at = datetime(2026, 11, 8, 12, 0, tzinfo=UTC)
+        common = {
+            "critical": True,
+            "verified_empty": False,
+            "source_team_id": TEAMS[2]["team_id"],
+            "source_season_id": TEAMS[2]["season_id"],
+            "source_season_team_id": TEAMS[2]["season_team_id"],
+            "collected_at": collected_at,
+            "parser_version": "parser-1",
+            "schema_version": "schema-1",
+        }
+        return (
+            CollectedSection(
+                name="batting",
+                rows=(
+                    {
+                        "Player": "Ambiguous Player",
+                        "Jersey": "1",
+                        "Pos": "OF",
+                        "AB": "10",
+                        "H": "3",
+                    },
+                    {
+                        "Player": "Ambiguous Player",
+                        "Jersey": "2",
+                        "Pos": "C",
+                        "AB": "8",
+                        "H": "2",
+                    },
+                ),
+                source_url="https://stats.ncaa.org/batting",
+                source_stat_category_id=SEASON["batting_id"],
+                **common,
+            ),
+            CollectedSection(
+                name="pitching",
+                rows=({
+                    "Player": "Ambiguous Player",
+                    "IP": "2.0",
+                    "H": "1",
+                    "ER": "0",
+                },),
+                source_url="https://stats.ncaa.org/pitching",
+                source_stat_category_id=SEASON["pitching_id"],
+                **common,
+            ),
+        )
+
+    @staticmethod
+    def distinguishable_sections():
+        from roster_scout.jobs import CollectedSection
+
+        collected_at = datetime(2026, 11, 8, 12, 0, tzinfo=UTC)
+        common = {
+            "critical": True,
+            "source_team_id": TEAMS[2]["team_id"],
+            "source_season_id": TEAMS[2]["season_id"],
+            "source_season_team_id": TEAMS[2]["season_team_id"],
+            "collected_at": collected_at,
+            "parser_version": "parser-1",
+            "schema_version": "schema-1",
+        }
+        return (
+            CollectedSection(
+                name="batting",
+                rows=(
+                    {"Player": "Known Teammate", "Jersey": "1", "AB": "4", "H": "1"},
+                    {"Player": "Known Teammate", "Jersey": "2", "AB": "4", "H": "2"},
+                ),
+                source_url="https://stats.ncaa.org/batting",
+                source_stat_category_id=SEASON["batting_id"],
+                **common,
+            ),
+            CollectedSection(
+                name="pitching",
+                rows=(),
+                verified_empty=True,
+                source_url="https://stats.ncaa.org/pitching",
+                source_stat_category_id=SEASON["pitching_id"],
+                **common,
+            ),
+        )
+
+    def test_ambiguous_rows_publish_as_isolated_unresolved_identities(self):
+        from roster_scout.jobs import run_report_job
+        from roster_scout.models import (
+            BattingFact,
+            PitchingFact,
+            PlayerTeamSeason,
+            SourceRecord,
+        )
+
+        job = self.seed(2)
+        snapshot = run_report_job(
+            self.Session,
+            job.id,
+            collector=lambda *args, **kwargs: self.ambiguous_sections(),
+        )
+        self.assertEqual(snapshot.status, "ready")
+        with self.Session() as session:
+            identities = list(session.scalars(
+                select(PlayerTeamSeason)
+                .where(PlayerTeamSeason.snapshot_id == snapshot.id)
+                .order_by(PlayerTeamSeason.identity_key)
+            ))
+            self.assertEqual(len(identities), 3)
+            self.assertEqual(
+                {identity.identity_status for identity in identities},
+                {"unresolved"},
+            )
+            self.assertTrue(all(
+                identity.identity_key.startswith(
+                    f"unresolved:{TEAMS[2]['season_team_id']}:"
+                )
+                for identity in identities
+            ))
+            sources = list(session.scalars(
+                select(SourceRecord).where(SourceRecord.snapshot_id == snapshot.id)
+            ))
+            facts = [
+                *session.scalars(
+                    select(BattingFact).where(BattingFact.snapshot_id == snapshot.id)
+                ),
+                *session.scalars(
+                    select(PitchingFact).where(PitchingFact.snapshot_id == snapshot.id)
+                ),
+            ]
+            self.assertEqual(len(sources), 3)
+            self.assertEqual(len(facts), 3)
+            self.assertEqual(
+                {source.player_team_season_id for source in sources},
+                {identity.id for identity in identities},
+            )
+            self.assertEqual(
+                {fact.player_team_season_id for fact in facts},
+                {identity.id for identity in identities},
+            )
+            for fact in facts:
+                source = next(item for item in sources if item.id == fact.source_record_id)
+                self.assertEqual(
+                    source.player_team_season_id,
+                    fact.player_team_season_id,
+                )
+
+    def test_source_first_recovery_preserves_unresolved_keys_without_duplicates(self):
+        from roster_scout.jobs import reconcile_stale_report_jobs, run_report_job
+        from roster_scout.models import (
+            BattingFact,
+            PitchingFact,
+            Player,
+            PlayerTeamSeason,
+            ReportJob,
+        )
+
+        job = self.seed(2)
+        with patch(
+            "roster_scout.jobs._persist_canonical", side_effect=KeyboardInterrupt
+        ):
+            with self.assertRaises(KeyboardInterrupt):
+                run_report_job(
+                    self.Session,
+                    job.id,
+                    collector=lambda *args, **kwargs: self.ambiguous_sections(),
+                )
+        with self.Session() as session:
+            started_at = session.get(ReportJob, job.id).started_at
+        reconciled = reconcile_stale_report_jobs(
+            self.Session,
+            now=started_at + timedelta(hours=1),
+            running_timeout=timedelta(minutes=30),
+        )
+        self.assertEqual(reconciled.reopened, 1)
+
+        snapshot = run_report_job(
+            self.Session,
+            job.id,
+            collector=lambda *args, **kwargs: self.fail(
+                "same-job unresolved evidence was collected twice"
+            ),
+        )
+        with self.Session() as session:
+            keys = tuple(session.scalars(
+                select(PlayerTeamSeason.identity_key)
+                .where(PlayerTeamSeason.snapshot_id == snapshot.id)
+                .order_by(PlayerTeamSeason.identity_key)
+            ))
+            counts = (
+                session.scalar(select(func.count()).select_from(Player)),
+                session.scalar(select(func.count()).select_from(PlayerTeamSeason)),
+                session.scalar(select(func.count()).select_from(BattingFact)),
+                session.scalar(select(func.count()).select_from(PitchingFact)),
+            )
+        replay = run_report_job(
+            self.Session,
+            job.id,
+            collector=lambda *args, **kwargs: self.fail("terminal job recollected"),
+        )
+        self.assertEqual(replay.id, snapshot.id)
+        with self.Session() as session:
+            self.assertEqual(
+                tuple(session.scalars(
+                    select(PlayerTeamSeason.identity_key)
+                    .where(PlayerTeamSeason.snapshot_id == snapshot.id)
+                    .order_by(PlayerTeamSeason.identity_key)
+                )),
+                keys,
+            )
+            self.assertEqual(
+                (
+                    session.scalar(select(func.count()).select_from(Player)),
+                    session.scalar(select(func.count()).select_from(PlayerTeamSeason)),
+                    session.scalar(select(func.count()).select_from(BattingFact)),
+                    session.scalar(select(func.count()).select_from(PitchingFact)),
+                ),
+                counts,
+            )
+
+    def test_distinguishable_teammates_remain_fallback(self):
+        from roster_scout.jobs import run_report_job
+        from roster_scout.models import PlayerTeamSeason
+
+        job = self.seed(2)
+        snapshot = run_report_job(
+            self.Session,
+            job.id,
+            collector=lambda *args, **kwargs: self.distinguishable_sections(),
+        )
+        with self.Session() as session:
+            identities = list(session.scalars(
+                select(PlayerTeamSeason).where(
+                    PlayerTeamSeason.snapshot_id == snapshot.id
+                )
+            ))
+            self.assertEqual(len(identities), 2)
+            self.assertEqual(
+                {identity.identity_status for identity in identities},
+                {"fallback"},
+            )
+            self.assertEqual(len({item.identity_key for item in identities}), 2)
+
+    def test_authoritative_conflict_remains_terminal(self):
+        from roster_scout.jobs import CollectedSection, DeterministicJobError, run_report_job
+        from roster_scout.models import ReportJob, ReportSnapshot
+
+        batting, pitching = self.ambiguous_sections()
+        sections = (
+            CollectedSection(
+                **{
+                    **batting.__dict__,
+                    "rows": ({"Player": "First Name", "AB": "1", "H": "1", "_player_id": "42"},),
+                }
+            ),
+            CollectedSection(
+                **{
+                    **pitching.__dict__,
+                    "rows": ({"Player": "Different Name", "IP": "1.0", "_player_id": "42"},),
+                }
+            ),
+        )
+        job = self.seed(2)
+        with self.assertRaises(DeterministicJobError) as raised:
+            run_report_job(
+                self.Session,
+                job.id,
+                collector=lambda *args, **kwargs: sections,
+            )
+        self.assertEqual(raised.exception.category, "identity_conflict")
+        with self.Session() as session:
+            stored = session.get(ReportJob, job.id)
+            snapshot = session.get(ReportSnapshot, stored.result_snapshot_id)
+            self.assertEqual(stored.status, "failed")
+            self.assertEqual(snapshot.status, "draft")
+
+
 class SourceIdentityBindingTests(CanonicalPublishTests):
     def build_source_draft(self, division=1):
         from roster_scout.canonical import to_collected_sections
