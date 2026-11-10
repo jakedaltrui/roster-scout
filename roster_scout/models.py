@@ -349,6 +349,12 @@ class ReportJob(UUIDPrimaryKey, Timestamped, Base):
     failure_message: Mapped[str | None] = mapped_column(String(200))
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=3, server_default="3")
+    dispatch_generation: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
+    started_generation: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     enqueued_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
     broker_message_id: Mapped[str | None] = mapped_column(String(100))
     started_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
@@ -368,6 +374,18 @@ class ReportJob(UUIDPrimaryKey, Timestamped, Base):
         CheckConstraint(_allowed("status", JOB_STATUSES), name="ck_report_jobs_status"),
         CheckConstraint("attempt_count >= 0", name="ck_report_jobs_attempt_count_nonnegative"),
         CheckConstraint("max_attempts BETWEEN 1 AND 10", name="ck_report_jobs_max_attempts_bounded"),
+        CheckConstraint(
+            "dispatch_generation >= 1",
+            name="ck_report_jobs_dispatch_generation_positive",
+        ),
+        CheckConstraint(
+            "started_generation >= 0",
+            name="ck_report_jobs_started_generation_nonnegative",
+        ),
+        CheckConstraint(
+            "started_generation <= dispatch_generation",
+            name="ck_report_jobs_started_generation_current",
+        ),
     )
 
 
@@ -381,6 +399,7 @@ class ReportJobDispatch(UUIDPrimaryKey, Timestamped, Base):
     message_id: Mapped[str] = mapped_column(
         String(100), nullable=False, default=lambda: str(uuid.uuid4())
     )
+    generation: Mapped[int] = mapped_column(Integer, nullable=False)
     lease_token: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     leased_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
     lease_expires_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
@@ -411,6 +430,10 @@ class ReportJobDispatch(UUIDPrimaryKey, Timestamped, Base):
         CheckConstraint(
             "publish_attempts >= 0",
             name="ck_report_job_dispatch_publish_attempts_nonnegative",
+        ),
+        CheckConstraint(
+            "generation >= 1",
+            name="ck_report_job_dispatch_generation_positive",
         ),
         CheckConstraint(
             "(status = 'leased' AND lease_token IS NOT NULL "

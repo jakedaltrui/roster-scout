@@ -18,6 +18,7 @@ class ReportDispatchLease:
     dispatch_id: uuid.UUID
     organization_id: uuid.UUID
     job_id: uuid.UUID
+    generation: int
     message_id: str
     lease_token: uuid.UUID
     lease_expires_at: datetime
@@ -55,14 +56,18 @@ def get_report_job(session, organization_id, job_id, *, for_update=False):
     return session.scalar(statement)
 
 
-def ensure_report_dispatch(session, job, *, now=None):
+def ensure_report_dispatch(
+    session, job, *, generation=None, next_attempt_at=None, now=None
+):
     """Ensure one recoverable active dispatch intent while the job row is locked."""
     if job.status in {"ready", "partial", "failed", "blocked"}:
         return None
+    generation = generation or job.dispatch_generation
     existing = session.scalar(
         select(ReportJobDispatch)
         .where(
             ReportJobDispatch.job_id == job.id,
+            ReportJobDispatch.generation == generation,
             ReportJobDispatch.status.in_(ACTIVE_DISPATCH_STATUSES),
         )
         .with_for_update()
@@ -72,8 +77,9 @@ def ensure_report_dispatch(session, job, *, now=None):
     intent = ReportJobDispatch(
         organization_id=job.organization_id,
         job_id=job.id,
+        generation=generation,
         message_id=str(uuid.uuid4()),
-        next_attempt_at=now or datetime.now(UTC),
+        next_attempt_at=next_attempt_at or now or datetime.now(UTC),
     )
     session.add(intent)
     session.flush()
@@ -112,6 +118,7 @@ def claim_report_dispatches(
         .where(
             due,
             ReportJob.status.not_in(("ready", "partial", "failed", "blocked")),
+            ReportJobDispatch.generation == ReportJob.dispatch_generation,
         )
         .order_by(ReportJobDispatch.next_attempt_at, ReportJobDispatch.created_at)
         .limit(limit)
@@ -135,6 +142,7 @@ def claim_report_dispatches(
                 dispatch_id=intent.id,
                 organization_id=intent.organization_id,
                 job_id=intent.job_id,
+                generation=intent.generation,
                 message_id=intent.message_id,
                 lease_token=token,
                 lease_expires_at=expires_at,
@@ -159,6 +167,7 @@ def acknowledge_report_dispatch(
             ReportJobDispatch.id == lease.dispatch_id,
             ReportJobDispatch.status == "leased",
             ReportJobDispatch.lease_token == lease.lease_token,
+            ReportJobDispatch.generation == lease.generation,
         )
         .with_for_update()
     )
@@ -189,6 +198,7 @@ def release_report_dispatch(session, lease, *, next_attempt_at, now=None):
             ReportJobDispatch.id == lease.dispatch_id,
             ReportJobDispatch.status == "leased",
             ReportJobDispatch.lease_token == lease.lease_token,
+            ReportJobDispatch.generation == lease.generation,
         )
         .with_for_update()
     )
@@ -203,10 +213,12 @@ def release_report_dispatch(session, lease, *, next_attempt_at, now=None):
     return True
 
 
-def reopen_report_dispatch(session, intent, *, now=None):
+def reopen_report_dispatch(session, intent, *, generation=None, now=None):
     """Make an acknowledged, deadline-expired intent immediately claimable."""
     now = now or datetime.now(UTC)
-    if intent.status != "acknowledged":
+    if intent.status != "acknowledged" or (
+        generation is not None and intent.generation != generation
+    ):
         return False
     intent.status = "pending"
     intent.lease_token = None
@@ -217,19 +229,16 @@ def reopen_report_dispatch(session, intent, *, now=None):
     return True
 
 
-def close_report_dispatches(session, job_id, *, now=None):
+def close_report_dispatches(session, job_id, *, generation=None, now=None):
     """Close every active intent once worker progress or terminal state is durable."""
     now = now or datetime.now(UTC)
-    intents = list(
-        session.scalars(
-            select(ReportJobDispatch)
-            .where(
-                ReportJobDispatch.job_id == job_id,
-                ReportJobDispatch.status.in_(ACTIVE_DISPATCH_STATUSES),
-            )
-            .with_for_update()
-        )
+    statement = select(ReportJobDispatch).where(
+        ReportJobDispatch.job_id == job_id,
+        ReportJobDispatch.status.in_(ACTIVE_DISPATCH_STATUSES),
     )
+    if generation is not None:
+        statement = statement.where(ReportJobDispatch.generation == generation)
+    intents = list(session.scalars(statement.with_for_update()))
     for intent in intents:
         intent.status = "closed"
         intent.lease_token = None

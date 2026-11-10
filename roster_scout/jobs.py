@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import random
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -134,6 +135,15 @@ def _utcnow():
     return datetime.now(UTC)
 
 
+def bounded_retry_delay(attempt_count, *, jitter=None):
+    """Return capped exponential retry seconds with caller-controlled jitter."""
+    if attempt_count < 1:
+        raise ValueError("attempt_count must be positive")
+    base = min(300, 2 ** (attempt_count - 1))
+    extra = 0 if jitter is None else jitter(base)
+    return min(300, max(0, base + extra))
+
+
 def drain_report_dispatch_outbox(
     session_factory,
     *,
@@ -160,7 +170,7 @@ def drain_report_dispatch_outbox(
     for lease in leases:
         job_id = str(uuid.UUID(str(lease.job_id)))
         try:
-            message = dispatch(job_id)
+            message = dispatch(job_id, lease.generation)
         except Exception:
             with session_factory.begin() as session:
                 if release_report_dispatch(
@@ -866,8 +876,20 @@ def _classified_error(exc):
     return DeterministicJobError("unexpected")
 
 
-def _record_failure(session_factory, job_id, error):
-    now = _utcnow()
+def _record_failure(
+    session_factory,
+    job_id,
+    generation,
+    error=None,
+    *,
+    now=None,
+    jitter=None,
+):
+    if error is None:
+        # Compatibility for callers updated in Task 2 of this plan.
+        error = generation
+        generation = None
+    now = now or _utcnow()
     evidence = error.evidence
     with session_factory.begin() as session:
         job = session.scalar(
@@ -875,10 +897,31 @@ def _record_failure(session_factory, job_id, error):
         )
         if job is None or job.status in TERMINAL_JOB_STATUSES:
             return error
+        generation = generation or job.dispatch_generation
+        if generation != job.dispatch_generation:
+            return error
         retryable = isinstance(error, RetryableJobError)
         if retryable and job.attempt_count < job.max_attempts:
             job.status = "retrying"
-            ensure_report_dispatch(session, job, now=now)
+            close_report_dispatches(
+                session, job.id, generation=generation, now=now
+            )
+            job.dispatch_generation = generation + 1
+            delay = bounded_retry_delay(
+                job.attempt_count,
+                jitter=(
+                    jitter
+                    if jitter is not None
+                    else lambda base: random.uniform(0, base)
+                ),
+            )
+            ensure_report_dispatch(
+                session,
+                job,
+                generation=job.dispatch_generation,
+                next_attempt_at=now + timedelta(seconds=delay),
+                now=now,
+            )
         else:
             if retryable:
                 error = DeterministicJobError("retry_exhausted")

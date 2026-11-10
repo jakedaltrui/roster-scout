@@ -1143,8 +1143,8 @@ class BrokerLossRecoveryTests(PostgreSQLJobTestCase):
         organization_id, report_id = self.fixture()
         dropped_payloads = []
 
-        def acknowledge_then_drop(job_id):
-            dropped_payloads.append(job_id)
+        def acknowledge_then_drop(job_id, generation):
+            dropped_payloads.append((job_id, generation))
             return Mock(id="broker-accepted-but-dropped")
 
         job = accept_report_job(
@@ -1154,7 +1154,7 @@ class BrokerLossRecoveryTests(PostgreSQLJobTestCase):
             "broker-loss",
             dispatch=acknowledge_then_drop,
         )
-        self.assertEqual(dropped_payloads, [str(job.id)])
+        self.assertEqual(dropped_payloads, [(str(job.id), 1)])
         with self.Session() as session:
             intent = session.scalar(
                 select(ReportJobDispatch).where(ReportJobDispatch.job_id == job.id)
@@ -1170,8 +1170,8 @@ class BrokerLossRecoveryTests(PostgreSQLJobTestCase):
         self.assertEqual(result.reopened, 1)
         delivered_payloads = []
 
-        def redeliver(job_id):
-            delivered_payloads.append(job_id)
+        def redeliver(job_id, generation):
+            delivered_payloads.append((job_id, generation))
             return Mock(id="broker-redelivery")
 
         drained = drain_report_dispatch_outbox(
@@ -1183,12 +1183,12 @@ class BrokerLossRecoveryTests(PostgreSQLJobTestCase):
             redispatch_delay=timedelta(minutes=5),
         )
         self.assertEqual(drained.published, 1)
-        self.assertEqual(delivered_payloads, [str(job.id)])
-        self.assertEqual(uuid.UUID(delivered_payloads[0]), job.id)
+        self.assertEqual(delivered_payloads, [(str(job.id), 1)])
+        self.assertEqual(uuid.UUID(delivered_payloads[0][0]), job.id)
 
         snapshot = run_report_job(
             self.Session,
-            delivered_payloads[0],
+            delivered_payloads[0][0],
             collector=Mock(return_value=PublicationTests.successful_sections()),
         )
         self.assertIn(snapshot.status, {"ready", "partial"})
@@ -1321,7 +1321,7 @@ class BrokerLossRecoveryTests(PostgreSQLJobTestCase):
             redispatch_delay=timedelta(minutes=5),
         )
         self.assertEqual(drained.published, 1)
-        dispatch.assert_called_once_with(str(job.id))
+        dispatch.assert_called_once_with(str(job.id), 1)
         with self.Session() as session:
             intent = session.scalar(
                 select(ReportJobDispatch).where(
