@@ -33,6 +33,116 @@ def collection(batting, pitching, season_team_id="615087"):
     )
 
 
+class CanonicalIdentityResolutionTests(unittest.TestCase):
+    def test_idless_identity_decision_table(self):
+        cases = (
+            (
+                "unique single row",
+                [{"Player": "Unique", "Jersey": "1"}],
+                [],
+                ("fallback",),
+            ),
+            (
+                "reciprocal unique pair",
+                [{"Player": "Two Way", "Jersey": "7"}],
+                [{"Player": "Two Way", "Jersey": "7", "IP": "1.0"}],
+                ("fallback",),
+            ),
+            (
+                "distinguishable teammates",
+                [
+                    {"Player": "Same Name", "Jersey": "1", "Pos": "OF"},
+                    {"Player": "Same Name", "Jersey": "2", "Pos": "C"},
+                ],
+                [],
+                ("fallback", "fallback"),
+            ),
+            (
+                "duplicate support signature",
+                [
+                    {"Player": "Same Name", "Jersey": "1", "Pos": "OF"},
+                    {"Player": "Same Name", "Jersey": "1", "Pos": "OF"},
+                ],
+                [],
+                ("unresolved", "unresolved"),
+            ),
+            (
+                "missing support",
+                [{"Player": "Same Name"}, {"Player": "Same Name"}],
+                [],
+                ("unresolved", "unresolved"),
+            ),
+            (
+                "one batting name to many pitching rows",
+                [{"Player": "Same Name"}],
+                [
+                    {"Player": "Same Name", "Jersey": "1", "IP": "1.0"},
+                    {"Player": "Same Name", "Jersey": "2", "IP": "1.0"},
+                ],
+                ("unresolved", "unresolved", "unresolved"),
+            ),
+            (
+                "many batting rows to one pitching name",
+                [
+                    {"Player": "Same Name", "Jersey": "1"},
+                    {"Player": "Same Name", "Jersey": "2"},
+                ],
+                [{"Player": "Same Name", "IP": "1.0"}],
+                ("unresolved", "unresolved", "unresolved"),
+            ),
+            (
+                "conflicting support identifies separate teammates",
+                [{"Player": "Same Name", "Jersey": "1", "Pos": "OF"}],
+                [{"Player": "Same Name", "Jersey": "2", "Pos": "P", "IP": "1.0"}],
+                ("fallback", "fallback"),
+            ),
+        )
+        for label, batting, pitching, expected_statuses in cases:
+            with self.subTest(label=label):
+                canonical = canonicalize_ncaa_collection(collection(batting, pitching))
+                self.assertEqual(
+                    tuple(player.identity_status for player in canonical.players),
+                    expected_statuses,
+                )
+                self.assertEqual(
+                    len({player.identity_key for player in canonical.players}),
+                    len(canonical.players),
+                )
+                for player in canonical.players:
+                    self.assertTrue(
+                        player.identity_key.startswith(f"{player.identity_status}:")
+                    )
+
+    def test_identity_keys_are_stable_and_team_season_scoped(self):
+        batting = [
+            {"Player": "Same Name", "Jersey": "1"},
+            {"Player": "Same Name", "Jersey": "2"},
+        ]
+        pitching = [{"Player": "Same Name", "IP": "1.0"}]
+        first = canonicalize_ncaa_collection(collection(batting, pitching, "team-a"))
+        repeated = canonicalize_ncaa_collection(collection(batting, pitching, "team-a"))
+        other_team = canonicalize_ncaa_collection(collection(batting, pitching, "team-b"))
+
+        self.assertEqual(
+            tuple(player.identity_key for player in first.players),
+            tuple(player.identity_key for player in repeated.players),
+        )
+        self.assertTrue(
+            set(player.identity_key for player in first.players).isdisjoint(
+                player.identity_key for player in other_team.players
+            )
+        )
+
+    def test_authoritative_id_remains_authoritative(self):
+        canonical = canonicalize_ncaa_collection(collection(
+            [{"Player": "Known Player", "_player_id": "42"}],
+            [{"Player": "Known Player", "_player_id": "42", "IP": "1.0"}],
+        ))
+        self.assertEqual(len(canonical.players), 1)
+        self.assertEqual(canonical.players[0].identity_status, "authoritative")
+        self.assertEqual(canonical.players[0].identity_key, "ncaa:42")
+
+
 class CanonicalDataTests(unittest.TestCase):
     def test_negative_count_values_are_rejected(self):
         batting_cases = (
@@ -133,6 +243,10 @@ class CanonicalDataTests(unittest.TestCase):
         ]))
         self.assertEqual(len(canonical.players), 3)
         self.assertEqual(len({player.identity_key for player in canonical.players}), 3)
+        self.assertEqual(
+            {player.identity_status for player in canonical.players},
+            {"unresolved"},
+        )
 
     def test_conflicting_names_for_one_ncaa_id_fail(self):
         with self.assertRaisesRegex(IdentityConflictError, "NCAA player ID 42"):
