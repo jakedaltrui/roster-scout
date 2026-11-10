@@ -1,4 +1,4 @@
-"""Opaque job-ID-only Celery entry point."""
+"""Opaque job-ID-plus-generation Celery entry point."""
 
 import uuid
 from functools import lru_cache
@@ -6,9 +6,9 @@ from functools import lru_cache
 from .celery_app import celery_app
 from .database import create_session_factory, get_engine
 from .jobs import (
-    MAX_ATTEMPTS,
     DeterministicJobError,
     RetryableJobError,
+    _validated_generation,
     collect_ncaa_sections,
     run_report_job,
 )
@@ -27,27 +27,30 @@ def collect_report_sections(job_id, *, cached_sections=frozenset()):
 
 
 @celery_app.task(
-    bind=True,
     name="roster_scout.build_report_job",
-    max_retries=MAX_ATTEMPTS - 1,
-    retry_backoff=True,
-    retry_backoff_max=300,
-    retry_jitter=True,
     ignore_result=True,
 )
-def build_report_job(self, job_id):
+def build_report_job(job_id, generation):
+    normalized_job_id = str(uuid.UUID(str(job_id)))
+    generation = _validated_generation(generation)
     try:
         snapshot = run_report_job(
-            _session_factory(), job_id, collector=collect_report_sections
+            _session_factory(),
+            normalized_job_id,
+            generation,
+            collector=collect_report_sections,
         )
-    except RetryableJobError as exc:
-        raise self.retry(exc=exc) from None
+    except RetryableJobError:
+        return "retry_scheduled"
     except DeterministicJobError:
         raise
-    return str(snapshot.id)
+    return str(snapshot.id) if hasattr(snapshot, "id") else snapshot
 
 
-def dispatch_report_job(job_id):
-    """Publish exactly one registered task carrying one opaque UUID argument."""
+def dispatch_report_job(job_id, generation):
+    """Publish one registered task carrying an opaque UUID and generation."""
     normalized_job_id = str(uuid.UUID(str(job_id)))
-    return build_report_job.apply_async(args=(normalized_job_id,))
+    normalized_generation = _validated_generation(generation)
+    return build_report_job.apply_async(
+        args=(normalized_job_id, normalized_generation)
+    )

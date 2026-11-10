@@ -8,7 +8,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 
 from usage_limits import BrowserCapacityExceeded
@@ -230,6 +230,7 @@ def reconcile_stale_report_jobs(
                 select(ReportJobDispatch)
                 .where(
                     ReportJobDispatch.job_id == job.id,
+                    ReportJobDispatch.generation == job.dispatch_generation,
                     ReportJobDispatch.status.in_(
                         ("pending", "leased", "acknowledged")
                     ),
@@ -239,7 +240,13 @@ def reconcile_stale_report_jobs(
             if intent is None:
                 age_from = job.enqueued_at or job.created_at
                 if age_from is None or age_from <= now - queued_timeout:
-                    ensure_report_dispatch(session, job, now=now)
+                    close_report_dispatches(session, job.id, now=now)
+                    ensure_report_dispatch(
+                        session,
+                        job,
+                        generation=job.dispatch_generation,
+                        now=now,
+                    )
                     reopened += 1
             elif (
                 intent.status == "acknowledged"
@@ -275,9 +282,67 @@ def reconcile_stale_report_jobs(
                     and job.started_at is not None
                     and job.started_at <= now - running_timeout
                 ):
-                    job.status = "retrying"
-                    ensure_report_dispatch(session, job, now=now)
-                    reopened += 1
+                    generation = job.dispatch_generation
+                    if job.started_generation == generation:
+                        close_report_dispatches(
+                            session,
+                            job.id,
+                            generation=generation,
+                            now=now,
+                        )
+                        snapshot = (
+                            session.get(ReportSnapshot, job.result_snapshot_id)
+                            if job.result_snapshot_id is not None
+                            else None
+                        )
+                        cached = (
+                            _load_cached_sections(session, job, snapshot)
+                            if snapshot is not None
+                            else {}
+                        )
+                        matching = (
+                            _matching_cached_sections(session, job, cached)
+                            if snapshot is not None
+                            else {}
+                        )
+                        can_finalize_committed_evidence = matching.keys() >= {
+                            "batting",
+                            "pitching",
+                        }
+                        if (
+                            job.attempt_count < job.max_attempts
+                            or can_finalize_committed_evidence
+                        ):
+                            job.dispatch_generation = generation + 1
+                            job.status = "retrying"
+                            job.failure_category = None
+                            job.failure_message = None
+                            ensure_report_dispatch(
+                                session,
+                                job,
+                                generation=job.dispatch_generation,
+                                next_attempt_at=now,
+                                now=now,
+                            )
+                            reopened += 1
+                        else:
+                            job.status = "failed"
+                            job.failure_category = "retry_exhausted"
+                            job.failure_message = SAFE_FAILURE_MESSAGES[
+                                "retry_exhausted"
+                            ]
+                            job.finished_at = now
+                    elif job.started_generation < generation:
+                        job.status = "retrying"
+                        close_report_dispatches(session, job.id, now=now)
+                        ensure_report_dispatch(
+                            session,
+                            job,
+                            generation=generation,
+                            next_attempt_at=now,
+                            now=now,
+                        )
+                        reopened += 1
     return ReconciliationResult(reopened=reopened, closed=closed, active=active)
 
 
@@ -898,7 +963,10 @@ def _record_failure(
         if job is None or job.status in TERMINAL_JOB_STATUSES:
             return error
         generation = generation or job.dispatch_generation
-        if generation != job.dispatch_generation:
+        if (
+            generation != job.dispatch_generation
+            or job.started_generation != generation
+        ):
             return error
         retryable = isinstance(error, RetryableJobError)
         if retryable and job.attempt_count < job.max_attempts:
@@ -945,9 +1013,19 @@ def _record_failure(
     return error
 
 
-def run_report_job(session_factory, job_id, *, collector):
+def _validated_generation(generation):
+    if isinstance(generation, bool) or not isinstance(generation, int):
+        raise ValueError("generation must be a positive integer")
+    if generation < 1:
+        raise ValueError("generation must be a positive integer")
+    return generation
+
+
+def run_report_job(session_factory, job_id, generation=None, *, collector):
     """Run or safely replay one accepted job using caller-injected collection."""
     job_id = uuid.UUID(str(job_id))
+    if generation is not None:
+        generation = _validated_generation(generation)
     with session_advisory_lock(session_factory, job_id) as claim:
         if claim is None:
             with session_factory() as session:
@@ -959,8 +1037,13 @@ def run_report_job(session_factory, job_id, *, collector):
                 if job.status in {"ready", "partial"}:
                     return session.get(ReportSnapshot, job.result_snapshot_id)
                 if job.status in {"failed", "blocked"}:
-                    raise DeterministicJobError(job.failure_category or "unexpected")
-            raise RetryableJobError("job_busy")
+                    return "terminal"
+                delivery_generation = generation or job.dispatch_generation
+                if delivery_generation != job.dispatch_generation:
+                    return "stale"
+                if job.started_generation >= delivery_generation:
+                    return "duplicate"
+            return "busy"
 
         claimed_sessions = claim.session_factory
         exhausted = False
@@ -976,19 +1059,57 @@ def run_report_job(session_factory, job_id, *, collector):
             if job.status in {"ready", "partial"}:
                 return session.get(ReportSnapshot, job.result_snapshot_id)
             if job.status in {"failed", "blocked"}:
-                raise DeterministicJobError(job.failure_category or "unexpected")
-            snapshot = _new_or_existing_snapshot(session, job)
-            cached = _load_cached_sections(session, job, snapshot)
-            matching = _matching_cached_sections(session, job, cached)
+                return "terminal"
+            delivery_generation = generation or job.dispatch_generation
+            if delivery_generation != job.dispatch_generation:
+                return "stale"
+            if job.started_generation >= delivery_generation:
+                return "duplicate"
+
+            snapshot = (
+                session.get(ReportSnapshot, job.result_snapshot_id)
+                if job.result_snapshot_id is not None
+                else None
+            )
+            cached = (
+                _load_cached_sections(session, job, snapshot)
+                if snapshot is not None
+                else {}
+            )
+            matching = (
+                _matching_cached_sections(session, job, cached)
+                if snapshot is not None
+                else {}
+            )
             if matching.keys() >= {"batting", "pitching"}:
+                claimed_generation = session.scalar(
+                    update(ReportJob)
+                    .where(
+                        ReportJob.id == job_id,
+                        ReportJob.dispatch_generation == delivery_generation,
+                        ReportJob.started_generation < delivery_generation,
+                        ReportJob.status.not_in(TERMINAL_JOB_STATUSES),
+                    )
+                    .values(
+                        started_generation=delivery_generation,
+                        status="running",
+                        started_at=job.started_at or _utcnow(),
+                        failure_category=None,
+                        failure_message=None,
+                    )
+                    .returning(ReportJob.started_generation)
+                    .execution_options(synchronize_session=False)
+                )
+                if claimed_generation is None:
+                    return "duplicate"
                 recovered_sections = _reconstruct_cached_sections(
                     session, snapshot, matching
                 )
-                job.status = "running"
-                job.started_at = job.started_at or _utcnow()
-                job.failure_category = None
-                job.failure_message = None
-                close_report_dispatches(session, job.id)
+                close_report_dispatches(
+                    session,
+                    job.id,
+                    generation=delivery_generation,
+                )
             elif job.attempt_count >= job.max_attempts:
                 job.status = "failed"
                 job.failure_category = "retry_exhausted"
@@ -997,12 +1118,34 @@ def run_report_job(session_factory, job_id, *, collector):
                 close_report_dispatches(session, job.id)
                 exhausted = True
             else:
-                job.status = "running"
-                job.attempt_count += 1
-                job.started_at = _utcnow()
-                job.failure_category = None
-                job.failure_message = None
-                close_report_dispatches(session, job.id)
+                claimed_attempt = session.scalar(
+                    update(ReportJob)
+                    .where(
+                        ReportJob.id == job_id,
+                        ReportJob.dispatch_generation == delivery_generation,
+                        ReportJob.started_generation < delivery_generation,
+                        ReportJob.attempt_count < ReportJob.max_attempts,
+                        ReportJob.status.not_in(TERMINAL_JOB_STATUSES),
+                    )
+                    .values(
+                        started_generation=delivery_generation,
+                        attempt_count=ReportJob.attempt_count + 1,
+                        status="running",
+                        started_at=_utcnow(),
+                        failure_category=None,
+                        failure_message=None,
+                    )
+                    .returning(ReportJob.attempt_count)
+                    .execution_options(synchronize_session=False)
+                )
+                if claimed_attempt is None:
+                    return "duplicate"
+                close_report_dispatches(
+                    session,
+                    job.id,
+                    generation=delivery_generation,
+                )
+                snapshot = _new_or_existing_snapshot(session, job)
         if exhausted:
             raise DeterministicJobError("retry_exhausted")
 
@@ -1043,7 +1186,10 @@ def run_report_job(session_factory, job_id, *, collector):
                 return published
         except Exception as exc:
             safe_error = _record_failure(
-                claimed_sessions, job_id, _classified_error(exc)
+                claimed_sessions,
+                job_id,
+                delivery_generation,
+                _classified_error(exc),
             )
             raise safe_error from None
 

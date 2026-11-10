@@ -168,9 +168,11 @@ class JobLifecycleTests(PostgreSQLJobTestCase):
         self.assertEqual(celery_app.conf.worker_prefetch_multiplier, 1)
         self.assertTrue(celery_app.conf.task_ignore_result)
         self.assertTrue(build_report_job.ignore_result)
-        self.assertEqual(build_report_job.max_retries, 2)
-        self.assertTrue(build_report_job.retry_backoff)
-        self.assertTrue(build_report_job.retry_jitter)
+        self.assertEqual(
+            list(python_inspect.signature(build_report_job.run).parameters),
+            ["job_id", "generation"],
+        )
+        self.assertNotIn("self.retry", python_inspect.getsource(build_report_job.run))
 
 
 class TransactionalOutboxTests(PostgreSQLJobTestCase):
@@ -537,6 +539,9 @@ class AttemptGenerationDeliveryTests(PostgreSQLJobTestCase):
                 intent.status,
                 intent.next_attempt_at,
             )
+            self.assertEqual(before[0], 1)
+            self.assertEqual(before[1], "network")
+            self.assertEqual(before[3], "pending")
 
         snapshot = run_report_job(
             self.Session,
@@ -549,7 +554,60 @@ class AttemptGenerationDeliveryTests(PostgreSQLJobTestCase):
             stored = session.get(ReportJob, job.id)
             self.assertEqual(stored.attempt_count, 2)
             self.assertEqual(stored.started_generation, 2)
-            self.assertEqual(before[0], 1)
+
+    def test_stale_started_generation_exhaustion_is_terminal_without_successor(self):
+        from roster_scout.jobs import accept_report_job, reconcile_stale_report_jobs
+        from roster_scout.models import ReportJob, ReportJobDispatch
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            "generation-stale-exhausted",
+            dispatch=None,
+        )
+        stale_started = datetime.now(UTC) - timedelta(hours=1)
+        with self.Session.begin() as session:
+            stored = session.get(ReportJob, job.id)
+            stored.status = "running"
+            stored.max_attempts = 1
+            stored.attempt_count = 1
+            stored.started_generation = 1
+            stored.started_at = stale_started
+            intent = session.scalar(
+                select(ReportJobDispatch).where(ReportJobDispatch.job_id == job.id)
+            )
+            intent.status = "closed"
+
+        first = reconcile_stale_report_jobs(
+            self.Session,
+            now=datetime.now(UTC),
+            running_timeout=timedelta(minutes=30),
+        )
+        second = reconcile_stale_report_jobs(
+            self.Session,
+            now=datetime.now(UTC) + timedelta(seconds=1),
+            running_timeout=timedelta(minutes=30),
+        )
+        self.assertEqual(first.reopened, 0)
+        self.assertEqual(second.reopened, 0)
+        with self.Session() as session:
+            stored = session.get(ReportJob, job.id)
+            self.assertEqual(stored.status, "failed")
+            self.assertEqual(stored.failure_category, "retry_exhausted")
+            self.assertEqual(stored.dispatch_generation, 1)
+            self.assertEqual(
+                session.scalar(
+                    select(func.count())
+                    .select_from(ReportJobDispatch)
+                    .where(
+                        ReportJobDispatch.job_id == job.id,
+                        ReportJobDispatch.generation == 2,
+                    )
+                ),
+                0,
+            )
 
     def test_overlapping_same_generation_returns_duplicate_without_retry(self):
         from roster_scout.database import create_session_factory, get_engine
@@ -896,7 +954,7 @@ class PublicationTests(PostgreSQLJobTestCase):
                 "roster_scout.tasks.collect_report_sections",
                 return_value=self.successful_sections(),
             ):
-                result = build_report_job.apply(args=(str(job.id),), throw=True)
+                result = build_report_job.apply(args=(str(job.id), 1), throw=True)
         finally:
             celery_app.conf.task_always_eager = previous_eager
         self.assertTrue(result.successful())
@@ -938,7 +996,11 @@ class FinalAttemptEvidenceRecoveryTests(PostgreSQLJobTestCase):
             )
 
     def crash_after_source_commit(self, *, max_attempts, attempt_count):
-        from roster_scout.jobs import accept_report_job, run_report_job
+        from roster_scout.jobs import (
+            accept_report_job,
+            reconcile_stale_report_jobs,
+            run_report_job,
+        )
         from roster_scout.models import ReportJob
 
         organization_id, report_id = self.fixture()
@@ -953,6 +1015,14 @@ class FinalAttemptEvidenceRecoveryTests(PostgreSQLJobTestCase):
         with patch("roster_scout.jobs._persist_canonical", side_effect=KeyboardInterrupt):
             with self.assertRaises(KeyboardInterrupt):
                 run_report_job(self.Session, job.id, collector=Mock(return_value=sections))
+        with self.Session() as session:
+            started_at = session.get(ReportJob, job.id).started_at
+        reconciled = reconcile_stale_report_jobs(
+            self.Session,
+            now=started_at + timedelta(hours=1),
+            running_timeout=timedelta(minutes=30),
+        )
+        self.assertEqual(reconciled.reopened, 1)
         return job
 
     def assert_evidence_only_replay(self, job, expected_attempts):
@@ -1237,8 +1307,6 @@ class ConcurrentExecutionClaimTests(PostgreSQLJobTestCase):
     def test_overlapping_deliveries_collect_and_count_one_attempt(self):
         from roster_scout.database import create_session_factory, get_engine
         from roster_scout.jobs import (
-            RetryableJobError,
-            SAFE_FAILURE_MESSAGES,
             accept_report_job,
             run_report_job,
         )
@@ -1285,9 +1353,7 @@ class ConcurrentExecutionClaimTests(PostgreSQLJobTestCase):
             loser.start()
             loser.join(timeout=2)
             self.assertFalse(loser.is_alive(), "duplicate delivery blocked instead of deferring")
-            self.assertIsInstance(outcomes.get("loser"), RetryableJobError)
-            self.assertEqual(outcomes["loser"].category, "job_busy")
-            self.assertEqual(str(outcomes["loser"]), SAFE_FAILURE_MESSAGES["job_busy"])
+            self.assertEqual(outcomes.get("loser"), "duplicate")
         finally:
             release_collector.set()
             winner.join(timeout=5)
@@ -1331,10 +1397,8 @@ class ConcurrentExecutionClaimTests(PostgreSQLJobTestCase):
 
 class CeleryConcurrentDeliveryTests(PostgreSQLJobTestCase):
     def test_overlapping_task_entrypoints_collect_once_and_replay_terminal_result(self):
-        from celery.exceptions import Retry
-
         from roster_scout.celery_app import celery_app
-        from roster_scout.jobs import SAFE_FAILURE_MESSAGES, accept_report_job
+        from roster_scout.jobs import accept_report_job
         from roster_scout.models import ReportJob, ReportSnapshot, SourceRecord
         from roster_scout.tasks import build_report_job
 
@@ -1355,7 +1419,7 @@ class CeleryConcurrentDeliveryTests(PostgreSQLJobTestCase):
 
         def deliver(label):
             try:
-                result = build_report_job.apply(args=(str(job.id),), throw=True)
+                result = build_report_job.apply(args=(str(job.id), 1), throw=True)
                 outcomes[label] = result.result
             except Exception as exc:  # task retry is an observable delivery outcome
                 outcomes[label] = exc
@@ -1371,8 +1435,7 @@ class CeleryConcurrentDeliveryTests(PostgreSQLJobTestCase):
                 loser.start()
                 loser.join(timeout=2)
                 self.assertFalse(loser.is_alive())
-                self.assertIsInstance(outcomes.get("loser"), Retry)
-                self.assertIn(SAFE_FAILURE_MESSAGES["job_busy"], str(outcomes["loser"]))
+                self.assertEqual(outcomes.get("loser"), "duplicate")
             finally:
                 release_collector.set()
                 winner.join(timeout=5)
@@ -1403,7 +1466,7 @@ class CeleryConcurrentDeliveryTests(PostgreSQLJobTestCase):
             "roster_scout.tasks.collect_report_sections", terminal_collector
         ):
             replayed_snapshot_id = build_report_job.apply(
-                args=(str(job.id),), throw=True
+                args=(str(job.id), 1), throw=True
             ).result
         self.assertEqual(replayed_snapshot_id, snapshot_id)
         terminal_collector.assert_not_called()
@@ -1431,7 +1494,7 @@ class CeleryConcurrentDeliveryTests(PostgreSQLJobTestCase):
             side_effect=ValueError("schema response contained secret-token"),
         ):
             with self.assertRaises(DeterministicJobError):
-                build_report_job.apply(args=(str(job.id),), throw=True)
+                build_report_job.apply(args=(str(job.id), 1), throw=True)
 
         with self.Session() as session:
             stored = session.get(ReportJob, job.id)
@@ -1680,11 +1743,11 @@ class RetentionAndCacheTests(PostgreSQLJobTestCase):
             self.assertEqual(evidence.sha256, checksum)
             self.assertIsNotNone(evidence.purged_at)
 
-    def test_celery_task_has_only_job_id_application_argument(self):
+    def test_celery_task_has_only_job_id_and_generation_application_arguments(self):
         from roster_scout.tasks import build_report_job
 
         parameters = list(python_inspect.signature(build_report_job.run).parameters)
-        self.assertEqual(parameters, ["job_id"])
+        self.assertEqual(parameters, ["job_id", "generation"])
 
     def test_successful_job_cannot_store_html_evidence(self):
         from roster_scout.evidence import store_failure_evidence
