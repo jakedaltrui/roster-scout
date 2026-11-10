@@ -29,7 +29,7 @@ Roster Scout v2.0 is delivered in five dependency-ordered slices. The roadmap fi
 4. Innings, missing values, two-way players, transfers, raw values, and metric-definition lineage are represented without ambiguity.
 5. Existing selector, scraper, cache, and basic workbook regression tests continue to pass.
 
-**Plans:** 23/30 plans executed
+**Plans:** 24/30 plans executed
 
 Plans:
 **Wave 1**
@@ -108,7 +108,7 @@ Plans:
 
 - [x] 01-22: Make NCAA required headers unique and persist a bumped parser/header-contract identity.
 - [x] 01-23: Require nonempty corroboration before merging ID-less batting and pitching rows.
-- [ ] 01-24: Database-enforce authoritative source-player equivalence and recheck it at publication.
+- [x] 01-24: Database-enforce authoritative source-player equivalence and recheck it at publication.
 
 **Wave 19** *(blocked on Wave 18 completion)*
 
@@ -230,7 +230,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |---|---:|---|---|
-| 1. Canonical Snapshot Foundation | 23/30 | In Progress|  |
+| 1. Canonical Snapshot Foundation | 24/30 | In Progress|  |
 | 2. Identity, Organizations, and Report Library | 0/4 | Not started | - |
 | 3. Detailed NCAA Intelligence | 0/4 | Not started | - |
 | 4. Detailed Excel Report | 0/3 | Not started | - |

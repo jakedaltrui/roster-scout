@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-23-PLAN.md
-last_updated: "2026-11-10T16:46:56.907Z"
+stopped_at: Completed 01-24-PLAN.md
+last_updated: "2026-11-10T17:47:56.982Z"
 last_activity: 2026-11-10
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 30
-  completed_plans: 23
+  completed_plans: 24
   percent: 0
 ---
 
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-11-01)
 ## Current Position
 
 Phase: 01 (canonical-snapshot-foundation) — EXECUTING
-Plan: 24 of 30
+Plan: 25 of 30
 Status: Ready to execute
 Last activity: 2026-11-10
 
-Progress: [████████░░] 77%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
@@ -131,6 +131,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 01]: Name equality and reciprocal uniqueness are insufficient: an ID-less cross-section merge requires a shared nonempty jersey or normalized position. — Positive source evidence prevents namesake batting and pitching rows from silently merging.
 - [Phase 01]: Missing support remains non-conflicting for graph construction but never counts as positive corroboration. — This preserves ambiguity detection without treating absent NCAA fields as identity proof.
 - [Phase 01]: Conflicting nonempty support keeps distinguishable teammates separate with the existing deterministic fallback semantics. — This honors D-15 and Plan 01-18 while preventing cross-section fact contamination.
+- [Phase 01]: Authoritative source-to-Player equivalence is enforced reciprocally from SourceRecord, Player, and PlayerTeamSeason mutation paths for both draft and published data.
+- [Phase 01]: The authoritative trigger defers unresolved tenant ownership to the existing named composite foreign key, preserving the original ownership contract while enforcing ID equality for valid links.
+- [Phase 01]: Publication independently joins SourceRecord through PlayerTeamSeason to Player and rejects sanitized mismatches, while null ID-less fallback evidence remains valid.
 
 ### Pending Todos
 
@@ -152,9 +155,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Coverage | Full JUCO parity and arbitrary historical team-season reports | Future requirement | v2.0 initialization |
 | Phase 01 P22 | 6 min | 3 tasks | 6 files |
 | Phase 01 P23 | 4 min | 2 tasks | 3 files |
+| Phase 01 P24 | 57 min | 2 tasks | 4 files |
 
 ## Session Continuity
 
-Last session: 2026-11-10T16:46:12.275Z
-Stopped at: Completed 01-23-PLAN.md
+Last session: 2026-11-10T17:47:56.975Z
+Stopped at: Completed 01-24-PLAN.md
 Resume file: None
