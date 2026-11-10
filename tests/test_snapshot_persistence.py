@@ -1245,6 +1245,258 @@ class SourceIdentityConstraintTests(PostgreSQLSnapshotTestCase):
                 )
 
 
+class AuthoritativeSourcePlayerConstraintTests(PostgreSQLSnapshotTestCase):
+    """The source NCAA ID must name the Player behind its assigned identity."""
+
+    TRIGGER_NAMES = {
+        "trg_source_records_authoritative_source_player",
+        "trg_players_authoritative_source_player",
+        "trg_player_team_seasons_authoritative_source_player",
+    }
+
+    def add_authoritative_link(
+        self,
+        session,
+        organization,
+        team_season,
+        snapshot,
+        *,
+        source_player_id="42",
+        row_ordinal=0,
+    ):
+        from roster_scout.models import Player, PlayerTeamSeason, SourceRecord
+
+        player = Player(
+            source="ncaa",
+            source_player_id=source_player_id,
+            display_name=f"Player {source_player_id}",
+        )
+        session.add(player)
+        session.flush()
+        identity = PlayerTeamSeason(
+            organization_id=organization.id,
+            snapshot_id=snapshot.id,
+            player_id=player.id,
+            team_season_id=team_season.id,
+            identity_status="authoritative",
+            identity_key=f"ncaa:{source_player_id}",
+            display_name=player.display_name,
+        )
+        session.add(identity)
+        session.flush()
+        source = SourceRecord(
+            organization_id=organization.id,
+            snapshot_id=snapshot.id,
+            player_team_season_id=identity.id,
+            section="batting",
+            row_ordinal=row_ordinal,
+            source_url="https://stats.ncaa.org/authoritative",
+            source_team_id="689",
+            source_season_id="17040",
+            source_season_team_id="615087",
+            source_stat_category_id="15867",
+            source_player_id=source_player_id,
+            collected_at=datetime.now(UTC),
+            parser_version="parser-2+ncaa-core-v2",
+            schema_version="ncaa-core-v2",
+            payload_sha256=f"{row_ordinal + 1:x}" * 64,
+            raw_values={"Player": player.display_name},
+        )
+        session.add(source)
+        session.flush()
+        return player, identity, source
+
+    def mark_snapshot_published(self, session, snapshot):
+        snapshot.status = "ready"
+        snapshot.published_at = datetime.now(UTC)
+        session.flush()
+
+    def assert_authoritative_mismatch(
+        self,
+        statement,
+        parameters,
+        *,
+        disabled_triggers=(),
+    ):
+        with self.engine.begin() as connection:
+            for table_name, trigger_name in disabled_triggers:
+                connection.execute(
+                    text(f"ALTER TABLE {table_name} DISABLE TRIGGER {trigger_name}")
+                )
+            try:
+                with connection.begin_nested():
+                    with self.assertRaisesRegex(
+                        DBAPIError,
+                        "authoritative source player mismatch",
+                    ):
+                        connection.execute(text(statement), parameters)
+            finally:
+                for table_name, trigger_name in reversed(disabled_triggers):
+                    connection.execute(
+                        text(f"ALTER TABLE {table_name} ENABLE TRIGGER {trigger_name}")
+                    )
+
+    def test_named_contract_and_null_unbound_draft_remain_legal(self):
+        from roster_scout.models import (
+            AUTHORITATIVE_SOURCE_PLAYER_TRIGGER_NAMES,
+            SourceRecord,
+        )
+
+        with self.engine.connect() as connection:
+            trigger_names = set(
+                connection.scalars(
+                    text(
+                        """
+                        SELECT trigger_name
+                        FROM information_schema.triggers
+                        WHERE trigger_schema = current_schema()
+                        """
+                    )
+                )
+            )
+        self.assertEqual(
+            self.TRIGGER_NAMES - trigger_names,
+            set(),
+        )
+        self.assertEqual(
+            set(AUTHORITATIVE_SOURCE_PLAYER_TRIGGER_NAMES),
+            self.TRIGGER_NAMES,
+        )
+
+        with self.Session.begin() as session:
+            organization, _, _, snapshot = self.fixture(session)
+            session.add(
+                SourceRecord(
+                    organization_id=organization.id,
+                    snapshot_id=snapshot.id,
+                    player_team_season_id=None,
+                    section="batting",
+                    row_ordinal=0,
+                    source_url="https://stats.ncaa.org/draft",
+                    source_team_id="689",
+                    source_season_id="17040",
+                    source_season_team_id="615087",
+                    source_stat_category_id="15867",
+                    source_player_id="42",
+                    collected_at=datetime.now(UTC),
+                    parser_version="parser-2+ncaa-core-v2",
+                    schema_version="ncaa-core-v2",
+                    payload_sha256="d" * 64,
+                    raw_values={"Player": "Draft Player"},
+                )
+            )
+
+    def test_source_record_insert_and_update_reject_mismatched_player_id(self):
+        with self.Session.begin() as session:
+            organization, team_season, _, snapshot = self.fixture(session)
+            player, identity, source = self.add_authoritative_link(
+                session,
+                organization,
+                team_season,
+                snapshot,
+                source_player_id="99",
+            )
+            ids = {
+                "organization_id": organization.id,
+                "snapshot_id": snapshot.id,
+                "identity_id": identity.id,
+                "source_id": source.id,
+                "new_source_id": uuid.uuid4(),
+                "collected_at": datetime.now(UTC),
+            }
+
+        self.assert_authoritative_mismatch(
+            """
+            INSERT INTO source_records (
+                id, organization_id, snapshot_id, player_team_season_id,
+                section, row_ordinal, source_url, source_team_id,
+                source_season_id, source_season_team_id,
+                source_stat_category_id, source_player_id, collected_at,
+                parser_version, schema_version, payload_sha256, raw_values
+            ) VALUES (
+                :new_source_id, :organization_id, :snapshot_id, :identity_id,
+                'pitching', 1, 'https://stats.ncaa.org/mismatch', '689',
+                '17040', '615087', '15868', '42', :collected_at,
+                'parser-2+ncaa-core-v2', 'ncaa-core-v2', :sha, '{}'::jsonb
+            )
+            """,
+            {**ids, "sha": "e" * 64},
+        )
+        self.assert_authoritative_mismatch(
+            "UPDATE source_records SET source_player_id = '42' WHERE id = :source_id",
+            ids,
+        )
+
+    def test_player_source_and_id_mutations_reject_draft_and_published_links(self):
+        for published in (False, True):
+            with self.subTest(published=published):
+                clean_database(self.database_url)
+                with self.Session.begin() as session:
+                    organization, team_season, _, snapshot = self.fixture(session)
+                    player, _, _ = self.add_authoritative_link(
+                        session,
+                        organization,
+                        team_season,
+                        snapshot,
+                    )
+                    if published:
+                        self.mark_snapshot_published(session, snapshot)
+                    player_id = player.id
+
+                self.assert_authoritative_mismatch(
+                    "UPDATE players SET source = 'other' WHERE id = :player_id",
+                    {"player_id": player_id},
+                )
+                self.assert_authoritative_mismatch(
+                    "UPDATE players SET source_player_id = '99' WHERE id = :player_id",
+                    {"player_id": player_id},
+                )
+
+    def test_identity_player_reassignment_rejects_draft_and_published_links(self):
+        from roster_scout.models import Player
+
+        for published in (False, True):
+            with self.subTest(published=published):
+                clean_database(self.database_url)
+                with self.Session.begin() as session:
+                    organization, team_season, _, snapshot = self.fixture(session)
+                    _, identity, _ = self.add_authoritative_link(
+                        session,
+                        organization,
+                        team_season,
+                        snapshot,
+                    )
+                    replacement = Player(
+                        source="ncaa",
+                        source_player_id="99",
+                        display_name="Replacement Player",
+                    )
+                    session.add(replacement)
+                    session.flush()
+                    if published:
+                        self.mark_snapshot_published(session, snapshot)
+                    identity_id = identity.id
+                    replacement_id = replacement.id
+
+                self.assert_authoritative_mismatch(
+                    """
+                    UPDATE player_team_seasons
+                    SET player_id = :replacement_id
+                    WHERE id = :identity_id
+                    """,
+                    {
+                        "replacement_id": replacement_id,
+                        "identity_id": identity_id,
+                    },
+                    disabled_triggers=(
+                        (
+                            "player_team_seasons",
+                            "trg_player_team_seasons_immutable",
+                        ),
+                    ) if published else (),
+                )
+
+
 class MigrationTests(PostgreSQLSnapshotTestCase):
     def function_definition(self, function_name):
         with self.engine.connect() as connection:
@@ -1379,7 +1631,7 @@ class MigrationTests(PostgreSQLSnapshotTestCase):
             snapshot_id = snapshot.id
             source_id = source.id
             expected_identity_id = identities[0].id
-            conflicting_identity_id = identities[1].id
+            player_id = identities[0].player_id
 
         command.downgrade(alembic_config(self.database_url), "0007")
         conflicting_fact_id = uuid.uuid4()
@@ -1423,6 +1675,77 @@ class MigrationTests(PostgreSQLSnapshotTestCase):
                 session.get(SourceRecord, source_id).player_team_season_id,
                 expected_identity_id,
             )
+
+    def test_0010_rejects_existing_authoritative_player_mismatch(self):
+        with self.Session.begin() as session:
+            _, _, identities, source = self.add_source_identity_fixture(session)
+            expected_source_player_id = source.source_player_id
+            player_id = identities[0].player_id
+
+        command.downgrade(alembic_config(self.database_url), "0009")
+        with self.engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    UPDATE players
+                    SET source_player_id = 'migration-player-mismatch'
+                    WHERE id = :player_id
+                    """
+                ),
+                {
+                    "player_id": player_id,
+                },
+            )
+
+        try:
+            with self.assertRaisesRegex(
+                DBAPIError,
+                "authoritative source player mismatch",
+            ):
+                command.upgrade(alembic_config(self.database_url), "0010")
+        finally:
+            with self.engine.begin() as connection:
+                connection.execute(
+                    text(
+                        """
+                        UPDATE players
+                        SET source_player_id = :source_player_id
+                        WHERE id = :player_id
+                        """
+                    ),
+                    {
+                        "player_id": player_id,
+                        "source_player_id": expected_source_player_id,
+                    },
+                )
+            command.upgrade(alembic_config(self.database_url), "head")
+
+    def test_0010_downgrade_reupgrade_and_fresh_install(self):
+        trigger_names = AuthoritativeSourcePlayerConstraintTests.TRIGGER_NAMES
+
+        def installed_triggers():
+            with self.engine.connect() as connection:
+                return set(
+                    connection.scalars(
+                        text(
+                            """
+                            SELECT trigger_name
+                            FROM information_schema.triggers
+                            WHERE trigger_schema = current_schema()
+                            """
+                        )
+                    )
+                )
+
+        self.assertEqual(trigger_names - installed_triggers(), set())
+        command.downgrade(alembic_config(self.database_url), "0009")
+        self.assertEqual(trigger_names & installed_triggers(), set())
+        command.upgrade(alembic_config(self.database_url), "head")
+        self.assertEqual(trigger_names - installed_triggers(), set())
+
+        downgrade_database(self.database_url)
+        upgrade_database(self.database_url)
+        self.assertEqual(trigger_names - installed_triggers(), set())
 
     def test_0006_downgrade_reupgrade_and_fresh_install(self):
         clean_database(self.database_url)
