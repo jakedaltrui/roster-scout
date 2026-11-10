@@ -130,6 +130,7 @@ class PostgreSQLSnapshotTestCase(unittest.TestCase):
             source = SourceRecord(
                 organization_id=organization.id,
                 snapshot_id=snapshot.id,
+                player_team_season_id=identity.id,
                 section=section,
                 row_ordinal=ordinal,
                 source_url=f"https://stats.ncaa.org/{section}",
@@ -248,6 +249,7 @@ class CanonicalSchemaTests(PostgreSQLSnapshotTestCase):
             source = SourceRecord(
                 organization_id=organization.id,
                 snapshot_id=snapshot.id,
+                player_team_season_id=identity.id,
                 section="batting",
                 row_ordinal=1,
                 source_url="https://stats.ncaa.org/example",
@@ -397,6 +399,7 @@ class TenantAndPublicationTests(PostgreSQLSnapshotTestCase):
             ))
             with self.assertRaises(IntegrityError):
                 session.flush()
+
 
     def test_t_01_03_publish_requires_complete_or_verified_empty_core_sections(self):
         from roster_scout.snapshots import SnapshotPublicationError, publish_snapshot
@@ -1042,6 +1045,205 @@ class SnapshotMutationRaceTests(PostgreSQLSnapshotTestCase):
             )
 
 
+class SourceIdentityConstraintTests(PostgreSQLSnapshotTestCase):
+    def add_identity(self, session, organization, team_season, snapshot, label):
+        from roster_scout.models import Player, PlayerTeamSeason
+
+        player = Player(
+            source="ncaa",
+            source_player_id=f"player-{label}",
+            display_name=f"Player {label}",
+        )
+        session.add(player)
+        session.flush()
+        identity = PlayerTeamSeason(
+            organization_id=organization.id,
+            snapshot_id=snapshot.id,
+            player_id=player.id,
+            team_season_id=team_season.id,
+            identity_status="authoritative",
+            identity_key=f"ncaa:player-{label}",
+            display_name=player.display_name,
+        )
+        session.add(identity)
+        session.flush()
+        return identity
+
+    def add_source(
+        self,
+        session,
+        organization,
+        snapshot,
+        identity,
+        *,
+        ordinal,
+    ):
+        from roster_scout.models import SourceRecord
+
+        source = SourceRecord(
+            organization_id=organization.id,
+            snapshot_id=snapshot.id,
+            player_team_season_id=identity.id if identity is not None else None,
+            section="batting",
+            row_ordinal=ordinal,
+            source_url=f"https://stats.ncaa.org/batting/{ordinal}",
+            source_team_id="689",
+            source_season_id="17040",
+            source_season_team_id="615087",
+            source_stat_category_id="15867",
+            source_player_id=(f"player-{ordinal}" if identity is not None else None),
+            collected_at=datetime.now(UTC),
+            parser_version="1",
+            schema_version="1",
+            payload_sha256=f"{ordinal:x}" * 64,
+            raw_values={"Player": f"Player {ordinal}"},
+        )
+        session.add(source)
+        session.flush()
+        return source
+
+    def test_source_identity_constraints_are_named_and_drafts_may_be_unbound(self):
+        from roster_scout.models import BattingFact, SourceRecord
+
+        columns = {
+            column["name"]: column
+            for column in inspect(self.engine).get_columns("source_records")
+        }
+        self.assertIn("player_team_season_id", columns)
+        self.assertTrue(columns["player_team_season_id"]["nullable"])
+        self.assertTrue(SourceRecord.__table__.c.player_team_season_id.nullable)
+
+        database_source_fks = {
+            constraint["name"]
+            for constraint in inspect(self.engine).get_foreign_keys("source_records")
+        }
+        database_fact_fks = {
+            constraint["name"]
+            for constraint in inspect(self.engine).get_foreign_keys("batting_facts")
+        }
+        model_source_constraints = {
+            constraint.name for constraint in SourceRecord.__table__.constraints
+        }
+        model_fact_constraints = {
+            constraint.name for constraint in BattingFact.__table__.constraints
+        }
+        self.assertIn(
+            "fk_source_records_player_snapshot_organization", database_source_fks
+        )
+        self.assertIn("fk_batting_facts_source_identity", database_fact_fks)
+        self.assertIn(
+            "fk_source_records_player_snapshot_organization",
+            model_source_constraints,
+        )
+        self.assertIn("fk_batting_facts_source_identity", model_fact_constraints)
+
+        with self.Session.begin() as session:
+            organization, _, _, snapshot = self.fixture(session)
+            draft_source = self.add_source(
+                session,
+                organization,
+                snapshot,
+                None,
+                ordinal=15,
+            )
+            self.assertIsNone(draft_source.player_team_season_id)
+
+    def test_fact_rejects_swapped_source_identity_within_one_snapshot(self):
+        from roster_scout.models import BattingFact
+
+        with self.Session.begin() as session:
+            organization, team_season, _, snapshot = self.fixture(session)
+            identity_a = self.add_identity(
+                session, organization, team_season, snapshot, "a"
+            )
+            identity_b = self.add_identity(
+                session, organization, team_season, snapshot, "b"
+            )
+            source_a = self.add_source(
+                session, organization, snapshot, identity_a, ordinal=1
+            )
+            session.add(
+                BattingFact(
+                    organization_id=organization.id,
+                    snapshot_id=snapshot.id,
+                    player_team_season_id=identity_a.id,
+                    source_record_id=source_a.id,
+                    at_bats=1,
+                    hits=1,
+                )
+            )
+            session.flush()
+
+            with self.assertRaisesRegex(
+                IntegrityError, "fk_batting_facts_source_identity"
+            ):
+                session.execute(
+                    text(
+                        """
+                        INSERT INTO batting_facts (
+                            id, organization_id, snapshot_id,
+                            player_team_season_id, source_record_id, at_bats, hits
+                        ) VALUES (
+                            :id, :organization_id, :snapshot_id,
+                            :identity_id, :source_id, 1, 1
+                        )
+                        """
+                    ),
+                    {
+                        "id": uuid.uuid4(),
+                        "organization_id": organization.id,
+                        "snapshot_id": snapshot.id,
+                        "identity_id": identity_b.id,
+                        "source_id": source_a.id,
+                    },
+                )
+
+    def test_source_identity_rejects_cross_snapshot_and_organization_links(self):
+        from roster_scout.models import Organization, ReportSnapshot
+
+        with self.Session.begin() as session:
+            organization, team_season, report, snapshot = self.fixture(session)
+            identity = self.add_identity(
+                session, organization, team_season, snapshot, "owner"
+            )
+            other_snapshot = ReportSnapshot(
+                organization_id=organization.id,
+                report_id=report.id,
+                schema_version="1",
+            )
+            session.add(other_snapshot)
+            session.flush()
+            with self.assertRaisesRegex(
+                IntegrityError, "fk_source_records_player_snapshot_organization"
+            ):
+                self.add_source(
+                    session,
+                    organization,
+                    other_snapshot,
+                    identity,
+                    ordinal=2,
+                )
+
+        with self.Session.begin() as session:
+            organization, team_season, _, snapshot = self.fixture(session)
+            identity = self.add_identity(
+                session, organization, team_season, snapshot, "tenant"
+            )
+            other_organization = Organization(name="Other Organization")
+            session.add(other_organization)
+            session.flush()
+            with self.assertRaisesRegex(
+                IntegrityError, "fk_source_records_player_snapshot_organization"
+            ):
+                self.add_source(
+                    session,
+                    other_organization,
+                    snapshot,
+                    identity,
+                    ordinal=3,
+                )
+
+
 class MigrationTests(PostgreSQLSnapshotTestCase):
     def function_definition(self, function_name):
         with self.engine.connect() as connection:
@@ -1057,6 +1259,168 @@ class MigrationTests(PostgreSQLSnapshotTestCase):
                     """
                 ),
                 {"function_name": function_name},
+            )
+
+    def add_source_identity_fixture(self, session):
+        from roster_scout.models import (
+            BattingFact,
+            Player,
+            PlayerTeamSeason,
+            SourceRecord,
+        )
+
+        organization, team_season, _, snapshot = self.fixture(session)
+        players = [
+            Player(
+                source="ncaa",
+                source_player_id=f"migration-player-{index}",
+                display_name=f"Migration Player {index}",
+            )
+            for index in (1, 2)
+        ]
+        session.add_all(players)
+        session.flush()
+        identities = [
+            PlayerTeamSeason(
+                organization_id=organization.id,
+                snapshot_id=snapshot.id,
+                player_id=player.id,
+                team_season_id=team_season.id,
+                identity_status="authoritative",
+                identity_key=f"ncaa:{player.source_player_id}",
+                display_name=player.display_name,
+            )
+            for player in players
+        ]
+        session.add_all(identities)
+        session.flush()
+        source = SourceRecord(
+            organization_id=organization.id,
+            snapshot_id=snapshot.id,
+            player_team_season_id=identities[0].id,
+            section="batting",
+            row_ordinal=0,
+            source_url="https://stats.ncaa.org/migration",
+            source_team_id="689",
+            source_season_id="17040",
+            source_season_team_id="615087",
+            source_stat_category_id="15867",
+            source_player_id=players[0].source_player_id,
+            collected_at=datetime.now(UTC),
+            parser_version="1",
+            schema_version="1",
+            payload_sha256="b" * 64,
+            raw_values={"Player": players[0].display_name},
+        )
+        session.add(source)
+        session.flush()
+        fact = BattingFact(
+            organization_id=organization.id,
+            snapshot_id=snapshot.id,
+            player_team_season_id=identities[0].id,
+            source_record_id=source.id,
+            at_bats=1,
+            hits=1,
+        )
+        session.add(fact)
+        session.flush()
+        return organization, snapshot, identities, source
+
+    def test_0008_downgrade_reupgrade_backfill_and_fresh_install(self):
+        from roster_scout.models import SourceRecord
+
+        with self.Session.begin() as session:
+            _, _, identities, source = self.add_source_identity_fixture(session)
+            source_id = source.id
+            expected_identity_id = identities[0].id
+
+        command.downgrade(alembic_config(self.database_url), "0007")
+        self.assertNotIn(
+            "player_team_season_id",
+            {
+                column["name"]
+                for column in inspect(self.engine).get_columns("source_records")
+            },
+        )
+        self.assertIn(
+            "fk_batting_facts_source_snapshot_organization",
+            {
+                constraint["name"]
+                for constraint in inspect(self.engine).get_foreign_keys(
+                    "batting_facts"
+                )
+            },
+        )
+
+        command.upgrade(alembic_config(self.database_url), "head")
+        with self.Session() as session:
+            self.assertEqual(
+                session.get(SourceRecord, source_id).player_team_season_id,
+                expected_identity_id,
+            )
+
+        downgrade_database(self.database_url)
+        upgrade_database(self.database_url)
+        self.assertIn(
+            "player_team_season_id",
+            {
+                column["name"]
+                for column in inspect(self.engine).get_columns("source_records")
+            },
+        )
+
+    def test_0008_rejects_conflicting_existing_source_identity_mappings(self):
+        with self.Session.begin() as session:
+            organization, snapshot, identities, source = (
+                self.add_source_identity_fixture(session)
+            )
+            organization_id = organization.id
+            snapshot_id = snapshot.id
+            source_id = source.id
+            expected_identity_id = identities[0].id
+            conflicting_identity_id = identities[1].id
+
+        command.downgrade(alembic_config(self.database_url), "0007")
+        conflicting_fact_id = uuid.uuid4()
+        with self.engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO pitching_facts (
+                        id, organization_id, snapshot_id,
+                        player_team_season_id, source_record_id, innings_outs
+                    ) VALUES (
+                        :id, :organization_id, :snapshot_id,
+                        :identity_id, :source_id, 3
+                    )
+                    """
+                ),
+                {
+                    "id": conflicting_fact_id,
+                    "organization_id": organization_id,
+                    "snapshot_id": snapshot_id,
+                    "identity_id": conflicting_identity_id,
+                    "source_id": source_id,
+                },
+            )
+
+        try:
+            with self.assertRaisesRegex(DBAPIError, "multiple player identities"):
+                command.upgrade(alembic_config(self.database_url), "0008")
+        finally:
+            with self.engine.begin() as connection:
+                connection.execute(
+                    text("DELETE FROM pitching_facts WHERE id = :id"),
+                    {"id": conflicting_fact_id},
+                )
+            command.upgrade(alembic_config(self.database_url), "head")
+
+        with self.Session() as session:
+            from roster_scout.models import SourceRecord
+
+            self.assertEqual(
+                session.get(SourceRecord, source_id).player_team_season_id,
+                expected_identity_id,
             )
 
     def test_0006_downgrade_reupgrade_and_fresh_install(self):
