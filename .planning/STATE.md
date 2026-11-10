@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-17-PLAN.md
-last_updated: "2026-11-10T02:26:16.164Z"
+stopped_at: Completed 01-18-PLAN.md
+last_updated: "2026-11-10T02:37:35.339Z"
 last_activity: 2026-11-10
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 21
-  completed_plans: 17
+  completed_plans: 18
   percent: 0
 ---
 
@@ -26,25 +26,25 @@ See: `.planning/PROJECT.md` (updated 2026-11-01)
 ## Current Position
 
 Phase: 01 (canonical-snapshot-foundation) — EXECUTING
-Plan: 18 of 21
+Plan: 19 of 21
 Status: Ready to execute
 Last activity: 2026-11-10
 
-Progress: [████████░░] 81%
+Progress: [█████████░] 86%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 17
-- Average duration: 1h 0m
-- Total execution time: 17h 0m
+- Total plans completed: 18
+- Average duration: 57m
+- Total execution time: 17h 7m
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |---|---:|---:|---:|
-| 1. Canonical Snapshot Foundation | 17 | 17h 0m | 1h 0m |
+| 1. Canonical Snapshot Foundation | 18 | 17h 7m | 57m |
 
 **Plan History:**
 
@@ -67,6 +67,7 @@ Progress: [████████░░] 81%
 | 01 | 15 | 11 min | 2 | 3 |
 | 01 | 16 | 17 min | 2 | 8 |
 | 01 | 17 | 13 min | 2 | 6 |
+| 01 | 18 | 7 min | 2 | 3 |
 
 ## Accumulated Context
 
@@ -122,6 +123,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 01]: Every delivery carries only job UUID and generation; only the matching generation CAS may increment attempts or collect. — Makes stale and duplicate deliveries pre-collection no-ops.
 - [Phase 01]: Abandoned started generation N advances once to N+1; complete committed evidence may finalize without another collector attempt. — Recovers process loss without double-counting attempts or discarding durable evidence.
 - [Phase 01]: Source evidence binds explicitly to one player/team/season identity: drafts may remain unbound, unique legacy mappings backfill, ambiguous mappings abort, and both database constraints and publication joins reject swapped identities. — Preserves source-first collection while making same-player evidence authority enforceable, migration-safe, and independently rechecked at publication.
+- [Phase 01]: Only reciprocal-unique compatible batting/pitching evidence merges; ambiguous ID-less graph edges remain isolated unresolved rows. — Prevents silent teammate collisions while preserving safe two-way fallback matches.
+- [Phase 01]: Repeated ID-less names are fallback only with unique nonempty support signatures; duplicate or missing support is unresolved. — Makes ambiguity explicit and deterministic within one team-season.
+- [Phase 01]: Existing canonical persistence remains status-transparent, so unresolved publication reuses the Plan 01-17 source identity binding. — Avoids parallel linkage logic and preserves exact source/fact ownership enforcement.
 
 ### Pending Todos
 
@@ -144,6 +148,6 @@ Full decision log: `.planning/PROJECT.md`.
 
 ## Session Continuity
 
-Last session: 2026-11-10T02:26:16.156Z
-Stopped at: Completed 01-17-PLAN.md
+Last session: 2026-11-10T02:37:35.332Z
+Stopped at: Completed 01-18-PLAN.md
 Resume file: None
