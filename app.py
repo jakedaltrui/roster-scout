@@ -20,6 +20,8 @@ from werkzeug.exceptions import RequestEntityTooLarge
 from xlsxwriter.utility import xl_pixel_width
 from usage_limits import BrowserCapacityError, check_request_limit
 
+from roster_scout.database import create_session_factory, get_engine
+from roster_scout.evidence import get_evidence_purge_readiness
 from roster_scraper import (
     HITTER_HEADERS,
     PITCHER_HEADERS,
@@ -50,6 +52,12 @@ _DEFAULT_PALETTE = {
     "accent": "#C9A227",
     "band": "#F2F5F8",
     "border": "#D9E0E7",
+}
+_SAFE_EVIDENCE_PURGE_STATUSES = {
+    "expired_bytes_present",
+    "fresh",
+    "never_succeeded",
+    "stale",
 }
 
 
@@ -126,6 +134,37 @@ def demo():
 @app.route("/healthz")
 def healthz():
     return jsonify({"status": "ok"})
+
+
+@lru_cache(maxsize=1)
+def _evidence_purge_session_factory():
+    """Construct persistence lazily so shallow liveness stays connection-free."""
+    return create_session_factory(get_engine())
+
+
+@app.route("/readyz")
+def readyz():
+    """Fail closed until persisted failure-evidence purge health is ready."""
+    try:
+        readiness = get_evidence_purge_readiness(
+            _evidence_purge_session_factory()
+        )
+    except Exception:
+        return jsonify({
+            "status": "not_ready",
+            "evidence_purge": "unavailable",
+        }), 503
+
+    evidence_purge = (
+        readiness.status
+        if readiness.status in _SAFE_EVIDENCE_PURGE_STATUSES
+        else "unavailable"
+    )
+    ready = readiness.ready and evidence_purge == "fresh"
+    return jsonify({
+        "status": "ready" if ready else "not_ready",
+        "evidence_purge": evidence_purge,
+    }), 200 if ready else 503
 
 
 @app.route("/api/teams")
