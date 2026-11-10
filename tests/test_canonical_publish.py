@@ -159,7 +159,11 @@ class CanonicalPublishTests(unittest.TestCase):
         from roster_scout.jobs import RetryableJobError, collect_ncaa_sections, run_report_job
         from roster_scout.models import ReportSnapshot
 
-        empty = '<html><body><table id="stat_grid"><thead><tr><th>Player</th></tr></thead><tbody></tbody></table></body></html>'
+        empty = (
+            '<html><body><table id="stat_grid"><thead><tr>'
+            '<th>Player</th><th>AB</th><th>H</th>'
+            '</tr></thead><tbody></tbody></table></body></html>'
+        )
         _, snapshot = self.publish(2, {
             "batting": empty,
             "pitching": fixture("d2_pitching.html"),
