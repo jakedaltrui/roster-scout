@@ -568,6 +568,11 @@ class FailureEvidence(UUIDPrimaryKey, Timestamped, Base):
         ),
         CheckConstraint("char_length(sha256) = 64", name="ck_failure_evidence_sha256_length"),
         CheckConstraint("purged_at IS NULL OR compressed_html IS NULL", name="ck_failure_evidence_purged_payload"),
+        CheckConstraint(
+            "expires_at > collected_at "
+            "AND expires_at <= collected_at + INTERVAL '28 days'",
+            name="ck_failure_evidence_retention_window",
+        ),
     )
 
 
