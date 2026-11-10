@@ -4,7 +4,7 @@ import threading
 import unittest
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -198,8 +198,12 @@ class CanonicalPublishTests(unittest.TestCase):
         self.assertEqual(replay.id, snapshot.id)
 
     def test_worker_loss_after_source_write_reuses_only_same_job_evidence(self):
-        from roster_scout.jobs import collect_ncaa_sections, run_report_job
-        from roster_scout.models import ReportSection, ReportSnapshot, SourceRecord
+        from roster_scout.jobs import (
+            collect_ncaa_sections,
+            reconcile_stale_report_jobs,
+            run_report_job,
+        )
+        from roster_scout.models import ReportJob, ReportSection, ReportSnapshot, SourceRecord
 
         job = self.seed(1)
         pages = {
@@ -223,6 +227,14 @@ class CanonicalPublishTests(unittest.TestCase):
             self.assertIsNone(session.scalar(
                 select(ReportSnapshot).where(ReportSnapshot.status.in_(("ready", "partial")))
             ))
+            started_at = session.get(ReportJob, job.id).started_at
+
+        reconciled = reconcile_stale_report_jobs(
+            self.Session,
+            now=started_at + timedelta(hours=1),
+            running_timeout=timedelta(minutes=30),
+        )
+        self.assertEqual(reconciled.reopened, 1)
 
         with patch.object(rs, "_fetch_ncaa_pages", side_effect=AssertionError("same-job cache missed")):
             replay = run_report_job(
@@ -235,7 +247,11 @@ class CanonicalPublishTests(unittest.TestCase):
         self.assertEqual(replay.status, "ready")
 
     def test_new_refresh_forces_live_collection_and_does_not_reuse_old_rows(self):
-        from roster_scout.jobs import collect_ncaa_sections, run_report_job
+        from roster_scout.jobs import (
+            collect_ncaa_sections,
+            reconcile_stale_report_jobs,
+            run_report_job,
+        )
         from roster_scout.models import ReportJob, ReportSnapshot
 
         first_job, first_snapshot = self.publish(2)
@@ -267,7 +283,11 @@ class CanonicalPublishTests(unittest.TestCase):
 
 class FinalAttemptPublicationTests(CanonicalPublishTests):
     def test_complete_final_attempt_evidence_publishes_original_source_rows(self):
-        from roster_scout.jobs import collect_ncaa_sections, run_report_job
+        from roster_scout.jobs import (
+            collect_ncaa_sections,
+            reconcile_stale_report_jobs,
+            run_report_job,
+        )
         from roster_scout.models import (
             BattingFact,
             PitchingFact,
@@ -307,6 +327,14 @@ class FinalAttemptPublicationTests(CanonicalPublishTests):
                 for source in session.scalars(select(SourceRecord))
             }
             self.assertTrue(original)
+            started_at = session.get(ReportJob, job.id).started_at
+
+        reconciled = reconcile_stale_report_jobs(
+            self.Session,
+            now=started_at + timedelta(hours=1),
+            running_timeout=timedelta(minutes=30),
+        )
+        self.assertEqual(reconciled.reopened, 1)
 
         collector = Mock(
             side_effect=AssertionError("evidence replay collected live data")

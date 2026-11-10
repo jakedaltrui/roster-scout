@@ -257,8 +257,8 @@ class Phase1ReleaseTests(unittest.TestCase):
 
         initially_dispatched = []
 
-        def acknowledge_then_drop(job_id):
-            initially_dispatched.append(job_id)
+        def acknowledge_then_drop(job_id, generation):
+            initially_dispatched.append((job_id, generation))
             return Mock(id="accepted-then-dropped")
 
         job, organization_id, _report_id, key = self._seed_report(
@@ -266,7 +266,7 @@ class Phase1ReleaseTests(unittest.TestCase):
             idempotency_key=f"release-d{division}",
             dispatch=acknowledge_then_drop,
         )
-        self.assertEqual(initially_dispatched, [str(job.id)])
+        self.assertEqual(initially_dispatched, [(str(job.id), 1)])
         with self.Session() as session:
             intent = session.scalar(
                 select(ReportJobDispatch).where(ReportJobDispatch.job_id == job.id)
@@ -283,14 +283,15 @@ class Phase1ReleaseTests(unittest.TestCase):
         redelivered = []
         drained = drain_report_dispatch_outbox(
             self.Session,
-            dispatch=lambda job_id: (
-                redelivered.append(job_id) or Mock(id="reconciled-delivery")
+            dispatch=lambda job_id, generation: (
+                redelivered.append((job_id, generation))
+                or Mock(id="reconciled-delivery")
             ),
             now=redispatch_at,
             limit=1,
         )
         self.assertEqual(drained.published, 1)
-        self.assertEqual(redelivered, [str(job.id)])
+        self.assertEqual(redelivered, [(str(job.id), 1)])
 
         pages = {
             "batting": fixture(f"d{division}_batting.html"),
@@ -300,6 +301,7 @@ class Phase1ReleaseTests(unittest.TestCase):
             snapshot = run_report_job(
                 self.Session,
                 job.id,
+                redelivered[0][1],
                 collector=lambda job_id, cached_sections=frozenset(): collect_ncaa_sections(
                     self.Session, job_id, cached_sections=cached_sections
                 ),
@@ -502,7 +504,11 @@ class Phase1ReleaseTests(unittest.TestCase):
                     self.assertEqual(purged.failure_category, evidence_category)
 
     def test_interrupted_source_first_write_recovers_without_second_collection(self):
-        from roster_scout.jobs import collect_ncaa_sections, run_report_job
+        from roster_scout.jobs import (
+            collect_ncaa_sections,
+            reconcile_stale_report_jobs,
+            run_report_job,
+        )
         from roster_scout.models import ReportJob, ReportSnapshot, SourceRecord
 
         job, organization_id, _report_id, _key = self._seed_report(1)
@@ -535,6 +541,14 @@ class Phase1ReleaseTests(unittest.TestCase):
             self.assertIsNone(session.scalar(select(ReportSnapshot).where(
                 ReportSnapshot.status.in_(("ready", "partial"))
             )))
+            started_at = stored.started_at
+
+        reconciled = reconcile_stale_report_jobs(
+            self.Session,
+            now=started_at + timedelta(hours=1),
+            running_timeout=timedelta(minutes=30),
+        )
+        self.assertEqual(reconciled.reopened, 1)
 
         collector = Mock(side_effect=AssertionError("recovery collected twice"))
         snapshot = run_report_job(self.Session, job.id, collector=collector)
