@@ -1228,7 +1228,18 @@ class SourceIdentityConstraintTests(PostgreSQLSnapshotTestCase):
         *,
         ordinal,
     ):
-        from roster_scout.models import SourceRecord
+        from roster_scout.models import Player, PlayerTeamSeason, SourceRecord
+
+        source_player_id = None
+        if identity is not None:
+            player_id = session.scalar(
+                select(PlayerTeamSeason.player_id).where(
+                    PlayerTeamSeason.id == identity.id
+                )
+            )
+            source_player_id = session.scalar(
+                select(Player.source_player_id).where(Player.id == player_id)
+            )
 
         source = SourceRecord(
             organization_id=organization.id,
@@ -1241,7 +1252,7 @@ class SourceIdentityConstraintTests(PostgreSQLSnapshotTestCase):
             source_season_id="17040",
             source_season_team_id="615087",
             source_stat_category_id="15867",
-            source_player_id=(f"player-{ordinal}" if identity is not None else None),
+            source_player_id=source_player_id,
             collected_at=datetime.now(UTC),
             parser_version="1",
             schema_version="1",

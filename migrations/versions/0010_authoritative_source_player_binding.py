@@ -65,8 +65,11 @@ def upgrade():
               AND identity.snapshot_id = NEW.snapshot_id
               AND identity.organization_id = NEW.organization_id;
 
-            IF NOT FOUND
-               OR canonical_source <> 'ncaa'
+            IF NOT FOUND THEN
+                RETURN NEW;
+            END IF;
+
+            IF canonical_source <> 'ncaa'
                OR canonical_source_player_id IS NULL
                OR canonical_source_player_id <> NEW.source_player_id THEN
                 RAISE EXCEPTION USING
