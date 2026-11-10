@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-14-PLAN.md
-last_updated: "2026-11-10T01:28:32.979Z"
-last_activity: 2026-11-10 -- Completed Plan 01-14
+stopped_at: Completed 01-15-PLAN.md
+last_updated: "2026-11-10T01:42:39.167Z"
+last_activity: 2026-11-10 -- Completed Plan 01-15
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 21
-  completed_plans: 14
-  percent: 67
+  completed_plans: 15
+  percent: 71
 ---
 
 # Project State
@@ -26,25 +26,25 @@ See: `.planning/PROJECT.md` (updated 2026-11-01)
 ## Current Position
 
 Phase: 01 (canonical-snapshot-foundation) — EXECUTING
-Plan: 15 of 21
+Plan: 16 of 21
 Status: Ready to execute
-Last activity: 2026-11-10 -- Completed Plan 01-14
+Last activity: 2026-11-10 -- Completed Plan 01-15
 
-Progress: [███████░░░] 67%
+Progress: [███████░░░] 71%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 14
-- Average duration: 1h 10m
-- Total execution time: 16h 19m
+- Total plans completed: 15
+- Average duration: 1h 6m
+- Total execution time: 16h 30m
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |---|---:|---:|---:|
-| 1. Canonical Snapshot Foundation | 14 | 16h 19m | 1h 10m |
+| 1. Canonical Snapshot Foundation | 15 | 16h 30m | 1h 6m |
 
 **Plan History:**
 
@@ -64,6 +64,7 @@ Progress: [███████░░░] 67%
 | 01 | 13 | 9 min | 2 | 7 |
 | 01 | 11 | 11 min | 2 | 3 |
 | 01 | 14 | 7 min | 2 | 5 |
+| 01 | 15 | 11 min | 2 | 3 |
 
 ## Accumulated Context
 
@@ -113,6 +114,8 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 01]: A green deterministic gate does not authorize production launch. — Managed PostgreSQL, Redis, object/evidence storage, and uninterrupted Fly worker capacity remain mandatory.
 - [Phase 01]: Batting accepts only Player/AB/H and pitching accepts only Player/IP/ERA before rows or verified emptiness are evaluated. — Exact section-aware signatures prevent upstream schema drift from authorizing silent data loss.
 - [Phase 01]: Header matching normalizes case and whitespace only; renamed or fuzzy lookalikes require explicit fixture-backed support. — Fail-closed aliases keep accepted NCAA schemas auditable and versioned.
+- [Phase 01]: Publication and every snapshot child mutation share one transaction-scoped snapshot advisory lock. — Validation cannot race a child commit across the publication boundary.
+- [Phase 01]: Metric mutations lock definition UUIDs before snapshot UUIDs in deterministic order. — First-reference insertion cannot escape enumeration, and ordered locking prevents deadlocks.
 
 ### Pending Todos
 
@@ -135,6 +138,6 @@ Full decision log: `.planning/PROJECT.md`.
 
 ## Session Continuity
 
-Last session: 2026-11-10T01:28:22.059Z
-Stopped at: Completed 01-14-PLAN.md
+Last session: 2026-11-10T01:42:39.159Z
+Stopped at: Completed 01-15-PLAN.md
 Resume file: None
