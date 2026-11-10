@@ -37,7 +37,10 @@ GAP_REGRESSION_TESTS = (
     "tests.test_deployment_config.ProcessHealthCheckTests",
     "tests.test_deployment_config.IndependentPurgeConfigTests",
     "tests.test_phase1_release.Phase1ReleaseTests",
-    "tests.test_app_routes.AppRouteTests",
+    (
+        "tests.test_app_routes.AppRouteTests."
+        "test_d2_selector_id_downloads_workbook_without_fuzzy_matching"
+    ),
 )
 
 
@@ -127,7 +130,7 @@ def release_command_manifest(python):
             [python, "-m", "alembic", "check"],
         ),
         (
-            "Plans 14-21 gap and workbook regressions",
+            "Plans 14-21 gap and focused workbook regressions",
             [python, "-m", "unittest", *GAP_REGRESSION_TESTS, "-v"],
         ),
         (

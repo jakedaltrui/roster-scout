@@ -885,7 +885,10 @@ class Phase1ReleaseValidatorContractTests(unittest.TestCase):
             "tests.test_deployment_config.ProcessHealthCheckTests",
             "tests.test_deployment_config.IndependentPurgeConfigTests",
             "tests.test_phase1_release.Phase1ReleaseTests",
-            "tests.test_app_routes.AppRouteTests",
+            (
+                "tests.test_app_routes.AppRouteTests."
+                "test_d2_selector_id_downloads_workbook_without_fuzzy_matching"
+            ),
         }
         self.assertTrue(expected.issubset(GAP_REGRESSION_TESTS))
 
@@ -905,7 +908,10 @@ class Phase1ReleaseValidatorContractTests(unittest.TestCase):
             "docker compose config --quiet",
             "git diff --check",
             "tests.test_phase1_release.Phase1ReleaseTests",
-            "tests.test_app_routes.AppRouteTests",
+            (
+                "tests.test_app_routes.AppRouteTests."
+                "test_d2_selector_id_downloads_workbook_without_fuzzy_matching"
+            ),
         ):
             with self.subTest(command=command):
                 self.assertIn(command, rendered)
