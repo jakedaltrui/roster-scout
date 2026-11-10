@@ -2,11 +2,13 @@
 
 import gzip
 import hashlib
+import os
 import unittest
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
-from sqlalchemy import func, select
+from sqlalchemy import func, inspect, select
+from sqlalchemy.exc import DBAPIError
 
 from tests.test_report_jobs import PostgreSQLJobTestCase
 
@@ -88,7 +90,7 @@ class FailedCollectionEvidenceTests(PostgreSQLJobTestCase):
             evidence.source_url,
             "https://stats.ncaa.org/teams/123/season_to_date_stats",
         )
-        self.assertEqual(evidence.expires_at - evidence.collected_at, timedelta(hours=696))
+        self.assertEqual(evidence.expires_at - evidence.collected_at, timedelta(hours=672))
         for public_text in (
             str(raised.exception),
             stored_job.failure_message,
@@ -284,7 +286,7 @@ class EvidencePurgeDeadlineTests(PostgreSQLJobTestCase):
             suffix="boundary",
             collected_at=collected_at,
         )
-        expires_at = collected_at + timedelta(hours=696)
+        expires_at = collected_at + timedelta(hours=672)
 
         self.assertEqual(
             purge_expired_evidence(
@@ -343,7 +345,7 @@ class EvidencePurgeDeadlineTests(PostgreSQLJobTestCase):
             repeated = session.get(FailureEvidence, evidence_id)
             self.assertEqual(repeated.purged_at, expires_at)
 
-    def test_immediately_after_prior_purge_is_deleted_by_720_hours(self):
+    def test_first_hourly_run_after_maximum_expiry_leaves_47_hour_margin(self):
         from roster_scout.evidence import purge_expired_evidence
         from roster_scout.models import FailureEvidence
 
@@ -354,15 +356,15 @@ class EvidencePurgeDeadlineTests(PostgreSQLJobTestCase):
             collected_at=collected_at,
         )
 
-        last_run_before_expiry = previous_purge + timedelta(hours=696)
-        next_allowed_run = previous_purge + timedelta(hours=720)
+        last_run_before_expiry = previous_purge + timedelta(hours=672)
+        next_allowed_run = previous_purge + timedelta(hours=673)
         self.assertEqual(
             purge_expired_evidence(self.Session, now=last_run_before_expiry),
             0,
         )
         self.assertLessEqual(
             next_allowed_run - collected_at,
-            timedelta(hours=720),
+            timedelta(hours=673),
         )
         self.assertEqual(
             purge_expired_evidence(self.Session, now=next_allowed_run),
@@ -372,6 +374,216 @@ class EvidencePurgeDeadlineTests(PostgreSQLJobTestCase):
             evidence = session.get(FailureEvidence, evidence_id)
             self.assertIsNone(evidence.compressed_html)
             self.assertEqual(evidence.purged_at, next_allowed_run)
+
+
+class EvidencePurgePersistenceTests(PostgreSQLJobTestCase):
+    def _failed_job(self, suffix):
+        from roster_scout.jobs import accept_report_job
+        from roster_scout.models import ReportJob
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            f"purge-persistence-{suffix}",
+            dispatch=None,
+        )
+        with self.Session.begin() as session:
+            session.get(ReportJob, job.id).status = "failed"
+        return job.id
+
+    def _store(self, suffix, collected_at):
+        from roster_scout.evidence import store_failure_evidence
+
+        return store_failure_evidence(
+            self.Session,
+            self._failed_job(suffix),
+            section="batting",
+            source_url="https://stats.ncaa.org/team/123/stats?secret=hidden",
+            html="<html>restricted failure evidence</html>",
+            failure_category="source_blocked",
+            collected_at=collected_at,
+        )
+
+    def test_default_and_permitted_shorter_retention_share_production_boundary(self):
+        from roster_scout.models import FailureEvidence
+
+        collected_at = datetime(2026, 1, 1, tzinfo=UTC)
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("FAILURE_EVIDENCE_RETENTION_DAYS", None)
+            default_id = self._store("default-retention", collected_at)
+        with patch.dict(
+            os.environ,
+            {"FAILURE_EVIDENCE_RETENTION_DAYS": "7"},
+            clear=False,
+        ):
+            shorter_id = self._store("short-retention", collected_at)
+
+        with self.Session() as session:
+            default = session.get(FailureEvidence, default_id)
+            shorter = session.get(FailureEvidence, shorter_id)
+            self.assertEqual(
+                default.expires_at - default.collected_at,
+                timedelta(hours=672),
+            )
+            self.assertEqual(
+                shorter.expires_at - shorter.collected_at,
+                timedelta(hours=168),
+            )
+
+    def test_invalid_retention_fails_closed_without_storing_evidence(self):
+        from roster_scout.evidence import (
+            FailureEvidenceConfigurationError,
+            store_failure_evidence,
+        )
+        from roster_scout.models import FailureEvidence
+
+        job_id = self._failed_job("invalid-retention")
+        for value in ("", "abc", "1.5", "0", "-1", "29"):
+            with self.subTest(value=value), patch.dict(
+                os.environ,
+                {"FAILURE_EVIDENCE_RETENTION_DAYS": value},
+                clear=False,
+            ):
+                with self.assertRaisesRegex(
+                    FailureEvidenceConfigurationError,
+                    "invalid failure evidence retention configuration",
+                ):
+                    store_failure_evidence(
+                        self.Session,
+                        job_id,
+                        section="batting",
+                        source_url="https://stats.ncaa.org/team/123/stats",
+                        html="<html>must not persist</html>",
+                        failure_category="source_blocked",
+                    )
+
+        with self.Session() as session:
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(FailureEvidence)),
+                0,
+            )
+
+    def test_successful_purge_commits_bytes_and_singleton_health_together(self):
+        from roster_scout.evidence import purge_expired_evidence
+        from roster_scout.models import EvidencePurgeState, FailureEvidence
+
+        expires_at = datetime(2026, 2, 1, tzinfo=UTC)
+        evidence_id = self._store(
+            "successful-transaction",
+            expires_at - timedelta(hours=672),
+        )
+        self.assertEqual(purge_expired_evidence(self.Session, now=expires_at), 1)
+
+        with self.Session() as session:
+            evidence = session.get(FailureEvidence, evidence_id)
+            health = session.get(EvidencePurgeState, 1)
+            self.assertIsNone(evidence.compressed_html)
+            self.assertEqual(evidence.purged_at, expires_at)
+            self.assertEqual(health.last_success_at, expires_at)
+            self.assertEqual(health.last_purged_count, 1)
+            self.assertEqual(
+                set(EvidencePurgeState.__table__.columns.keys()),
+                {
+                    "singleton_key",
+                    "last_success_at",
+                    "last_purged_count",
+                    "updated_at",
+                },
+            )
+
+    def test_failure_after_delete_rolls_back_bytes_and_prior_health(self):
+        import roster_scout.evidence as evidence_service
+        from roster_scout.models import EvidencePurgeState, FailureEvidence
+
+        first_success = datetime(2026, 2, 1, tzinfo=UTC)
+        self.assertEqual(
+            evidence_service.purge_expired_evidence(
+                self.Session,
+                now=first_success,
+            ),
+            0,
+        )
+        evidence_id = self._store(
+            "rolled-back-transaction",
+            first_success - timedelta(hours=672),
+        )
+
+        with patch.object(
+            evidence_service,
+            "_upsert_evidence_purge_state",
+            side_effect=RuntimeError("injected post-delete failure"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "injected post-delete failure"):
+                evidence_service.purge_expired_evidence(
+                    self.Session,
+                    now=first_success + timedelta(hours=1),
+                )
+
+        with self.Session() as session:
+            evidence = session.get(FailureEvidence, evidence_id)
+            health = session.get(EvidencePurgeState, 1)
+            self.assertIsNotNone(evidence.compressed_html)
+            self.assertIsNone(evidence.purged_at)
+            self.assertEqual(health.last_success_at, first_success)
+            self.assertEqual(health.last_purged_count, 0)
+
+    def test_lock_timeout_rolls_back_without_recording_success(self):
+        import roster_scout.evidence as evidence_service
+        from roster_scout.models import EvidencePurgeState, FailureEvidence
+
+        expires_at = datetime(2026, 2, 1, tzinfo=UTC)
+        evidence_id = self._store(
+            "lock-timeout",
+            expires_at - timedelta(hours=672),
+        )
+        blocker = self.Session()
+        blocker.begin()
+        blocker.scalar(
+            select(FailureEvidence)
+            .where(FailureEvidence.id == evidence_id)
+            .with_for_update()
+        )
+        try:
+            with patch.object(
+                evidence_service,
+                "EVIDENCE_PURGE_LOCK_TIMEOUT_MS",
+                50,
+            ):
+                with self.assertRaises(DBAPIError):
+                    evidence_service.purge_expired_evidence(
+                        self.Session,
+                        now=expires_at,
+                    )
+        finally:
+            blocker.rollback()
+            blocker.close()
+
+        with self.Session() as session:
+            evidence = session.get(FailureEvidence, evidence_id)
+            self.assertIsNotNone(evidence.compressed_html)
+            self.assertIsNone(evidence.purged_at)
+            self.assertIsNone(session.get(EvidencePurgeState, 1))
+
+    def test_revision_0009_fresh_install_downgrade_and_reupgrade(self):
+        from alembic import command
+        from tests.db_support import alembic_config
+
+        config = alembic_config(self.database_url)
+        command.downgrade(config, "0008")
+        self.addCleanup(command.upgrade, config, "head")
+        self.assertNotIn("evidence_purge_state", inspect(self.engine).get_table_names())
+
+        command.upgrade(config, "0009")
+        self.assertIn("evidence_purge_state", inspect(self.engine).get_table_names())
+        command.downgrade(config, "0008")
+        self.assertNotIn("evidence_purge_state", inspect(self.engine).get_table_names())
+        command.upgrade(config, "head")
+
+        command.downgrade(config, "base")
+        command.upgrade(config, "head")
+        self.assertIn("evidence_purge_state", inspect(self.engine).get_table_names())
 
 
 if __name__ == "__main__":
