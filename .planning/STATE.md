@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-16-PLAN.md
-last_updated: "2026-11-10T02:07:13.237Z"
+stopped_at: Completed 01-17-PLAN.md
+last_updated: "2026-11-10T02:26:16.164Z"
 last_activity: 2026-11-10
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 21
-  completed_plans: 16
-  percent: 76
+  completed_plans: 17
+  percent: 0
 ---
 
 # Project State
@@ -26,25 +26,25 @@ See: `.planning/PROJECT.md` (updated 2026-11-01)
 ## Current Position
 
 Phase: 01 (canonical-snapshot-foundation) — EXECUTING
-Plan: 17 of 21
+Plan: 18 of 21
 Status: Ready to execute
 Last activity: 2026-11-10
 
-Progress: [████████░░] 76%
+Progress: [████████░░] 81%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 16
-- Average duration: 1h 3m
-- Total execution time: 16h 47m
+- Total plans completed: 17
+- Average duration: 1h 0m
+- Total execution time: 17h 0m
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |---|---:|---:|---:|
-| 1. Canonical Snapshot Foundation | 16 | 16h 47m | 1h 3m |
+| 1. Canonical Snapshot Foundation | 17 | 17h 0m | 1h 0m |
 
 **Plan History:**
 
@@ -66,6 +66,7 @@ Progress: [████████░░] 76%
 | 01 | 14 | 7 min | 2 | 5 |
 | 01 | 15 | 11 min | 2 | 3 |
 | 01 | 16 | 17 min | 2 | 8 |
+| 01 | 17 | 13 min | 2 | 6 |
 
 ## Accumulated Context
 
@@ -120,6 +121,7 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 01]: PostgreSQL outbox state is the sole retry authority; Celery returns after durable scheduling and never retries independently. — Prevents broker retries from competing with persisted backoff.
 - [Phase 01]: Every delivery carries only job UUID and generation; only the matching generation CAS may increment attempts or collect. — Makes stale and duplicate deliveries pre-collection no-ops.
 - [Phase 01]: Abandoned started generation N advances once to N+1; complete committed evidence may finalize without another collector attempt. — Recovers process loss without double-counting attempts or discarding durable evidence.
+- [Phase 01]: Source evidence binds explicitly to one player/team/season identity: drafts may remain unbound, unique legacy mappings backfill, ambiguous mappings abort, and both database constraints and publication joins reject swapped identities. — Preserves source-first collection while making same-player evidence authority enforceable, migration-safe, and independently rechecked at publication.
 
 ### Pending Todos
 
@@ -142,6 +144,6 @@ Full decision log: `.planning/PROJECT.md`.
 
 ## Session Continuity
 
-Last session: 2026-11-10T02:07:13.229Z
-Stopped at: Completed 01-16-PLAN.md
+Last session: 2026-11-10T02:26:16.156Z
+Stopped at: Completed 01-17-PLAN.md
 Resume file: None
