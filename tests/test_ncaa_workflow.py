@@ -643,6 +643,35 @@ class NcaaParserCorruptionTests(unittest.TestCase):
                 self.assertEqual(result.rows, ())
                 self.assertTrue(result.verified_empty)
 
+    def test_rejects_duplicate_required_headers_before_rows_or_empty_state(self):
+        cases = {
+            "batting": (
+                ("Player", "AB", "AB", "H"),
+                ("Player", "AB", "H", "H"),
+            ),
+            "pitching": (
+                ("Player", "IP", "IP", "ERA"),
+                ("Player", "IP", "ERA", "ERA"),
+            ),
+        }
+        for section, header_cases in cases.items():
+            for headers in header_cases:
+                header = "".join(f"<th>{value}</th>" for value in headers)
+                row = "<tr>" + "".join(
+                    f"<td>{value}</td>"
+                    for value in ("Duplicate Header", "1", "2", "3")
+                ) + "</tr>"
+                for rows in ("", row):
+                    with self.subTest(
+                        section=section,
+                        headers=headers,
+                        row_bearing=bool(rows),
+                    ):
+                        with self.assertRaises(rs.NcaaSchemaError):
+                            rs._parse_ncaa_stat_table_result(
+                                self.table(header, rows), section=section
+                            )
+
     def test_rejects_missing_or_renamed_player_header(self):
         self.assert_schema_error(self.table(
             "<th>Athlete</th><th>AB</th><th>H</th>",
