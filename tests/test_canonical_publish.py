@@ -1145,6 +1145,192 @@ class UnresolvedIdentityPersistenceTests(CanonicalPublishTests):
             self.assertEqual(snapshot.status, "draft")
 
 
+class IdlessCorroborationPublicationTests(CanonicalPublishTests):
+    @staticmethod
+    def sections(batting_support=None, pitching_support=None):
+        from roster_scout.jobs import CollectedSection
+
+        batting_support = batting_support or {}
+        pitching_support = pitching_support or {}
+        collected_at = datetime(2026, 11, 10, 12, 0, tzinfo=UTC)
+        common = {
+            "critical": True,
+            "verified_empty": False,
+            "source_team_id": TEAMS[2]["team_id"],
+            "source_season_id": TEAMS[2]["season_id"],
+            "source_season_team_id": TEAMS[2]["season_team_id"],
+            "collected_at": collected_at,
+            "parser_version": "parser-2+ncaa-core-v2",
+            "schema_version": "schema-1",
+        }
+        return (
+            CollectedSection(
+                name="batting",
+                rows=({
+                    "Player": "Same Name",
+                    "AB": "10",
+                    "H": "3",
+                    **batting_support,
+                },),
+                source_url="https://stats.ncaa.org/batting",
+                source_stat_category_id=SEASON["batting_id"],
+                **common,
+            ),
+            CollectedSection(
+                name="pitching",
+                rows=({
+                    "Player": "Same Name",
+                    "IP": "2.0",
+                    "H": "1",
+                    "ER": "0",
+                    **pitching_support,
+                },),
+                source_url="https://stats.ncaa.org/pitching",
+                source_stat_category_id=SEASON["pitching_id"],
+                **common,
+            ),
+        )
+
+    def assert_isolated_unresolved_publication(self, sections):
+        from roster_scout.jobs import run_report_job
+        from roster_scout.models import (
+            BattingFact,
+            PitchingFact,
+            Player,
+            PlayerTeamSeason,
+            SourceRecord,
+        )
+
+        job = self.seed(2)
+        snapshot = run_report_job(
+            self.Session,
+            job.id,
+            collector=lambda *args, **kwargs: sections,
+        )
+        self.assertEqual(snapshot.status, "ready")
+        with self.Session() as session:
+            identities = list(session.scalars(
+                select(PlayerTeamSeason)
+                .where(PlayerTeamSeason.snapshot_id == snapshot.id)
+                .order_by(PlayerTeamSeason.identity_key)
+            ))
+            players = list(session.scalars(select(Player)))
+            sources = list(session.scalars(
+                select(SourceRecord)
+                .where(SourceRecord.snapshot_id == snapshot.id)
+                .order_by(SourceRecord.section)
+            ))
+            facts = [
+                *session.scalars(
+                    select(BattingFact).where(BattingFact.snapshot_id == snapshot.id)
+                ),
+                *session.scalars(
+                    select(PitchingFact).where(PitchingFact.snapshot_id == snapshot.id)
+                ),
+            ]
+
+            self.assertEqual(len(identities), 2)
+            self.assertEqual(len(players), 2)
+            self.assertEqual(len(sources), 2)
+            self.assertEqual(len(facts), 2)
+            self.assertEqual(
+                {identity.identity_status for identity in identities},
+                {"unresolved"},
+            )
+            self.assertEqual(len({identity.id for identity in identities}), 2)
+            self.assertEqual(len({identity.player_id for identity in identities}), 2)
+            self.assertEqual(len({identity.identity_key for identity in identities}), 2)
+            self.assertTrue(all(
+                identity.identity_key.startswith(
+                    f"unresolved:{TEAMS[2]['season_team_id']}:"
+                )
+                for identity in identities
+            ))
+            self.assertEqual(
+                {source.player_team_season_id for source in sources},
+                {identity.id for identity in identities},
+            )
+            self.assertEqual(
+                {fact.player_team_season_id for fact in facts},
+                {identity.id for identity in identities},
+            )
+            sources_by_id = {source.id: source for source in sources}
+            for fact in facts:
+                source = sources_by_id[fact.source_record_id]
+                self.assertEqual(
+                    source.player_team_season_id,
+                    fact.player_team_season_id,
+                )
+                expected_section = (
+                    "batting" if isinstance(fact, BattingFact) else "pitching"
+                )
+                self.assertEqual(source.section, expected_section)
+
+    def test_name_only_pair_publishes_as_two_unresolved_identities(self):
+        self.assert_isolated_unresolved_publication(self.sections())
+
+    def test_one_sided_support_publishes_as_two_unresolved_identities(self):
+        self.assert_isolated_unresolved_publication(
+            self.sections(batting_support={"Jersey": "7"})
+        )
+
+    def test_shared_support_publishes_one_two_way_identity(self):
+        from roster_scout.jobs import run_report_job
+        from roster_scout.models import (
+            BattingFact,
+            PitchingFact,
+            Player,
+            PlayerTeamSeason,
+            SourceRecord,
+        )
+
+        job = self.seed(2)
+        snapshot = run_report_job(
+            self.Session,
+            job.id,
+            collector=lambda *args, **kwargs: self.sections(
+                batting_support={"Jersey": "7"},
+                pitching_support={"Jersey": "7"},
+            ),
+        )
+        with self.Session() as session:
+            identities = list(session.scalars(
+                select(PlayerTeamSeason).where(
+                    PlayerTeamSeason.snapshot_id == snapshot.id
+                )
+            ))
+            sources = list(session.scalars(
+                select(SourceRecord).where(SourceRecord.snapshot_id == snapshot.id)
+            ))
+            batting = list(session.scalars(
+                select(BattingFact).where(BattingFact.snapshot_id == snapshot.id)
+            ))
+            pitching = list(session.scalars(
+                select(PitchingFact).where(PitchingFact.snapshot_id == snapshot.id)
+            ))
+
+            self.assertEqual(len(identities), 1)
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(Player)),
+                1,
+            )
+            self.assertEqual(identities[0].identity_status, "fallback")
+            self.assertEqual(len(sources), 2)
+            self.assertEqual(len(batting), 1)
+            self.assertEqual(len(pitching), 1)
+            self.assertEqual(
+                {source.player_team_season_id for source in sources},
+                {identities[0].id},
+            )
+            self.assertEqual(
+                {
+                    batting[0].player_team_season_id,
+                    pitching[0].player_team_season_id,
+                },
+                {identities[0].id},
+            )
+
+
 class SourceIdentityBindingTests(CanonicalPublishTests):
     def build_source_draft(self, division=1):
         from roster_scout.canonical import to_collected_sections
