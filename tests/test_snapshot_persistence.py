@@ -1,6 +1,7 @@
 """PostgreSQL invariants for canonical snapshot persistence."""
 
 import os
+import threading
 import unittest
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -8,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from alembic import command
-from sqlalchemy import event, inspect, select, text
+from sqlalchemy import create_engine, event, func, inspect, select, text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from tests.db_support import (
@@ -687,6 +688,358 @@ class SnapshotMutationSerializationTests(PostgreSQLSnapshotTestCase):
         lock_position = source.index("lock_snapshot_mutation")
         row_lock_position = source.index("with_for_update")
         self.assertLess(lock_position, row_lock_position)
+
+    def test_metric_paths_lock_definitions_before_snapshots_and_enumeration(self):
+        lock_definition = self.function_definition(
+            "lock_metric_definition_mutation"
+        )
+        child_definition = self.function_definition(
+            "reject_published_snapshot_child_mutation"
+        )
+        metric_definition = self.function_definition(
+            "reject_published_metric_definition_mutation"
+        )
+
+        self.assertIsNotNone(lock_definition)
+        self.assertIn("pg_advisory_xact_lock", lock_definition)
+        for definition in (child_definition, metric_definition):
+            definition_lock = definition.index("lock_metric_definition_mutation")
+            snapshot_lock = definition.index("lock_snapshot_mutation")
+            self.assertLess(definition_lock, snapshot_lock)
+            self.assertIn("ORDER BY metric_definition_id", definition)
+            self.assertIn("ORDER BY snapshot_id", definition)
+
+
+class SnapshotMutationRaceTests(PostgreSQLSnapshotTestCase):
+    WAIT_SECONDS = 5
+    BLOCKED_ASSERTION_SECONDS = 0.25
+
+    def draft_ids(self):
+        from roster_scout.models import ReportSection
+
+        with self.Session.begin() as session:
+            organization, _, _, snapshot = self.fixture(session)
+            for section in ("batting", "pitching"):
+                session.add(
+                    ReportSection(
+                        organization_id=organization.id,
+                        snapshot_id=snapshot.id,
+                        section=section,
+                        critical=True,
+                        status="complete",
+                        row_count=0,
+                        verified_empty=True,
+                        collected_at=datetime.now(UTC),
+                    )
+                )
+            session.flush()
+            return organization.id, snapshot.id
+
+    def independent_sessions(self):
+        from roster_scout.database import create_session_factory
+
+        engine = create_engine(self.database_url)
+        self.addCleanup(engine.dispose)
+        return create_session_factory(engine)
+
+    def start_worker(self, target, *release_events):
+        errors = []
+        done = threading.Event()
+
+        def run():
+            try:
+                target()
+            except BaseException as error:  # surfaced in the owning test thread
+                errors.append(error)
+            finally:
+                done.set()
+
+        worker = threading.Thread(target=run, daemon=True)
+        worker.start()
+
+        def stop_worker():
+            for release_event in release_events:
+                release_event.set()
+            worker.join(self.WAIT_SECONDS)
+
+        self.addCleanup(stop_worker)
+        return worker, done, errors
+
+    def insert_source_record(self, session, organization_id, snapshot_id):
+        session.execute(
+            text(
+                """
+                INSERT INTO source_records (
+                    id, organization_id, snapshot_id, section, row_ordinal,
+                    source_url, source_team_id, source_season_id,
+                    source_season_team_id, source_stat_category_id,
+                    collected_at, parser_version, schema_version,
+                    payload_sha256, raw_values
+                ) VALUES (
+                    :id, :organization_id, :snapshot_id, 'batting', 0,
+                    'https://stats.ncaa.org/batting', '689', '17040',
+                    '615087', '15867', now(), '1', '1', :payload_sha256,
+                    CAST('{}' AS jsonb)
+                )
+                """
+            ),
+            {
+                "id": uuid.uuid4(),
+                "organization_id": organization_id,
+                "snapshot_id": snapshot_id,
+                "payload_sha256": "a" * 64,
+            },
+        )
+
+    def assert_worker_finished(self, worker, done):
+        self.assertTrue(done.wait(self.WAIT_SECONDS))
+        worker.join(self.WAIT_SECONDS)
+        self.assertFalse(worker.is_alive())
+
+    def test_child_mutation_commits_before_waiting_publication_validates_it(self):
+        from roster_scout.snapshots import SnapshotPublicationError, publish_snapshot
+
+        organization_id, snapshot_id = self.draft_ids()
+        MutationSession = self.independent_sessions()
+        PublisherSession = self.independent_sessions()
+        mutation_holds_lock = threading.Event()
+        release_mutation = threading.Event()
+        publisher_outcome = {}
+
+        def mutate():
+            with MutationSession.begin() as session:
+                session.execute(text("SET LOCAL lock_timeout = '5s'"))
+                self.insert_source_record(session, organization_id, snapshot_id)
+                mutation_holds_lock.set()
+                if not release_mutation.wait(self.WAIT_SECONDS):
+                    raise AssertionError("mutation release event was not signaled")
+
+        def publish():
+            try:
+                with PublisherSession.begin() as session:
+                    session.execute(text("SET LOCAL lock_timeout = '5s'"))
+                    publish_snapshot(session, snapshot_id)
+            except SnapshotPublicationError as error:
+                publisher_outcome["error"] = error
+
+        mutation_worker, _, mutation_errors = self.start_worker(
+            mutate, release_mutation
+        )
+        self.assertTrue(mutation_holds_lock.wait(self.WAIT_SECONDS))
+        publisher_worker, publisher_done, publisher_errors = self.start_worker(
+            publish, release_mutation
+        )
+        self.assertFalse(publisher_done.wait(self.BLOCKED_ASSERTION_SECONDS))
+
+        release_mutation.set()
+        mutation_worker.join(self.WAIT_SECONDS)
+        self.assertFalse(mutation_worker.is_alive())
+        self.assert_worker_finished(publisher_worker, publisher_done)
+        self.assertEqual(mutation_errors, [])
+        self.assertEqual(publisher_errors, [])
+        self.assertIn("row count", str(publisher_outcome["error"]))
+
+        from roster_scout.models import ReportSnapshot, SourceRecord
+
+        with self.Session() as session:
+            self.assertEqual(session.get(ReportSnapshot, snapshot_id).status, "draft")
+            self.assertEqual(
+                session.scalar(
+                    select(func.count())
+                    .select_from(SourceRecord)
+                    .where(SourceRecord.snapshot_id == snapshot_id)
+                ),
+                1,
+            )
+
+    def test_publication_commits_before_waiting_child_mutation_is_rejected(self):
+        from roster_scout.snapshots import publish_snapshot
+
+        organization_id, snapshot_id = self.draft_ids()
+        PublisherSession = self.independent_sessions()
+        MutationSession = self.independent_sessions()
+        publication_holds_lock = threading.Event()
+        release_publication = threading.Event()
+
+        def publish():
+            with PublisherSession.begin() as session:
+                session.execute(text("SET LOCAL lock_timeout = '5s'"))
+                publish_snapshot(session, snapshot_id)
+                publication_holds_lock.set()
+                if not release_publication.wait(self.WAIT_SECONDS):
+                    raise AssertionError("publication release event was not signaled")
+
+        def mutate():
+            with MutationSession.begin() as session:
+                session.execute(text("SET LOCAL lock_timeout = '5s'"))
+                self.insert_source_record(session, organization_id, snapshot_id)
+
+        publisher_worker, _, publisher_errors = self.start_worker(
+            publish, release_publication
+        )
+        self.assertTrue(publication_holds_lock.wait(self.WAIT_SECONDS))
+        mutation_worker, mutation_done, mutation_errors = self.start_worker(
+            mutate, release_publication
+        )
+        self.assertFalse(mutation_done.wait(self.BLOCKED_ASSERTION_SECONDS))
+
+        release_publication.set()
+        publisher_worker.join(self.WAIT_SECONDS)
+        self.assertFalse(publisher_worker.is_alive())
+        self.assert_worker_finished(mutation_worker, mutation_done)
+        self.assertEqual(publisher_errors, [])
+        self.assertEqual(len(mutation_errors), 1)
+        self.assertIsInstance(mutation_errors[0], DBAPIError)
+
+        from roster_scout.models import ReportSnapshot, SourceRecord
+
+        with self.Session() as session:
+            self.assertEqual(session.get(ReportSnapshot, snapshot_id).status, "ready")
+            self.assertEqual(
+                session.scalar(
+                    select(func.count())
+                    .select_from(SourceRecord)
+                    .where(SourceRecord.snapshot_id == snapshot_id)
+                ),
+                0,
+            )
+
+    def test_definition_mutation_commits_before_reference_and_publication(self):
+        from roster_scout.models import MetricDefinition, MetricValue
+        from roster_scout.snapshots import publish_snapshot
+
+        organization_id, snapshot_id = self.draft_ids()
+        with self.Session.begin() as session:
+            definition = MetricDefinition(code="ops", version="1", formula="old")
+            session.add(definition)
+            session.flush()
+            definition_id = definition.id
+
+        DefinitionSession = self.independent_sessions()
+        PublisherSession = self.independent_sessions()
+        definition_holds_lock = threading.Event()
+        release_definition = threading.Event()
+
+        def mutate_definition():
+            with DefinitionSession.begin() as session:
+                session.execute(text("SET LOCAL lock_timeout = '5s'"))
+                session.execute(
+                    text(
+                        "UPDATE metric_definitions SET formula = 'changed' "
+                        "WHERE id = :definition_id"
+                    ),
+                    {"definition_id": definition_id},
+                )
+                definition_holds_lock.set()
+                if not release_definition.wait(self.WAIT_SECONDS):
+                    raise AssertionError("definition release event was not signaled")
+
+        def reference_and_publish():
+            with PublisherSession.begin() as session:
+                session.execute(text("SET LOCAL lock_timeout = '5s'"))
+                session.add(
+                    MetricValue(
+                        organization_id=organization_id,
+                        snapshot_id=snapshot_id,
+                        metric_definition_id=definition_id,
+                        value=1,
+                    )
+                )
+                session.flush()
+                publish_snapshot(session, snapshot_id)
+
+        definition_worker, _, definition_errors = self.start_worker(
+            mutate_definition, release_definition
+        )
+        self.assertTrue(definition_holds_lock.wait(self.WAIT_SECONDS))
+        publisher_worker, publisher_done, publisher_errors = self.start_worker(
+            reference_and_publish, release_definition
+        )
+        self.assertFalse(publisher_done.wait(self.BLOCKED_ASSERTION_SECONDS))
+
+        release_definition.set()
+        definition_worker.join(self.WAIT_SECONDS)
+        self.assertFalse(definition_worker.is_alive())
+        self.assert_worker_finished(publisher_worker, publisher_done)
+        self.assertEqual(definition_errors, [])
+        self.assertEqual(publisher_errors, [])
+
+        from roster_scout.models import ReportSnapshot
+
+        with self.Session() as session:
+            self.assertEqual(session.get(MetricDefinition, definition_id).formula, "changed")
+            self.assertEqual(session.get(ReportSnapshot, snapshot_id).status, "ready")
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(MetricValue)), 1
+            )
+
+    def test_reference_and_publication_commit_before_definition_mutation_rechecks(self):
+        from roster_scout.models import MetricDefinition, MetricValue, ReportSnapshot
+        from roster_scout.snapshots import publish_snapshot
+
+        organization_id, snapshot_id = self.draft_ids()
+        with self.Session.begin() as session:
+            definition = MetricDefinition(code="ops", version="1", formula="old")
+            session.add(definition)
+            session.flush()
+            definition_id = definition.id
+
+        PublisherSession = self.independent_sessions()
+        DefinitionSession = self.independent_sessions()
+        publication_holds_locks = threading.Event()
+        release_publication = threading.Event()
+
+        def reference_and_publish():
+            with PublisherSession.begin() as session:
+                session.execute(text("SET LOCAL lock_timeout = '5s'"))
+                session.add(
+                    MetricValue(
+                        organization_id=organization_id,
+                        snapshot_id=snapshot_id,
+                        metric_definition_id=definition_id,
+                        value=1,
+                    )
+                )
+                session.flush()
+                publish_snapshot(session, snapshot_id)
+                publication_holds_locks.set()
+                if not release_publication.wait(self.WAIT_SECONDS):
+                    raise AssertionError("publication release event was not signaled")
+
+        def mutate_definition():
+            with DefinitionSession.begin() as session:
+                session.execute(text("SET LOCAL lock_timeout = '5s'"))
+                session.execute(
+                    text(
+                        "UPDATE metric_definitions SET formula = 'changed' "
+                        "WHERE id = :definition_id"
+                    ),
+                    {"definition_id": definition_id},
+                )
+
+        publisher_worker, _, publisher_errors = self.start_worker(
+            reference_and_publish, release_publication
+        )
+        self.assertTrue(publication_holds_locks.wait(self.WAIT_SECONDS))
+        definition_worker, definition_done, definition_errors = self.start_worker(
+            mutate_definition, release_publication
+        )
+        self.assertFalse(definition_done.wait(self.BLOCKED_ASSERTION_SECONDS))
+
+        release_publication.set()
+        publisher_worker.join(self.WAIT_SECONDS)
+        self.assertFalse(publisher_worker.is_alive())
+        self.assert_worker_finished(definition_worker, definition_done)
+        self.assertEqual(publisher_errors, [])
+        self.assertEqual(len(definition_errors), 1)
+        self.assertIsInstance(definition_errors[0], DBAPIError)
+
+        with self.Session() as session:
+            self.assertEqual(session.get(MetricDefinition, definition_id).formula, "old")
+            self.assertEqual(session.get(ReportSnapshot, snapshot_id).status, "ready")
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(MetricValue)), 1
+            )
 
 
 class MigrationTests(PostgreSQLSnapshotTestCase):
