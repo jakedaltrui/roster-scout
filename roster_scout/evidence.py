@@ -3,19 +3,48 @@
 import gzip
 import hashlib
 import ipaddress
+import os
 import re
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlsplit, urlunsplit
 
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.orm import Session
 
 from .jobs import SAFE_FAILURE_MESSAGES
-from .models import FailureEvidence, ReportJob
+from .models import EvidencePurgeState, FailureEvidence, ReportJob
 
 
 FAILURE_EVIDENCE_MAX_BYTES = 64 * 1024
-FAILURE_EVIDENCE_BYTE_RETENTION = timedelta(hours=696)
+FAILURE_EVIDENCE_RETENTION_ENV = "FAILURE_EVIDENCE_RETENTION_DAYS"
+FAILURE_EVIDENCE_DEFAULT_RETENTION_DAYS = 28
+FAILURE_EVIDENCE_MAX_RETENTION_DAYS = 28
+EVIDENCE_PURGE_LOCK_TIMEOUT_MS = 5_000
+EVIDENCE_PURGE_STATEMENT_TIMEOUT_MS = 30_000
+
+
+class FailureEvidenceConfigurationError(RuntimeError):
+    """Raised without echoing an unsafe retention configuration value."""
+
+
+def get_failure_evidence_retention(environ=None):
+    """Parse the single production retention setting into a bounded duration."""
+    source = os.environ if environ is None else environ
+    raw_value = source.get(FAILURE_EVIDENCE_RETENTION_ENV)
+    if raw_value is None:
+        days = FAILURE_EVIDENCE_DEFAULT_RETENTION_DAYS
+    elif not isinstance(raw_value, str) or not re.fullmatch(r"[0-9]+", raw_value):
+        raise FailureEvidenceConfigurationError(
+            "invalid failure evidence retention configuration"
+        )
+    else:
+        days = int(raw_value)
+    if not 1 <= days <= FAILURE_EVIDENCE_MAX_RETENTION_DAYS:
+        raise FailureEvidenceConfigurationError(
+            "invalid failure evidence retention configuration"
+        )
+    return timedelta(days=days)
 
 
 def _safe_source_url(source_url):
@@ -81,6 +110,7 @@ def _store_failure_evidence(
     html,
     failure_category,
     collected_at,
+    retention,
 ):
     category = (
         failure_category
@@ -104,7 +134,7 @@ def _store_failure_evidence(
         source_url=_safe_source_url(source_url),
         failure_category=category,
         collected_at=collected_at,
-        expires_at=collected_at + FAILURE_EVIDENCE_BYTE_RETENTION,
+        expires_at=collected_at + retention,
     )
     session.add(evidence)
     session.flush()
@@ -123,6 +153,7 @@ def store_failure_evidence(
 ):
     """Store bounded failure bytes in a caller-owned or standalone transaction."""
     collected_at = collected_at or datetime.now(UTC)
+    retention = get_failure_evidence_retention()
     if isinstance(session_or_factory, Session):
         return _store_failure_evidence(
             session_or_factory,
@@ -132,6 +163,7 @@ def store_failure_evidence(
             html=html,
             failure_category=failure_category,
             collected_at=collected_at,
+            retention=retention,
         )
     with session_or_factory.begin() as session:
         return _store_failure_evidence(
@@ -142,13 +174,46 @@ def store_failure_evidence(
             html=html,
             failure_category=failure_category,
             collected_at=collected_at,
+            retention=retention,
         )
 
 
+def _set_evidence_purge_timeouts(session):
+    session.execute(
+        text(f"SET LOCAL lock_timeout = '{int(EVIDENCE_PURGE_LOCK_TIMEOUT_MS)}ms'")
+    )
+    session.execute(
+        text(
+            "SET LOCAL statement_timeout = "
+            f"'{int(EVIDENCE_PURGE_STATEMENT_TIMEOUT_MS)}ms'"
+        )
+    )
+
+
+def _upsert_evidence_purge_state(session, *, now, purged_count):
+    statement = postgresql_insert(EvidencePurgeState).values(
+        singleton_key=1,
+        last_success_at=now,
+        last_purged_count=purged_count,
+        updated_at=now,
+    )
+    session.execute(
+        statement.on_conflict_do_update(
+            index_elements=[EvidencePurgeState.singleton_key],
+            set_={
+                "last_success_at": now,
+                "last_purged_count": purged_count,
+                "updated_at": now,
+            },
+        )
+    )
+
+
 def purge_expired_evidence(session_factory, *, now=None):
-    """Remove expired bytes while preserving safe metadata and checksums."""
+    """Remove expired bytes and persist safe health in one bounded transaction."""
     now = now or datetime.now(UTC)
     with session_factory.begin() as session:
+        _set_evidence_purge_timeouts(session)
         result = session.execute(
             update(FailureEvidence)
             .where(
@@ -157,4 +222,10 @@ def purge_expired_evidence(session_factory, *, now=None):
             )
             .values(compressed_html=None, purged_at=now)
         )
-        return int(result.rowcount or 0)
+        purged_count = int(result.rowcount or 0)
+        _upsert_evidence_purge_state(
+            session,
+            now=now,
+            purged_count=purged_count,
+        )
+    return purged_count

@@ -12,6 +12,7 @@ from sqlalchemy import (
     Integer,
     LargeBinary,
     Numeric,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -539,4 +540,34 @@ class FailureEvidence(UUIDPrimaryKey, Timestamped, Base):
         ),
         CheckConstraint("char_length(sha256) = 64", name="ck_failure_evidence_sha256_length"),
         CheckConstraint("purged_at IS NULL OR compressed_html IS NULL", name="ck_failure_evidence_purged_payload"),
+    )
+
+
+class EvidencePurgeState(Base):
+    __tablename__ = "evidence_purge_state"
+    singleton_key: Mapped[int] = mapped_column(
+        SmallInteger,
+        primary_key=True,
+        default=1,
+        server_default="1",
+    )
+    last_success_at: Mapped[object] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+    last_purged_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_at: Mapped[object] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    __table_args__ = (
+        CheckConstraint(
+            "singleton_key = 1",
+            name="ck_evidence_purge_state_singleton",
+        ),
+        CheckConstraint(
+            "last_purged_count >= 0",
+            name="ck_evidence_purge_state_count_nonnegative",
+        ),
     )
