@@ -73,6 +73,13 @@ class CanonicalCollection:
     metrics: tuple[MetricLineage, ...]
 
 
+@dataclass(frozen=True)
+class _IdentityGroup:
+    rows: tuple[NcaaSourceRow, ...]
+    identity_status: str
+    identity_key: str
+
+
 def _raw(row: NcaaSourceRow, *keys: str) -> str | None:
     lowered = {key.casefold(): value for key, value in row.raw_values.items()}
     for key in keys:
@@ -134,16 +141,29 @@ def _compatible(left: NcaaSourceRow, right: NcaaSourceRow) -> bool:
     return True
 
 
-def _fallback_key(collection: NcaaCollection, rows: tuple[NcaaSourceRow, ...]) -> str:
+def _support_signature(row: NcaaSourceRow) -> tuple[str, str, str]:
+    jersey, position = _support(row)
+    return (
+        normalize_material_name(_raw(row, "Player")),
+        (jersey or "").strip().casefold(),
+        " ".join((position or "").casefold().split()),
+    )
+
+
+def _identity_key(
+    collection: NcaaCollection,
+    rows: tuple[NcaaSourceRow, ...],
+    identity_status: str,
+) -> str:
     evidence = "|".join(
-        f"{row.section}:{row.row_ordinal}:{_raw(row, 'Player') or ''}:{_support(row)}"
+        f"{row.section}:{row.row_ordinal}:{_support_signature(row)}"
         for row in rows
     )
     digest = hashlib.sha256(evidence.encode("utf-8")).hexdigest()[:20]
-    return f"fallback:{collection.team.season_team_id}:{digest}"
+    return f"{identity_status}:{collection.team.season_team_id}:{digest}"
 
 
-def _identity_groups(collection: NcaaCollection) -> list[tuple[NcaaSourceRow, ...]]:
+def _identity_groups(collection: NcaaCollection) -> list[_IdentityGroup]:
     rows = [row for section in collection.sections for row in section.rows]
     authoritative = {}
     idless = []
@@ -161,33 +181,83 @@ def _identity_groups(collection: NcaaCollection) -> list[tuple[NcaaSourceRow, ..
             raise IdentityConflictError(
                 f"NCAA player ID {player_id} has conflicting names: {sorted(names)}"
             )
-        groups.append(tuple(player_rows))
+        groups.append(_IdentityGroup(
+            rows=tuple(player_rows),
+            identity_status="authoritative",
+            identity_key=f"ncaa:{player_id}",
+        ))
 
-    batting = [row for row in idless if row.section == "batting"]
-    pitching = [row for row in idless if row.section == "pitching"]
-    matched = set()
-    for bat in batting:
-        candidates = [
-            pit for pit in pitching
-            if id(pit) not in matched
-            and normalize_material_name(_raw(pit, "Player")) == normalize_material_name(_raw(bat, "Player"))
-            and _compatible(bat, pit)
-        ]
-        reciprocal = []
-        for pit in candidates:
-            reverse = [
-                other for other in batting
-                if normalize_material_name(_raw(other, "Player")) == normalize_material_name(_raw(pit, "Player"))
-                and _compatible(other, pit)
-            ]
-            if len(reverse) == 1:
-                reciprocal.append(pit)
-        if len(reciprocal) == 1:
-            groups.append((bat, reciprocal[0]))
-            matched.add(id(reciprocal[0]))
-        else:
-            groups.append((bat,))
-    groups.extend((pit,) for pit in pitching if id(pit) not in matched)
+    by_name = {}
+    for row in idless:
+        by_name.setdefault(normalize_material_name(_raw(row, "Player")), []).append(row)
+
+    for name, same_name_rows in by_name.items():
+        if len(same_name_rows) == 1 and name:
+            grouped_rows = (same_name_rows[0],)
+            groups.append(_IdentityGroup(
+                rows=grouped_rows,
+                identity_status="fallback",
+                identity_key=_identity_key(collection, grouped_rows, "fallback"),
+            ))
+            continue
+
+        batting = [row for row in same_name_rows if row.section == "batting"]
+        pitching = [row for row in same_name_rows if row.section == "pitching"]
+        bat_candidates = {
+            id(bat): [pit for pit in pitching if _compatible(bat, pit)]
+            for bat in batting
+        }
+        pit_candidates = {
+            id(pit): [bat for bat in batting if _compatible(bat, pit)]
+            for pit in pitching
+        }
+        resolved = set()
+        for bat in batting:
+            candidates = bat_candidates[id(bat)]
+            if len(candidates) != 1:
+                continue
+            pit = candidates[0]
+            if len(pit_candidates[id(pit)]) != 1:
+                continue
+            grouped_rows = (bat, pit)
+            groups.append(_IdentityGroup(
+                rows=grouped_rows,
+                identity_status="fallback",
+                identity_key=_identity_key(collection, grouped_rows, "fallback"),
+            ))
+            resolved.update((id(bat), id(pit)))
+
+        remaining = [row for row in same_name_rows if id(row) not in resolved]
+        signatures = [_support_signature(row) for row in remaining]
+        signature_counts = {
+            signature: signatures.count(signature) for signature in signatures
+        }
+        ambiguous = {
+            id(row)
+            for row, signature in zip(remaining, signatures, strict=True)
+            if not name
+            or not any(signature[1:])
+            or signature_counts[signature] != 1
+        }
+        for bat in remaining:
+            for pit in remaining:
+                if (
+                    bat.section == "batting"
+                    and pit.section == "pitching"
+                    and _compatible(bat, pit)
+                ):
+                    ambiguous.update((id(bat), id(pit)))
+
+        for row in remaining:
+            grouped_rows = (row,)
+            identity_status = "unresolved" if id(row) in ambiguous else "fallback"
+            groups.append(_IdentityGroup(
+                rows=grouped_rows,
+                identity_status=identity_status,
+                identity_key=_identity_key(
+                    collection, grouped_rows, identity_status
+                ),
+            ))
     return groups
 
 
@@ -227,17 +297,16 @@ def canonicalize_ncaa_collection(collection: NcaaCollection) -> CanonicalCollect
     players = []
     facts = []
     metrics = []
-    for rows in _identity_groups(collection):
+    for group in _identity_groups(collection):
+        rows = group.rows
         source_player_id = next((row.source_player_id for row in rows if row.source_player_id), None)
-        identity_key = (
-            f"ncaa:{source_player_id}" if source_player_id else _fallback_key(collection, rows)
-        )
+        identity_key = group.identity_key
         first = rows[0]
         batting = next((row for row in rows if row.section == "batting"), None)
         pitching = next((row for row in rows if row.section == "pitching"), None)
         players.append(CanonicalPlayer(
             identity_key=identity_key,
-            identity_status="authoritative" if source_player_id else "fallback",
+            identity_status=group.identity_status,
             source_player_id=source_player_id,
             display_name=_raw(first, "Player") or "",
             jersey_number=_raw(first, "Jersey", "#"),
