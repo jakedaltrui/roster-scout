@@ -1000,6 +1000,18 @@ class NcaaSchemaError(NcaaAccessError):
     """Raised when an NCAA stat grid violates the expected safe schema."""
 
 
+NCAA_CORE_HEADER_SIGNATURES = {
+    "batting": {
+        "version": "ncaa-core-v1",
+        "required_headers": frozenset({"player", "ab", "h"}),
+    },
+    "pitching": {
+        "version": "ncaa-core-v1",
+        "required_headers": frozenset({"player", "ip", "era"}),
+    },
+}
+
+
 FAILURE_EVIDENCE_MAX_BYTES = 64 * 1024
 
 
@@ -2048,9 +2060,22 @@ def _is_ncaa_empty_marker(row) -> bool:
     }
 
 
-def _parse_ncaa_stat_table_result(html: str) -> NcaaTableParseResult:
+def _normalize_ncaa_header(header: str) -> str:
+    return re.sub(r"\s+", " ", str(header or "").strip()).casefold()
+
+
+def _parse_ncaa_stat_table_result(
+    html: str,
+    *,
+    section: str,
+) -> NcaaTableParseResult:
     if not _has_ncaa_stat_grid(html):
         raise NcaaAccessError("NCAA stats table is missing or blocked.")
+    signature = NCAA_CORE_HEADER_SIGNATURES.get(section)
+    if signature is None:
+        raise NcaaSchemaError(
+            "NCAA stats schema validation failed: unsupported section."
+        )
     soup = BeautifulSoup(html, "html.parser")
     table = soup.select_one("#stat_grid")
     header_rows = table.select("thead tr")
@@ -2059,13 +2084,19 @@ def _parse_ncaa_stat_table_result(html: str) -> NcaaTableParseResult:
         cell.get_text(" ", strip=True)
         for cell in header_row.find_all(["th", "td"], recursive=False)
     ]
+    normalized_headers = [_normalize_ncaa_header(header) for header in raw_headers]
     player_indexes = [
-        index for index, header in enumerate(raw_headers)
-        if header.strip().lower() == "player"
+        index for index, header in enumerate(normalized_headers)
+        if header == "player"
     ]
     if len(player_indexes) != 1:
         raise NcaaSchemaError(
             "NCAA stats schema validation failed: expected one Player column."
+        )
+    missing_headers = signature["required_headers"] - set(normalized_headers)
+    if missing_headers:
+        raise NcaaSchemaError(
+            f"NCAA stats schema validation failed: unsupported {section} headers."
         )
     player_index = player_indexes[0]
     headers = _unique_headers(raw_headers)
@@ -2105,9 +2136,9 @@ def _parse_ncaa_stat_table_result(html: str) -> NcaaTableParseResult:
     return NcaaTableParseResult(rows=tuple(rows), verified_empty=not rows)
 
 
-def _parse_ncaa_stat_table(html: str) -> list[dict]:
+def _parse_ncaa_stat_table(html: str, *, section: str) -> list[dict]:
     """Return player rows while retaining the historical internal list API."""
-    return list(_parse_ncaa_stat_table_result(html).rows)
+    return list(_parse_ncaa_stat_table_result(html, section=section).rows)
 
 
 def _stat(row: dict, *keys: str) -> str:
@@ -2264,7 +2295,7 @@ def _collect_ncaa_team(
         if html is None:
             raise NcaaAccessError(f"NCAA did not return the {name} section.")
         try:
-            parse_result = _parse_ncaa_stat_table_result(html)
+            parse_result = _parse_ncaa_stat_table_result(html, section=name)
         except NcaaSchemaError:
             raise _NcaaFailureEvidenceError(
                 section=name,
