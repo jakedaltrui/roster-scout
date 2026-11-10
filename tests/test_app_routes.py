@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from PIL import Image
 
 import app as app_module
+from roster_scout.evidence import EvidencePurgeReadiness
 from roster_scraper import NcaaAccessError
 
 
@@ -19,6 +20,128 @@ SAMPLE_PLAYER = {
     "SV": "", "IP": "", "P_H": "", "ER": "", "P_BB": "", "P_SO": "",
     "_has_hitting": True, "_has_pitching": False, "_pos": "SS",
 }
+
+
+class AppReadinessTests(unittest.TestCase):
+    def setUp(self):
+        app_module.app.config.update(TESTING=True)
+        self.client = app_module.app.test_client()
+        factory = getattr(app_module, "_evidence_purge_session_factory", None)
+        if factory is not None and hasattr(factory, "cache_clear"):
+            factory.cache_clear()
+            self.addCleanup(factory.cache_clear)
+
+    @staticmethod
+    def _readiness(*, ready, status, expired_bytes_count=0):
+        return EvidencePurgeReadiness(
+            ready=ready,
+            status=status,
+            last_success_at=None,
+            last_purged_count=0,
+            expired_bytes_count=expired_bytes_count,
+        )
+
+    def _request_with_readiness(self, readiness):
+        session_factory = object()
+        with patch.object(
+            app_module,
+            "get_engine",
+            return_value=object(),
+            create=True,
+        ) as get_engine, patch.object(
+            app_module,
+            "create_session_factory",
+            return_value=session_factory,
+            create=True,
+        ) as create_factory, patch.object(
+            app_module,
+            "get_evidence_purge_readiness",
+            return_value=readiness,
+            create=True,
+        ) as get_readiness:
+            response = self.client.get("/readyz")
+        get_engine.assert_called_once_with()
+        create_factory.assert_called_once()
+        get_readiness.assert_called_once_with(session_factory)
+        return response
+
+    def test_readyz_returns_200_only_for_fresh_persisted_purge_health(self):
+        response = self._request_with_readiness(
+            self._readiness(ready=True, status="fresh")
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.get_json(),
+            {"status": "ready", "evidence_purge": "fresh"},
+        )
+
+    def test_readyz_fails_closed_before_first_success(self):
+        response = self._request_with_readiness(
+            self._readiness(ready=False, status="never_succeeded")
+        )
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(
+            response.get_json(),
+            {"status": "not_ready", "evidence_purge": "never_succeeded"},
+        )
+
+    def test_readyz_fails_closed_after_freshness_expires(self):
+        response = self._request_with_readiness(
+            self._readiness(ready=False, status="stale")
+        )
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(
+            response.get_json(),
+            {"status": "not_ready", "evidence_purge": "stale"},
+        )
+
+    def test_readyz_fails_closed_while_expired_bytes_remain(self):
+        response = self._request_with_readiness(
+            self._readiness(
+                ready=False,
+                status="expired_bytes_present",
+                expired_bytes_count=1,
+            )
+        )
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(
+            response.get_json(),
+            {"status": "not_ready", "evidence_purge": "expired_bytes_present"},
+        )
+
+    def test_readyz_sanitizes_database_and_configuration_failures(self):
+        secret = (
+            "postgresql://operator:secret@example.test/customer "
+            "<html>blocked</html> https://ncaa.test/player?token=secret "
+            "checksum-deadbeef"
+        )
+        with patch.object(
+            app_module,
+            "get_engine",
+            side_effect=RuntimeError(secret),
+            create=True,
+        ), patch.object(app_module.app, "logger") as logger:
+            response = self.client.get("/readyz")
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(
+            response.get_json(),
+            {"status": "not_ready", "evidence_purge": "unavailable"},
+        )
+        self.assertNotIn(secret, response.get_data(as_text=True))
+        self.assertNotIn("customer", response.get_data(as_text=True))
+        logger.warning.assert_not_called()
+        logger.error.assert_not_called()
+        logger.exception.assert_not_called()
+
+    def test_readyz_normalizes_database_unavailable_projection(self):
+        response = self._request_with_readiness(
+            self._readiness(ready=False, status="database_unavailable")
+        )
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(
+            response.get_json(),
+            {"status": "not_ready", "evidence_purge": "unavailable"},
+        )
 
 
 class AppRouteTests(unittest.TestCase):
@@ -153,9 +276,11 @@ class AppRouteTests(unittest.TestCase):
         self.assertGreaterEqual(available_width, required_title_width)
 
     def test_health_check_does_not_touch_external_services(self):
-        response = self.client.get("/healthz")
+        with patch.object(app_module, "get_engine", create=True) as get_engine:
+            response = self.client.get("/healthz")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json(), {"status": "ok"})
+        get_engine.assert_not_called()
 
     def test_responses_include_baseline_security_headers(self):
         response = self.client.get("/")
