@@ -204,6 +204,7 @@ class SourceRecord(UUIDPrimaryKey, Base):
     __tablename__ = "source_records"
     organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     snapshot_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    player_team_season_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     section: Mapped[str] = mapped_column(String(50), nullable=False)
     row_ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
     source_url: Mapped[str] = mapped_column(Text, nullable=False)
@@ -219,10 +220,26 @@ class SourceRecord(UUIDPrimaryKey, Base):
     raw_values: Mapped[dict] = mapped_column(JSONB, nullable=False)
     __table_args__ = (
         UniqueConstraint("id", "snapshot_id", "organization_id", name="uq_source_records_snapshot_owner"),
+        UniqueConstraint(
+            "id",
+            "player_team_season_id",
+            "snapshot_id",
+            "organization_id",
+            name="uq_source_records_identity_owner",
+        ),
         UniqueConstraint("snapshot_id", "section", "row_ordinal", name="uq_source_records_snapshot_row"),
         ForeignKeyConstraint(
             ["snapshot_id", "organization_id"], ["report_snapshots.id", "report_snapshots.organization_id"],
             name="fk_source_records_snapshot_organization",
+        ),
+        ForeignKeyConstraint(
+            ["player_team_season_id", "snapshot_id", "organization_id"],
+            [
+                "player_team_seasons.id",
+                "player_team_seasons.snapshot_id",
+                "player_team_seasons.organization_id",
+            ],
+            name="fk_source_records_player_snapshot_organization",
         ),
         CheckConstraint("row_ordinal >= 0", name="ck_source_records_row_ordinal_nonnegative"),
         CheckConstraint("char_length(payload_sha256) = 64", name="ck_source_records_sha256_length"),
@@ -250,9 +267,19 @@ class BattingFact(UUIDPrimaryKey, Base):
             name="fk_batting_facts_player_snapshot_organization",
         ),
         ForeignKeyConstraint(
-            ["source_record_id", "snapshot_id", "organization_id"],
-            ["source_records.id", "source_records.snapshot_id", "source_records.organization_id"],
-            name="fk_batting_facts_source_snapshot_organization",
+            [
+                "source_record_id",
+                "player_team_season_id",
+                "snapshot_id",
+                "organization_id",
+            ],
+            [
+                "source_records.id",
+                "source_records.player_team_season_id",
+                "source_records.snapshot_id",
+                "source_records.organization_id",
+            ],
+            name="fk_batting_facts_source_identity",
         ),
         CheckConstraint("at_bats IS NULL OR at_bats >= 0", name="ck_batting_facts_at_bats_nonnegative"),
         CheckConstraint("hits IS NULL OR hits >= 0", name="ck_batting_facts_hits_nonnegative"),
@@ -286,9 +313,19 @@ class PitchingFact(UUIDPrimaryKey, Base):
             name="fk_pitching_facts_player_snapshot_organization",
         ),
         ForeignKeyConstraint(
-            ["source_record_id", "snapshot_id", "organization_id"],
-            ["source_records.id", "source_records.snapshot_id", "source_records.organization_id"],
-            name="fk_pitching_facts_source_snapshot_organization",
+            [
+                "source_record_id",
+                "player_team_season_id",
+                "snapshot_id",
+                "organization_id",
+            ],
+            [
+                "source_records.id",
+                "source_records.player_team_season_id",
+                "source_records.snapshot_id",
+                "source_records.organization_id",
+            ],
+            name="fk_pitching_facts_source_identity",
         ),
         CheckConstraint("innings_outs IS NULL OR innings_outs >= 0", name="ck_pitching_facts_innings_outs_nonnegative"),
         CheckConstraint(

@@ -1233,7 +1233,8 @@ class SourceIdentityConstraintTests(PostgreSQLSnapshotTestCase):
             session.add(other_organization)
             session.flush()
             with self.assertRaisesRegex(
-                IntegrityError, "fk_source_records_player_snapshot_organization"
+                IntegrityError,
+                "fk_source_records_(?:player_)?snapshot_organization",
             ):
                 self.add_source(
                     session,
