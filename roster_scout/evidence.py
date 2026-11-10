@@ -5,10 +5,11 @@ import hashlib
 import ipaddress
 import os
 import re
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlsplit, urlunsplit
 
-from sqlalchemy import select, text, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.orm import Session
 
@@ -22,10 +23,20 @@ FAILURE_EVIDENCE_DEFAULT_RETENTION_DAYS = 28
 FAILURE_EVIDENCE_MAX_RETENTION_DAYS = 28
 EVIDENCE_PURGE_LOCK_TIMEOUT_MS = 5_000
 EVIDENCE_PURGE_STATEMENT_TIMEOUT_MS = 30_000
+EVIDENCE_PURGE_READINESS_FRESHNESS = timedelta(hours=6)
 
 
 class FailureEvidenceConfigurationError(RuntimeError):
     """Raised without echoing an unsafe retention configuration value."""
+
+
+@dataclass(frozen=True)
+class EvidencePurgeReadiness:
+    ready: bool
+    status: str
+    last_success_at: datetime | None
+    last_purged_count: int
+    expired_bytes_count: int
 
 
 def get_failure_evidence_retention(environ=None):
@@ -229,3 +240,56 @@ def purge_expired_evidence(session_factory, *, now=None):
             purged_count=purged_count,
         )
     return purged_count
+
+
+def get_evidence_purge_readiness(session_factory, *, now=None):
+    """Return fail-closed purge health without exposing evidence or exceptions."""
+    now = now or datetime.now(UTC)
+    try:
+        with session_factory() as session:
+            state = session.get(EvidencePurgeState, 1)
+            expired_bytes_count, _oldest_expiry = session.execute(
+                select(
+                    func.count(),
+                    func.min(FailureEvidence.expires_at),
+                ).where(
+                    FailureEvidence.compressed_html.is_not(None),
+                    FailureEvidence.expires_at <= now,
+                )
+            ).one()
+    except Exception:
+        return EvidencePurgeReadiness(
+            ready=False,
+            status="database_unavailable",
+            last_success_at=None,
+            last_purged_count=0,
+            expired_bytes_count=0,
+        )
+
+    expired_bytes_count = int(expired_bytes_count or 0)
+    if state is None:
+        return EvidencePurgeReadiness(
+            ready=False,
+            status="never_succeeded",
+            last_success_at=None,
+            last_purged_count=0,
+            expired_bytes_count=expired_bytes_count,
+        )
+
+    last_purged_count = int(state.last_purged_count)
+    if now - state.last_success_at > EVIDENCE_PURGE_READINESS_FRESHNESS:
+        status = "stale"
+        ready = False
+    elif expired_bytes_count:
+        status = "expired_bytes_present"
+        ready = False
+    else:
+        status = "fresh"
+        ready = True
+    return EvidencePurgeReadiness(
+        ready=ready,
+        status=status,
+        last_success_at=state.last_success_at,
+        last_purged_count=last_purged_count,
+        expired_bytes_count=expired_bytes_count,
+    )
