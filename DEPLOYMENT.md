@@ -30,10 +30,12 @@ PostgreSQL advisory-lock namespace for Browserless account capacity; the worker
 does not mount the app's persistent `/data` cache. PostgreSQL and Redis host
 ports are development-only and bind to `127.0.0.1`.
 
-The `scheduler` profile starts exactly one local reconciliation process from the
-same immutable image. It has no HTTP port or `/data` mount and receives only
-`DATABASE_URL`, `CELERY_BROKER_URL`, and nonsecret timing configuration. It is
-not given `BROWSERLESS_TOKEN` or any NCAA/browser configuration.
+The `scheduler` profile starts exactly one local reconciliation process and one
+independently supervised purge process from the same immutable image. Neither
+has an HTTP port or `/data` mount. The reconciliation process receives only
+`DATABASE_URL`, `CELERY_BROKER_URL`, and dispatch timing configuration; the
+purge process receives only `DATABASE_URL` and its nonsecret cadence. Neither
+is given `BROWSERLESS_TOKEN` or any NCAA/browser configuration.
 
 The dispatch scheduler is a separate long-running process. It calls the durable
 outbox drain and stale-job reconciliation services at bounded intervals; it
@@ -45,7 +47,6 @@ does not duplicate job-state SQL. Configure it with nonsecret timing values:
 | `REPORT_DISPATCH_LEASE_SECONDS` | `60` | 5-600 | Publisher lease held by one bounded drain |
 | `REPORT_QUEUED_REDISPATCH_SECONDS` | `300` | 30-86400 | Deadline before a lost queued delivery is eligible again |
 | `REPORT_RUNNING_STALE_SECONDS` | `1800` | 60-604800 | Minimum age before unclaimed running work is recovered |
-| `FAILURE_EVIDENCE_PURGE_SECONDS` | `86400` | 1-86400 | Independent failed-evidence purge cadence, capped at 24 hours |
 
 The poll interval may not exceed the lease duration, and the queued deadline
 must remain below the running stale threshold. Invalid values stop the process
@@ -54,22 +55,25 @@ and aggregate counts only, never connection URLs, raw exceptions, or task data.
 
 ### Failed HTML retention and purge readiness
 
-Failed or blocked NCAA HTML is retained for up to 30 days for restricted
-operator troubleshooting. The byte expiry is fixed at 696 hours after
-collection. The singleton scheduler runs the idempotent purge independently of
-dispatch reconciliation at least once every 24 hours, reserving the final
-24-hour window so expired bytes are physically absent no later than 720 hours
-after collection. Purging nulls the compressed HTML and sets `purged_at`; the
-checksum and sanitized D-18 audit metadata remain permanently available.
+Failed or blocked NCAA HTML is retained for 1-28 days for restricted operator
+troubleshooting; 28 days (672 hours) is the default and hard maximum. The
+standalone purge process deletes eligible bytes immediately on startup and then
+at least hourly, leaving at least 47 hours before the 720-hour hard deadline.
+Purging nulls the compressed HTML and sets `purged_at`; the checksum and
+sanitized D-18 audit metadata remain permanently available.
 
-Treat production readiness as blocked until the scheduler reports one
-successful evidence purge. Readiness also becomes blocked when the last
-successful purge is older than 24 hours; exactly 24 hours remains fresh. The
-scheduler emits only `evidence_purge` health, readiness, and aggregate purge
-counts. A `never_succeeded` or `stale` alert must be investigated by checking
-the singleton scheduler is running, validating PostgreSQL connectivity, and
-confirming `FAILURE_EVIDENCE_PURGE_SECONDS` is within 1-86400 before restoring
-production readiness. Never copy raw exception text, source payloads, or
+Configure `FAILURE_EVIDENCE_PURGE_SECONDS` from 60 through 3600 seconds; the
+default is 3600. The purge runner validates this setting before constructing a
+database engine, retries failures after a bounded 60-second delay, and never
+imports Redis, dispatch reconciliation, or Browserless configuration.
+
+Treat production readiness as blocked until the persisted PostgreSQL heartbeat
+reports one successful purge. Readiness remains fresh for exactly six hours
+only when no expired bytes remain, and otherwise returns `never_succeeded`,
+`stale`, `expired_bytes_present`, or `database_unavailable`. Compose checks this
+contract with `python scripts/run_purge.py --check`; operators can run the same
+safe command in the Fly purge machine. Logs expose only fixed health/status
+tokens and aggregate counts. Never copy raw exception text, source payloads, or
 credential-bearing URLs into an alert or incident note.
 
 Apply migrations before starting either process and verify rollback safety in
@@ -90,19 +94,20 @@ The image:
 
 ## Fly.io
 
-`fly.toml` defines separate `app`, `worker`, and singleton `scheduler` process
-groups. Its release command
+`fly.toml` defines separate `app`, `worker`, singleton `scheduler`, and singleton
+`purge` process groups. Its release command
 runs `alembic upgrade head` once before the new release receives traffic. Only
-the app process has the HTTP service and `/data` volume; the worker and scheduler
-have neither. The scheduler command clears the inherited environment and passes
-only the database URL, broker URL, and five nonsecret timing values to Python,
-so app-wide Browserless credentials are not exposed to the scheduler runtime.
+the app process has the HTTP service and `/data` volume; the worker, scheduler,
+and purge processes have neither. Both background commands clear the inherited
+environment. Scheduler receives PostgreSQL, Redis, and four dispatch timings;
+purge receives only PostgreSQL and its cadence, so app-wide Browserless and
+broker credentials are not exposed to the deletion runtime.
 
 ```bash
 fly auth login
 fly launch --copy-config --no-deploy
 fly secrets set BROWSERLESS_TOKEN=your-token DATABASE_URL=your-managed-postgres-url CELERY_BROKER_URL=your-managed-redis-url
-fly scale count app=1 worker=1 scheduler=1
+fly scale count app=1 worker=1 scheduler=1 purge=1
 fly deploy
 ```
 
@@ -192,7 +197,8 @@ but a production launch still requires one successful target-network smoke.
 | `DATABASE_URL` | required for jobs | Managed PostgreSQL URL; canonical job/snapshot source of truth |
 | `CELERY_BROKER_URL` | `redis://localhost:6379/0` | Redis broker URL; never used as customer-visible job state |
 | `REPORT_JOB_MAX_ATTEMPTS` | `3` | Total bounded job attempts (1-10); Celery retries are one fewer |
-| `FAILURE_EVIDENCE_RETENTION_DAYS` | `30` | Failed/blocked compressed HTML retention, capped at 30 days |
+| `FAILURE_EVIDENCE_RETENTION_DAYS` | `28` | Failed/blocked compressed HTML retention, strictly limited to 1-28 days |
+| `FAILURE_EVIDENCE_PURGE_SECONDS` | `3600` | Independent purge cadence, strictly limited to 60-3600 seconds |
 | `REPORT_SCHEMA_VERSION` | `schema-1` | Same-build section-cache schema identity |
 | `NCAA_PARSER_VERSION` | `parser-1` | Same-build section-cache parser identity |
 | `BROWSERLESS_PROXY` | `residential` | Browserless proxy network |
@@ -234,7 +240,7 @@ sections retain their original `collected_at` timestamp.
 
 Failed or blocked HTML is operator evidence, not canonical report data. It is
 gzip-compressed in PostgreSQL, has no public file path or object key, expires no
-later than 30 days after collection, and is purged by nulling the bytes while
+later than 28 days after collection, and is purged by nulling the bytes while
 retaining its checksum and sanitized metadata. Successful HTML is never stored.
 
 NCAA availability is an external boundary. A healthy container and `/healthz` response do not guarantee that the current hosting network can retrieve a live stats page. Keep the credential-free smoke test in the release checklist.

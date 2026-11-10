@@ -8,12 +8,11 @@ import signal
 import sys
 import threading
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 
 LOGGER = logging.getLogger("roster_scout.scheduler")
 DISPATCH_BATCH_LIMIT = 10
-EVIDENCE_PURGE_MAX_AGE = timedelta(hours=24)
 
 
 def _bounded_seconds(environ, name, default, *, minimum, maximum):
@@ -35,7 +34,6 @@ class SchedulerConfig:
     dispatch_lease_duration: timedelta
     queued_redispatch_deadline: timedelta
     running_stale_threshold: timedelta
-    evidence_purge_interval: timedelta
 
     @classmethod
     def from_environ(cls, environ=None):
@@ -69,13 +67,6 @@ class SchedulerConfig:
                 minimum=60,
                 maximum=604800,
             ),
-            evidence_purge_interval=_bounded_seconds(
-                environ,
-                "FAILURE_EVIDENCE_PURGE_SECONDS",
-                86400,
-                minimum=1,
-                maximum=86400,
-            ),
         )
         if config.poll_interval > config.dispatch_lease_duration:
             raise ValueError(
@@ -90,41 +81,6 @@ class SchedulerConfig:
         return config
 
 
-@dataclass(frozen=True)
-class PurgeReadiness:
-    ready: bool
-    status: str
-    alert: str | None
-
-
-@dataclass
-class EvidencePurgeHealth:
-    """Process-local safe health for the singleton evidence purge owner."""
-
-    last_success_at: datetime | None = None
-    last_purged_count: int | None = None
-
-    def record_success(self, *, completed_at, purged_count):
-        self.last_success_at = completed_at
-        self.last_purged_count = int(purged_count)
-
-    def readiness(self, *, now=None):
-        now = now or datetime.now(UTC)
-        if self.last_success_at is None:
-            return PurgeReadiness(
-                ready=False,
-                status="never_succeeded",
-                alert="evidence_purge health=never_succeeded readiness=blocked",
-            )
-        if now - self.last_success_at > EVIDENCE_PURGE_MAX_AGE:
-            return PurgeReadiness(
-                ready=False,
-                status="stale",
-                alert="evidence_purge health=stale readiness=blocked",
-            )
-        return PurgeReadiness(ready=True, status="fresh", alert=None)
-
-
 def run_scheduler(
     config,
     *,
@@ -133,46 +89,12 @@ def run_scheduler(
     drain,
     reconcile,
     stop_event,
-    purge=None,
-    purge_health=None,
-    clock=None,
     logger=LOGGER,
     max_cycles=None,
 ):
     """Poll service boundaries; a shutdown request never interrupts a cycle."""
-    clock = clock or (lambda: datetime.now(UTC))
-    purge_health = purge_health or EvidencePurgeHealth()
     cycles = 0
-    next_purge_at = None
-    purge_retry_at = None
     while not stop_event.is_set() or cycles == 0:
-        cycle_now = clock()
-        purge_is_due = purge is not None and (
-            (purge_retry_at is not None and cycle_now >= purge_retry_at)
-            or (
-                purge_retry_at is None
-                and (next_purge_at is None or cycle_now >= next_purge_at)
-            )
-        )
-        if purge_is_due:
-            try:
-                purged_count = purge(session_factory, now=cycle_now)
-            except Exception:
-                purge_retry_at = cycle_now + config.poll_interval
-                readiness = purge_health.readiness(now=cycle_now)
-                logger.error("%s", readiness.alert)
-            else:
-                # purge_expired_evidence returns only after its transaction commits.
-                purge_health.record_success(
-                    completed_at=cycle_now,
-                    purged_count=purged_count,
-                )
-                next_purge_at = cycle_now + config.evidence_purge_interval
-                purge_retry_at = None
-                logger.info(
-                    "evidence_purge health=fresh purged=%d",
-                    purged_count,
-                )
         try:
             reconciliation = reconcile(
                 session_factory,
@@ -206,21 +128,12 @@ def run_scheduler(
             max_cycles is not None and cycles >= max_cycles
         ):
             break
-        wait_seconds = config.poll_interval.total_seconds()
-        purge_wakeup_at = purge_retry_at or next_purge_at
-        if purge_wakeup_at is not None:
-            until_purge = max(
-                0.0,
-                (purge_wakeup_at - clock()).total_seconds(),
-            )
-            wait_seconds = min(wait_seconds, until_purge)
-        stop_event.wait(wait_seconds)
+        stop_event.wait(config.poll_interval.total_seconds())
 
 
 def _runtime_dependencies():
     """Construct network-capable dependencies only after config validation."""
     from roster_scout.database import create_session_factory, get_engine
-    from roster_scout.evidence import purge_expired_evidence
     from roster_scout.jobs import (
         drain_report_dispatch_outbox,
         reconcile_stale_report_jobs,
@@ -234,7 +147,6 @@ def _runtime_dependencies():
         dispatch_report_job,
         drain_report_dispatch_outbox,
         reconcile_stale_report_jobs,
-        purge_expired_evidence,
     )
 
 
@@ -252,7 +164,7 @@ def main(environ=None):
 
     signal.signal(signal.SIGTERM, request_shutdown)
     signal.signal(signal.SIGINT, request_shutdown)
-    engine, session_factory, dispatch, drain, reconcile, purge = _runtime_dependencies()
+    engine, session_factory, dispatch, drain, reconcile = _runtime_dependencies()
     try:
         run_scheduler(
             config,
@@ -260,8 +172,6 @@ def main(environ=None):
             dispatch=dispatch,
             drain=drain,
             reconcile=reconcile,
-            purge=purge,
-            purge_health=EvidencePurgeHealth(),
             stop_event=stop_event,
         )
     finally:

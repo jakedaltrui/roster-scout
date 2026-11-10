@@ -33,7 +33,7 @@ services:
       BROWSERLESS_ACCOUNT_MAX_SESSIONS: "2"
       CELERY_WORKER_CONCURRENCY: "1"
       REPORT_JOB_MAX_ATTEMPTS: "3"
-      FAILURE_EVIDENCE_RETENTION_DAYS: "30"
+      FAILURE_EVIDENCE_RETENTION_DAYS: "28"
     tmpfs:
       - /tmp/roster-scout-worker
     depends_on:
@@ -54,12 +54,29 @@ services:
       REPORT_DISPATCH_LEASE_SECONDS: "60"
       REPORT_QUEUED_REDISPATCH_SECONDS: "300"
       REPORT_RUNNING_STALE_SECONDS: "1800"
-      FAILURE_EVIDENCE_PURGE_SECONDS: "86400"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    restart: unless-stopped
+
+  purge:
+    build: .
+    command: ["python", "scripts/run_purge.py"]
+    profiles: ["scheduler"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://roster_scout:roster_scout@postgres:5432/roster_scout
+      FAILURE_EVIDENCE_PURGE_SECONDS: "3600"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "scripts/run_purge.py", "--check"]
+      interval: 5m
+      timeout: 30s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
 
   postgres:
