@@ -6,7 +6,7 @@ Roster Scout v2.0 is delivered in five dependency-ordered slices. The roadmap fi
 
 ## Phases
 
-- [x] **Phase 1: Canonical Snapshot Foundation** - Persist provenance-rich immutable snapshots through durable report jobs. (completed 2026-11-01)
+- [ ] **Phase 1: Canonical Snapshot Foundation** - Persist provenance-rich immutable snapshots through durable report jobs. (needs review; 21/30 plans complete)
 - [ ] **Phase 2: Identity, Organizations, and Report Library** - Gate Roster Scout behind passwordless organization access and versioned report workflows.
 - [ ] **Phase 3: Detailed NCAA Intelligence** - Add fielding, advanced metrics, situational splits, career history, and game logs.
 - [ ] **Phase 4: Detailed Excel Report** - Deliver the exact detailed snapshot as a branded ten-sheet workbook.
@@ -29,7 +29,7 @@ Roster Scout v2.0 is delivered in five dependency-ordered slices. The roadmap fi
 4. Innings, missing values, two-way players, transfers, raw values, and metric-definition lineage are represented without ambiguity.
 5. Existing selector, scraper, cache, and basic workbook regression tests continue to pass.
 
-**Plans:** 21/21 plans complete
+**Plans:** 21/30 plans complete
 
 Plans:
 **Wave 1**
@@ -78,6 +78,56 @@ Plans:
 
 - [x] 01-11: Run the goal-level D1/D2/D3, migration, deployment, and workbook release gate.
 
+**Wave 12** *(blocked on Wave 11 completion)*
+
+- [x] 01-14: Enforce section-aware NCAA core-header contracts and malformed-schema non-publication.
+- [x] 01-15: Serialize snapshot publication against concurrent child and metric mutations.
+
+**Wave 13** *(blocked on Wave 12 completion)*
+
+- [x] 01-16: Make PostgreSQL outbox generations the sole retry authority.
+
+**Wave 14** *(blocked on Wave 13 completion)*
+
+- [x] 01-17: Bind exact source evidence and typed facts to one PlayerTeamSeason identity.
+
+**Wave 15** *(blocked on Wave 14 completion)*
+
+- [x] 01-18: Isolate ambiguous ID-less names as unresolved identities.
+- [x] 01-19: Add persisted failed-evidence purge health and bounded retention configuration.
+
+**Wave 16** *(blocked on Wave 15 completion)*
+
+- [x] 01-20: Supervise evidence purge independently from dispatch reconciliation.
+
+**Wave 17** *(blocked on Wave 16 completion)*
+
+- [x] 01-21: Gate readiness on persisted purge health and finalize the first post-gap release command.
+
+**Wave 18** *(blocked on Wave 17 completion)*
+
+- [ ] 01-22: Make NCAA required headers unique and persist a bumped parser/header-contract identity.
+- [ ] 01-23: Require nonempty corroboration before merging ID-less batting and pitching rows.
+- [ ] 01-24: Database-enforce authoritative source-player equivalence and recheck it at publication.
+
+**Wave 19** *(blocked on Wave 18 completion)*
+
+- [ ] 01-25: Add a reversible PostgreSQL 28-day failure-evidence retention-window constraint.
+
+**Wave 20** *(blocked on Wave 19 completion)*
+
+- [ ] 01-26: Fail readiness and worker startup on invalid retention while preserving terminal job state.
+- [ ] 01-28: Add privacy-conscious usage events, exact metric definitions, and an operator report.
+
+**Wave 21** *(blocked on Wave 20 completion)*
+
+- [ ] 01-27: Purge evidence in bounded SKIP LOCKED batches with fail-closed completion health.
+- [ ] 01-29: Count successful workbook downloads exactly once per browser submission.
+
+**Wave 22** *(blocked on Wave 21 completion)*
+
+- [ ] 01-30: Run every remaining gap and usage/download regression in one final release gate.
+
 ### Phase 2: Identity, Organizations, and Report Library
 
 **Goal:** Authenticated customers collaborate inside explicit organizations and manage persistent, refreshable opponent reports without cross-organization access.
@@ -92,14 +142,16 @@ Plans:
 3. Members can create reports, observe job/section state, browse dated snapshots, and explicitly refresh a report into a new successor snapshot.
 4. Prior snapshots and artifacts remain unchanged and accessible after refresh.
 5. Cross-organization identifier substitution is denied across pages, APIs, jobs, refresh actions, and downloads, with auditable security events.
+6. After authentication and organization authorization, each accepted report/job request records one `authenticated_use` event keyed by the accepted ReportJob UUID with canonical account and organization IDs, with `actor_account_id` foreign-keyed to the Phase 2 account table; the operator report proves windowed `COUNT(DISTINCT actor_account_id)` without treating page views or anonymous identifiers as users.
 
-**Plans:** 3 plans
+**Plans:** 4 plans
 
 Plans:
 
 - [ ] 02-01: Integrate managed passwordless/federated identity, sessions, logout, and enterprise SSO connection capability.
 - [ ] 02-02: Add organizations, roles, invitations, membership administration, authorization services, and denial tests.
 - [ ] 02-03: Build the organization report library, asynchronous status UI, snapshot history, explicit refresh, retry, and partial-state experience.
+- [ ] 02-04: FK-bind usage actors to canonical accounts, wire accepted authorized report/job requests to account/organization events, enforce active organization membership, and verify windowed distinct-user reporting.
 
 ### Phase 3: Detailed NCAA Intelligence
 
@@ -178,8 +230,8 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |---|---:|---|---|
-| 1. Canonical Snapshot Foundation | 21/21 | Complete   | 2026-11-10 |
-| 2. Identity, Organizations, and Report Library | 0/3 | Not started | - |
+| 1. Canonical Snapshot Foundation | 21/30 | Needs review | - |
+| 2. Identity, Organizations, and Report Library | 0/4 | Not started | - |
 | 3. Detailed NCAA Intelligence | 0/4 | Not started | - |
 | 4. Detailed Excel Report | 0/3 | Not started | - |
 | 5. Embedded Opponent Dashboard | 0/4 | Not started | - |
