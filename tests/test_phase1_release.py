@@ -552,8 +552,12 @@ class Phase1ReleaseTests(unittest.TestCase):
         client = app_module.app.test_client()
         for division in (1, 2, 3):
             with self.subTest(division=division):
-                batting = scraper._parse_ncaa_stat_table(fixture(f"d{division}_batting.html"))
-                pitching = scraper._parse_ncaa_stat_table(fixture(f"d{division}_pitching.html"))
+                batting = scraper._parse_ncaa_stat_table(
+                    fixture(f"d{division}_batting.html"), section="batting"
+                )
+                pitching = scraper._parse_ncaa_stat_table(
+                    fixture(f"d{division}_pitching.html"), section="pitching"
+                )
                 players = scraper._normalize_ncaa_players(batting, pitching)
                 source = TEAMS[division]
                 with patch.object(

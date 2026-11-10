@@ -142,8 +142,12 @@ class NcaaWorkflowTests(unittest.TestCase):
 
     def test_parses_and_normalizes_all_three_divisions(self):
         for division in (1, 2, 3):
-            batting = rs._parse_ncaa_stat_table(fixture(f"d{division}_batting.html"))
-            pitching = rs._parse_ncaa_stat_table(fixture(f"d{division}_pitching.html"))
+            batting = rs._parse_ncaa_stat_table(
+                fixture(f"d{division}_batting.html"), section="batting"
+            )
+            pitching = rs._parse_ncaa_stat_table(
+                fixture(f"d{division}_pitching.html"), section="pitching"
+            )
             players = rs._normalize_ncaa_players(batting, pitching)
             hitters, pitchers = rs.split_roster(players)
             self.assertGreaterEqual(len(hitters), 1, f"D{division} hitter missing")
@@ -152,8 +156,12 @@ class NcaaWorkflowTests(unittest.TestCase):
             self.assertIn("ERA", pitchers[0])
 
     def test_merges_two_way_player_by_ncaa_player_id(self):
-        batting = rs._parse_ncaa_stat_table(fixture("d1_batting.html"))
-        pitching = rs._parse_ncaa_stat_table(fixture("d1_pitching.html"))
+        batting = rs._parse_ncaa_stat_table(
+            fixture("d1_batting.html"), section="batting"
+        )
+        pitching = rs._parse_ncaa_stat_table(
+            fixture("d1_pitching.html"), section="pitching"
+        )
         players = rs._normalize_ncaa_players(batting, pitching)
         two_way = next(player for player in players if player["Name"] == "D One Two Way")
         self.assertTrue(two_way["_has_hitting"])
@@ -581,51 +589,112 @@ class NcaaParserCorruptionTests(unittest.TestCase):
             "</table></body></html>"
         )
 
-    def assert_schema_error(self, html):
+    def assert_schema_error(self, html, section="batting"):
         with self.assertRaisesRegex(rs.NcaaAccessError, "schema"):
-            rs._parse_ncaa_stat_table(html)
+            rs._parse_ncaa_stat_table(html, section=section)
+
+    def test_requires_explicit_versioned_core_header_contract(self):
+        self.assertEqual(
+            set(rs.NCAA_CORE_HEADER_SIGNATURES), {"batting", "pitching"}
+        )
+        self.assertEqual(
+            rs.NCAA_CORE_HEADER_SIGNATURES["batting"]["required_headers"],
+            frozenset({"player", "ab", "h"}),
+        )
+        self.assertEqual(
+            rs.NCAA_CORE_HEADER_SIGNATURES["pitching"]["required_headers"],
+            frozenset({"player", "ip", "era"}),
+        )
+        self.assertTrue(rs.NCAA_CORE_HEADER_SIGNATURES["batting"]["version"])
+        self.assertTrue(rs.NCAA_CORE_HEADER_SIGNATURES["pitching"]["version"])
+
+    def test_rejects_unsupported_core_headers_by_section(self):
+        corruptions = {
+            "batting": (
+                "<th>Player</th>",
+                "<th>Player</th><th>Unrelated</th>",
+                "<th>Player</th><th>At Bats</th><th>H</th>",
+                "<th>Player</th><th>AB</th><th>Hits</th>",
+                "<th>Player</th><th>IP</th><th>ERA</th>",
+            ),
+            "pitching": (
+                "<th>Player</th>",
+                "<th>Player</th><th>Unrelated</th>",
+                "<th>Player</th><th>Innings</th><th>ERA</th>",
+                "<th>Player</th><th>IP</th><th>Earned Run Average</th>",
+                "<th>Player</th><th>AB</th><th>H</th>",
+            ),
+        }
+        for section, headers in corruptions.items():
+            for header in headers:
+                with self.subTest(section=section, header=header):
+                    self.assert_schema_error(self.table(header), section=section)
+
+    def test_core_header_comparison_normalizes_case_and_whitespace(self):
+        cases = {
+            "batting": "<th> player </th><th> ab </th><th> h </th>",
+            "pitching": "<th> PLAYER </th><th> ip </th><th> era </th>",
+        }
+        for section, header in cases.items():
+            with self.subTest(section=section):
+                result = rs._parse_ncaa_stat_table_result(
+                    self.table(header), section=section
+                )
+                self.assertEqual(result.rows, ())
+                self.assertTrue(result.verified_empty)
 
     def test_rejects_missing_or_renamed_player_header(self):
         self.assert_schema_error(self.table(
-            "<th>Athlete</th><th>AB</th>",
-            "<tr><td>Changed Header</td><td>3</td></tr>",
+            "<th>Athlete</th><th>AB</th><th>H</th>",
+            "<tr><td>Changed Header</td><td>3</td><td>1</td></tr>",
         ))
 
     def test_rejects_every_row_cell_mismatch(self):
         self.assert_schema_error(self.table(
-            "<th>Player</th><th>AB</th>",
+            "<th>Player</th><th>AB</th><th>H</th>",
             "<tr><td>Only One Cell</td></tr>",
         ))
 
     def test_rejects_one_malformed_player_row_among_valid_rows(self):
         self.assert_schema_error(self.table(
-            "<th>Player</th><th>AB</th>",
-            "<tr><td>Valid Player</td><td>4</td></tr>"
+            "<th>Player</th><th>AB</th><th>H</th>",
+            "<tr><td>Valid Player</td><td>4</td><td>1</td></tr>"
             "<tr><td>Partial Player</td></tr>",
         ))
 
     def test_valid_empty_tbody_and_explicit_marker_are_verified_empty(self):
-        empty = self.table("<th>Player</th><th>AB</th>")
-        marker = self.table(
-            "<th>Player</th><th>AB</th>",
-            "<tr><td colspan='2'>No data available</td></tr>",
-        )
-        for batting in (empty, marker):
-            with self.subTest(batting=batting):
-                with patch.object(rs, "_fetch_ncaa_pages", return_value={
-                    "batting": batting,
+        cases = {
+            "batting": (
+                "<th>Player</th><th>AB</th><th>H</th>",
+                "<tr><td colspan='3'>No data available</td></tr>",
+            ),
+            "pitching": (
+                "<th>Player</th><th>IP</th><th>ERA</th>",
+                "<tr><td colspan='3'>No statistics available</td></tr>",
+            ),
+        }
+        for section, (header, marker_row) in cases.items():
+            for rows in ("", marker_row):
+                html = self.table(header, rows)
+                pages = {
+                    "batting": fixture("d1_batting.html"),
                     "pitching": fixture("d1_pitching.html"),
-                }):
-                    collection = rs.collect_ncaa_by_id("615087", "d2", year=2026)
-                section = next(item for item in collection.sections if item.name == "batting")
-                self.assertEqual(section.rows, ())
-                self.assertTrue(section.verified_empty)
+                    section: html,
+                }
+                with self.subTest(section=section, rows=rows):
+                    with patch.object(rs, "_fetch_ncaa_pages", return_value=pages):
+                        collection = rs.collect_ncaa_by_id("615087", "d2", year=2026)
+                    parsed = next(
+                        item for item in collection.sections if item.name == section
+                    )
+                    self.assertEqual(parsed.rows, ())
+                    self.assertTrue(parsed.verified_empty)
 
     def test_aggregate_only_rows_are_verified_empty(self):
         aggregate = self.table(
-            "<th>Player</th><th>AB</th>",
-            "<tr><td>Team Totals</td><td>30</td></tr>"
-            "<tr><td>Opponent Totals</td><td>28</td></tr>",
+            "<th>Player</th><th>AB</th><th>H</th>",
+            "<tr><td>Team Totals</td><td>30</td><td>8</td></tr>"
+            "<tr><td>Opponent Totals</td><td>28</td><td>7</td></tr>",
         )
         with patch.object(rs, "_fetch_ncaa_pages", return_value={
             "batting": aggregate,
