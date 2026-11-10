@@ -143,6 +143,81 @@ class CanonicalIdentityResolutionTests(unittest.TestCase):
         self.assertEqual(canonical.players[0].identity_key, "ncaa:42")
 
 
+class CanonicalIdentityTests(unittest.TestCase):
+    def test_name_only_pair_remains_two_unresolved_identities(self):
+        canonical = canonicalize_ncaa_collection(collection(
+            [{"Player": "Same Name"}],
+            [{"Player": "Same Name", "IP": "1.0"}],
+        ))
+
+        self.assertEqual(len(canonical.players), 2)
+        self.assertEqual(
+            tuple(player.identity_status for player in canonical.players),
+            ("unresolved", "unresolved"),
+        )
+        self.assertEqual(
+            len({player.identity_key for player in canonical.players}),
+            2,
+        )
+
+    def test_one_sided_support_does_not_corroborate_a_merge(self):
+        cases = (
+            (
+                [{"Player": "Same Name", "Jersey": "7"}],
+                [{"Player": "Same Name", "IP": "1.0"}],
+            ),
+            (
+                [{"Player": "Same Name"}],
+                [{"Player": "Same Name", "Pos": "P", "IP": "1.0"}],
+            ),
+        )
+        for batting, pitching in cases:
+            with self.subTest(batting=batting, pitching=pitching):
+                canonical = canonicalize_ncaa_collection(collection(batting, pitching))
+                self.assertEqual(len(canonical.players), 2)
+                self.assertEqual(
+                    tuple(player.identity_status for player in canonical.players),
+                    ("unresolved", "unresolved"),
+                )
+                self.assertEqual(
+                    len({player.identity_key for player in canonical.players}),
+                    2,
+                )
+
+    def test_shared_nonempty_jersey_or_position_corroborates_a_merge(self):
+        cases = (
+            (
+                [{"Player": "Two Way", "Jersey": "7"}],
+                [{"Player": "Two Way", "Jersey": "7", "IP": "1.0"}],
+            ),
+            (
+                [{"Player": "Two Way", "Pos": "RHP"}],
+                [{"Player": "Two Way", "Pos": "  rhp ", "IP": "1.0"}],
+            ),
+        )
+        for batting, pitching in cases:
+            with self.subTest(batting=batting, pitching=pitching):
+                canonical = canonicalize_ncaa_collection(collection(batting, pitching))
+                self.assertEqual(len(canonical.players), 1)
+                self.assertEqual(canonical.players[0].identity_status, "fallback")
+
+    def test_conflicting_nonempty_support_keeps_teammates_separate(self):
+        canonical = canonicalize_ncaa_collection(collection(
+            [{"Player": "Same Name", "Jersey": "7", "Pos": "OF"}],
+            [{"Player": "Same Name", "Jersey": "8", "Pos": "P", "IP": "1.0"}],
+        ))
+
+        self.assertEqual(len(canonical.players), 2)
+        self.assertEqual(
+            tuple(player.identity_status for player in canonical.players),
+            ("fallback", "fallback"),
+        )
+        self.assertEqual(
+            len({player.identity_key for player in canonical.players}),
+            2,
+        )
+
+
 class CanonicalDataTests(unittest.TestCase):
     def test_negative_count_values_are_rejected(self):
         batting_cases = (
