@@ -134,19 +134,34 @@ def _support(row: NcaaSourceRow) -> tuple[str | None, str | None]:
     return (_raw(row, "Jersey", "#"), _raw(row, "Pos", "Position"))
 
 
+def _normalized_support(row: NcaaSourceRow) -> tuple[str, str]:
+    jersey, position = _support(row)
+    return (
+        (jersey or "").strip().casefold(),
+        " ".join((position or "").casefold().split()),
+    )
+
+
 def _compatible(left: NcaaSourceRow, right: NcaaSourceRow) -> bool:
-    for a, b in zip(_support(left), _support(right)):
-        if a and b and a.casefold() != b.casefold():
+    for a, b in zip(_normalized_support(left), _normalized_support(right)):
+        if a and b and a != b:
             return False
     return True
 
 
+def _corroborated(left: NcaaSourceRow, right: NcaaSourceRow) -> bool:
+    return any(
+        a and b and a == b
+        for a, b in zip(_normalized_support(left), _normalized_support(right))
+    )
+
+
 def _support_signature(row: NcaaSourceRow) -> tuple[str, str, str]:
-    jersey, position = _support(row)
+    jersey, position = _normalized_support(row)
     return (
         normalize_material_name(_raw(row, "Player")),
-        (jersey or "").strip().casefold(),
-        " ".join((position or "").casefold().split()),
+        jersey,
+        position,
     )
 
 
@@ -218,6 +233,8 @@ def _identity_groups(collection: NcaaCollection) -> list[_IdentityGroup]:
                 continue
             pit = candidates[0]
             if len(pit_candidates[id(pit)]) != 1:
+                continue
+            if not _corroborated(bat, pit):
                 continue
             grouped_rows = (bat, pit)
             groups.append(_IdentityGroup(
