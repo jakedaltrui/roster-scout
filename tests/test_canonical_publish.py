@@ -438,7 +438,7 @@ class SharedRecordPublishCase(unittest.TestCase):
             "source_season_id": "shared-season",
             "source_season_team_id": "shared-team-season",
             "collected_at": collected_at,
-            "parser_version": "parser-1",
+            "parser_version": rs.NCAA_PARSER_VERSION,
             "schema_version": "schema-1",
         }
         return (
@@ -790,7 +790,7 @@ class PublicationIntegrityTests(CanonicalPublishTests):
                 source_season_team_id="615087",
                 source_stat_category_id=category,
                 collected_at=datetime(2026, 11, 8, 12, 0, tzinfo=UTC),
-                parser_version="parser-1",
+                parser_version=rs.NCAA_PARSER_VERSION,
                 schema_version="schema-1",
             )
             for name, category in (
@@ -879,7 +879,7 @@ class UnresolvedIdentityPersistenceTests(CanonicalPublishTests):
             "source_season_id": TEAMS[2]["season_id"],
             "source_season_team_id": TEAMS[2]["season_team_id"],
             "collected_at": collected_at,
-            "parser_version": "parser-1",
+            "parser_version": rs.NCAA_PARSER_VERSION,
             "schema_version": "schema-1",
         }
         return (
@@ -930,7 +930,7 @@ class UnresolvedIdentityPersistenceTests(CanonicalPublishTests):
             "source_season_id": TEAMS[2]["season_id"],
             "source_season_team_id": TEAMS[2]["season_team_id"],
             "collected_at": collected_at,
-            "parser_version": "parser-1",
+            "parser_version": rs.NCAA_PARSER_VERSION,
             "schema_version": "schema-1",
         }
         return (
