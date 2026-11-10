@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 
-from sqlalchemy import distinct, func, select
+from sqlalchemy import distinct, func, select, text
 
 from .models import (
     BattingFact,
@@ -20,6 +20,10 @@ class SnapshotPublicationError(ValueError):
 
 def publish_snapshot(session, snapshot_id):
     """Validate and publish a draft inside the caller-owned transaction."""
+    session.execute(
+        text("SELECT lock_snapshot_mutation(CAST(:snapshot_id AS uuid))"),
+        {"snapshot_id": snapshot_id},
+    )
     snapshot = session.scalar(
         select(ReportSnapshot)
         .where(ReportSnapshot.id == snapshot_id)
