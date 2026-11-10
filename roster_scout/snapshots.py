@@ -2,11 +2,12 @@
 
 from datetime import UTC, datetime
 
-from sqlalchemy import distinct, func, select, text
+from sqlalchemy import distinct, func, or_, select, text
 
 from .models import (
     BattingFact,
     PitchingFact,
+    Player,
     PlayerTeamSeason,
     ReportSection,
     ReportSnapshot,
@@ -106,6 +107,32 @@ def publish_snapshot(session, snapshot_id):
             raise SnapshotPublicationError(
                 f"{required} facts are not uniquely linked to snapshot-owned evidence"
             )
+
+    authoritative_mismatch_count = session.scalar(
+        select(func.count())
+        .select_from(SourceRecord)
+        .join(
+            PlayerTeamSeason,
+            (PlayerTeamSeason.id == SourceRecord.player_team_season_id)
+            & (PlayerTeamSeason.snapshot_id == SourceRecord.snapshot_id)
+            & (PlayerTeamSeason.organization_id == SourceRecord.organization_id),
+        )
+        .join(Player, Player.id == PlayerTeamSeason.player_id)
+        .where(
+            SourceRecord.snapshot_id == snapshot.id,
+            SourceRecord.organization_id == snapshot.organization_id,
+            SourceRecord.source_player_id.is_not(None),
+            or_(
+                Player.source != "ncaa",
+                Player.source_player_id.is_(None),
+                Player.source_player_id != SourceRecord.source_player_id,
+            ),
+        )
+    )
+    if authoritative_mismatch_count:
+        raise SnapshotPublicationError(
+            "snapshot contains an authoritative player identity mismatch"
+        )
 
     conflict = session.scalar(
         select(PlayerTeamSeason.id).where(
