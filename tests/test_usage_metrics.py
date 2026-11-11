@@ -334,6 +334,103 @@ class UsageServiceTests(unittest.TestCase):
         self.assertEqual(global_metrics.successful_workbook_downloads, 3)
         self.assertEqual(global_metrics.unique_authenticated_users, 2)
 
+    def test_actor_bearing_download_does_not_count_as_authenticated_user(self):
+        from roster_scout.usage import (
+            query_usage_metrics,
+            record_authenticated_report_request_accepted,
+            record_workbook_download_served,
+        )
+
+        organization_id = self._organization("Download Actor Org")
+        actor_id = uuid.uuid4()
+        start = datetime(2026, 2, 2, tzinfo=UTC)
+        end = start + timedelta(days=1)
+        with self.Session.begin() as session:
+            record_workbook_download_served(
+                session,
+                event_key=str(uuid.uuid4()),
+                actor_account_id=actor_id,
+                organization_id=organization_id,
+                occurred_at=start,
+            )
+        with self.Session() as session:
+            download_only = query_usage_metrics(session, start=start, end=end)
+        self.assertEqual(download_only.successful_workbook_downloads, 1)
+        self.assertEqual(download_only.unique_authenticated_users, 0)
+
+        with self.Session.begin() as session:
+            record_authenticated_report_request_accepted(
+                session,
+                event_key=str(uuid.uuid4()),
+                actor_account_id=actor_id,
+                organization_id=organization_id,
+                occurred_at=start + timedelta(hours=1),
+            )
+        with self.Session() as session:
+            after_authenticated_use = query_usage_metrics(
+                session,
+                start=start,
+                end=end,
+            )
+        self.assertEqual(after_authenticated_use.successful_workbook_downloads, 1)
+        self.assertEqual(after_authenticated_use.unique_authenticated_users, 1)
+
+    def test_organization_scoped_unique_users_require_authenticated_use(self):
+        from roster_scout.usage import (
+            query_usage_metrics,
+            record_authenticated_report_request_accepted,
+            record_workbook_download_served,
+        )
+
+        first_org = self._organization("Scoped Auth First")
+        second_org = self._organization("Scoped Auth Second")
+        first_actor = uuid.uuid4()
+        second_actor = uuid.uuid4()
+        download_only_actor = uuid.uuid4()
+        start = datetime(2026, 2, 3, tzinfo=UTC)
+        end = start + timedelta(days=1)
+        with self.Session.begin() as session:
+            for actor_id, organization_id in (
+                (first_actor, first_org),
+                (download_only_actor, first_org),
+                (second_actor, second_org),
+            ):
+                record_workbook_download_served(
+                    session,
+                    event_key=str(uuid.uuid4()),
+                    actor_account_id=actor_id,
+                    organization_id=organization_id,
+                    occurred_at=start,
+                )
+            for _index in range(2):
+                record_authenticated_report_request_accepted(
+                    session,
+                    event_key=str(uuid.uuid4()),
+                    actor_account_id=first_actor,
+                    organization_id=first_org,
+                    occurred_at=start + timedelta(hours=1),
+                )
+            record_authenticated_report_request_accepted(
+                session,
+                event_key=str(uuid.uuid4()),
+                actor_account_id=second_actor,
+                organization_id=second_org,
+                occurred_at=start + timedelta(hours=1),
+            )
+
+        with self.Session() as session:
+            first_metrics = query_usage_metrics(
+                session,
+                start=start,
+                end=end,
+                organization_id=first_org,
+            )
+            global_metrics = query_usage_metrics(session, start=start, end=end)
+        self.assertEqual(first_metrics.successful_workbook_downloads, 2)
+        self.assertEqual(first_metrics.unique_authenticated_users, 1)
+        self.assertEqual(global_metrics.successful_workbook_downloads, 3)
+        self.assertEqual(global_metrics.unique_authenticated_users, 2)
+
     def test_null_actor_never_counts_as_unique_user(self):
         from roster_scout.usage import query_usage_metrics, record_workbook_download_served
 
