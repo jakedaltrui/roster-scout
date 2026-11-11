@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-32-PLAN.md
-last_updated: "2026-11-11T05:17:51.036Z"
-last_activity: 2026-11-11 -- Completed Plan 01-32 legacy NCAA result cache contract
+stopped_at: Completed 01-33-PLAN.md
+last_updated: "2026-11-11T05:31:00.000Z"
+last_activity: 2026-11-11 -- Completed Plan 01-33 usage semantics and database-optional native workbook
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 37
-  completed_plans: 32
-  percent: 86
+  completed_plans: 33
+  percent: 89
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-11-01)
 ## Current Position
 
 Phase: 01 (canonical-snapshot-foundation) — EXECUTING
-Plan: 32 of 37
+Plan: 33 of 37
 Status: Ready to execute
-Last activity: 2026-11-11 -- Completed Plan 01-32 legacy NCAA result cache contract
+Last activity: 2026-11-11 -- Completed Plan 01-33 usage semantics and database-optional native workbook
 
-Progress: [█████████░] 86%
+Progress: [█████████░] 89%
 
 ## Performance Metrics
 
@@ -158,6 +158,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 01]: Publication locks every linked Player and PlayerTeamSeason before authoritative mismatch validation. — Publisher certification now observes the same serialized state as database triggers.
 - [Phase 01]: Legacy NCAA result payloads must exactly match cache format, parser, core-header, and report-schema identities before normalized players are trusted. — Pre-contract evidence must not bypass a stricter collector deployment.
 - [Phase 01]: The successful-result cache and per-team file lock derive from one source-and-contract key. — Incompatible collectors must neither share artifacts nor coalesce behind the same lock.
+- [Phase 01]: Unique authenticated users require authenticated_use events; actor-bearing downloads remain valid audit rows but never define adoption.
+- [Phase 01]: Legacy/native workbook analytics are best-effort with explicit recorded or dropped dispositions; durable report/job paths remain database-required.
+- [Phase 01]: Dropped native analytics emit one fixed usage_event_dropped warning without request, identity, database, or exception material.
 
 ### Pending Todos
 
@@ -188,9 +191,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 01 P30 | 8 min | 2 tasks | 3 files |
 | Phase 01 P31 | 18 min | 2 tasks | 5 files |
 | Phase 01 P32 | 6 min | 2 tasks | 3 files |
+| Phase 01 P33 | 8 min | 2 tasks | 4 files |
 
 ## Session Continuity
 
-Last session: 2026-11-11T05:17:50.856Z
-Stopped at: Completed 01-32-PLAN.md
+Last session: 2026-11-11T05:31:00.000Z
+Stopped at: Completed 01-33-PLAN.md
 Resume file: None
