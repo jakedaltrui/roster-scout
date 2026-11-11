@@ -5,7 +5,7 @@ status: passed
 score: "160/160 must-haves verified"
 overrides_applied: 0
 re_verification:
-  previous_status: gaps_found
+  previous_status: superseded
   previous_score: "128/143"
   gaps_closed:
     - "Every authoritative mutation and publication path now shares a visibility-independent global Player UUID lock, including the uncommitted-new-organization schedule."
