@@ -1,6 +1,6 @@
 ---
 phase: 01-canonical-snapshot-foundation
-reviewed: 2026-11-11T17:54:38Z
+reviewed: 2026-11-11T18:18:10Z
 depth: standard
 files_reviewed: 13
 files_reviewed_list:
@@ -18,69 +18,57 @@ files_reviewed_list:
   - tests/js/download_tracking.test.mjs
   - scripts/validate_phase1_release.py
 findings:
-  critical: 1
+  critical: 0
   warning: 1
   info: 0
-  total: 2
+  total: 1
 status: issues_found
 ---
 
 # Phase 1: Code Review Report
 
-**Reviewed:** 2026-11-11T17:54:38Z
+**Reviewed:** 2026-11-11T18:18:10Z
 **Depth:** standard
 **Files Reviewed:** 13
 **Status:** issues_found
 
 ## Summary
 
-The round-five changes close the five previously reported gaps in their covered schedules: global Player serialization, Fly public-origin selection, definitive acknowledgement handling, storage fallback, and committed-range release validation all have passing focused regressions. The review nevertheless found a reproducible PostgreSQL deadlock in publication versus child insertion, plus an accepted public-origin configuration that can never match a browser's serialized origin.
+The two prior findings are fixed. Publication now uses PostgreSQL `FOR NO KEY UPDATE`, so the real child foreign-key `KEY SHARE`/snapshot-advisory interleaving completes without SQLSTATE `40P01` or `55P03`, while the mutation-before-publication and publication-before-mutation schedules still serialize correctly. Configured HTTPS `:443` and HTTP `:80` origins now reduce to the browser's portless form, and non-default `:8443` remains part of the origin.
 
-Focused evidence run during review: 27 PostgreSQL global-identity/publication tests passed, 16 Node acknowledgement tests passed, 8 origin/release-range tests passed, and both committed-range and working-tree `git diff --check` passed. A separate two-connection probe reproduced SQLSTATE `40P01` for the uncovered lock schedule.
+All five earlier round-five gaps remain closed: global Player serialization, Fly public-origin selection, definitive acknowledgement handling, browser-storage fallback, and committed-range release validation. Focused evidence included 15 publication serialization tests, 17 global-lock/migration tests, 5 public-origin tests, 4 template acknowledgement-contract tests, 16 Node state-machine tests, 12 release-validator tests, and both committed-range and working-tree `git diff --check`.
+
+One narrower accepted-but-unusable public-origin form remains: hostnames are lowercased but are not canonicalized using browser/WHATWG host rules. This does not affect the checked-in Fly hostname, but it breaks acknowledgement tracking for valid IDN custom domains and other noncanonical host spellings.
 
 ## Narrative Findings (AI reviewer)
 
-## Critical Issues
-
-### CR-01: Publication reverses the foreign-key/advisory lock order and can deadlock
-
-**Classification:** BLOCKER
-
-**File:** `roster_scout/snapshots.py:28-32`
-
-**Issue:** `publish_snapshot` acquires the snapshot advisory lock and then takes `FOR UPDATE` on the `report_snapshots` row. A concurrent child insert necessarily takes a PostgreSQL `KEY SHARE` lock on that parent row while checking its foreign key *before* its AFTER-statement trigger can call `lock_snapshot_mutation`. This permits the cycle: publisher holds advisory lock → child holds parent `KEY SHARE` → child waits for advisory lock → publisher waits for `FOR UPDATE`. A disposable two-connection probe against the Phase 1 test database produced SQLSTATE `40P01`, while the current tests at `tests/test_canonical_publish.py:1639` and `tests/test_canonical_publish.py:1693` only start the second path after the first has already passed this vulnerable interval.
-
-**Fix:** Keep the advisory lock as the serialization authority, but read the snapshot with a row mode compatible with foreign-key `KEY SHARE` (PostgreSQL `FOR NO KEY UPDATE`) or without a row lock. For SQLAlchemy/PostgreSQL, use the option that emits `FOR NO KEY UPDATE`, then add a two-connection regression that pauses publication after `lock_snapshot_mutation`, lets a real `SourceRecord` or `PlayerTeamSeason` insert acquire its parent FK lock, and asserts both threads finish without SQLSTATE `40P01`/`55P03`.
-
-```python
-snapshot = session.scalar(
-    select(ReportSnapshot)
-    .where(ReportSnapshot.id == snapshot_id)
-    .with_for_update(key_share=True)  # PostgreSQL: FOR NO KEY UPDATE
-)
-```
-
 ## Warnings
 
-### WR-01: Default ports are preserved even though browsers remove them from Origin
+### WR-01: Public-origin host canonicalization still differs from browsers
 
 **Classification:** WARNING
 
-**File:** `app.py:109-113`
+**File:** `/Users/jakedaltrui/Library/Mobile Documents/com~apple~CloudDocs/projects/axis-baseball/roster-scout/app.py:109-116`
 
-**Issue:** `_canonical_public_origin` preserves every explicit port. Consequently, accepted settings such as `https://reports.example:443/` and `http://reports.example:80/` become `https://reports.example:443` and `http://reports.example:80`, but browsers serialize those origins without their default ports. The exact comparison at `app.py:388` then rejects every legitimate acknowledgement with HTTP 403. The current configuration test covers only non-default port 8443 (`tests/test_app_routes.py:398-408`), so this accepted-but-unusable configuration is not detected. The checked-in Fly value is unaffected, but the documented custom-domain/multi-worker contract is not robust.
+**Issue:** `_canonical_public_origin` only lowercases `parsed.hostname`. Browsers additionally apply WHATWG host canonicalization, including IDNA/Punycode conversion, IPv6 compression, and normalization of legacy numeric IPv4 spellings. For example, the accepted configuration `https://bücher.example` is stored as that exact Unicode origin, while a browser sends `Origin: https://xn--bcher-kva.example`; the exact comparison at `app.py:391` therefore returns HTTP 403 for every valid acknowledgement. The same mismatch occurs for accepted values such as `https://[0:0:0:0:0:0:0:1]` (browser origin `https://[::1]`) and `https://127.1` (browser origin `https://127.0.0.1`).
 
-**Fix:** Remove port 443 for HTTPS and port 80 for HTTP during canonicalization, while retaining non-default ports. Add clean-process and route tests for both default-port forms and retain the existing 8443 case.
+**Fix:** Canonicalize the hostname according to browser URL rules before constructing `_DOWNLOAD_ACK_PUBLIC_ORIGIN`, or fail startup unless the configured hostname is already in the exact canonical ASCII form browsers emit. At minimum, convert DNS names through IDNA, canonicalize IPv6 through `ipaddress.IPv6Address(...).compressed`, reject noncanonical numeric IPv4 spellings, and add clean-process/route tests that prove the configured form matches the browser-origin form.
 
 ```python
-default_port = (scheme == "https" and port == 443) or (
-    scheme == "http" and port == 80
-)
-canonical_port = "" if port is None or default_port else f":{port}"
+import ipaddress
+
+try:
+    address = ipaddress.ip_address(hostname)
+except ValueError:
+    canonical_host = hostname.encode("idna").decode("ascii").lower()
+else:
+    canonical_host = address.compressed
+    if address.version == 6:
+        canonical_host = f"[{canonical_host}]"
 ```
 
 ---
 
-_Reviewed: 2026-11-11T17:54:38Z_
+_Reviewed: 2026-11-11T18:18:10Z_
 _Reviewer: the agent (gsd-code-reviewer)_
 _Depth: standard_
