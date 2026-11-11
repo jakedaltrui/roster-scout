@@ -3,6 +3,8 @@
 import gzip
 import hashlib
 import os
+import threading
+import time
 import unittest
 import uuid
 from dataclasses import FrozenInstanceError, asdict
@@ -852,6 +854,191 @@ class BatchedEvidencePurgeTests(PostgreSQLJobTestCase):
             heartbeat = session.get(EvidencePurgeState, 1)
             self.assertEqual(heartbeat.last_success_at, now)
             self.assertEqual(heartbeat.last_purged_count, 205)
+
+
+class EvidencePurgeFinalizationSerializationTests(PostgreSQLJobTestCase):
+    """A successful heartbeat is one serialized, monotonic certification."""
+
+    def _failed_job(self, suffix):
+        from roster_scout.jobs import accept_report_job
+        from roster_scout.models import ReportJob
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            f"purge-finalization-{suffix}",
+            dispatch=None,
+        )
+        with self.Session.begin() as session:
+            session.get(ReportJob, job.id).status = "failed"
+        return job.id
+
+    def _store_expired_evidence(self, *, job_id, now, suffix):
+        from roster_scout.evidence import store_failure_evidence
+
+        return store_failure_evidence(
+            self.Session,
+            job_id,
+            section="pitching",
+            source_url=f"https://stats.ncaa.org/purge-finalization/{suffix}",
+            html=f"<html>{suffix}</html>",
+            failure_category="source_blocked",
+            collected_at=now - timedelta(days=28),
+        )
+
+    def _wait_for_advisory_lock(self, backend_pid, *, timeout=3):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            with self.engine.connect() as connection:
+                wait_state = connection.execute(
+                    text(
+                        "SELECT wait_event_type, wait_event "
+                        "FROM pg_stat_activity WHERE pid = :pid"
+                    ),
+                    {"pid": backend_pid},
+                ).one_or_none()
+            if wait_state == ("Lock", "advisory"):
+                return
+            time.sleep(0.01)
+        self.fail("evidence insertion did not block on the certification advisory lock")
+
+    def test_insert_cannot_commit_between_final_count_and_heartbeat(self):
+        from roster_scout.evidence import (
+            get_evidence_purge_readiness,
+            purge_expired_evidence,
+            store_failure_evidence,
+        )
+
+        now = datetime(2026, 3, 3, tzinfo=UTC)
+        job_id = self._failed_job("count-upsert")
+        final_count_complete = threading.Event()
+        release_finalization = threading.Event()
+        purge_finished = threading.Event()
+        insert_started = threading.Event()
+        insert_finished = threading.Event()
+        outcomes = {}
+        errors = []
+
+        def hold_after_final_count():
+            final_count_complete.set()
+            if not release_finalization.wait(5):
+                raise TimeoutError("test did not release purge finalization")
+
+        def run_purge():
+            try:
+                outcomes["purge"] = purge_expired_evidence(
+                    self.Session,
+                    now=now,
+                    _finalization_hook=hold_after_final_count,
+                )
+            except Exception as exc:  # pragma: no cover - surfaced below
+                errors.append(exc)
+            finally:
+                purge_finished.set()
+
+        def insert_evidence():
+            try:
+                with self.Session.begin() as session:
+                    outcomes["insert_pid"] = session.scalar(
+                        text("SELECT pg_backend_pid()")
+                    )
+                    insert_started.set()
+                    outcomes["evidence_id"] = store_failure_evidence(
+                        session,
+                        job_id,
+                        section="pitching",
+                        source_url="https://stats.ncaa.org/purge-finalization/race",
+                        html="<html>new expired evidence</html>",
+                        failure_category="source_blocked",
+                        collected_at=now - timedelta(days=28),
+                    )
+            except Exception as exc:  # pragma: no cover - surfaced below
+                errors.append(exc)
+            finally:
+                insert_finished.set()
+
+        purge_thread = threading.Thread(target=run_purge, daemon=True)
+        insert_thread = threading.Thread(target=insert_evidence, daemon=True)
+        purge_thread.start()
+        self.assertTrue(final_count_complete.wait(5))
+        insert_thread.start()
+        self.assertTrue(insert_started.wait(5))
+        self._wait_for_advisory_lock(outcomes["insert_pid"])
+        self.assertFalse(insert_finished.is_set())
+
+        release_finalization.set()
+        purge_thread.join(5)
+        insert_thread.join(5)
+        self.assertFalse(purge_thread.is_alive())
+        self.assertFalse(insert_thread.is_alive())
+        self.assertTrue(purge_finished.is_set())
+        self.assertTrue(insert_finished.is_set())
+        self.assertEqual(errors, [])
+        self.assertTrue(outcomes["purge"].complete)
+        self.assertEqual(outcomes["purge"].outstanding_count, 0)
+
+        readiness = get_evidence_purge_readiness(self.Session, now=now)
+        self.assertFalse(readiness.ready)
+        self.assertEqual(readiness.status, "expired_bytes_present")
+        self.assertEqual(readiness.expired_bytes_count, 1)
+
+    def test_out_of_order_completion_cannot_move_heartbeat_backward(self):
+        from roster_scout.evidence import purge_expired_evidence
+        from roster_scout.models import EvidencePurgeState
+
+        older_now = datetime(2026, 3, 4, tzinfo=UTC)
+        newer_now = older_now + timedelta(hours=1)
+        job_id = self._failed_job("out-of-order")
+        older_before_finalization = threading.Event()
+        release_older = threading.Event()
+        errors = []
+        outcomes = {}
+
+        def hold_older_before_finalization():
+            older_before_finalization.set()
+            if not release_older.wait(5):
+                raise TimeoutError("test did not release the older purge")
+
+        def run_older_purge():
+            try:
+                outcomes["older"] = purge_expired_evidence(
+                    self.Session,
+                    now=older_now,
+                    _before_finalization_hook=hold_older_before_finalization,
+                )
+            except Exception as exc:  # pragma: no cover - surfaced below
+                errors.append(exc)
+
+        older_thread = threading.Thread(target=run_older_purge, daemon=True)
+        older_thread.start()
+        self.assertTrue(older_before_finalization.wait(5))
+
+        self._store_expired_evidence(
+            job_id=job_id,
+            now=newer_now,
+            suffix="newer",
+        )
+        outcomes["newer"] = purge_expired_evidence(self.Session, now=newer_now)
+        self.assertEqual(outcomes["newer"].purged_count, 1)
+
+        release_older.set()
+        older_thread.join(5)
+        self.assertFalse(older_thread.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(outcomes["older"].purged_count, 0)
+        self.assertTrue(outcomes["older"].complete)
+
+        with self.Session() as session:
+            heartbeat = session.get(EvidencePurgeState, 1)
+            self.assertEqual(heartbeat.last_success_at, newer_now)
+            self.assertEqual(heartbeat.updated_at, newer_now)
+            self.assertEqual(heartbeat.last_purged_count, 1)
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(EvidencePurgeState)),
+                1,
+            )
 
 
 class PersistedPurgeReadinessTests(PostgreSQLJobTestCase):
