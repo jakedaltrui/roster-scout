@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-24-PLAN.md
-last_updated: "2026-11-10T17:47:56.982Z"
-last_activity: 2026-11-10
+stopped_at: Completed 01-25-PLAN.md
+last_updated: "2026-11-11T00:11:48.875Z"
+last_activity: 2026-11-11
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 30
-  completed_plans: 24
+  completed_plans: 25
   percent: 0
 ---
 
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-11-01)
 ## Current Position
 
 Phase: 01 (canonical-snapshot-foundation) — EXECUTING
-Plan: 25 of 30
+Plan: 26 of 30
 Status: Ready to execute
-Last activity: 2026-11-10
+Last activity: 2026-11-11
 
-Progress: [████████░░] 80%
+Progress: [████████░░] 83%
 
 ## Performance Metrics
 
@@ -134,6 +134,8 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 01]: Authoritative source-to-Player equivalence is enforced reciprocally from SourceRecord, Player, and PlayerTeamSeason mutation paths for both draft and published data.
 - [Phase 01]: The authoritative trigger defers unresolved tenant ownership to the existing named composite foreign key, preserving the original ownership contract while enforcing ID equality for valid links.
 - [Phase 01]: Publication independently joins SourceRecord through PlayerTeamSeason to Player and rejects sanitized mismatches, while null ID-less fallback evidence remains valid.
+- [Phase 01]: PostgreSQL owns the positive-through-28-day failure-evidence retention invariant so application and direct-SQL callers cannot bypass policy.
+- [Phase 01]: Revision 0011 aborts on invalid historical rows instead of rewriting, extending, truncating, or deleting evidence timestamps.
 
 ### Pending Todos
 
@@ -156,9 +158,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 01 P22 | 6 min | 3 tasks | 6 files |
 | Phase 01 P23 | 4 min | 2 tasks | 3 files |
 | Phase 01 P24 | 57 min | 2 tasks | 4 files |
+| Phase 01 P25 | 380 min | 2 tasks | 4 files |
 
 ## Session Continuity
 
-Last session: 2026-11-10T17:47:56.975Z
-Stopped at: Completed 01-24-PLAN.md
+Last session: 2026-11-11T00:11:48.868Z
+Stopped at: Completed 01-25-PLAN.md
 Resume file: None

@@ -6,7 +6,7 @@ Roster Scout v2.0 is delivered in five dependency-ordered slices. The roadmap fi
 
 ## Phases
 
-- [ ] **Phase 1: Canonical Snapshot Foundation** - Persist provenance-rich immutable snapshots through durable report jobs. (needs review; 21/30 plans complete)
+- [ ] **Phase 1: Canonical Snapshot Foundation** - Persist provenance-rich immutable snapshots through durable report jobs. (needs review; 25/30 plans complete)
 - [ ] **Phase 2: Identity, Organizations, and Report Library** - Gate Roster Scout behind passwordless organization access and versioned report workflows.
 - [ ] **Phase 3: Detailed NCAA Intelligence** - Add fielding, advanced metrics, situational splits, career history, and game logs.
 - [ ] **Phase 4: Detailed Excel Report** - Deliver the exact detailed snapshot as a branded ten-sheet workbook.
@@ -29,7 +29,7 @@ Roster Scout v2.0 is delivered in five dependency-ordered slices. The roadmap fi
 4. Innings, missing values, two-way players, transfers, raw values, and metric-definition lineage are represented without ambiguity.
 5. Existing selector, scraper, cache, and basic workbook regression tests continue to pass.
 
-**Plans:** 24/30 plans executed
+**Plans:** 25/30 plans executed
 
 Plans:
 **Wave 1**
@@ -112,7 +112,7 @@ Plans:
 
 **Wave 19** *(blocked on Wave 18 completion)*
 
-- [ ] 01-25: Add a reversible PostgreSQL 28-day failure-evidence retention-window constraint.
+- [x] 01-25: Add a reversible PostgreSQL 28-day failure-evidence retention-window constraint.
 
 **Wave 20** *(blocked on Wave 19 completion)*
 
@@ -230,7 +230,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |---|---:|---|---|
-| 1. Canonical Snapshot Foundation | 24/30 | In Progress|  |
+| 1. Canonical Snapshot Foundation | 25/30 | In Progress|  |
 | 2. Identity, Organizations, and Report Library | 0/4 | Not started | - |
 | 3. Detailed NCAA Intelligence | 0/4 | Not started | - |
 | 4. Detailed Excel Report | 0/3 | Not started | - |
