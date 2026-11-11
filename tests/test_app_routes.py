@@ -22,6 +22,46 @@ SAMPLE_PLAYER = {
 }
 
 
+class DownloadEventContractTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.template = (
+            os.path.join(os.path.dirname(__file__), "..", "templates", "index.html")
+        )
+        with open(cls.template, encoding="utf-8") as handle:
+            cls.source = handle.read()
+
+    def test_one_uuid_is_reused_for_one_inflight_submission(self):
+        guard = self.source.index("if (scrapeInFlight) return;")
+        generation = self.source.index("downloadEventId = crypto.randomUUID();")
+        request_field = self.source.index("download_event_id: downloadEventId")
+        terminal_clear = self.source.index("downloadEventId = null;", request_field)
+
+        self.assertLess(guard, generation)
+        self.assertLess(generation, request_field)
+        self.assertLess(request_field, terminal_clear)
+        self.assertEqual(
+            self.source.count("downloadEventId = crypto.randomUUID();"),
+            1,
+        )
+        self.assertIn("let downloadEventId = null;", self.source)
+
+    def test_download_event_id_is_request_only_and_nonidentifying(self):
+        self.assertNotRegex(
+            self.source,
+            r"localStorage\.(?:getItem|setItem)\([^)]*downloadEventId",
+        )
+        self.assertNotRegex(
+            self.source,
+            r"document\.cookie[^;\n]*downloadEventId",
+        )
+        self.assertNotRegex(
+            self.source.lower(),
+            r"(?:fingerprint|useragent|user_agent)[^;\n]*downloadeventid",
+        )
+        self.assertNotIn('name="download_event_id"', self.source)
+
+
 class AppReadinessTests(unittest.TestCase):
     def setUp(self):
         app_module.app.config.update(TESTING=True)
