@@ -155,14 +155,21 @@ def _usage_session_factory():
 
 
 def _record_workbook_download(event_key):
-    """Commit one anonymous, idempotent workbook-download event."""
-    with _usage_session_factory().begin() as session:
-        record_workbook_download_served(
-            session,
-            event_key=event_key,
-            actor_account_id=None,
-            organization_id=None,
+    """Best-effort commit of one anonymous workbook-download event."""
+    try:
+        with _usage_session_factory().begin() as session:
+            record_workbook_download_served(
+                session,
+                event_key=event_key,
+                actor_account_id=None,
+                organization_id=None,
+            )
+    except Exception:
+        app.logger.warning(
+            "usage_event_dropped route=legacy_scrape reason=database_unavailable"
         )
+        return "dropped"
+    return "recorded"
 
 
 @app.route("/readyz")
@@ -338,13 +345,7 @@ def scrape():
         response.headers["X-Roster-Scout-Players"] = str(len(rows))
         response.headers["X-Roster-Scout-Hitters"] = str(len(hitters))
         response.headers["X-Roster-Scout-Pitchers"] = str(len(pitchers))
-        try:
-            _record_workbook_download(download_event_id)
-        except Exception:
-            return _json_error(
-                "Roster Scout could not record that download. Please try again.",
-                503,
-            )
+        _record_workbook_download(download_event_id)
         return response
 
     except BrowserCapacityError as exc:
