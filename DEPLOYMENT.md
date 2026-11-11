@@ -40,6 +40,24 @@ Only non-Fly native/local mode with `WEB_CONCURRENCY==1` may omit it and create
 one process-random secret. Every worker in one deployment must share the exact
 same configured value.
 
+A non-empty `FLY_APP_NAME` or `WEB_CONCURRENCY>1` requires
+`ROSTER_SCOUT_PUBLIC_ORIGIN` before the app serves traffic. Fly requires the
+configured origin to use HTTPS; only non-Fly `WEB_CONCURRENCY==1` may fall back
+to the direct request origin when the setting is absent. The configured value
+is one absolute HTTP(S) origin and contains no credentials, path, query, or
+fragment. `Forwarded`, `X-Forwarded-Proto`, `X-Forwarded-Host`, and `Host` are
+not trusted as origin authority. This keeps a public HTTPS browser
+acknowledgement valid when Fly forwards it to Flask over internal HTTP without
+letting request headers redefine the trust boundary.
+
+The checked-in Fly origin is
+`ROSTER_SCOUT_PUBLIC_ORIGIN=https://roster-scout.fly.dev`. Treat a custom-domain
+change as a coordinated cutover: set the exact canonical HTTPS origin and
+restart every app worker with the same new value before directing browser
+traffic to the custom domain. Do not configure an origin list or overlap old
+and new domains; the acknowledgement boundary intentionally accepts one
+canonical browser origin.
+
 Secret rotation invalidates every outstanding acknowledgement proof. Drain
 downloads or wait the exact 15-minute proof TTL, then perform one coordinated
 restart with the new value. Mixed-secret rolling workers are unsupported.
@@ -319,6 +337,7 @@ production prerequisites remain independently blocked until verified.
 | `NCAA_SEASON_YEAR` | current season | Optional season override |
 | `WEB_CONCURRENCY` | `1` | HTTP worker count; values greater than one require a shared acknowledgement secret |
 | `ROSTER_SCOUT_DOWNLOAD_ACK_SECRET` | local random fallback | URL-safe-base64 secret decoding to at least 32 bytes; required on Fly or with multiple workers |
+| `ROSTER_SCOUT_PUBLIC_ORIGIN` | direct request origin in local single-process mode | Exact canonical HTTP(S) browser origin; required with `FLY_APP_NAME` or multiple workers, and HTTPS-only on Fly |
 | `NCAA_BROWSER_PROVIDER` | local browser | Set to `browserless` to use the hosted browser workflow |
 | `BROWSERLESS_TOKEN` | unset | Browserless API token |
 | `BROWSERLESS_CAPACITY_BACKEND` | `local` | `local` for single-machine development; hosted app and worker must use `postgresql` |
