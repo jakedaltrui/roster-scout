@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-33-PLAN.md
-last_updated: "2026-11-11T05:31:00.000Z"
-last_activity: 2026-11-11 -- Completed Plan 01-33 usage semantics and database-optional native workbook
+stopped_at: Completed 01-36-PLAN.md
+last_updated: "2026-11-11T05:39:46.298Z"
+last_activity: 2026-11-11 -- Completed Plan 01-36 serialized monotonic purge certification
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 37
-  completed_plans: 33
-  percent: 89
+  completed_plans: 34
+  percent: 92
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-11-01)
 ## Current Position
 
 Phase: 01 (canonical-snapshot-foundation) — EXECUTING
-Plan: 33 of 37
+Plan: 34 of 37
 Status: Ready to execute
-Last activity: 2026-11-11 -- Completed Plan 01-33 usage semantics and database-optional native workbook
+Last activity: 2026-11-11 -- Completed Plan 01-36 serialized monotonic purge certification
 
-Progress: [█████████░] 89%
+Progress: [█████████░] 92%
 
 ## Performance Metrics
 
@@ -161,6 +161,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 01]: Unique authenticated users require authenticated_use events; actor-bearing downloads remain valid audit rows but never define adoption.
 - [Phase 01]: Legacy/native workbook analytics are best-effort with explicit recorded or dropped dispositions; durable report/job paths remain database-required.
 - [Phase 01]: Dropped native analytics emit one fixed usage_event_dropped warning without request, identity, database, or exception material.
+- [Phase 01]: Eligible evidence writers and final complete-scan certification share one stable signed-bigint transaction advisory lock. — New eligible bytes cannot commit inside the final zero-count-to-heartbeat window.
+- [Phase 01]: The singleton lock covers only the final count and heartbeat upsert; bounded SKIP LOCKED deletion batches remain independently concurrent. — Retention progress stays bounded and contention-safe while complete-scan certification is serialized.
+- [Phase 01]: PostgreSQL GREATEST preserves heartbeat time while last_purged_count changes only when the incoming certification timestamp wins. — Out-of-order purge completion cannot regress readiness time or associate a stale count with a newer heartbeat.
 
 ### Pending Todos
 
@@ -192,9 +195,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 01 P31 | 18 min | 2 tasks | 5 files |
 | Phase 01 P32 | 6 min | 2 tasks | 3 files |
 | Phase 01 P33 | 8 min | 2 tasks | 4 files |
+| Phase 01 P36 | 6 min | 2 tasks | 2 files |
 
 ## Session Continuity
 
-Last session: 2026-11-11T05:31:00.000Z
-Stopped at: Completed 01-33-PLAN.md
+Last session: 2026-11-11T05:39:46.291Z
+Stopped at: Completed 01-36-PLAN.md
 Resume file: None
