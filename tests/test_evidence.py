@@ -4,11 +4,12 @@ import gzip
 import hashlib
 import os
 import unittest
+import uuid
 from dataclasses import FrozenInstanceError, asdict
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
-from sqlalchemy import func, inspect, select
+from sqlalchemy import func, inspect, select, text
 from sqlalchemy.exc import DBAPIError
 
 from tests.test_report_jobs import PostgreSQLJobTestCase
@@ -375,6 +376,136 @@ class EvidencePurgeDeadlineTests(PostgreSQLJobTestCase):
             evidence = session.get(FailureEvidence, evidence_id)
             self.assertIsNone(evidence.compressed_html)
             self.assertEqual(evidence.purged_at, next_allowed_run)
+
+
+class FailureEvidenceDatabaseRetentionTests(PostgreSQLJobTestCase):
+    """The database owns the exact positive-through-28-day retention boundary."""
+
+    CONSTRAINT_NAME = "ck_failure_evidence_retention_window"
+
+    def _failed_job(self, suffix):
+        from roster_scout.jobs import accept_report_job
+        from roster_scout.models import ReportJob
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            f"database-retention-{suffix}",
+            dispatch=None,
+        )
+        with self.Session.begin() as session:
+            stored_job = session.get(ReportJob, job.id)
+            stored_job.status = "failed"
+            return stored_job.id, stored_job.organization_id
+
+    def _insert_direct(self, *, suffix, expires_delta):
+        job_id, organization_id = self._failed_job(suffix)
+        collected_at = datetime(2026, 11, 10, 12, 0, tzinfo=UTC)
+        evidence_id = uuid.uuid4()
+        statement = text(
+            """
+            INSERT INTO failure_evidence (
+                id, organization_id, job_id, compressed_html, sha256,
+                section, source_url, failure_category, collected_at, expires_at
+            ) VALUES (
+                :id, :organization_id, :job_id, :compressed_html, :sha256,
+                'batting', 'https://stats.ncaa.org/retention-boundary',
+                'source_blocked', :collected_at, :expires_at
+            )
+            """
+        )
+        with self.engine.begin() as connection:
+            connection.execute(
+                statement,
+                {
+                    "id": evidence_id,
+                    "organization_id": organization_id,
+                    "job_id": job_id,
+                    "compressed_html": b"retention boundary",
+                    "sha256": f"{len(suffix) % 10}" * 64,
+                    "collected_at": collected_at,
+                    "expires_at": collected_at + expires_delta,
+                },
+            )
+        return evidence_id
+
+    def test_direct_sql_accepts_positive_microsecond_and_exact_28_days(self):
+        from roster_scout.models import FailureEvidence
+
+        minimum_id = self._insert_direct(
+            suffix="minimum",
+            expires_delta=timedelta(microseconds=1),
+        )
+        maximum_id = self._insert_direct(
+            suffix="maximum",
+            expires_delta=timedelta(days=28),
+        )
+        with self.Session() as session:
+            self.assertIsNotNone(session.get(FailureEvidence, minimum_id))
+            self.assertIsNotNone(session.get(FailureEvidence, maximum_id))
+
+    def test_direct_sql_rejects_nonpositive_and_overlong_windows_by_name(self):
+        from roster_scout.models import FailureEvidence
+
+        baseline_id = self._insert_direct(
+            suffix="committed-baseline",
+            expires_delta=timedelta(days=1),
+        )
+        invalid_windows = (
+            ("equal", timedelta(0)),
+            ("earlier", -timedelta(microseconds=1)),
+            ("too-long", timedelta(days=28, microseconds=1)),
+        )
+        for suffix, expires_delta in invalid_windows:
+            with self.subTest(window=suffix):
+                with self.assertRaisesRegex(DBAPIError, self.CONSTRAINT_NAME):
+                    self._insert_direct(
+                        suffix=suffix,
+                        expires_delta=expires_delta,
+                    )
+
+        with self.Session() as session:
+            self.assertIsNotNone(session.get(FailureEvidence, baseline_id))
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(FailureEvidence)),
+                1,
+            )
+
+    def test_service_inserts_preserve_one_and_28_day_windows(self):
+        from roster_scout.evidence import store_failure_evidence
+        from roster_scout.models import FailureEvidence
+
+        collected_at = datetime(2026, 11, 10, 12, 0, tzinfo=UTC)
+        stored_ids = []
+        for suffix, environment, expected in (
+            ("one-day", {"FAILURE_EVIDENCE_RETENTION_DAYS": "1"}, timedelta(days=1)),
+            ("default", {}, timedelta(days=28)),
+        ):
+            job_id, _ = self._failed_job(suffix)
+            with patch.dict(os.environ, environment, clear=False):
+                if not environment:
+                    os.environ.pop("FAILURE_EVIDENCE_RETENTION_DAYS", None)
+                stored_ids.append(
+                    (
+                        store_failure_evidence(
+                            self.Session,
+                            job_id,
+                            section="pitching",
+                            source_url="https://stats.ncaa.org/retention-service",
+                            html="<html>retention service</html>",
+                            failure_category="source_blocked",
+                            collected_at=collected_at,
+                        ),
+                        expected,
+                    )
+                )
+
+        with self.Session() as session:
+            for evidence_id, expected in stored_ids:
+                evidence = session.get(FailureEvidence, evidence_id)
+                self.assertEqual(evidence.expires_at - evidence.collected_at, expected)
 
 
 class EvidencePurgePersistenceTests(PostgreSQLJobTestCase):
