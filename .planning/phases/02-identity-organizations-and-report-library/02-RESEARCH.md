@@ -552,22 +552,16 @@ Every row in this table is an `[ASSUMED]` claim grouped from the inline assumpti
 | A20 | Phase 2 should implement fixed identity/database/queue/source/artifact failure categories while leaving the Power BI path dormant until Phase 5. | Requirement SECU-05 | A strict requirement interpretation could demand a placeholder Power BI state earlier, despite embedding being deferred. |
 | A21 | A custom Flask `SessionInterface` over the local session row is the cleanest way to integrate server-side auth state with Flask-WTF CSRF. | Pattern 2 | Concurrency and response-save ordering require careful tests; a vetted server-side session extension could replace it only if it supports the required account/org/revocation model. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Who will provision and own the WorkOS production workspace and billing?**
-   - What we know: production requires billing information and separate configuration; enterprise SSO connections have current per-connection pricing. [CITED: https://workos.com/docs/authkit/environments] [CITED: https://workos.com/pricing]
-   - What's unclear: the production owner, procurement approval, and first customer SSO connection do not exist in repository state. [VERIFIED: STATE.md]
-   - Recommendation: implementation can proceed against emulator/staging, but deployment must have a human checkpoint for production ownership, billing, secrets, and a live smoke test. [CITED: https://workos.com/docs/authkit/environments]
+1. **WorkOS production ownership, billing, secrets, and live hosted smoke**
+   - Resolution: WorkOS production workspace ownership, billing, secrets, and a live hosted authentication smoke test are deployment checkpoints. They do not block deterministic Phase 2 code acceptance, and no billable resources are created automatically by the implementation or deterministic test suite. [CITED: https://workos.com/docs/authkit/environments] [CITED: https://workos.com/pricing]
 
-2. **Will Phase 2 use WorkOS default email delivery or a branded/custom provider?**
-   - What we know: WorkOS can send Magic Auth and invitation emails by default; custom email delivery is supported, while shared-provider sending has deliverability limits. [CITED: https://workos.com/docs/authkit/invitations] [CITED: https://workos.com/docs/reference/rate-limits]
-   - What's unclear: no production sender domain/provider decision is recorded. [VERIFIED: 02-CONTEXT.md]
-   - Recommendation: use WorkOS default delivery in staging, then verify production deliverability and branding before launch; do not add a second email service to Phase 2 unless testing proves it necessary. [ASSUMED]
+2. **Email delivery and branding**
+   - Resolution: use WorkOS default email delivery for emulator/staging implementation. Production deliverability and branding must be verified before launch; a second mail service is out of Phase 2 unless that verification fails. WorkOS documents default invitation delivery and separate shared-provider deliverability limits. [CITED: https://workos.com/docs/authkit/invitations] [CITED: https://workos.com/docs/reference/rate-limits]
 
-3. **Is a real customer enterprise SSO connection available for acceptance?**
-   - What we know: WorkOS staging includes a Test IdP and all staging connections are unbilled. [CITED: https://workos.com/docs/authkit/sso] [CITED: https://workos.com/docs/authkit/environments]
-   - What's unclear: there is no named customer IdP/IT contact in project state. [VERIFIED: STATE.md]
-   - Recommendation: make Test IdP coverage the Phase 2 acceptance gate and treat a real SAML/OIDC connection as a production onboarding checkpoint, not a code blocker. [ASSUMED]
+3. **Enterprise SSO acceptance boundary**
+   - Resolution: WorkOS emulator plus the staging Test IdP is the Phase 2 acceptance boundary when no real customer IdP exists. A real SAML/OIDC connection is a customer-onboarding/production checkpoint, not a deterministic code-acceptance blocker. [CITED: https://workos.com/docs/authkit/testing] [CITED: https://workos.com/docs/authkit/sso] [CITED: https://workos.com/docs/authkit/environments]
 
 ## Environment Availability
 

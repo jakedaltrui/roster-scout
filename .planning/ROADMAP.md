@@ -179,14 +179,73 @@ Plans:
 5. Cross-organization identifier substitution is denied across pages, APIs, jobs, refresh actions, and downloads, with auditable security events.
 6. After authentication and organization authorization, each accepted report/job request records one `authenticated_use` event keyed by the accepted ReportJob UUID with canonical account and organization IDs, with `actor_account_id` foreign-keyed to the Phase 2 account table; the operator report proves windowed `COUNT(DISTINCT actor_account_id)` without treating page views or anonymous identifiers as users.
 
-**Plans:** 4 plans
+**Plans:** 16 plans
 
 Plans:
 
-- [ ] 02-01: Integrate managed passwordless/federated identity, sessions, logout, and enterprise SSO connection capability.
-- [ ] 02-02: Add organizations, roles, invitations, membership administration, authorization services, and denial tests.
-- [ ] 02-03: Build the organization report library, asynchronous status UI, snapshot history, explicit refresh, retry, and partial-state experience.
-- [ ] 02-04: FK-bind usage actors to canonical accounts, wire accepted authorized report/job requests to account/organization events, enforce active organization membership, and verify windowed distinct-user reporting.
+**Wave 1**
+
+- [ ] 02-01-PLAN.md — Establish canonical accounts, provider identities, auth transactions, and opaque server-session services.
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 02-13-PLAN.md — Compose the replay-safe branded sign-in and callback browser slice.
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 02-02-PLAN.md — Isolate WorkOS adaptation, canonical memberships, resilient sessions, and authorization services.
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 02-12-PLAN.md — Wire the Flask route gate, global CSRF, shared authenticated shell, and safe deployment/configuration contract.
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 02-03-PLAN.md — Implement canonical invitation, provider-mapping, and append-only audit schema/services.
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [ ] 02-14-PLAN.md — Compose restricted organization bootstrap and invitation administration routes/templates.
+
+**Wave 7** *(blocked on Wave 6 completion)*
+
+- [ ] 02-04-PLAN.md — Add multi-organization selection, member administration, and last-admin race protection.
+
+**Wave 8** *(blocked on Wave 7 completion)*
+
+- [ ] 02-05-PLAN.md — Replace the public home with the organization-scoped responsive report library.
+
+**Wave 9** *(blocked on Wave 8 completion)*
+
+- [ ] 02-06-PLAN.md — Implement atomic authorized report/job, usage, audit, and outbox acceptance services.
+
+**Wave 10** *(blocked on Wave 9 completion)*
+
+- [ ] 02-15-PLAN.md — Compose protected exact NCAA selection and report-creation routes/UI.
+
+**Wave 11** *(blocked on Wave 10 completion)*
+
+- [ ] 02-07-PLAN.md — Render report detail and add bounded organization-scoped status polling.
+
+**Wave 12** *(blocked on Wave 11 completion)*
+
+- [ ] 02-08-PLAN.md — Add explicit live refresh, immutable successor lineage, and dated snapshot history.
+
+**Wave 13** *(blocked on Wave 12 completion)*
+
+- [ ] 02-09-PLAN.md — Add safe retry, partial-state review, and authenticated exact-artifact preparation.
+
+**Wave 14** *(blocked on Wave 13 completion)*
+
+- [ ] 02-16-PLAN.md — Add browser initiation, same-origin acknowledgement, and exactly-once authenticated download tracking.
+
+**Wave 15** *(blocked on Wave 14 completion)*
+
+- [ ] 02-10-PLAN.md — Prove two-organization denial and append-only sanitized security auditing across every surface.
+
+**Wave 16** *(blocked on Wave 15 completion)*
+
+- [ ] 02-11-PLAN.md — Gate migrations, security, Node status, 429s, catalog, workbook compatibility, and the full Phase 2 story.
 
 ### Phase 3: Detailed NCAA Intelligence
 
