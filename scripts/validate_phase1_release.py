@@ -18,7 +18,7 @@ MVP_STORY = (
     "snapshot, so that every downstream report can rely on one auditable source "
     "of truth without breaking today's workbook workflow."
 )
-EXPECTED_MIGRATION_HEAD = "0013"
+EXPECTED_MIGRATION_HEAD = "0014"
 GAP_REGRESSION_TESTS = (
     "tests.test_report_jobs.SectionHeaderPublicationTests",
     "tests.test_snapshot_persistence.SnapshotMutationSerializationTests",
@@ -81,12 +81,35 @@ ROUND_FOUR_COUNTEREXAMPLE_TESTS = (
     "tests.test_evidence.EvidencePurgeFinalizationSerializationTests",
 )
 
+# Round-five closes the final independent-verification gaps. These classes are
+# deliberately explicit so source-order tests detect an omission or rename.
+ROUND_FIVE_COUNTEREXAMPLE_TESTS = (
+    (
+        "tests.test_snapshot_persistence."
+        "AuthoritativeGlobalPlayerSerializationTests"
+    ),
+    (
+        "tests.test_snapshot_persistence."
+        "AuthoritativeGlobalPlayerSerializationMigrationTests"
+    ),
+    (
+        "tests.test_canonical_publish."
+        "AuthoritativeIdentityPublicationSerializationTests"
+    ),
+    (
+        "tests.test_deployment_config."
+        "DownloadAcknowledgementPublicOriginConfigTests"
+    ),
+    "tests.test_app_routes.DownloadAcknowledgementPublicOriginTests",
+    "tests.test_app_routes.DownloadEventContractTests",
+)
+
 MINIMAL_HEAD_SETUP_LABEL = "Minimal Alembic upgrade to head"
 MINIMAL_HEAD_ASSERTION_LABEL = "Minimal Alembic current-head assertion"
-ROUND_FOUR_PYTHON_LABEL = "Round-four focused Python counterexamples"
-ROUND_FOUR_NODE_LABEL = "Round-four focused browser counterexamples"
+ROUND_FIVE_PYTHON_LABEL = "Round-five focused Python counterexamples"
+ROUND_FIVE_NODE_LABEL = "Round-five focused browser counterexamples"
 MIGRATION_SERIALIZATION_LABEL = (
-    "Revision 0013 authoritative serialization migration lifecycle"
+    "Revision 0014 global Player serialization migration lifecycle"
 )
 FULL_MIGRATION_START_LABEL = "Full Alembic downgrade to base"
 FULL_DISCOVERY_LABEL = "Clean-process full unittest discovery"
@@ -233,11 +256,18 @@ def release_command_manifest(python, *, diff_base=None):
             [python, "-m", "alembic", "current", "--check-heads"],
         ),
         (
-            ROUND_FOUR_PYTHON_LABEL,
-            [python, "-m", "unittest", *ROUND_FOUR_COUNTEREXAMPLE_TESTS, "-v"],
+            ROUND_FIVE_PYTHON_LABEL,
+            [
+                python,
+                "-m",
+                "unittest",
+                *ROUND_FOUR_COUNTEREXAMPLE_TESTS,
+                *ROUND_FIVE_COUNTEREXAMPLE_TESTS,
+                "-v",
+            ],
         ),
         (
-            ROUND_FOUR_NODE_LABEL,
+            ROUND_FIVE_NODE_LABEL,
             ["node", "--test", "tests/js/download_tracking.test.mjs"],
         ),
         (
@@ -248,7 +278,7 @@ def release_command_manifest(python, *, diff_base=None):
                 "unittest",
                 (
                     "tests.test_snapshot_persistence."
-                    "AuthoritativeIdentitySerializationMigrationTests"
+                    "AuthoritativeGlobalPlayerSerializationMigrationTests"
                 ),
                 "-v",
             ],

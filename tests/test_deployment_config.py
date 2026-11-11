@@ -1482,7 +1482,7 @@ class Phase1ReleaseValidatorContractTests(unittest.TestCase):
             PROJECT_ROOT
             / "migrations"
             / "versions"
-            / "0014_global_player_serialization.py"
+            / "0014_global_authoritative_player_serialization.py"
         ).read_text(encoding="utf-8")
         self.assertIn('revision = "0014"', head_revision)
         self.assertIn('down_revision = "0013"', head_revision)

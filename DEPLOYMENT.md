@@ -73,6 +73,13 @@ and its token is limited to 512 characters. Ambiguous scrape, blob, or
 acknowledgement failures reuse the same UUID. PostgreSQL's unique usage-event
 key makes proof replay idempotent.
 
+HTTP 400 and 403 acknowledgement responses are definitive: the browser drops
+the rejected attempt and asks the operator to submit again with a new UUID.
+HTTP 5xx and network failures are retryable, so the same pending UUID and proof
+remain available for a bounded retry. Browser storage exceptions fall back to
+page memory without blocking the workbook request; they do not prove a
+filesystem save and cannot make an acknowledgement definitive.
+
 The UUID and proof are deduplication material, never identity. Do not attach or
 derive an IP address, cookie, email address, user-agent, device fingerprint,
 pseudonymous identifier, account, organization, opponent, or report data from
@@ -236,17 +243,33 @@ PostgreSQL URL must point to the disposable database ending in `_test`:
 DATABASE_URL=postgresql+psycopg://roster_scout:roster_scout@localhost:5432/roster_scout_test .venv/bin/python scripts/validate_phase1_release.py
 ```
 
+The committed-history check defaults to the audited baseline `95776ed`. To
+broaden the audit to an older reviewed commit, set `PHASE1_RELEASE_DIFF_BASE`
+to its full commit ID before running the same command. An override must resolve
+to a commit that is equal to or an ancestor of `95776ed`; newer commits,
+`HEAD`, `HEAD^`, abbreviated/non-commit refs, and an audited baseline no longer
+ancestral to `HEAD` fail closed before validation begins. Record the selected
+full commit ID in the release evidence. The two final checks are distinct and
+ordered: `git diff --check <resolved-base>..HEAD --` audits committed changes,
+then `git diff --check` audits the working tree.
+
 The validator first requires `valid: true` from the centralized user-story
 validator for the exact Phase 1 ROADMAP goal and requires a disposable
 PostgreSQL database. It performs only the minimal upgrade-to-head setup and
-current-head assertion before running every Plan 31-36 Python counterexample,
+current-head assertion before running every round-four and round-five Python
+counterexample,
 followed immediately by
 `node --test tests/js/download_tracking.test.mjs`. Only after both focused
-groups pass does it run the revision-0013 migration class, full
+groups pass does it run the revision `0014` global Player serialization class, full
 downgrade/base-to-head/re-upgrade lifecycle, head and drift assertions,
 clean-process discovery, catalog, rendered Compose and deployment contracts,
 two-sheet workbook validation, Python compilation and template contracts, and
-finally `git diff --check`.
+finally the committed-range and working-tree diff checks described above.
+
+The Fly route contract requires the exact configured
+`ROSTER_SCOUT_PUBLIC_ORIGIN` and never trusts forwarded request headers to
+redefine that browser origin. The focused release group covers both startup
+configuration and the acknowledgement route before the slower full groups.
 
 Full discovery retains the Plan 14-29 regressions and verifies exact source-row
 traceability, duplicate delivery, same-job recovery, failure evidence and purge
