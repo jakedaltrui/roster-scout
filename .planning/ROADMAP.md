@@ -29,7 +29,7 @@ Roster Scout v2.0 is delivered in five dependency-ordered slices. The roadmap fi
 4. Innings, missing values, two-way players, transfers, raw values, and metric-definition lineage are represented without ambiguity.
 5. Existing selector, scraper, cache, and basic workbook regression tests continue to pass.
 
-**Plans:** 38/41 plans executed
+**Plans:** 39/41 plans executed
 
 Plans:
 **Wave 1**
@@ -153,7 +153,7 @@ Plans:
 
 **Wave 28** *(blocked on 01-38)*
 
-- [ ] 01-39: Validate one trusted public HTTPS origin for Fly acknowledgement without trusting forwarding headers.
+- [x] 01-39: Validate one trusted public HTTPS origin for Fly acknowledgement without trusting forwarding headers.
 
 **Wave 29** *(blocked on 01-39)*
 
@@ -265,7 +265,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |---|---:|---|---|
-| 1. Canonical Snapshot Foundation | 38/41 | In Progress|  |
+| 1. Canonical Snapshot Foundation | 39/41 | In Progress|  |
 | 2. Identity, Organizations, and Report Library | 0/4 | Not started | - |
 | 3. Detailed NCAA Intelligence | 0/4 | Not started | - |
 | 4. Detailed Excel Report | 0/3 | Not started | - |

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-38-PLAN.md
-last_updated: "2026-11-11T17:10:47.491Z"
-last_activity: 2026-11-11 -- Completed Plan 01-38 global Player serialization
+stopped_at: Completed 01-39-PLAN.md
+last_updated: "2026-11-11T17:21:49.632Z"
+last_activity: 2026-11-11 -- Completed Plan 01-39 trusted public origin
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 41
-  completed_plans: 38
+  completed_plans: 39
   percent: 0
 ---
 
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-11-01)
 ## Current Position
 
 Phase: 01 (canonical-snapshot-foundation) — EXECUTING
-Plan: 38 of 41
-Status: Ready for Plan 01-39
-Last activity: 2026-11-11 -- Completed Plan 01-38 global Player serialization
+Plan: 39 of 41
+Status: Ready for Plan 01-40
+Last activity: 2026-11-11 -- Completed Plan 01-39 trusted public origin
 
-Progress: [█████████░] 93%
+Progress: [██████████] 95%
 
 ## Performance Metrics
 
@@ -175,6 +175,8 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 01]: Only exact story/database guards and minimal migrate-to-head setup may precede the round-four Python and Node counterexamples; every full validation group follows them. — Known concurrency, cache, analytics, acknowledgement, browser, and purge failures must fail fast before a broad suite can mask an omitted focused regression.
 - [Phase 01]: The native workbook remains database-optional, while production durable jobs, migrations, readiness, usage reports, and authoritative analytics remain PostgreSQL-required. — Local workbook availability and production durability are separate supported boundaries and must not be described as interchangeable.
 - [Phase 01]: Successful-download operations mean blob read, anchor initiation, and idempotent same-origin acknowledgement; they never claim proof of a filesystem save. — This is the strongest browser-observable outcome and keeps the usage metric honest without collecting identity or device fingerprints.
+- [Phase 01]: Shared runtimes require one configured canonical public origin. — Fly and WEB_CONCURRENCY>1 cannot derive acknowledgement trust from request headers; only non-Fly single-process development retains direct request-origin fallback.
+- [Phase 01]: Fly acknowledgement origin is HTTPS-only and forwarding headers remain inert. — A startup-validated external origin bridges Fly's public HTTPS edge to internal HTTP without trusting Forwarded, X-Forwarded-*, or Host values.
 
 ### Pending Todos
 
@@ -211,9 +213,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 01 P35 | 8 min | 2 tasks | 4 files |
 | Phase 01 P37 | 9h 15m | 2 tasks | 3 files |
 | Phase 01 P38 | 19m | 2 tasks | 5 files |
+| Phase 01 P39 | 8m | 2 tasks | 5 files |
 
 ## Session Continuity
 
-Last session: 2026-11-11T17:10:47.482Z
-Stopped at: Completed 01-38-PLAN.md
+Last session: 2026-11-11T17:21:49.624Z
+Stopped at: Completed 01-39-PLAN.md
 Resume file: None
