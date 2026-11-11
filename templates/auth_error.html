@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>{% if state == 'no_membership' %}Organization access needed{% else %}Sign-in unavailable{% endif %} · Roster Scout</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root { color-scheme:light dark; font-family:"DM Sans",system-ui,sans-serif; background:#f3f4ef; color:#20211f; }
+    * { box-sizing:border-box; }
+    body { min-height:100vh; margin:0; display:grid; place-items:center; padding:24px; background:#f3f4ef; }
+    .skip { position:fixed; top:8px; left:8px; padding:12px 16px; border-radius:8px; background:#20211f; color:#fff; transform:translateY(-160%); }
+    .skip:focus { transform:none; outline:3px solid #4f6f52; outline-offset:3px; }
+    main { width:min(100%,480px); padding:32px; border:1px solid #d8dbd2; border-radius:20px; background:#fff; box-shadow:0 24px 64px rgba(32,33,31,.08); }
+    .eyebrow { margin:0 0 16px; color:#6f756b; font-size:12px; font-weight:600; letter-spacing:.12em; text-transform:uppercase; }
+    h1 { margin:0; font-size:30px; line-height:1.15; letter-spacing:-.04em; }
+    p { margin:16px 0 0; color:#666a63; line-height:1.6; }
+    a { display:inline-flex; align-items:center; justify-content:center; min-height:48px; margin-top:28px; padding:0 20px; border-radius:12px; background:#20211f; color:#fff; font-weight:600; text-decoration:none; }
+    a:focus-visible { outline:3px solid #4f6f52; outline-offset:3px; }
+    @media (prefers-color-scheme:dark) { :root,body { background:#111311; color:#f3f4ef; } main { border-color:#353934; background:#1b1e1b; box-shadow:0 24px 64px rgba(0,0,0,.28); } p { color:#aeb3aa; } a { background:#edf0e9; color:#171917; } }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main-content">Skip to content</a>
+  <main id="main-content">
+    <p class="eyebrow">Roster Scout</p>
+    {% if state == "no_membership" %}
+      <h1>Your account isn’t connected to an organization</h1>
+      <p>Ask your organization administrator for an invitation, or sign out and use the invited account.</p>
+    {% else %}
+      <h1>We couldn’t sign you in</h1>
+      <p>Return to sign in and try again. If the problem continues, contact support.</p>
+    {% endif %}
+    <a href="{{ url_for('auth.login') }}">Return to sign in</a>
+  </main>
+</body>
+</html>

@@ -28,6 +28,7 @@ from werkzeug.exceptions import RequestEntityTooLarge
 from xlsxwriter.utility import xl_pixel_width
 from usage_limits import BrowserCapacityError, check_request_limit
 
+from roster_scout.auth_routes import register_auth_routes
 from roster_scout.database import create_session_factory, get_engine
 from roster_scout.evidence import (
     FailureEvidenceConfigurationError,
@@ -35,6 +36,7 @@ from roster_scout.evidence import (
     get_failure_evidence_retention,
 )
 from roster_scout.usage import record_workbook_download_served
+from roster_scout.identity import FakeIdentityProvider
 from roster_scraper import (
     HITTER_HEADERS,
     PITCHER_HEADERS,
@@ -367,6 +369,19 @@ def _evidence_purge_session_factory():
 def _usage_session_factory():
     """Construct usage persistence lazily for successful workbook responses."""
     return create_session_factory(get_engine())
+
+
+@lru_cache(maxsize=1)
+def _auth_session_factory():
+    """Construct auth persistence lazily so shallow liveness stays connection-free."""
+    return create_session_factory(get_engine())
+
+
+register_auth_routes(
+    app,
+    identity_provider=FakeIdentityProvider(),
+    session_factory=_auth_session_factory,
+)
 
 
 def _record_workbook_download(event_key):
