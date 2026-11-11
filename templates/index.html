@@ -1278,6 +1278,7 @@
     });
 
     let scrapeInFlight = false;
+    let downloadEventId = null;
     document.getElementById('scout-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       if (scrapeInFlight) return;
@@ -1295,6 +1296,7 @@
       }
       if (!team) return;
 
+      downloadEventId = crypto.randomUUID();
       scrapeInFlight = true;
       const runStarted = performance.now();
       document.getElementById('submit-btn').disabled = true;
@@ -1315,6 +1317,7 @@
             season_team_id: seasonTeamId,
             team_id: teamId,
             display_name: displayName,
+            download_event_id: downloadEventId,
           }),
         });
 
@@ -1351,6 +1354,7 @@
         show('error');
       } finally {
         scrapeInFlight = false;
+        downloadEventId = null;
       }
     });
 
