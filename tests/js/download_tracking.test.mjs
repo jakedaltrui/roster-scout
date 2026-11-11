@@ -4,6 +4,7 @@ import test from "node:test";
 
 const require = createRequire(import.meta.url);
 const {
+  classifyAcknowledgementResponse,
   createSafeStorage,
   createDownloadTracker,
   runDownloadSubmission,
@@ -130,7 +131,7 @@ test("successful persistent write survives a later read failure without duplicat
       throw new Error("workbook request must not run");
     },
     initiateDownload: async () => {},
-    acknowledgeDownload: async () => ({ acknowledged: true }),
+    acknowledgeDownload: async () => ({ outcome: "acknowledged" }),
   });
 
   assert.deepEqual(result, {
@@ -187,7 +188,7 @@ test("network and blob exceptions remain ambiguous requesting attempts", async (
         tracker,
         requestWorkbook,
         initiateDownload: async () => {},
-        acknowledgeDownload: async () => ({ acknowledged: true }),
+        acknowledgeDownload: async () => ({ outcome: "acknowledged" }),
       }),
       TypeError,
     );
@@ -294,7 +295,7 @@ test("pending ack retries before a fresh intentional submission", async () => {
     tracker,
     retryPendingAcknowledgement: async (pending) => {
       calls.push(`retry:${pending.downloadEventId}`);
-      return { acknowledged: true };
+      return { outcome: "acknowledged" };
     },
     requestWorkbook: async (downloadEventId) => {
       calls.push(`scrape:${downloadEventId}`);
@@ -312,4 +313,120 @@ test("pending ack retries before a fresh intentional submission", async () => {
   assert.equal(result.definitiveFailure, true);
   assert.deepEqual(calls, [`retry:${FIRST_ID}`, `scrape:${SECOND_ID}`]);
   assert.equal(tracker.pendingAcknowledgement(), null);
+});
+
+test("acknowledgement HTTP statuses classify definitive and retryable outcomes", () => {
+  for (const status of [200, 201, 204]) {
+    assert.deepEqual(classifyAcknowledgementResponse(status, true), {
+      outcome: "acknowledged",
+    });
+    assert.deepEqual(classifyAcknowledgementResponse(status, false), {
+      outcome: "retryable",
+    });
+  }
+  for (const status of [400, 401, 403, 404, 409, 422]) {
+    assert.deepEqual(classifyAcknowledgementResponse(status, false), {
+      outcome: "definitive",
+    });
+  }
+  for (const status of [408, 425, 429, 500, 502, 503]) {
+    assert.deepEqual(classifyAcknowledgementResponse(status, false), {
+      outcome: "retryable",
+    });
+  }
+});
+
+test("definitive pending acknowledgement ends this submit and next submit uses a fresh UUID", async () => {
+  const { tracker } = trackerFixture();
+  tracker.beginOrReuse();
+  tracker.markDownloadInitiated(FIRST_ID, PROOF);
+  const calls = [];
+
+  const rejected = await runDownloadSubmission({
+    tracker,
+    retryPendingAcknowledgement: async (pending) => {
+      calls.push(`ack:${pending.downloadEventId}`);
+      return { outcome: "definitive" };
+    },
+    requestWorkbook: async (downloadEventId) => {
+      calls.push(`scrape:${downloadEventId}`);
+      throw new Error("must not prepare a workbook after definitive rejection");
+    },
+    initiateDownload: async () => {},
+    acknowledgeDownload: async () => ({ outcome: "acknowledged" }),
+  });
+
+  assert.deepEqual(rejected, {
+    downloadStarted: false,
+    definitiveAcknowledgementFailure: true,
+  });
+  assert.deepEqual(calls, [`ack:${FIRST_ID}`]);
+  assert.equal(tracker.pendingAcknowledgement(), null);
+
+  const later = await runDownloadSubmission({
+    tracker,
+    requestWorkbook: async (downloadEventId) => {
+      calls.push(`scrape:${downloadEventId}`);
+      return { ok: false, status: 422, headers: new Map() };
+    },
+    initiateDownload: async () => {},
+    acknowledgeDownload: async () => ({ outcome: "acknowledged" }),
+  });
+  assert.equal(later.definitiveFailure, true);
+  assert.deepEqual(calls, [`ack:${FIRST_ID}`, `scrape:${SECOND_ID}`]);
+});
+
+test("retryable acknowledgement outcomes and network errors preserve one pending UUID", async () => {
+  for (const retry of [
+    async () => ({ outcome: "retryable" }),
+    async () => { throw new TypeError("network lost"); },
+  ]) {
+    const { tracker } = trackerFixture();
+    tracker.beginOrReuse();
+    tracker.markDownloadInitiated(FIRST_ID, PROOF);
+    let workbookRequests = 0;
+
+    const result = await runDownloadSubmission({
+      tracker,
+      retryPendingAcknowledgement: retry,
+      requestWorkbook: async () => {
+        workbookRequests += 1;
+        throw new Error("must remain acknowledgement-only");
+      },
+      initiateDownload: async () => {},
+      acknowledgeDownload: async () => ({ outcome: "acknowledged" }),
+    });
+
+    assert.deepEqual(result, {
+      downloadStarted: false,
+      pendingAcknowledgement: true,
+    });
+    assert.equal(workbookRequests, 0);
+    assert.equal(tracker.pendingAcknowledgement().downloadEventId, FIRST_ID);
+  }
+});
+
+test("definitive acknowledgement after download clears pending without undoing started download", async () => {
+  const { tracker } = trackerFixture();
+  const response = {
+    ok: true,
+    headers: new Map([
+      ["X-Roster-Scout-Download-Event-ID", FIRST_ID],
+      ["X-Roster-Scout-Download-Ack-Proof", PROOF],
+    ]),
+    async blob() { return { workbook: true }; },
+  };
+
+  const result = await runDownloadSubmission({
+    tracker,
+    requestWorkbook: async () => response,
+    initiateDownload: async () => {},
+    acknowledgeDownload: async () => ({ outcome: "definitive" }),
+  });
+
+  assert.equal(result.downloadStarted, true);
+  assert.equal(result.acknowledged, false);
+  assert.equal(result.definitiveAcknowledgementFailure, true);
+  assert.equal(tracker.pendingAcknowledgement(), null);
+  assert.equal(tracker.beginOrReuse().downloadEventId, SECOND_ID);
 });

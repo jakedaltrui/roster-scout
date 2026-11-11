@@ -42,12 +42,14 @@ class DownloadEventContractTests(unittest.TestCase):
     def test_template_uses_retry_safe_download_state_machine(self):
         module = self.source.index("static', filename='download_tracking.js")
         safe_storage = self.source.index("createSafeStorage", module)
+        classifier = self.source.index("classifyAcknowledgementResponse", module)
         tracker = self.source.index("createDownloadTracker", module)
         submission = self.source.index("runDownloadSubmission", tracker)
         request_field = self.source.index("download_event_id: downloadEventId")
         acknowledgement = self.source.index("/api/downloads/ack")
 
         self.assertLess(module, safe_storage)
+        self.assertLess(safe_storage, classifier)
         self.assertLess(safe_storage, tracker)
         self.assertLess(tracker, submission)
         self.assertLess(submission, request_field)
@@ -59,6 +61,18 @@ class DownloadEventContractTests(unittest.TestCase):
         self.assertNotIn("let downloadEventId = null;", self.source)
         self.assertNotIn("downloadEventId = crypto.randomUUID();", self.source)
         self.assertNotIn("downloadEventId = null;", self.source)
+
+    def test_template_classifies_acknowledgement_status_and_definitive_retry_copy(self):
+        self.assertIn(
+            "classifyAcknowledgementResponse(response.status",
+            self.source,
+        )
+        self.assertIn("definitiveAcknowledgementFailure", self.source)
+        self.assertIn(
+            "Your previous download confirmation was rejected. Please submit again.",
+            self.source,
+        )
+        self.assertNotIn("if (!response.ok) return { acknowledged: false };", self.source)
 
     def test_success_copy_claims_start_not_filesystem_save(self):
         self.assertIn("Your Stat Sheet download has started.", self.source)
