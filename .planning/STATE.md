@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-35-PLAN.md
-last_updated: "2026-11-11T06:03:18.629Z"
-last_activity: 2026-11-11 -- Completed Plan 01-35 browser download acknowledgement
+stopped_at: Completed 01-37-PLAN.md; awaiting independent verification
+last_updated: "2026-11-11T15:45:57.775Z"
+last_activity: 2026-11-11 -- Completed Plan 01-37 round-four release gate
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 37
-  completed_plans: 36
-  percent: 97
+  completed_plans: 37
+  percent: 100
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-11-01)
 ## Current Position
 
 Phase: 01 (canonical-snapshot-foundation) — EXECUTING
-Plan: 36 of 37
-Status: Ready to execute
-Last activity: 2026-11-11 -- Completed Plan 01-35 browser download acknowledgement
+Plan: 37 of 37
+Status: Needs independent verification
+Last activity: 2026-11-11 -- Completed Plan 01-37 round-four release gate
 
-Progress: [██████████] 97%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -170,6 +170,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 01]: One session-scoped opaque UUID survives ambiguous scrape, blob, and acknowledgement failures; definitive HTTP failure or acknowledged success ends that attempt. — Preserves idempotency without turning client state into identity.
 - [Phase 01]: The browser records needs_ack only after readable workbook bytes and synchronous anchor initiation, so acknowledgement never claims filesystem-save proof. — Counts the strongest browser-observable outcome without overstating what the browser can prove.
 - [Phase 01]: Only UUID, lifecycle state, signed proof, and bounded timestamps enter sessionStorage; acknowledged is an ephemeral terminal transition and not persistent identity. — Bounds retry state to the proof lifetime and excludes identifying or report data.
+- [Phase 01]: Only exact story/database guards and minimal migrate-to-head setup may precede the round-four Python and Node counterexamples; every full validation group follows them. — Known concurrency, cache, analytics, acknowledgement, browser, and purge failures must fail fast before a broad suite can mask an omitted focused regression.
+- [Phase 01]: The native workbook remains database-optional, while production durable jobs, migrations, readiness, usage reports, and authoritative analytics remain PostgreSQL-required. — Local workbook availability and production durability are separate supported boundaries and must not be described as interchangeable.
+- [Phase 01]: Successful-download operations mean blob read, anchor initiation, and idempotent same-origin acknowledgement; they never claim proof of a filesystem save. — This is the strongest browser-observable outcome and keeps the usage metric honest without collecting identity or device fingerprints.
 
 ### Pending Todos
 
@@ -204,9 +207,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 01 P36 | 6 min | 2 tasks | 2 files |
 | Phase 01 P34 | 8 min | 2 tasks | 2 files |
 | Phase 01 P35 | 8 min | 2 tasks | 4 files |
+| Phase 01 P37 | 9h 15m | 2 tasks | 3 files |
 
 ## Session Continuity
 
-Last session: 2026-11-11T06:03:18.621Z
-Stopped at: Completed 01-35-PLAN.md
+Last session: 2026-11-11T15:22:50.165Z
+Stopped at: Completed 01-37-PLAN.md; awaiting independent verification
 Resume file: None
