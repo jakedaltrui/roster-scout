@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-37-PLAN.md; awaiting independent verification
-last_updated: "2026-11-11T16:51:07.216Z"
-last_activity: 2026-11-11 -- Phase 01 planning complete
+stopped_at: Completed 01-38-PLAN.md
+last_updated: "2026-11-11T17:10:47.491Z"
+last_activity: 2026-11-11 -- Completed Plan 01-38 global Player serialization
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 41
-  completed_plans: 37
+  completed_plans: 38
   percent: 0
 ---
 
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-11-01)
 ## Current Position
 
 Phase: 01 (canonical-snapshot-foundation) — EXECUTING
-Plan: 37 of 37
-Status: Ready to execute
-Last activity: 2026-11-11 -- Phase 01 planning complete
+Plan: 38 of 41
+Status: Ready for Plan 01-39
+Last activity: 2026-11-11 -- Completed Plan 01-38 global Player serialization
 
-Progress: [██████████] 100%
+Progress: [█████████░] 93%
 
 ## Performance Metrics
 
@@ -155,6 +155,8 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 01]: Phase 2 records authenticated_use only after authorized durable report/job acceptance keyed by accepted ReportJob and canonical identity UUIDs. — Page views, login, rejections, and validation failures are excluded.
 - [Phase 01]: Authoritative identity paths acquire locks in the global metric-definition (when applicable) -> snapshot -> organization-scoped Player -> PlayerTeamSeason order. — One deterministic order prevents identity write skew and publication deadlocks.
 - [Phase 01]: Direct Player updates acquire stable tenant Player UUID locks across organizations. — A concurrent new PlayerTeamSeason may still be invisible, so the Player side cannot depend on enumerating it.
+- [Phase 01]: Every authoritative mutation and publication path locks the canonical Player UUID before tenant-scoped Player keys. — The common serialization domain remains present even when a concurrent organization is not transaction-visible.
+- [Phase 01]: Publication preserves snapshot, global Player, tenant Player, PlayerTeamSeason, then validation order. — Shared metric definitions resolve before source linkage reaches snapshot/global locks on applicable persistence paths.
 - [Phase 01]: Publication locks every linked Player and PlayerTeamSeason before authoritative mismatch validation. — Publisher certification now observes the same serialized state as database triggers.
 - [Phase 01]: Legacy NCAA result payloads must exactly match cache format, parser, core-header, and report-schema identities before normalized players are trusted. — Pre-contract evidence must not bypass a stricter collector deployment.
 - [Phase 01]: The successful-result cache and per-team file lock derive from one source-and-contract key. — Incompatible collectors must neither share artifacts nor coalesce behind the same lock.
@@ -208,9 +210,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 01 P34 | 8 min | 2 tasks | 2 files |
 | Phase 01 P35 | 8 min | 2 tasks | 4 files |
 | Phase 01 P37 | 9h 15m | 2 tasks | 3 files |
+| Phase 01 P38 | 19m | 2 tasks | 5 files |
 
 ## Session Continuity
 
-Last session: 2026-11-11T15:22:50.165Z
-Stopped at: Completed 01-37-PLAN.md; awaiting independent verification
+Last session: 2026-11-11T17:10:47.482Z
+Stopped at: Completed 01-38-PLAN.md
 Resume file: None
