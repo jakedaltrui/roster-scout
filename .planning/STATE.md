@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-30-PLAN.md
-last_updated: "2026-11-11T04:45:36.962Z"
-last_activity: 2026-11-11 -- Phase 01 planning complete
+stopped_at: Completed 01-31-PLAN.md
+last_updated: "2026-11-11T05:08:32.955Z"
+last_activity: 2026-11-11 -- Completed Plan 01-31 authoritative identity serialization
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 37
-  completed_plans: 30
-  percent: 0
+  completed_plans: 31
+  percent: 84
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: `.planning/PROJECT.md` (updated 2026-11-01)
 
 ## Current Position
 
-Phase: 01 (canonical-snapshot-foundation) — VERIFYING
-Plan: 30 of 30
+Phase: 01 (canonical-snapshot-foundation) — EXECUTING
+Plan: 31 of 37
 Status: Ready to execute
-Last activity: 2026-11-11 -- Phase 01 planning complete
+Last activity: 2026-11-11 -- Completed Plan 01-31 authoritative identity serialization
 
-Progress: [██████████] 100%
+Progress: [████████░░] 84%
 
 ## Performance Metrics
 
@@ -153,6 +153,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 01]: Every Plan 01-22 through 01-29 counterexample runs explicitly before clean-process full discovery. — A missing focused class cannot hide behind broad suite coverage.
 - [Phase 01]: Successful downloads are committed deduplicated workbook_download_served events; unique users are distinct nonnull canonical account UUIDs only. — Anonymous Phase 1 traffic remains zero authenticated users without pseudonymous substitution.
 - [Phase 01]: Phase 2 records authenticated_use only after authorized durable report/job acceptance keyed by accepted ReportJob and canonical identity UUIDs. — Page views, login, rejections, and validation failures are excluded.
+- [Phase 01]: Authoritative identity paths acquire locks in the global metric-definition (when applicable) -> snapshot -> organization-scoped Player -> PlayerTeamSeason order. — One deterministic order prevents identity write skew and publication deadlocks.
+- [Phase 01]: Direct Player updates acquire stable tenant Player UUID locks across organizations. — A concurrent new PlayerTeamSeason may still be invisible, so the Player side cannot depend on enumerating it.
+- [Phase 01]: Publication locks every linked Player and PlayerTeamSeason before authoritative mismatch validation. — Publisher certification now observes the same serialized state as database triggers.
 
 ### Pending Todos
 
@@ -181,9 +184,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 01 P27 | 13 min | 2 tasks | 4 files |
 | Phase 01 P29 | 10 min | 2 tasks | 3 files |
 | Phase 01 P30 | 8 min | 2 tasks | 3 files |
+| Phase 01 P31 | 18 min | 2 tasks | 5 files |
 
 ## Session Continuity
 
-Last session: 2026-11-11T01:13:17.429Z
-Stopped at: Completed 01-30-PLAN.md
+Last session: 2026-11-11T05:08:32.947Z
+Stopped at: Completed 01-31-PLAN.md
 Resume file: None
