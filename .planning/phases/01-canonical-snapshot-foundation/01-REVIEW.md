@@ -1,113 +1,97 @@
 ---
 phase: 01-canonical-snapshot-foundation
-reviewed: 2026-11-11T01:20:24Z
+reviewed: 2026-11-11T15:52:49Z
 depth: standard
-files_reviewed: 27
+files_reviewed: 19
 files_reviewed_list:
-  - app.py
-  - roster_scraper.py
-  - roster_scout/canonical.py
-  - roster_scout/evidence.py
-  - roster_scout/jobs.py
-  - roster_scout/models.py
+  - migrations/versions/0013_authoritative_identity_serialization.py
   - roster_scout/snapshots.py
-  - roster_scout/usage.py
-  - migrations/versions/0010_authoritative_source_player_binding.py
-  - migrations/versions/0011_failure_evidence_retention_constraint.py
-  - migrations/versions/0012_product_usage_events.py
-  - scripts/report_usage.py
-  - scripts/run_purge.py
-  - scripts/run_worker.py
-  - scripts/validate_phase1_release.py
-  - templates/index.html
-  - tests/test_app_routes.py
-  - tests/test_canonical_data.py
-  - tests/test_canonical_publish.py
-  - tests/test_deployment_config.py
-  - tests/test_evidence.py
-  - tests/test_ncaa_workflow.py
-  - tests/test_report_jobs.py
   - tests/test_snapshot_persistence.py
+  - tests/test_canonical_publish.py
+  - roster_scraper.py
+  - tests/test_ncaa_workflow.py
+  - tests/test_browserless_lifecycle.py
+  - roster_scout/usage.py
+  - app.py
   - tests/test_usage_metrics.py
+  - tests/test_app_routes.py
+  - static/download_tracking.js
+  - tests/js/download_tracking.test.mjs
+  - templates/index.html
+  - roster_scout/evidence.py
+  - tests/test_evidence.py
+  - scripts/validate_phase1_release.py
+  - tests/test_deployment_config.py
   - DEPLOYMENT.md
-  - .env.example
 findings:
-  critical: 5
-  warning: 1
+  critical: 3
+  warning: 2
   info: 0
-  total: 6
+  total: 5
 status: issues_found
 ---
 
 # Phase 1: Code Review Report
 
-**Reviewed:** 2026-11-11T01:20:24Z
+**Reviewed:** 2026-11-11T15:52:49Z
 **Depth:** standard
-**Files Reviewed:** 27
+**Files Reviewed:** 19
 **Status:** issues_found
 
 ## Summary
 
-The round-three gap work closes the previously demonstrated parser-cardinality, ID-less corroboration, retention-constraint, bounded-purge, and sequential source/player mismatch cases, but it is not safe to ship yet. The authoritative identity triggers can be defeated by concurrent transactions, the documented native workbook workflow now fails without PostgreSQL, and the new usage layer misclassifies actor-bearing download events as authenticated use. The legacy NCAA result cache also remains independent of the parser contract, while “successful” download events are committed before any workbook bytes reach the browser. The purge heartbeat has a smaller concurrency defect that can regress readiness timestamps.
+The round-four work closes the six previously recorded counterexamples for the tested schedules, but it is not ready to ship. The acknowledgement endpoint rejects the real HTTPS origin when Flask runs behind Fly's TLS-terminating proxy, the browser treats every acknowledgement HTTP failure as ambiguous and can block reports for the full proof lifetime, and the authoritative identity protocol still has a write-skew schedule when the tenant organization is created concurrently. Two additional robustness gaps leave storage-restricted browsers unusable and let the release validator's diff gate pass without inspecting any committed change.
 
-The reported 344-test release pass does not exercise the concrete counterexamples below: the identity tests mutate rows sequentially, the route suite mocks usage persistence for the legacy path, the usage aggregate tests always pair actor-bearing downloads with authenticated-use events, and the browser contract test inspects source ordering rather than a lost-response retry. No source files were modified by this review.
+No implementation file was modified by this review.
 
 ## Narrative Findings (AI reviewer)
 
 ## Critical Issues
 
-### CR-01 [BLOCKER]: The authoritative source/player invariant is vulnerable to concurrent write skew
+### CR-01 [BLOCKER]: Fly HTTPS acknowledgements are rejected as cross-origin
 
-**File:** `migrations/versions/0010_authoritative_source_player_binding.py:49-79,101-123,141-163`
+**Files:** `app.py:329-331`; `fly.toml:46-49`
 
-**Issue:** All three trigger functions validate related rows with ordinary snapshot reads. None locks the `players` or `player_team_seasons` row, and none uses a common advisory-lock protocol. A source-record transaction can read a matching Player at lines 60-66 while a concurrent transaction reads the pre-insert source set at lines 104-117 and changes that Player's authoritative ID. Both `BEFORE` triggers can pass under PostgreSQL `READ COMMITTED`, then both transactions commit a source ID that no longer matches its canonical Player. The same race exists between source insertion and `PlayerTeamSeason.player_id` reassignment at lines 144-157. The publication check in `roster_scout/snapshots.py:106-136` does not repair this: it is another snapshot read and cannot serialize a later concurrent mutation.
+**Issue:** The endpoint constructs its expected origin from `request.scheme` and `request.host`. Fly terminates HTTPS at its edge and forwards the request to Gunicorn over the configured plain HTTP `internal_port`; the application installs neither `ProxyFix` nor an equivalent trusted-proxy scheme resolver. The browser therefore sends `Origin: https://roster-scout.fly.dev`, while Flask sees the internal request scheme as `http` and expects `http://roster-scout.fly.dev`. A direct reproduction with `X-Forwarded-Proto: https` returns 403 because that header is ignored. Every production workbook can start downloading, but its acknowledgement is rejected and no durable successful-download event is recorded.
 
-**Fix:** Make every source insert/update, Player authoritative-ID update, and PlayerTeamSeason reassignment acquire the same deterministic transaction lock before validation. For example, lock the relevant Player and PlayerTeamSeason rows with `SELECT ... FOR UPDATE` in a consistent order, or use a transaction advisory lock keyed by the canonical identity. Add two-connection tests that pause a source insert after its trigger read while changing the Player or reassigning the PlayerTeamSeason, then assert that one transaction fails and the committed database state still satisfies the invariant.
+**Fix:** Establish one trusted external-origin contract. On Fly, either wrap the app with a one-hop `ProxyFix` configured for the platform's forwarded scheme/host headers, derive the origin from Fly's trusted forwarded-proto header, or compare against a validated configured public origin. Do not trust arbitrary forwarded headers when running directly. Add a route test that models the Fly hop (`http` internal request, public HTTPS Origin, trusted forwarded proto) and requires 200/202.
 
-### CR-02 [BLOCKER]: Adding download metrics breaks the documented native workbook workflow
+### CR-02 [BLOCKER]: Definitive acknowledgement failures trap the browser in `needs_ack`
 
-**Files:** `app.py:151-165,331-348`; `DEPLOYMENT.md:5-15`
+**Files:** `templates/index.html:1289-1300`; `static/download_tracking.js:190-203,230-239`
 
-**Issue:** Every otherwise successful `/scrape` request now calls `_usage_session_factory()`, which requires `DATABASE_URL`, and converts any persistence failure into HTTP 503. The documented native runner still tells an operator to run only setup, Browserless-token, and `scripts/run_local.sh`; that runner does not configure or start PostgreSQL. Therefore the supported native flow can scrape and construct the Excel file but will always discard it and return 503 when no database URL is present. The regression is hidden because `tests/test_app_routes.py:359-370` patches `_record_workbook_download` for the legacy route suite, while only the database-specific metric tests exercise the real producer.
+**Issue:** `postDownloadAcknowledgement()` maps every non-2xx response to the same `{acknowledged: false}` result. The state machine then preserves `needs_ack` for all such responses and every later submission retries that acknowledgement before refusing to start another report. Retaining state is correct for a timeout, network error, or 5xx, but a 400/403 response is definitive: an expired/invalid proof or rejected origin cannot succeed on retry. The current implementation repeatedly sends the same invalid proof and blocks all new reports until the client-side 15-minute TTL expires. This contradicts the plan's explicit requirement to retain only ambiguous/network/5xx acknowledgement failures and allocate a new UUID after definitive failure.
 
-**Fix:** Either keep analytics best-effort for the database-optional legacy route (with explicit health/telemetry for dropped events), or formally make PostgreSQL a prerequisite for all workbook delivery and update `scripts/run_local.sh`, setup, and the deployment guide to validate/provision it. Add an unmocked native-runner contract test with the documented environment that proves `/scrape` still returns a workbook, or fails at startup with a clear prerequisite error rather than after doing the scrape.
+**Fix:** Return a classified acknowledgement result from the template callback (success, retryable ambiguity/5xx, or definitive 4xx). Add a state-machine operation that clears the matching `needs_ack` record on a definitive acknowledgement failure, then require a later explicit submission to allocate a fresh UUID. Add Node tests for 400/403 versus 500/network outcomes and a template contract that preserves the HTTP status classification.
 
-### CR-03 [BLOCKER]: The “unique authenticated users” query counts actors from the wrong event type
+### CR-03 [BLOCKER]: A concurrently created organization bypasses the Player identity lock
 
-**Files:** `roster_scout/usage.py:155-176,195-205`; `migrations/versions/0012_product_usage_events.py:31-43`
+**File:** `migrations/versions/0013_authoritative_identity_serialization.py:292-310`
 
-**Issue:** The producer contract says an authenticated use is the `authenticated_use` event emitted only after authorization and durable job acceptance. The aggregate, however, counts every distinct non-null `actor_account_id` without filtering by event type. Revision 0012 deliberately permits `workbook_download_served` to carry an actor/organization pair, and `record_workbook_download_served()` exposes those arguments. A single actor-bearing download event with no accepted authenticated-use event therefore reports one “unique authenticated user.” Existing tests miss this because every actor-bearing download is paired with an authenticated-use event for the same actor.
+**Issue:** A direct Player source-ID update tries to cover invisible PlayerTeamSeason rows by cross-joining the changed Player with every *visible* organization and taking each `(organization_id, player_id)` advisory lock. That is still visibility-dependent. A transaction can create a new organization, its report/snapshot/PlayerTeamSeason, and an authoritative SourceRecord for Player ID `42`; its source trigger locks `(new_org, player)`. Concurrently, another transaction updates the existing global Player to ID `99`. Because `new_org` is uncommitted, the Player trigger's cross join cannot see it and takes no matching advisory lock. The source transaction validates the old Player value, the Player transaction cannot see the new source row, and both can commit the same `42 != 99` mismatch that revision 0013 is intended to make impossible. The tests create the organization before the two workers, so they do not exercise this schedule.
 
-**Fix:** Apply `ProductUsageEvent.event_type == AUTHENTICATED_USE` to the distinct-actor aggregate as well as the non-null check. Add global and organization-scoped tests containing only actor-bearing download events and assert that downloads increase while unique authenticated users remain zero.
-
-### CR-04 [BLOCKER]: The legacy NCAA result cache is not invalidated by the parser-contract bump
-
-**File:** `roster_scraper.py:77-90,1092-1112,2413-2426`
-
-**Issue:** The durable section cache now uses `parser-2+ncaa-core-v2`, but the legacy workbook cache key remains only `ncaa:{year}:{season_team_id}` and cached payloads contain only the unchanged integer `_NCAA_CACHE_VERSION = 2`. A result written by the pre-fix parser therefore remains valid after deployment and is returned at lines 2416-2426 without running the new duplicate-header contract. The configurable `NCAA_PARSER_VERSION` does not participate in this cache at all. This preserves exactly the stale parser evidence that the version bump was intended to reject, for the default result-cache TTL after rollout.
-
-**Fix:** Persist the resolved parser and schema identities in every legacy result payload and reject reads unless both equal the current build; preferably include them in the cache key as well. Bump the legacy cache format version for this release. Add a test that writes a cache entry with the former parser identity, advances the parser contract, and proves the request recollects instead of returning those players.
-
-### CR-05 [BLOCKER]: A download is counted before the browser receives the workbook, and retries are not idempotent
-
-**Files:** `app.py:331-348`; `templates/index.html:1299-1357`
-
-**Issue:** The server commits `workbook_download_served` before returning the `send_file` response, not after transmission or client receipt. If the connection or proxy fails after the event commit but before `resp.blob()` completes, no workbook is delivered, yet the event is permanently counted. The browser's `finally` block then clears `downloadEventId`; the user's retry generates a new UUID and records a second event. Thus one eventual download can count twice, and a download that never reaches the browser can count once. Server-side duplicate-key tests do not cover this lost-response boundary, and the documented definition of a “successful download” becomes a prepared response rather than a received workbook.
-
-**Fix:** Separate workbook generation from delivery acknowledgement. Preserve the same request UUID across ambiguous network retries, and record/confirm the event from a bounded acknowledgement endpoint only after the client has successfully read the workbook blob (or rename the metric explicitly to “workbook responses prepared” if that weaker semantic is acceptable). Protect the acknowledgement against cross-origin abuse and keep its insert idempotent. Add a browser-level test that simulates a connection loss after server commit, retries, and verifies the chosen success definition produces exactly one event.
+**Fix:** Add a visibility-independent global Player lock keyed only by Player UUID and acquire it on every authoritative source, Player, PlayerTeamSeason, and publication path before the tenant-scoped Player locks (while retaining the documented snapshot-first ordering), or otherwise enforce that tenant creation cannot race these paths. Add a real two-connection regression where the organization/snapshot/identity/source are all created in the uncommitted source transaction while the other connection mutates the global Player.
 
 ## Warnings
 
-### WR-01 [WARNING]: Concurrent or out-of-order purges can move the success heartbeat backwards
+### WR-01 [WARNING]: Unavailable session storage prevents the form from being initialized
 
-**File:** `roster_scout/evidence.py:236-251,287-308`
+**Files:** `templates/index.html:1281-1287`; `static/download_tracking.js:40-49`
 
-**Issue:** `_upsert_evidence_purge_state()` unconditionally overwrites `last_success_at` with the caller's `now`. Two overlapping scheduler/manual purge runs can complete out of order, allowing an older scan to commit after a newer one and replace the newer timestamp. Readiness can then become stale early and take the app out of service even though a more recent complete purge succeeded. The same lack of serialization leaves a check-to-upsert window where a concurrent eligible-row insertion can make the recorded “complete scan” stale at commit time.
+**Issue:** The page passes `sessionStorage` directly into the tracker at top level, and every `getItem`, `setItem`, and `removeItem` call is unguarded. Browsers can expose the Storage interface but throw `SecurityError` for access (privacy policy, sandboxing, disabled storage), and writes can throw quota errors. An exception during tracker construction or the first load/save aborts the enclosing script before the submit listener is installed, so the core workbook form becomes unusable. The page already treats local-storage availability as optional for theme state, but the new download path does not provide the same resilience.
 
-**Fix:** Serialize complete-scan finalization with a singleton advisory lock, or make the upsert monotonic with `GREATEST(existing.last_success_at, excluded.last_success_at)` and use `SERIALIZABLE`/retry (or a shared writer protocol) for the final eligibility check. Add overlapping-purge tests that force the older invocation to commit last and a test that inserts an eligible evidence row between the final count and heartbeat write.
+**Fix:** Wrap storage acquisition and all operations in a safe adapter, with an in-memory per-page fallback when session storage is unavailable. Reload retry can be best-effort in that mode, but current-page workbook generation and acknowledgement must continue. Add Node tests using a storage object whose methods throw and a browser/template test proving the submit handler still initializes.
+
+### WR-02 [WARNING]: The release diff gate checks only an already-clean working tree
+
+**File:** `scripts/validate_phase1_release.py:257-260`
+
+**Issue:** The final command is `git diff --check` without a commit range or `--cached`. The execution workflow commits each plan before running the final validator, so the tracked working tree is clean and this command inspects none of the release's committed changes. A whitespace error committed in any round-four file therefore produces a green “Git diff hygiene” gate. The test suite asserts command ordering but not that the command has a nonempty, release-scoped range.
+
+**Fix:** Resolve and validate an explicit release/phase base commit, then run `git diff --check <base>..HEAD` (and optionally a second working-tree check). Add a release-manifest test that requires the range and a fixture/repository probe demonstrating a committed whitespace defect fails the gate.
 
 ---
 
-_Reviewed: 2026-11-11T01:20:24Z_
+_Reviewed: 2026-11-11T15:52:49Z_
 _Reviewer: the agent (gsd-code-reviewer)_
 _Depth: standard_
