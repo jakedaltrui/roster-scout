@@ -1332,7 +1332,32 @@ class Phase1ReleaseValidatorContractTests(unittest.TestCase):
         }
         self.assertEqual(set(ROUND_FOUR_COUNTEREXAMPLE_TESTS), expected)
 
-    def test_round_four_groups_run_before_every_full_validation_group(self):
+    def test_manifest_names_every_round_five_counterexample_class(self):
+        from scripts.validate_phase1_release import ROUND_FIVE_COUNTEREXAMPLE_TESTS
+
+        expected = {
+            (
+                "tests.test_snapshot_persistence."
+                "AuthoritativeGlobalPlayerSerializationTests"
+            ),
+            (
+                "tests.test_snapshot_persistence."
+                "AuthoritativeGlobalPlayerSerializationMigrationTests"
+            ),
+            (
+                "tests.test_canonical_publish."
+                "AuthoritativeIdentityPublicationSerializationTests"
+            ),
+            (
+                "tests.test_deployment_config."
+                "DownloadAcknowledgementPublicOriginConfigTests"
+            ),
+            "tests.test_app_routes.DownloadAcknowledgementPublicOriginTests",
+            "tests.test_app_routes.DownloadEventContractTests",
+        }
+        self.assertEqual(set(ROUND_FIVE_COUNTEREXAMPLE_TESTS), expected)
+
+    def test_round_five_groups_run_before_every_full_validation_group(self):
         import inspect
 
         from scripts import validate_phase1_release as validator
@@ -1342,8 +1367,8 @@ class Phase1ReleaseValidatorContractTests(unittest.TestCase):
         sentinels = (
             validator.MINIMAL_HEAD_SETUP_LABEL,
             validator.MINIMAL_HEAD_ASSERTION_LABEL,
-            validator.ROUND_FOUR_PYTHON_LABEL,
-            validator.ROUND_FOUR_NODE_LABEL,
+            validator.ROUND_FIVE_PYTHON_LABEL,
+            validator.ROUND_FIVE_NODE_LABEL,
             validator.MIGRATION_SERIALIZATION_LABEL,
             validator.FULL_MIGRATION_START_LABEL,
             validator.FULL_DISCOVERY_LABEL,
@@ -1352,7 +1377,8 @@ class Phase1ReleaseValidatorContractTests(unittest.TestCase):
             validator.WORKBOOK_LABEL,
             validator.COMPILATION_LABEL,
             validator.TEMPLATE_LABEL,
-            validator.DIFF_LABEL,
+            validator.COMMITTED_DIFF_LABEL,
+            validator.WORKING_TREE_DIFF_LABEL,
         )
         for sentinel in sentinels:
             with self.subTest(sentinel=sentinel):
@@ -1364,8 +1390,8 @@ class Phase1ReleaseValidatorContractTests(unittest.TestCase):
         source_sentinels = (
             "MINIMAL_HEAD_SETUP_LABEL",
             "MINIMAL_HEAD_ASSERTION_LABEL",
-            "ROUND_FOUR_PYTHON_LABEL",
-            "ROUND_FOUR_NODE_LABEL",
+            "ROUND_FIVE_PYTHON_LABEL",
+            "ROUND_FIVE_NODE_LABEL",
             "MIGRATION_SERIALIZATION_LABEL",
             "FULL_MIGRATION_START_LABEL",
             "FULL_DISCOVERY_LABEL",
@@ -1374,7 +1400,8 @@ class Phase1ReleaseValidatorContractTests(unittest.TestCase):
             "WORKBOOK_LABEL",
             "COMPILATION_LABEL",
             "TEMPLATE_LABEL",
-            "DIFF_LABEL",
+            "COMMITTED_DIFF_LABEL",
+            "WORKING_TREE_DIFF_LABEL",
         )
         source_indices = [source.index(sentinel) for sentinel in source_sentinels]
         self.assertEqual(source_indices, sorted(source_indices))
@@ -1382,9 +1409,15 @@ class Phase1ReleaseValidatorContractTests(unittest.TestCase):
         through_focused_node = "\n".join(
             " ".join(command)
             for _label, command in manifest[: labels.index(
-                validator.ROUND_FOUR_NODE_LABEL
+                validator.ROUND_FIVE_NODE_LABEL
             ) + 1]
         )
+        for counterexample in (
+            *validator.ROUND_FOUR_COUNTEREXAMPLE_TESTS,
+            *validator.ROUND_FIVE_COUNTEREXAMPLE_TESTS,
+        ):
+            with self.subTest(counterexample=counterexample):
+                self.assertIn(counterexample, through_focused_node)
         for forbidden in (
             "alembic downgrade base",
             "unittest discover -s tests",
@@ -1401,6 +1434,7 @@ class Phase1ReleaseValidatorContractTests(unittest.TestCase):
         from scripts.validate_phase1_release import (
             EXPECTED_MIGRATION_HEAD,
             ROUND_FOUR_COUNTEREXAMPLE_TESTS,
+            ROUND_FIVE_COUNTEREXAMPLE_TESTS,
             release_command_manifest,
         )
 
@@ -1416,7 +1450,7 @@ class Phase1ReleaseValidatorContractTests(unittest.TestCase):
             "python -m unittest discover -s tests -v",
             (
                 "python -m unittest tests.test_snapshot_persistence."
-                "AuthoritativeIdentitySerializationMigrationTests -v"
+                "AuthoritativeGlobalPlayerSerializationMigrationTests -v"
             ),
             "node --test tests/js/download_tracking.test.mjs",
             "scripts/validate_ncaa_catalog.py",
@@ -1439,15 +1473,35 @@ class Phase1ReleaseValidatorContractTests(unittest.TestCase):
             with self.subTest(counterexample=counterexample):
                 self.assertIn(counterexample, rendered)
 
-        self.assertEqual(EXPECTED_MIGRATION_HEAD, "0013")
+        for counterexample in ROUND_FIVE_COUNTEREXAMPLE_TESTS:
+            with self.subTest(counterexample=counterexample):
+                self.assertIn(counterexample, rendered)
+
+        self.assertEqual(EXPECTED_MIGRATION_HEAD, "0014")
         head_revision = (
             PROJECT_ROOT
             / "migrations"
             / "versions"
-            / "0013_authoritative_identity_serialization.py"
+            / "0014_global_player_serialization.py"
         ).read_text(encoding="utf-8")
-        self.assertIn('revision = "0013"', head_revision)
-        self.assertIn('down_revision = "0012"', head_revision)
+        self.assertIn('revision = "0014"', head_revision)
+        self.assertIn('down_revision = "0013"', head_revision)
+
+    def test_runbook_documents_final_release_contract(self):
+        guide = (PROJECT_ROOT / "DEPLOYMENT.md").read_text(encoding="utf-8")
+        for statement in (
+            "audited baseline `95776ed`",
+            "`PHASE1_RELEASE_DIFF_BASE`",
+            "equal to or an ancestor of `95776ed`",
+            "`git diff --check <resolved-base>..HEAD --`",
+            "`git diff --check`",
+            "revision `0014`",
+            "`ROSTER_SCOUT_PUBLIC_ORIGIN`",
+            "HTTP 400 and 403 acknowledgement responses are definitive",
+            "HTTP 5xx and network failures are retryable",
+        ):
+            with self.subTest(statement=statement):
+                self.assertIn(statement, guide)
 
     def test_missing_database_url_fails_closed_before_release_commands(self):
         from scripts.validate_phase1_release import _validate_database_url
