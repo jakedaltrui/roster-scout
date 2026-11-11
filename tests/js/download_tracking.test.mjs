@@ -121,7 +121,10 @@ test("lost ack and duplicate callbacks keep idempotent lifecycle", () => {
   assert.equal(tracker.pendingAcknowledgement().downloadEventId, FIRST_ID);
   assert.equal(tracker.pendingAcknowledgement().downloadEventId, FIRST_ID);
 
-  assert.equal(tracker.acknowledgeSuccess(FIRST_ID), true);
+  assert.deepEqual(tracker.acknowledgeSuccess(FIRST_ID), {
+    downloadEventId: FIRST_ID,
+    state: "acknowledged",
+  });
   assert.equal(tracker.acknowledgeSuccess(FIRST_ID), false);
   assert.equal(tracker.pendingAcknowledgement(), null);
   assert.equal(tracker.beginOrReuse().downloadEventId, SECOND_ID);

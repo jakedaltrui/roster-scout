@@ -165,7 +165,10 @@
         return false;
       }
       discard();
-      return true;
+      return {
+        downloadEventId,
+        state: "acknowledged",
+      };
     }
 
     return {
