@@ -1,8 +1,8 @@
 ---
 phase: 01-canonical-snapshot-foundation
-fixed_at: 2026-11-11T18:28:09Z
+fixed_at: 2026-11-11T18:44:56Z
 review_path: .planning/phases/01-canonical-snapshot-foundation/01-REVIEW.md
-iteration: 2
+iteration: 3
 findings_in_scope: 1
 fixed: 1
 skipped: 0
@@ -11,9 +11,9 @@ status: all_fixed
 
 # Phase 1: Code Review Fix Report
 
-**Fixed at:** 2026-11-11T18:28:09Z
+**Fixed at:** 2026-11-11T18:44:56Z
 **Source review:** `.planning/phases/01-canonical-snapshot-foundation/01-REVIEW.md`
-**Iteration:** 2
+**Iteration:** 3
 
 **Summary:**
 
@@ -25,13 +25,13 @@ status: all_fixed
 
 ### WR-01: Public-origin host canonicalization still differs from browsers
 
-**Files modified:** `app.py`, `tests/test_app_routes.py`
-**Commits:** `4bf0631`, `d6d8c25`
+**Files modified:** `app.py`, `DEPLOYMENT.md`, `tests/test_app_routes.py`, `tests/test_deployment_config.py`
+**Commits:** `310c456`, `1b39a62`
 **Status:** fixed: requires human verification
-**Applied fix:** DNS hosts are lowercased and converted to ASCII IDNA, IPv6 hosts are compressed and bracketed with `ipaddress`, canonical dotted IPv4 is accepted, and ambiguous numeric IPv4 spellings fail startup with a fixed safe error. Existing browser-compatible default-port stripping and non-default-port retention remain unchanged. Clean-process route coverage proves Unicode IDN, expanded IPv6, dotted IPv4, default ports, and port 8443 match browser `Origin` serialization while shorthand decimal and hexadecimal IPv4 forms are rejected.
+**Applied fix:** Configured DNS hosts must now be ASCII. Operators provide internationalized domains in their canonical A-label/Punycode form, avoiding the standard library's browser-incompatible IDNA 2003 mapping. The validator accepts canonical ASCII custom domains such as `xn--fa-hia.de`, rejects Unicode hostnames and detectable malformed A-labels with the existing fixed safe error, and preserves lowercase DNS, strict dotted IPv4, compressed/bracketed IPv6, default-port stripping, and non-default ports. Regression tests and the full PostgreSQL-backed Phase 1 release validator pass.
 
 ---
 
-_Fixed: 2026-11-11T18:28:09Z_
+_Fixed: 2026-11-11T18:44:56Z_
 _Fixer: the agent (gsd-code-fixer)_
-_Iteration: 2_
+_Iteration: 3_
