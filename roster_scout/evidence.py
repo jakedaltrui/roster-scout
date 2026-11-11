@@ -161,10 +161,12 @@ def store_failure_evidence(
     html,
     failure_category,
     collected_at=None,
+    retention=None,
 ):
     """Store bounded failure bytes in a caller-owned or standalone transaction."""
     collected_at = collected_at or datetime.now(UTC)
-    retention = get_failure_evidence_retention()
+    if retention is None:
+        retention = get_failure_evidence_retention()
     if isinstance(session_or_factory, Session):
         return _store_failure_evidence(
             session_or_factory,

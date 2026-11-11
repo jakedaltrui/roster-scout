@@ -974,6 +974,22 @@ def _record_failure(
         generation = None
     now = now or _utcnow()
     evidence = error.evidence
+    evidence_retention = None
+    if evidence is not None:
+        from .evidence import (
+            FailureEvidenceConfigurationError,
+            get_failure_evidence_retention,
+            store_failure_evidence,
+        )
+
+        try:
+            evidence_retention = get_failure_evidence_retention()
+        except FailureEvidenceConfigurationError:
+            # Invalid diagnostic retention is an operational configuration
+            # failure, not source evidence. Preserve a safe terminal state and
+            # omit optional bytes instead of rolling the job back to running.
+            evidence = None
+            error = DeterministicJobError("unexpected")
     with session_factory.begin() as session:
         job = session.scalar(
             select(ReportJob).where(ReportJob.id == job_id).with_for_update()
@@ -1017,8 +1033,6 @@ def _record_failure(
         job.failure_category = error.category
         job.failure_message = str(error)
         if job.status in {"failed", "blocked"} and evidence is not None:
-            from .evidence import store_failure_evidence
-
             store_failure_evidence(
                 session,
                 job.id,
@@ -1027,6 +1041,7 @@ def _record_failure(
                 html=evidence.html,
                 failure_category=evidence.failure_category,
                 collected_at=evidence.collected_at,
+                retention=evidence_retention,
             )
     return error
 
