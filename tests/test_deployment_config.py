@@ -492,6 +492,166 @@ class EvidencePurgeEntrypointTests(unittest.TestCase):
                 self.assertNotIn("password", rendered)
 
 
+class BatchedPurgeRunnerTests(PostgreSQLJobTestCase):
+    def test_incomplete_scan_retries_within_sixty_seconds_without_success_log(self):
+        from roster_scout.evidence import EvidencePurgeResult
+        from scripts.run_purge import PurgeConfig, run_purge
+
+        stop_event = _RecordingStopEvent()
+        purge = Mock(
+            side_effect=(
+                EvidencePurgeResult(
+                    purged_count=2,
+                    complete=False,
+                    outstanding_count=1,
+                    batches=1,
+                ),
+                EvidencePurgeResult(
+                    purged_count=1,
+                    complete=True,
+                    outstanding_count=0,
+                    batches=1,
+                ),
+            )
+        )
+        readiness = Mock(
+            return_value=_PurgeReadiness(
+                ready=True,
+                status="fresh",
+                last_purged_count=1,
+                expired_bytes_count=0,
+            )
+        )
+        logger = Mock(spec=logging.Logger)
+        monotonic_values = iter((10.0, 10.0, 10.0))
+
+        run_purge(
+            PurgeConfig.from_environ({}),
+            session_factory=object(),
+            purge=purge,
+            readiness=readiness,
+            stop_event=stop_event,
+            logger=logger,
+            monotonic=lambda: next(monotonic_values),
+            max_cycles=2,
+        )
+
+        self.assertEqual(stop_event.waits, [60.0])
+        readiness.assert_called_once()
+        rendered = " ".join(str(call) for call in logger.method_calls)
+        self.assertIn("health=incomplete", rendered)
+        self.assertIn("purged=%d outstanding=%d", rendered)
+        self.assertIn("health=%s purged=%d expired=%d", rendered)
+        for unsafe in ("row", "url", "checksum", "html", "exception"):
+            self.assertNotIn(unsafe, rendered.lower())
+
+    def test_lock_release_retry_completes_and_advances_heartbeat_once(self):
+        from sqlalchemy import select
+
+        from roster_scout.database import create_session_factory, get_engine
+        from roster_scout.evidence import (
+            get_evidence_purge_readiness,
+            purge_expired_evidence,
+            store_failure_evidence,
+        )
+        from roster_scout.jobs import accept_report_job
+        from roster_scout.models import EvidencePurgeState, FailureEvidence, ReportJob
+        from scripts.run_purge import PurgeConfig, run_purge
+
+        seed_at = datetime.now(UTC) - timedelta(minutes=2)
+        purge_expired_evidence(self.Session, now=seed_at)
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            "batched-runner-lock-release",
+            dispatch=None,
+        )
+        with self.Session.begin() as session:
+            session.get(ReportJob, job.id).status = "failed"
+        collected_at = datetime.now(UTC) - timedelta(days=1, minutes=1)
+        with patch.dict(
+            "os.environ",
+            {"FAILURE_EVIDENCE_RETENTION_DAYS": "1"},
+            clear=False,
+        ):
+            evidence_ids = [
+                store_failure_evidence(
+                    self.Session,
+                    job.id,
+                    section="batting",
+                    source_url="https://stats.ncaa.org/batched-runner",
+                    html=f"<html>restricted-{index}</html>",
+                    failure_category="source_blocked",
+                    collected_at=collected_at,
+                )
+                for index in range(2)
+            ]
+
+        lock_engine = get_engine(self.database_url)
+        purge_engine = get_engine(self.database_url)
+        self.addCleanup(lock_engine.dispose)
+        self.addCleanup(purge_engine.dispose)
+        lock_sessions = create_session_factory(lock_engine)
+        purge_sessions = create_session_factory(purge_engine)
+        blocker = lock_sessions()
+        blocker.begin()
+        blocker.scalar(
+            select(FailureEvidence)
+            .where(FailureEvidence.id == evidence_ids[0])
+            .with_for_update()
+        )
+
+        class ReleaseLockEvent:
+            def __init__(self):
+                self.waits = []
+
+            def is_set(self):
+                return False
+
+            def wait(self, seconds):
+                self.waits.append(seconds)
+                blocker.rollback()
+                blocker.close()
+                return False
+
+        stop_event = ReleaseLockEvent()
+        logger = Mock(spec=logging.Logger)
+        try:
+            run_purge(
+                PurgeConfig.from_environ({}),
+                session_factory=purge_sessions,
+                purge=purge_expired_evidence,
+                readiness=get_evidence_purge_readiness,
+                stop_event=stop_event,
+                logger=logger,
+                max_cycles=2,
+            )
+        finally:
+            if blocker.is_active:
+                blocker.rollback()
+                blocker.close()
+
+        self.assertEqual(len(stop_event.waits), 1)
+        self.assertLessEqual(stop_event.waits[0], 60)
+        with self.Session() as session:
+            rows = list(
+                session.scalars(
+                    select(FailureEvidence).where(
+                        FailureEvidence.id.in_(evidence_ids)
+                    )
+                )
+            )
+            self.assertTrue(all(row.compressed_html is None for row in rows))
+            state = session.get(EvidencePurgeState, 1)
+            self.assertGreater(state.last_success_at, seed_at)
+            self.assertEqual(state.last_purged_count, 1)
+        rendered = " ".join(str(call) for call in logger.method_calls)
+        self.assertIn("health=incomplete", rendered)
+        self.assertIn("health=%s purged=%d expired=%d", rendered)
+
+
 class PurgeIsolationTests(PostgreSQLJobTestCase):
     def _expired_evidence(self):
         from roster_scout.evidence import store_failure_evidence
