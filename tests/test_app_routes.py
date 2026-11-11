@@ -154,6 +154,14 @@ class WorkbookDownloadUsageTests(unittest.TestCase):
         self.assertEqual(len(events), 1)
         self.assertEqual(str(uuid.UUID(events[0].event_key)), events[0].event_key)
 
+    def test_configured_database_write_reports_recorded_disposition(self):
+        event_key = str(uuid.uuid4())
+
+        disposition = app_module._record_workbook_download(event_key)
+
+        self.assertEqual(disposition, "recorded")
+        self.assertEqual([event.event_key for event in self._events()], [event_key])
+
     def test_malformed_supplied_key_is_rejected_before_collection(self):
         with patch.object(app_module, "scrape_ncaa_by_id") as scrape:
             response = self.client.post("/scrape", json={
@@ -166,10 +174,13 @@ class WorkbookDownloadUsageTests(unittest.TestCase):
         self.assertEqual(self._events(), [])
         scrape.assert_not_called()
 
-    def test_persistence_failure_returns_sanitized_503_without_workbook(self):
+    def test_persistence_failure_drops_analytics_without_blocking_workbook(self):
         event_key = str(uuid.uuid4())
         secret = f"postgresql://operator:secret@example.test/db event={event_key}"
-        with patch.object(
+        with self.assertLogs(
+            app_module.app.logger,
+            level="WARNING",
+        ) as logs, patch.object(
             app_module,
             "record_workbook_download_served",
             side_effect=RuntimeError(secret),
@@ -177,14 +188,80 @@ class WorkbookDownloadUsageTests(unittest.TestCase):
         ):
             response = self._download(event_key)
 
-        self.assertEqual(response.status_code, 503)
-        self.assertEqual(response.mimetype, "application/json")
-        self.assertFalse(response.data.startswith(b"PK"))
-        body = response.get_data(as_text=True)
-        self.assertNotIn(secret, body)
-        self.assertNotIn(event_key, body)
-        self.assertNotIn("postgresql", body)
+        self.assert_excel_download(response)
+        self.assertEqual(
+            [record.getMessage() for record in logs.records],
+            ["usage_event_dropped route=legacy_scrape reason=database_unavailable"],
+        )
+        rendered_logs = "\n".join(logs.output)
+        self.assertNotIn(secret, rendered_logs)
+        self.assertNotIn(event_key, rendered_logs)
+        self.assertNotIn("postgresql", rendered_logs)
+        self.assertNotIn("Traceback", rendered_logs)
         self.assertEqual(self._events(), [])
+
+
+class NativeWorkbookDatabaseOptionalTests(unittest.TestCase):
+    def setUp(self):
+        app_module.app.config.update(TESTING=True)
+        self.client = app_module.app.test_client()
+        app_module._usage_session_factory.cache_clear()
+        self.addCleanup(app_module._usage_session_factory.cache_clear)
+
+    def test_native_workbook_succeeds_without_database_and_logs_sanitized_drop(self):
+        event_key = str(uuid.uuid4())
+        sensitive_team = "Sensitive Opponent"
+        sensitive_ip = "203.0.113.44"
+        environment = dict(os.environ)
+        environment.pop("DATABASE_URL", None)
+        with tempfile.TemporaryDirectory() as cache_dir:
+            environment["ROSTER_SCOUT_CACHE_DIR"] = cache_dir
+            with patch.dict(
+                os.environ,
+                environment,
+                clear=True,
+            ), self.assertLogs(
+                app_module.app.logger,
+                level="WARNING",
+            ) as logs, patch.object(
+                app_module,
+                "scrape_ncaa_by_id",
+                return_value=([SAMPLE_PLAYER], sensitive_team),
+            ):
+                response = self.client.post(
+                    "/scrape",
+                    json={
+                        "team": sensitive_team,
+                        "division": "d2",
+                        "season_team_id": "615087",
+                        "download_event_id": event_key,
+                    },
+                    environ_base={"REMOTE_ADDR": sensitive_ip},
+                )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.mimetype,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        with zipfile.ZipFile(io.BytesIO(response.data)) as archive:
+            workbook_xml = archive.read("xl/workbook.xml").decode("utf-8")
+        self.assertIn('name="Hitters"', workbook_xml)
+        self.assertIn('name="Pitchers"', workbook_xml)
+        self.assertEqual(
+            [record.getMessage() for record in logs.records],
+            ["usage_event_dropped route=legacy_scrape reason=database_unavailable"],
+        )
+        rendered_logs = "\n".join(logs.output)
+        for sensitive_value in (
+            sensitive_team,
+            sensitive_ip,
+            event_key,
+            "DATABASE_URL",
+            "required for persistence",
+            "Traceback",
+        ):
+            self.assertNotIn(sensitive_value, rendered_logs)
 
 
 class AppReadinessTests(unittest.TestCase):
