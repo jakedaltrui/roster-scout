@@ -1,6 +1,6 @@
 ---
 phase: 01-canonical-snapshot-foundation
-reviewed: 2026-11-11T18:18:10Z
+reviewed: 2026-11-11T18:34:45Z
 depth: standard
 files_reviewed: 13
 files_reviewed_list:
@@ -27,48 +27,50 @@ status: issues_found
 
 # Phase 1: Code Review Report
 
-**Reviewed:** 2026-11-11T18:18:10Z
+**Reviewed:** 2026-11-11T18:34:45Z
 **Depth:** standard
 **Files Reviewed:** 13
 **Status:** issues_found
 
 ## Summary
 
-The two prior findings are fixed. Publication now uses PostgreSQL `FOR NO KEY UPDATE`, so the real child foreign-key `KEY SHARE`/snapshot-advisory interleaving completes without SQLSTATE `40P01` or `55P03`, while the mutation-before-publication and publication-before-mutation schedules still serialize correctly. Configured HTTPS `:443` and HTTP `:80` origins now reduce to the browser's portless form, and non-default `:8443` remains part of the origin.
+The publication deadlock is fixed. `publish_snapshot` now takes PostgreSQL `FOR NO KEY UPDATE` on the parent snapshot row after the snapshot advisory lock, which is compatible with the `KEY SHARE` acquired by a concurrent child foreign-key check. The deterministic two-connection regression completes without SQLSTATE `40P01` or `55P03`, while the existing mutation-first and publication-first schedules continue to serialize correctly.
 
-All five earlier round-five gaps remain closed: global Player serialization, Fly public-origin selection, definitive acknowledgement handling, browser-storage fallback, and committed-range release validation. Focused evidence included 15 publication serialization tests, 17 global-lock/migration tests, 5 public-origin tests, 4 template acknowledgement-contract tests, 16 Node state-machine tests, 12 release-validator tests, and both committed-range and working-tree `git diff --check`.
+Default-port canonicalization is also fixed: HTTPS `:443` and HTTP `:80` are removed, while non-default ports remain part of the trusted origin. Browser-host handling now correctly compresses IPv6 and rejects noncanonical shorthand/numeric IPv4 forms. Unicode DNS handling remains incomplete, however, because Python's built-in `idna` codec applies IDNA2003 mappings that differ from browser WHATWG/UTS46 serialization.
 
-One narrower accepted-but-unusable public-origin form remains: hostnames are lowercased but are not canonicalized using browser/WHATWG host rules. This does not affect the checked-in Fly hostname, but it breaks acknowledgement tracking for valid IDN custom domains and other noncanonical host spellings.
+All five original round-five verification gaps remain closed: global Player serialization, Fly public-origin selection across the public-HTTPS/internal-HTTP boundary, definitive acknowledgement handling, browser-storage fallback, and committed-range release validation. The focused re-review ran 56 Python tests covering the global locks and migration lifecycle, publication interleavings, origin routes/configuration, template contract, and release gate, plus all 16 Node download-state-machine tests. Both `git diff --check 95776ed..HEAD --` and the working-tree diff check passed.
 
 ## Narrative Findings (AI reviewer)
 
 ## Warnings
 
-### WR-01: Public-origin host canonicalization still differs from browsers
+### WR-01: Built-in IDNA2003 canonicalization disagrees with browser origins
 
 **Classification:** WARNING
 
-**File:** `/Users/jakedaltrui/Library/Mobile Documents/com~apple~CloudDocs/projects/axis-baseball/roster-scout/app.py:109-116`
+**File:** `/Users/jakedaltrui/Library/Mobile Documents/com~apple~CloudDocs/projects/axis-baseball/roster-scout/app.py:138-140`
 
-**Issue:** `_canonical_public_origin` only lowercases `parsed.hostname`. Browsers additionally apply WHATWG host canonicalization, including IDNA/Punycode conversion, IPv6 compression, and normalization of legacy numeric IPv4 spellings. For example, the accepted configuration `https://bücher.example` is stored as that exact Unicode origin, while a browser sends `Origin: https://xn--bcher-kva.example`; the exact comparison at `app.py:391` therefore returns HTTP 403 for every valid acknowledgement. The same mismatch occurs for accepted values such as `https://[0:0:0:0:0:0:0:1]` (browser origin `https://[::1]`) and `https://127.1` (browser origin `https://127.0.0.1`).
+**Issue:** `_canonical_public_hostname` uses Python's built-in `hostname.encode("idna")`, which implements the older IDNA2003 mapping rather than the WHATWG/UTS46 behavior browsers use when serializing an `Origin`. A shared runtime configured with the accepted origin `https://faß.de` stores `https://fass.de`, while a browser sends `Origin: https://xn--fa-hia.de`; a clean-process route probe therefore returns HTTP 403 for a valid same-origin acknowledgement. Other divergent cases include Greek final sigma (`ς.gr`) and joiner characters that the built-in codec silently removes even though browser URL parsing rejects them. The current `bücher.example` regression does not expose the problem because that hostname happens to serialize identically under both rule sets. This does not affect the checked-in ASCII Fly hostname, but it makes some otherwise-valid IDN custom domains unusable for download acknowledgement.
 
-**Fix:** Canonicalize the hostname according to browser URL rules before constructing `_DOWNLOAD_ACK_PUBLIC_ORIGIN`, or fail startup unless the configured hostname is already in the exact canonical ASCII form browsers emit. At minimum, convert DNS names through IDNA, canonicalize IPv6 through `ipaddress.IPv6Address(...).compressed`, reject noncanonical numeric IPv4 spellings, and add clean-process/route tests that prove the configured form matches the browser-origin form.
+**Fix:** Canonicalize DNS names with an explicitly declared UTS46-capable dependency and add browser-parity route tests for divergent mappings and invalid contextual characters. Alternatively, reject every non-ASCII configured hostname and require the operator to supply an already-canonical A-label.
 
 ```python
-import ipaddress
+import idna
 
 try:
-    address = ipaddress.ip_address(hostname)
-except ValueError:
-    canonical_host = hostname.encode("idna").decode("ascii").lower()
-else:
-    canonical_host = address.compressed
-    if address.version == 6:
-        canonical_host = f"[{canonical_host}]"
+    canonical_dns = idna.encode(
+        hostname,
+        uts46=True,
+        std3_rules=True,
+    ).decode("ascii").lower()
+except idna.IDNAError as exc:
+    raise RuntimeError("Roster Scout public origin is invalid.") from exc
 ```
+
+Declare `idna` directly in `requirements.txt` if it is imported by application code, then cover at least `faß.de` -> `xn--fa-hia.de`, Greek final sigma, and rejection of invalid joiner input in a clean-process acknowledgement-route test.
 
 ---
 
-_Reviewed: 2026-11-11T18:18:10Z_
+_Reviewed: 2026-11-11T18:34:45Z_
 _Reviewer: the agent (gsd-code-reviewer)_
 _Depth: standard_
