@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from sqlalchemy import delete, event, func, inspect, select, text, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 
 import roster_scraper as rs
 from tests.db_support import clean_database, require_test_database_url, upgrade_database
@@ -1560,6 +1560,160 @@ class SourceIdentityBindingTests(CanonicalPublishTests):
         with self.assertRaises(SnapshotPublicationError):
             with self.Session.begin() as session:
                 publish_snapshot(session, snapshot_id)
+
+
+class AuthoritativeIdentityPublicationSerializationTests(
+    SourceIdentityBindingTests
+):
+    """Publication joins the same ordered authoritative lock protocol."""
+
+    WAIT_SECONDS = 5
+    BLOCKED_ASSERTION_SECONDS = 0.25
+
+    def run_worker(self, target):
+        done = threading.Event()
+        errors = []
+
+        def run():
+            try:
+                target()
+            except BaseException as error:  # surfaced in the owning test thread
+                errors.append(error)
+            finally:
+                done.set()
+
+        worker = threading.Thread(target=run, daemon=True)
+        worker.start()
+        return worker, done, errors
+
+    def assert_worker_finished(self, worker, done):
+        self.assertTrue(done.wait(self.WAIT_SECONDS))
+        worker.join(self.WAIT_SECONDS)
+        self.assertFalse(worker.is_alive())
+
+    def test_publisher_uses_snapshot_player_identity_lock_order(self):
+        source = (Path(__file__).parent.parent / "roster_scout" / "snapshots.py").read_text()
+        snapshot_lock = source.index("lock_snapshot_mutation")
+        player_lock = source.index("lock_authoritative_player_mutation")
+        identity_lock = source.index(
+            "lock_authoritative_player_team_season_mutation"
+        )
+        mismatch_query = source.index("authoritative_mismatch_count")
+        self.assertLess(snapshot_lock, player_lock)
+        self.assertLess(player_lock, identity_lock)
+        self.assertLess(identity_lock, mismatch_query)
+
+    def test_source_mutation_commits_before_waiting_publication_rechecks(self):
+        from roster_scout.models import ReportSnapshot, SourceRecord
+        from roster_scout.snapshots import publish_snapshot
+
+        _job_id, snapshot_id = self.build_canonical_draft()
+        with self.Session() as session:
+            source_id = session.scalar(
+                select(SourceRecord.id)
+                .where(SourceRecord.snapshot_id == snapshot_id)
+                .order_by(SourceRecord.id)
+                .limit(1)
+            )
+
+        mutation_holds_lock = threading.Event()
+        release_mutation = threading.Event()
+
+        def mutate_source():
+            with self.Session.begin() as session:
+                session.execute(text("SET LOCAL lock_timeout = '3s'"))
+                session.execute(
+                    text(
+                        "UPDATE source_records "
+                        "SET raw_values = raw_values || '{\"race\": true}'::jsonb "
+                        "WHERE id = :source_id"
+                    ),
+                    {"source_id": source_id},
+                )
+                mutation_holds_lock.set()
+                self.assertTrue(release_mutation.wait(self.WAIT_SECONDS))
+
+        def publish():
+            with self.Session.begin() as session:
+                session.execute(text("SET LOCAL lock_timeout = '3s'"))
+                publish_snapshot(session, snapshot_id)
+
+        mutation_worker, mutation_done, mutation_errors = self.run_worker(
+            mutate_source
+        )
+        self.assertTrue(mutation_holds_lock.wait(self.WAIT_SECONDS))
+        publication_worker, publication_done, publication_errors = self.run_worker(
+            publish
+        )
+        self.assertFalse(
+            publication_done.wait(self.BLOCKED_ASSERTION_SECONDS),
+            "publication did not wait for the source mutation",
+        )
+        release_mutation.set()
+        self.assert_worker_finished(mutation_worker, mutation_done)
+        self.assert_worker_finished(publication_worker, publication_done)
+        self.assertEqual(mutation_errors, [])
+        self.assertEqual(publication_errors, [])
+        with self.Session() as session:
+            self.assertEqual(session.get(ReportSnapshot, snapshot_id).status, "ready")
+
+    def test_publication_commits_before_waiting_source_mutation_is_rejected(self):
+        from roster_scout.models import ReportSnapshot, SourceRecord
+        from roster_scout.snapshots import publish_snapshot
+
+        _job_id, snapshot_id = self.build_canonical_draft()
+        with self.Session() as session:
+            source_id = session.scalar(
+                select(SourceRecord.id)
+                .where(SourceRecord.snapshot_id == snapshot_id)
+                .order_by(SourceRecord.id)
+                .limit(1)
+            )
+
+        publication_holds_locks = threading.Event()
+        release_publication = threading.Event()
+
+        def publish():
+            with self.Session.begin() as session:
+                session.execute(text("SET LOCAL lock_timeout = '3s'"))
+                publish_snapshot(session, snapshot_id)
+                publication_holds_locks.set()
+                self.assertTrue(release_publication.wait(self.WAIT_SECONDS))
+
+        def mutate_source():
+            with self.Session.begin() as session:
+                session.execute(text("SET LOCAL lock_timeout = '3s'"))
+                session.execute(
+                    text(
+                        "UPDATE source_records "
+                        "SET raw_values = raw_values || '{\"race\": true}'::jsonb "
+                        "WHERE id = :source_id"
+                    ),
+                    {"source_id": source_id},
+                )
+
+        publication_worker, _, publication_errors = self.run_worker(publish)
+        self.assertTrue(publication_holds_locks.wait(self.WAIT_SECONDS))
+        mutation_worker, mutation_done, mutation_errors = self.run_worker(
+            mutate_source
+        )
+        self.assertFalse(
+            mutation_done.wait(self.BLOCKED_ASSERTION_SECONDS),
+            "source mutation did not wait for publication",
+        )
+        release_publication.set()
+        publication_worker.join(self.WAIT_SECONDS)
+        self.assertFalse(publication_worker.is_alive())
+        self.assert_worker_finished(mutation_worker, mutation_done)
+        self.assertEqual(publication_errors, [])
+        self.assertEqual(len(mutation_errors), 1)
+        self.assertIsInstance(mutation_errors[0], DBAPIError)
+        self.assertNotIn(
+            getattr(mutation_errors[0].orig, "sqlstate", None),
+            {"40P01", "55P03"},
+        )
+        with self.Session() as session:
+            self.assertEqual(session.get(ReportSnapshot, snapshot_id).status, "ready")
 
 
 if __name__ == "__main__":

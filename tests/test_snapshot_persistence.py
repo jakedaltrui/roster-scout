@@ -2077,6 +2077,93 @@ class AuthoritativeIdentitySerializationTests(
             )
 
 
+class AuthoritativeIdentitySerializationMigrationTests(PostgreSQLSnapshotTestCase):
+    """Revision 0013 is reversible, fresh-installable, and exact."""
+
+    HELPER_NAMES = {
+        "lock_authoritative_player_mutation",
+        "lock_authoritative_player_team_season_mutation",
+        "lock_authoritative_snapshots",
+        "lock_authoritative_players",
+        "lock_authoritative_player_team_seasons",
+    }
+
+    def function_definition(self, function_name):
+        with self.engine.connect() as connection:
+            return connection.scalar(
+                text(
+                    """
+                    SELECT pg_get_functiondef(procedure.oid)
+                    FROM pg_proc AS procedure
+                    JOIN pg_namespace AS namespace
+                      ON namespace.oid = procedure.pronamespace
+                    WHERE namespace.nspname = current_schema()
+                      AND procedure.proname = :function_name
+                    """
+                ),
+                {"function_name": function_name},
+            )
+
+    def installed_helpers(self):
+        with self.engine.connect() as connection:
+            return set(
+                connection.scalars(
+                    text(
+                        """
+                        SELECT routine_name
+                        FROM information_schema.routines
+                        WHERE routine_schema = current_schema()
+                          AND routine_name = ANY(:helper_names)
+                        """
+                    ),
+                    {"helper_names": sorted(self.HELPER_NAMES)},
+                )
+            )
+
+    def test_0013_upgrade_downgrade_reupgrade_and_fresh_install(self):
+        self.assertEqual(self.installed_helpers(), self.HELPER_NAMES)
+        command.downgrade(alembic_config(self.database_url), "0012")
+        self.assertEqual(self.installed_helpers(), set())
+        restored = self.function_definition(
+            "enforce_source_record_authoritative_source_player"
+        )
+        self.assertNotIn("lock_authoritative_players", restored)
+
+        command.upgrade(alembic_config(self.database_url), "0013")
+        self.assertEqual(self.installed_helpers(), self.HELPER_NAMES)
+        command.downgrade(alembic_config(self.database_url), "0012")
+        command.upgrade(alembic_config(self.database_url), "head")
+        self.assertEqual(self.installed_helpers(), self.HELPER_NAMES)
+
+        downgrade_database(self.database_url)
+        upgrade_database(self.database_url)
+        self.assertEqual(self.installed_helpers(), self.HELPER_NAMES)
+
+    def test_0013_helpers_preserve_exact_key_derivation_and_sort_order(self):
+        player = self.function_definition("lock_authoritative_player_mutation")
+        identity = self.function_definition(
+            "lock_authoritative_player_team_season_mutation"
+        )
+        batched_players = self.function_definition("lock_authoritative_players")
+        batched_identities = self.function_definition(
+            "lock_authoritative_player_team_seasons"
+        )
+        self.assertIn("'roster-scout:authoritative-player:'", player)
+        self.assertIn("organization_uuid::text || ':' || player_uuid::text", player)
+        self.assertIn("31012026", player)
+        self.assertIn(
+            "'roster-scout:authoritative-player-team-season:'",
+            identity,
+        )
+        self.assertIn("player_team_season_uuid::text", identity)
+        self.assertIn("31022026", identity)
+        self.assertIn("ORDER BY organization_id::text, player_id::text", batched_players)
+        self.assertIn(
+            "ORDER BY player_team_season_id::text",
+            batched_identities,
+        )
+
+
 class FailureEvidenceRetentionMigrationTests(PostgreSQLSnapshotTestCase):
     """Revision 0011 makes the 28-day evidence window a durable invariant."""
 
