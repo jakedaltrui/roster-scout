@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-26-PLAN.md
-last_updated: "2026-11-11T00:21:02.651Z"
+stopped_at: Completed 01-28-PLAN.md
+last_updated: "2026-11-11T00:32:14.491Z"
 last_activity: 2026-11-11
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 30
-  completed_plans: 26
+  completed_plans: 27
   percent: 0
 ---
 
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-11-01)
 ## Current Position
 
 Phase: 01 (canonical-snapshot-foundation) — EXECUTING
-Plan: 27 of 30
+Plan: 28 of 30
 Status: Ready to execute
 Last activity: 2026-11-11
 
-Progress: [█████████░] 87%
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
@@ -139,6 +139,10 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 01]: Readiness and worker startup use the same strict 1-28 day retention parser before constructing external dependencies. — One configuration contract prevents false readiness and unsafe worker startup.
 - [Phase 01]: Invalid optional-evidence configuration persists a fixed safe unexpected failure without HTML evidence. — Optional diagnostics cannot roll authoritative terminal job state back to running.
 - [Phase 01]: Prevalidated retention is passed into coordinated evidence insertion. — The terminal transaction cannot observe a different environment value after validation.
+- [Phase 01]: Usage event keys are opaque UUIDs: accepted ReportJob UUIDs for authenticated use and per-submission UUIDs for workbook downloads. — Keeps idempotency keys non-identifying and Phase 2-ready.
+- [Phase 01]: Unique users are COUNT(DISTINCT actor_account_id) over nonnull canonical account IDs; anonymous downloads never synthesize identity. — Preserves an honest authenticated-use metric without collecting fallback identifiers.
+- [Phase 01]: Every populated actor must carry the matching canonical organization UUID, while Phase 1 anonymous workbook events keep both fields null. — Enforces tenant integrity before the Phase 2 account foreign key exists.
+- [Phase 01]: The operator report exposes aggregate counts only and returns fixed sanitized error tokens. — Prevents event-level disclosure and credential leakage.
 
 ### Pending Todos
 
@@ -163,9 +167,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 01 P24 | 57 min | 2 tasks | 4 files |
 | Phase 01 P25 | 380 min | 2 tasks | 4 files |
 | Phase 01 P26 | 4 min | 2 tasks | 7 files |
+| Phase 01 P28 | 7 min | 3 tasks | 5 files |
 
 ## Session Continuity
 
-Last session: 2026-11-11T00:20:52.203Z
-Stopped at: Completed 01-26-PLAN.md
+Last session: 2026-11-11T00:32:14.483Z
+Stopped at: Completed 01-28-PLAN.md
 Resume file: None
