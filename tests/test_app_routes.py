@@ -390,6 +390,12 @@ class DownloadAcknowledgementPublicOriginTests(unittest.TestCase):
                 with self.subTest(runtime=runtime, origin=origin):
                     completed = self._run_app_process(updates=environment)
                     self.assertNotEqual(completed.returncode, 0)
+                    if origin in {"https://127.1", "https://0x7f.1"}:
+                        self.assertIn(
+                            "Roster Scout public origin is invalid.",
+                            completed.stderr,
+                        )
+                        self.assertNotIn(origin, completed.stderr)
 
     def test_fly_requires_https_but_multiworker_accepts_valid_http_or_port(self):
         fly_http = self._run_app_process(updates={

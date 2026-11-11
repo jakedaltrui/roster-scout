@@ -7,6 +7,7 @@ return a formatted Excel workbook containing Hitters and Pitchers worksheets.
 
 import base64
 import binascii
+import ipaddress
 import io
 import logging
 import os
@@ -106,14 +107,57 @@ def _canonical_public_origin(value: str, *, require_https: bool) -> str:
     ):
         raise RuntimeError("Roster Scout public origin is invalid.")
 
-    canonical_host = hostname.lower()
-    if ":" in canonical_host:
-        canonical_host = f"[{canonical_host}]"
+    canonical_host = _canonical_public_hostname(hostname)
     default_port = (scheme == "https" and port == 443) or (
         scheme == "http" and port == 80
     )
     canonical_port = "" if port is None or default_port else f":{port}"
     return f"{scheme}://{canonical_host}{canonical_port}"
+
+
+def _canonical_public_hostname(hostname: str) -> str:
+    """Match the browser serialization used by the Origin header."""
+    if "%" in hostname:
+        raise RuntimeError("Roster Scout public origin is invalid.")
+
+    try:
+        address = ipaddress.ip_address(hostname)
+    except ValueError:
+        address = None
+
+    if isinstance(address, ipaddress.IPv6Address):
+        return f"[{address.compressed}]"
+    if isinstance(address, ipaddress.IPv4Address):
+        canonical_ipv4 = str(address)
+        if hostname != canonical_ipv4:
+            raise RuntimeError("Roster Scout public origin is invalid.")
+        return canonical_ipv4
+
+    if ":" in hostname:
+        raise RuntimeError("Roster Scout public origin is invalid.")
+    try:
+        canonical_dns = hostname.encode("idna").decode("ascii").lower()
+    except UnicodeError as exc:
+        raise RuntimeError("Roster Scout public origin is invalid.") from exc
+
+    numeric_label = r"(?:[0-9]+|0[xX][0-9A-Fa-f]+)"
+    if re.fullmatch(rf"{numeric_label}(?:\.{numeric_label})*", canonical_dns):
+        raise RuntimeError("Roster Scout public origin is invalid.")
+
+    labels = canonical_dns.split(".")
+    if (
+        len(canonical_dns) > 253
+        or any(
+            not label
+            or len(label) > 63
+            or not re.fullmatch(r"[a-z0-9-]+", label)
+            or label.startswith("-")
+            or label.endswith("-")
+            for label in labels
+        )
+    ):
+        raise RuntimeError("Roster Scout public origin is invalid.")
+    return canonical_dns
 
 
 def _configure_download_acknowledgements(
