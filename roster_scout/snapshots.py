@@ -28,7 +28,7 @@ def publish_snapshot(session, snapshot_id):
     snapshot = session.scalar(
         select(ReportSnapshot)
         .where(ReportSnapshot.id == snapshot_id)
-        .with_for_update()
+        .with_for_update(key_share=True)
     )
     if snapshot is None:
         raise SnapshotPublicationError("snapshot does not exist")

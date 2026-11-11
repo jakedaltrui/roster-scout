@@ -1,6 +1,7 @@
 """Fixture-to-PostgreSQL publication coverage for NCAA D1, D2, and D3."""
 
 import threading
+import time
 import unittest
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -1591,6 +1592,22 @@ class AuthoritativeIdentityPublicationSerializationTests(
         worker.join(self.WAIT_SECONDS)
         self.assertFalse(worker.is_alive())
 
+    def wait_for_advisory_lock(self, backend_pid):
+        deadline = time.monotonic() + self.WAIT_SECONDS
+        while time.monotonic() < deadline:
+            with self.engine.connect() as connection:
+                wait_state = connection.execute(
+                    text(
+                        "SELECT wait_event_type, wait_event "
+                        "FROM pg_stat_activity WHERE pid = :pid"
+                    ),
+                    {"pid": backend_pid},
+                ).one_or_none()
+            if wait_state == ("Lock", "advisory"):
+                return
+            time.sleep(0.01)
+        self.fail("source insertion did not block on the snapshot advisory lock")
+
     def add_unreferenced_identity(self, snapshot_id):
         from roster_scout.models import Player, PlayerTeamSeason
 
@@ -1635,6 +1652,103 @@ class AuthoritativeIdentityPublicationSerializationTests(
         self.assertLess(global_player_lock, tenant_player_lock)
         self.assertLess(tenant_player_lock, identity_lock)
         self.assertLess(identity_lock, mismatch_query)
+
+    def test_source_insert_key_share_does_not_deadlock_publication(self):
+        from roster_scout.models import ReportSnapshot, SourceRecord
+        from roster_scout.snapshots import publish_snapshot
+
+        _job_id, snapshot_id = self.build_canonical_draft()
+        with self.Session() as session:
+            source_id = session.scalar(
+                select(SourceRecord.id)
+                .where(SourceRecord.snapshot_id == snapshot_id)
+                .order_by(SourceRecord.id)
+                .limit(1)
+            )
+
+        publisher_has_advisory_lock = threading.Event()
+        child_has_key_share = threading.Event()
+        child_pid = []
+
+        def publish():
+            with self.Session.begin() as session:
+                session.execute(text("SET LOCAL lock_timeout = '3s'"))
+                session.execute(
+                    text(
+                        "SELECT lock_snapshot_mutation("
+                        "CAST(:snapshot_id AS uuid))"
+                    ),
+                    {"snapshot_id": snapshot_id},
+                )
+                publisher_has_advisory_lock.set()
+                self.assertTrue(child_has_key_share.wait(self.WAIT_SECONDS))
+                publish_snapshot(session, snapshot_id)
+
+        def insert_source():
+            with self.Session.begin() as session:
+                session.execute(text("SET LOCAL lock_timeout = '3s'"))
+                child_pid.append(session.scalar(text("SELECT pg_backend_pid()")))
+                self.assertTrue(
+                    publisher_has_advisory_lock.wait(self.WAIT_SECONDS)
+                )
+                # PostgreSQL foreign-key checks use this same parent-row mode.
+                # Taking it explicitly creates a deterministic barrier before
+                # the insert's mutation trigger waits on the advisory lock.
+                session.execute(
+                    select(ReportSnapshot.id)
+                    .where(ReportSnapshot.id == snapshot_id)
+                    .with_for_update(read=True, key_share=True)
+                )
+                child_has_key_share.set()
+                session.execute(
+                    text(
+                        """
+                        INSERT INTO source_records (
+                            id, organization_id, snapshot_id,
+                            player_team_season_id, section, row_ordinal,
+                            source_url, source_team_id, source_season_id,
+                            source_season_team_id, source_stat_category_id,
+                            source_player_id, collected_at, parser_version,
+                            schema_version, payload_sha256, raw_values
+                        )
+                        SELECT
+                            :new_id, organization_id, snapshot_id,
+                            player_team_season_id, section, row_ordinal + 10000,
+                            source_url, source_team_id, source_season_id,
+                            source_season_team_id, source_stat_category_id,
+                            source_player_id, collected_at, parser_version,
+                            schema_version, payload_sha256, raw_values
+                        FROM source_records
+                        WHERE id = :source_id
+                        """
+                    ),
+                    {"new_id": uuid.uuid4(), "source_id": source_id},
+                )
+
+        publication_worker, publication_done, publication_errors = (
+            self.run_worker(publish)
+        )
+        self.assertTrue(publisher_has_advisory_lock.wait(self.WAIT_SECONDS))
+        insertion_worker, insertion_done, insertion_errors = self.run_worker(
+            insert_source
+        )
+        self.assertTrue(child_has_key_share.wait(self.WAIT_SECONDS))
+        self.wait_for_advisory_lock(child_pid[0])
+
+        self.assert_worker_finished(publication_worker, publication_done)
+        self.assert_worker_finished(insertion_worker, insertion_done)
+        self.assertEqual(publication_errors, [])
+        self.assertEqual(len(insertion_errors), 1)
+        self.assertIsInstance(insertion_errors[0], DBAPIError)
+        self.assertNotIn(
+            getattr(insertion_errors[0].orig, "sqlstate", None),
+            {"40P01", "55P03"},
+        )
+        with self.Session() as session:
+            self.assertEqual(
+                session.get(ReportSnapshot, snapshot_id).status,
+                "ready",
+            )
 
     def test_source_mutation_commits_before_waiting_publication_rechecks(self):
         from roster_scout.models import ReportSnapshot, SourceRecord
