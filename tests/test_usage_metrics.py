@@ -161,6 +161,18 @@ class UsageEventSchemaTests(unittest.TestCase):
             command.upgrade(config, "head")
         self.assertIn("product_usage_events", inspect(self.engine).get_table_names())
 
+    def test_migration_fresh_install_creates_usage_table(self):
+        config = alembic_config(self.database_url)
+        command.downgrade(config, "base")
+        try:
+            self.assertNotIn(
+                "product_usage_events",
+                inspect(self.engine).get_table_names(),
+            )
+        finally:
+            command.upgrade(config, "head")
+        self.assertIn("product_usage_events", inspect(self.engine).get_table_names())
+
     def test_orm_model_matches_usage_event_contract(self):
         from roster_scout.models import ProductUsageEvent
 

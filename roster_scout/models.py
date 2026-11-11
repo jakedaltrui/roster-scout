@@ -576,6 +576,55 @@ class FailureEvidence(UUIDPrimaryKey, Timestamped, Base):
     )
 
 
+class ProductUsageEvent(UUIDPrimaryKey, Base):
+    """Minimal aggregate-only event ledger; never stores fallback identity data."""
+
+    __tablename__ = "product_usage_events"
+    event_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    event_key: Mapped[str] = mapped_column(String(200), nullable=False)
+    occurred_at: Mapped[object] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    actor_account_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(
+            "organizations.id",
+            name="fk_product_usage_events_organization",
+        )
+    )
+    __table_args__ = (
+        UniqueConstraint(
+            "event_type",
+            "event_key",
+            name="uq_product_usage_events_type_key",
+        ),
+        CheckConstraint(
+            _allowed(
+                "event_type",
+                ("authenticated_use", "workbook_download_served"),
+            ),
+            name="ck_product_usage_events_type",
+        ),
+        CheckConstraint(
+            "(actor_account_id IS NULL) = (organization_id IS NULL)",
+            name="ck_product_usage_events_actor_scope",
+        ),
+        CheckConstraint(
+            "event_type <> 'authenticated_use' "
+            "OR (actor_account_id IS NOT NULL AND organization_id IS NOT NULL)",
+            name="ck_product_usage_events_authenticated_scope",
+        ),
+        Index("ix_product_usage_events_occurred_at", "occurred_at"),
+        Index(
+            "ix_product_usage_events_organization_occurred_at",
+            "organization_id",
+            "occurred_at",
+        ),
+    )
+
+
 class EvidencePurgeState(Base):
     __tablename__ = "evidence_purge_state"
     singleton_key: Mapped[int] = mapped_column(
