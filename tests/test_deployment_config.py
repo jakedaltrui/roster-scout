@@ -1603,11 +1603,17 @@ class RoundFourOperationsRunbookContractTests(unittest.TestCase):
             "contains no credentials, path, query, or fragment",
             "`Forwarded`, `X-Forwarded-Proto`, `X-Forwarded-Host`, and `Host` are not trusted as origin authority",
             "ROSTER_SCOUT_PUBLIC_ORIGIN=https://roster-scout.fly.dev",
-            "internationalized domains must use their canonical ASCII A-label/Punycode form",
+            "internationalized domains are canonicalized with UTS46 and STD3 rules to the exact ASCII A-label form browsers send",
             "restart every app worker with the same new value before directing browser traffic to the custom domain",
         ):
             with self.subTest(statement=statement):
                 self.assertIn(statement, self.normalized)
+
+    def test_idna_runtime_dependency_is_direct_and_pinned(self):
+        requirements = (PROJECT_ROOT / "requirements.txt").read_text(
+            encoding="utf-8"
+        ).splitlines()
+        self.assertIn("idna==3.20", requirements)
 
     def test_download_success_is_bounded_stateless_and_does_not_overclaim(self):
         for statement in (

@@ -374,13 +374,12 @@ class DownloadAcknowledgementPublicOriginTests(unittest.TestCase):
             "https://reports.example.test:not-a-port",
             "https://127.1",
             "https://0x7f.1",
-            "https://faß.de",
-            "https://bücher.example",
-            "https://ς.gr",
             "https://a\u200db.example",
             "https://xn--.example",
             "https://xn--abc-.example",
             "https://xn--1ug.example",
+            "https://xn--a-ecp.example",
+            "https://xn--a-ccb",
         )
         runtimes = (
             {"FLY_APP_NAME": "roster-scout"},
@@ -400,13 +399,12 @@ class DownloadAcknowledgementPublicOriginTests(unittest.TestCase):
                     if origin in {
                         "https://127.1",
                         "https://0x7f.1",
-                        "https://faß.de",
-                        "https://bücher.example",
-                        "https://ς.gr",
                         "https://a\u200db.example",
                         "https://xn--.example",
                         "https://xn--abc-.example",
                         "https://xn--1ug.example",
+                        "https://xn--a-ecp.example",
+                        "https://xn--a-ccb",
                     }:
                         self.assertIn(
                             "Roster Scout public origin is invalid.",
@@ -526,12 +524,28 @@ print(response.status_code)
 """
         cases = (
             (
+                "https://bücher.example",
+                "https://xn--bcher-kva.example",
+            ),
+            (
                 "https://xn--bcher-kva.example",
                 "https://xn--bcher-kva.example",
             ),
             (
+                "https://faß.de",
+                "https://xn--fa-hia.de",
+            ),
+            (
                 "https://xn--fa-hia.de",
                 "https://xn--fa-hia.de",
+            ),
+            (
+                "https://ς.gr",
+                "https://xn--3xa.gr",
+            ),
+            (
+                "https://xn--3xa.gr",
+                "https://xn--3xa.gr",
             ),
             (
                 "https://[0:0:0:0:0:0:0:1]",
