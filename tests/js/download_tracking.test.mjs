@@ -59,6 +59,33 @@ test("ambiguous scrape and blob failures preserve one requesting UUID", () => {
   assert.equal(tracker.beginOrReuse().downloadEventId, FIRST_ID);
 });
 
+test("network and blob exceptions remain ambiguous requesting attempts", async () => {
+  for (const failurePoint of ["request", "blob"]) {
+    const { tracker } = trackerFixture();
+    const requestWorkbook = failurePoint === "request"
+      ? async () => { throw new TypeError("lost scrape response"); }
+      : async () => ({
+        ok: true,
+        headers: new Map([
+          ["X-Roster-Scout-Download-Event-ID", FIRST_ID],
+          ["X-Roster-Scout-Download-Ack-Proof", PROOF],
+        ]),
+        async blob() { throw new TypeError("lost blob response"); },
+      });
+
+    await assert.rejects(
+      runDownloadSubmission({
+        tracker,
+        requestWorkbook,
+        initiateDownload: async () => {},
+        acknowledgeDownload: async () => ({ acknowledged: true }),
+      }),
+      TypeError,
+    );
+    assert.equal(tracker.beginOrReuse().downloadEventId, FIRST_ID);
+  }
+});
+
 test("definitive HTTP failure abandons the UUID for the next submit", () => {
   const { tracker } = trackerFixture();
 
