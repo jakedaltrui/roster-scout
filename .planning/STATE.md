@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-31-PLAN.md
-last_updated: "2026-11-11T05:08:32.955Z"
-last_activity: 2026-11-11 -- Completed Plan 01-31 authoritative identity serialization
+stopped_at: Completed 01-32-PLAN.md
+last_updated: "2026-11-11T05:17:51.036Z"
+last_activity: 2026-11-11 -- Completed Plan 01-32 legacy NCAA result cache contract
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 37
-  completed_plans: 31
-  percent: 84
+  completed_plans: 32
+  percent: 86
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-11-01)
 ## Current Position
 
 Phase: 01 (canonical-snapshot-foundation) — EXECUTING
-Plan: 31 of 37
+Plan: 32 of 37
 Status: Ready to execute
-Last activity: 2026-11-11 -- Completed Plan 01-31 authoritative identity serialization
+Last activity: 2026-11-11 -- Completed Plan 01-32 legacy NCAA result cache contract
 
-Progress: [████████░░] 84%
+Progress: [█████████░] 86%
 
 ## Performance Metrics
 
@@ -156,6 +156,8 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 01]: Authoritative identity paths acquire locks in the global metric-definition (when applicable) -> snapshot -> organization-scoped Player -> PlayerTeamSeason order. — One deterministic order prevents identity write skew and publication deadlocks.
 - [Phase 01]: Direct Player updates acquire stable tenant Player UUID locks across organizations. — A concurrent new PlayerTeamSeason may still be invisible, so the Player side cannot depend on enumerating it.
 - [Phase 01]: Publication locks every linked Player and PlayerTeamSeason before authoritative mismatch validation. — Publisher certification now observes the same serialized state as database triggers.
+- [Phase 01]: Legacy NCAA result payloads must exactly match cache format, parser, core-header, and report-schema identities before normalized players are trusted. — Pre-contract evidence must not bypass a stricter collector deployment.
+- [Phase 01]: The successful-result cache and per-team file lock derive from one source-and-contract key. — Incompatible collectors must neither share artifacts nor coalesce behind the same lock.
 
 ### Pending Todos
 
@@ -185,9 +187,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 01 P29 | 10 min | 2 tasks | 3 files |
 | Phase 01 P30 | 8 min | 2 tasks | 3 files |
 | Phase 01 P31 | 18 min | 2 tasks | 5 files |
+| Phase 01 P32 | 6 min | 2 tasks | 3 files |
 
 ## Session Continuity
 
-Last session: 2026-11-11T05:08:32.947Z
-Stopped at: Completed 01-31-PLAN.md
+Last session: 2026-11-11T05:17:50.856Z
+Stopped at: Completed 01-32-PLAN.md
 Resume file: None

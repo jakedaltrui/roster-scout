@@ -29,7 +29,7 @@ Roster Scout v2.0 is delivered in five dependency-ordered slices. The roadmap fi
 4. Innings, missing values, two-way players, transfers, raw values, and metric-definition lineage are represented without ambiguity.
 5. Existing selector, scraper, cache, and basic workbook regression tests continue to pass.
 
-**Plans:** 31/37 plans complete
+**Plans:** 32/37 plans complete
 
 Plans:
 **Wave 1**
@@ -131,7 +131,7 @@ Plans:
 **Wave 23** *(blocked on Wave 22 completion; plans may execute in parallel)*
 
 - [x] 01-31: Serialize authoritative identity mutations and publication with one deterministic PostgreSQL lock protocol.
-- [ ] 01-32: Bind the legacy NCAA successful-result cache to parser, header-contract, and schema identities.
+- [x] 01-32: Bind the legacy NCAA successful-result cache to parser, header-contract, and schema identities.
 - [ ] 01-33: Restore database-optional native workbooks and correct unique authenticated-user aggregates.
 - [ ] 01-36: Serialize purge certification against evidence insertion and make the success heartbeat monotonic.
 
@@ -249,7 +249,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |---|---:|---|---|
-| 1. Canonical Snapshot Foundation | 31/37 | Active (gap closure) | — |
+| 1. Canonical Snapshot Foundation | 32/37 | Active (gap closure) | — |
 | 2. Identity, Organizations, and Report Library | 0/4 | Not started | - |
 | 3. Detailed NCAA Intelligence | 0/4 | Not started | - |
 | 4. Detailed Excel Report | 0/3 | Not started | - |
