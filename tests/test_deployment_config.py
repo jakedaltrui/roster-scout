@@ -4,7 +4,9 @@ import copy
 import inspect
 import json
 import logging
+import os
 import subprocess
+import sys
 import threading
 import tomllib
 import unittest
@@ -493,6 +495,29 @@ class EvidencePurgeEntrypointTests(unittest.TestCase):
 
 
 class BatchedPurgeRunnerTests(PostgreSQLJobTestCase):
+    def test_standalone_check_imports_project_without_pythonpath(self):
+        from roster_scout.database import create_session_factory, get_engine
+        from roster_scout.evidence import purge_expired_evidence
+
+        engine = get_engine(self.database_url)
+        self.addCleanup(engine.dispose)
+        result = purge_expired_evidence(create_session_factory(engine))
+        self.assertTrue(result.complete)
+
+        environ = os.environ.copy()
+        environ["DATABASE_URL"] = self.database_url
+        environ.pop("PYTHONPATH", None)
+        completed = subprocess.run(
+            [sys.executable, "scripts/run_purge.py", "--check"],
+            cwd=PROJECT_ROOT,
+            env=environ,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("readiness=fresh", completed.stderr)
+
     def test_incomplete_scan_retries_within_sixty_seconds_without_success_log(self):
         from roster_scout.evidence import EvidencePurgeResult
         from scripts.run_purge import PurgeConfig, run_purge
