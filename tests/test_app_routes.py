@@ -372,6 +372,8 @@ class DownloadAcknowledgementPublicOriginTests(unittest.TestCase):
             "https://reports.example.test?preview=1",
             "https://reports.example.test#fragment",
             "https://reports.example.test:not-a-port",
+            "https://127.1",
+            "https://0x7f.1",
         )
         runtimes = (
             {"FLY_APP_NAME": "roster-scout"},
@@ -475,6 +477,60 @@ print(status(os.environ['REJECTED_ORIGIN']))
                 )
                 self.assertEqual(completed.returncode, 0, completed.stderr)
                 self.assertEqual(completed.stdout.splitlines(), ["200", "403"])
+
+    def test_shared_runtime_matches_browser_host_canonicalization(self):
+        route_code = """
+import os
+import uuid
+import app
+app._record_workbook_download = lambda event_id: 'recorded'
+client = app.app.test_client()
+event_id = str(uuid.uuid4())
+proof = app._issue_download_ack_proof(event_id)
+response = client.post(
+    '/api/downloads/ack',
+    json={
+        'download_event_id': event_id,
+        'acknowledgement_proof': proof,
+    },
+    headers={
+        'Origin': os.environ['BROWSER_ORIGIN'],
+        'Sec-Fetch-Site': 'same-origin',
+    },
+)
+print(app._DOWNLOAD_ACK_PUBLIC_ORIGIN)
+print(response.status_code)
+"""
+        cases = (
+            (
+                "https://bücher.example",
+                "https://xn--bcher-kva.example",
+            ),
+            (
+                "https://[0:0:0:0:0:0:0:1]",
+                "https://[::1]",
+            ),
+            (
+                "https://127.0.0.1",
+                "https://127.0.0.1",
+            ),
+        )
+        for configured, browser in cases:
+            with self.subTest(configured=configured):
+                completed = self._run_app_process(
+                    route_code,
+                    updates={
+                        "WEB_CONCURRENCY": "2",
+                        "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET": self._secret(),
+                        "ROSTER_SCOUT_PUBLIC_ORIGIN": configured,
+                        "BROWSER_ORIGIN": browser,
+                    },
+                )
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                self.assertEqual(
+                    completed.stdout.splitlines(),
+                    [browser, "200"],
+                )
 
     def test_non_fly_single_process_preserves_request_origin_fallback(self):
         code = """
