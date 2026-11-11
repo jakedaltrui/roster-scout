@@ -79,6 +79,17 @@ class RefreshResult:
         )
 
 
+@dataclass(frozen=True)
+class ProviderOrganization:
+    provider_organization_id: str
+
+
+@dataclass(frozen=True)
+class ProviderInvitation:
+    provider_invitation_id: str
+    expires_at: datetime | None = None
+
+
 @runtime_checkable
 class IdentityProvider(Protocol):
     def authorization_url(
@@ -94,6 +105,18 @@ class IdentityProvider(Protocol):
 
     def logout_url(self, *, sealed_session: str) -> str: ...
 
+    def ensure_organization(
+        self, *, name: str, external_id: str
+    ) -> ProviderOrganization: ...
+
+    def send_invitation(
+        self,
+        *,
+        email: str,
+        provider_organization_id: str,
+        expires_in_days: int,
+    ) -> ProviderInvitation: ...
+
 
 class FakeIdentityProvider:
     """Deterministic in-memory provider for local and test composition."""
@@ -108,6 +131,8 @@ class FakeIdentityProvider:
         refresh_failure: Exception | None = None,
         logout_url: str = "https://identity.example.test/logout",
         logout_failure: Exception | None = None,
+        organization_failure: Exception | None = None,
+        invitation_failure: Exception | None = None,
     ):
         self._identities = dict(identities or {})
         self._authorization_base_url = authorization_base_url
@@ -116,8 +141,12 @@ class FakeIdentityProvider:
         self._refresh_failure = refresh_failure
         self._logout_url = logout_url
         self._logout_failure = logout_failure
+        self._organization_failure = organization_failure
+        self._invitation_failure = invitation_failure
         self.refresh_calls: list[str] = []
         self.logout_calls: list[str] = []
+        self.organization_calls: list[tuple[str, str]] = []
+        self.invitation_calls: list[tuple[str, str, int]] = []
 
     def authorization_url(
         self,
@@ -146,6 +175,32 @@ class FakeIdentityProvider:
         if self._logout_failure is not None:
             raise self._logout_failure
         return self._logout_url
+
+    def ensure_organization(
+        self, *, name: str, external_id: str
+    ) -> ProviderOrganization:
+        self.organization_calls.append((name, external_id))
+        if self._organization_failure is not None:
+            raise self._organization_failure
+        return ProviderOrganization(
+            provider_organization_id=f"provider-org-{external_id}"
+        )
+
+    def send_invitation(
+        self,
+        *,
+        email: str,
+        provider_organization_id: str,
+        expires_in_days: int,
+    ) -> ProviderInvitation:
+        self.invitation_calls.append(
+            (email, provider_organization_id, expires_in_days)
+        )
+        if self._invitation_failure is not None:
+            raise self._invitation_failure
+        return ProviderInvitation(
+            provider_invitation_id=f"provider-invite-{uuid.uuid4()}"
+        )
 
 
 class WorkOSIdentityProvider:
@@ -249,6 +304,49 @@ class WorkOSIdentityProvider:
                 cookie_password=self._cookie_password,
             )
             return provider_session.get_logout_url()
+        except Exception as exc:
+            raise IdentityFailure(_provider_failure_category(exc)) from None
+
+    def ensure_organization(
+        self, *, name: str, external_id: str
+    ) -> ProviderOrganization:
+        try:
+            try:
+                organization = (
+                    self._client.organizations.get_organization_by_external_id(
+                        external_id
+                    )
+                )
+            except Exception as exc:
+                if getattr(exc, "status_code", None) != 404:
+                    raise
+                organization = self._client.organizations.create_organization(
+                    name=name,
+                    external_id=external_id,
+                    allow_profiles_outside_organization=False,
+                )
+            return ProviderOrganization(provider_organization_id=organization.id)
+        except Exception as exc:
+            raise IdentityFailure(_provider_failure_category(exc)) from None
+
+    def send_invitation(
+        self,
+        *,
+        email: str,
+        provider_organization_id: str,
+        expires_in_days: int,
+    ) -> ProviderInvitation:
+        try:
+            invitation = self._client.user_management.send_invitation(
+                email=email,
+                organization_id=provider_organization_id,
+                expires_in_days=expires_in_days,
+            )
+            expires_at = getattr(invitation, "expires_at", None)
+            return ProviderInvitation(
+                provider_invitation_id=invitation.id,
+                expires_at=expires_at if isinstance(expires_at, datetime) else None,
+            )
         except Exception as exc:
             raise IdentityFailure(_provider_failure_category(exc)) from None
 

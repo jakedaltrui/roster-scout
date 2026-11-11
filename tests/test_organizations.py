@@ -5,7 +5,9 @@ from __future__ import annotations
 import logging
 import unittest
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from threading import Barrier
 
 from alembic import command
 from sqlalchemy import inspect, select, text
@@ -147,6 +149,72 @@ class OrganizationOwnershipSchemaTests(_PostgreSQLOrganizationCase):
 
 
 class InvitationCreationTests(_PostgreSQLOrganizationCase):
+    def test_bootstrap_and_provider_mirror_are_idempotent(self):
+        from roster_scout.identity import FakeIdentityProvider
+        from roster_scout.models import (
+            OrganizationIdentityConnection,
+            OrganizationInvitation,
+            SecurityAuditEvent,
+        )
+        from roster_scout.organizations import (
+            bootstrap_organization,
+            mirror_organization,
+        )
+
+        with self.Session.begin() as session:
+            organization, invitation = bootstrap_organization(
+                session,
+                name="Example University Baseball",
+                admin_email=" Admin@Example.EDU ",
+                now=self.now,
+            )
+            organization_id = organization.id
+            invitation_id = invitation.id
+        with self.Session.begin() as session:
+            repeated_organization, repeated_invitation = bootstrap_organization(
+                session,
+                name="Example University Baseball",
+                admin_email="admin@example.edu",
+                now=self.now + timedelta(minutes=1),
+            )
+            self.assertEqual(repeated_organization.id, organization_id)
+            self.assertEqual(repeated_invitation.id, invitation_id)
+
+        provider = FakeIdentityProvider()
+        first = mirror_organization(
+            self.Session,
+            provider=provider,
+            organization_id=organization_id,
+            now=self.now,
+        )
+        second = mirror_organization(
+            self.Session,
+            provider=provider,
+            organization_id=organization_id,
+            now=self.now + timedelta(minutes=1),
+        )
+        self.assertEqual(first.id, second.id)
+        self.assertEqual(
+            provider.organization_calls,
+            [("Example University Baseball", str(organization_id))],
+        )
+        with self.Session.begin() as session:
+            self.assertEqual(
+                session.query(OrganizationIdentityConnection).count(), 1
+            )
+            self.assertEqual(session.query(OrganizationInvitation).count(), 1)
+            actions = list(
+                session.scalars(
+                    select(SecurityAuditEvent.action).order_by(
+                        SecurityAuditEvent.action
+                    )
+                )
+            )
+        self.assertEqual(
+            actions,
+            ["invitation.create", "organization.bootstrap"],
+        )
+
     def test_admin_can_invite_any_valid_address_and_member_cannot(self):
         from roster_scout.organizations import OrganizationFailure, create_invitation
 
@@ -269,6 +337,46 @@ class InvitationCreationTests(_PostgreSQLOrganizationCase):
         self.assertEqual(delivered.id, invitation_id)
         self.assertEqual(len(provider.invitation_calls), 1)
 
+    def test_provider_expiry_cannot_extend_local_authorization(self):
+        from roster_scout.identity import FakeIdentityProvider, ProviderInvitation
+        from roster_scout.models import OrganizationInvitation
+        from roster_scout.organizations import create_invitation, deliver_invitation
+
+        class LongerProviderInvite(FakeIdentityProvider):
+            def send_invitation(self, **kwargs):
+                super().send_invitation(**kwargs)
+                return ProviderInvitation(
+                    provider_invitation_id="provider-invite-longer",
+                    expires_at=self_now + timedelta(days=30),
+                )
+
+        self_now = self.now + timedelta(hours=1)
+        organization_id, admin_id, _ = self._organization_with_membership(
+            "admin@example.edu"
+        )
+        with self.Session.begin() as session:
+            invitation = create_invitation(
+                session,
+                organization_id=organization_id,
+                actor_account_id=admin_id,
+                email="coach@example.edu",
+                role="member",
+                now=self.now,
+            )
+            invitation_id = invitation.id
+            local_expires_at = invitation.expires_at
+
+        delivered = deliver_invitation(
+            self.Session,
+            provider=LongerProviderInvite(),
+            invitation_id=invitation_id,
+            now=self.now + timedelta(hours=1),
+        )
+        self.assertEqual(delivered.provider_expires_at, local_expires_at)
+        with self.Session.begin() as session:
+            stored = session.get(OrganizationInvitation, invitation_id)
+            self.assertEqual(stored.provider_expires_at, stored.expires_at)
+
 
 class InvitationAcceptanceTests(_PostgreSQLOrganizationCase):
     def _pending_invitation(self, email="coach@example.edu", role="member"):
@@ -319,6 +427,38 @@ class InvitationAcceptanceTests(_PostgreSQLOrganizationCase):
             )
             self.assertEqual(len(memberships), 1)
             self.assertEqual(memberships[0].organization_id, organization_id)
+
+    def test_concurrent_acceptance_converges_on_one_membership(self):
+        from roster_scout.models import OrganizationMembership
+        from roster_scout.organizations import accept_invitation
+
+        _, invitation_id = self._pending_invitation()
+        account_id = self._account("coach@example.edu")
+        rendezvous = Barrier(2)
+
+        def accept():
+            rendezvous.wait()
+            with self.Session.begin() as session:
+                membership = accept_invitation(
+                    session,
+                    invitation_id=invitation_id,
+                    account_id=account_id,
+                    now=self.now + timedelta(minutes=1),
+                )
+                return membership.id
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            membership_ids = list(executor.map(lambda _: accept(), range(2)))
+        self.assertEqual(len(set(membership_ids)), 1)
+        with self.Session.begin() as session:
+            memberships = list(
+                session.scalars(
+                    select(OrganizationMembership).where(
+                        OrganizationMembership.account_id == account_id
+                    )
+                )
+            )
+        self.assertEqual(len(memberships), 1)
 
     def test_same_domain_substitution_fails_without_consuming(self):
         from roster_scout.models import OrganizationInvitation

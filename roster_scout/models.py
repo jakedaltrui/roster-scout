@@ -119,6 +119,34 @@ class OrganizationMembership(UUIDPrimaryKey, Timestamped, Base):
     )
 
 
+class OrganizationIdentityConnection(UUIDPrimaryKey, Timestamped, Base):
+    """Provider organization mirror used only for delivery and SSO routing."""
+
+    __tablename__ = "organization_identity_connections"
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("organizations.id", name="fk_org_identity_connections_organization"),
+        nullable=False,
+    )
+    provider_organization_id: Mapped[str] = mapped_column(
+        String(255), nullable=False
+    )
+    mirrored_at: Mapped[object] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", name="uq_org_identity_connections_organization"
+        ),
+        UniqueConstraint(
+            "provider_organization_id",
+            name="uq_org_identity_connections_provider_organization",
+        ),
+        UniqueConstraint(
+            "id", "organization_id", name="uq_org_identity_connections_id_org"
+        ),
+    )
+
+
 class Account(UUIDPrimaryKey, Timestamped, Base):
     """Canonical local customer identity, independent of any provider."""
 
@@ -172,12 +200,177 @@ class ExternalIdentity(UUIDPrimaryKey, Timestamped, Base):
     )
 
 
+class OrganizationInvitation(UUIDPrimaryKey, Timestamped, Base):
+    """Locally authoritative exact-address organization invitation."""
+
+    __tablename__ = "organization_invitations"
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("organizations.id", name="fk_organization_invitations_organization"),
+        nullable=False,
+    )
+    normalized_email: Mapped[str] = mapped_column(String(320), nullable=False)
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="pending", server_default="pending"
+    )
+    invited_by_account_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    accepted_account_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    provider_invitation_id: Mapped[str | None] = mapped_column(String(255))
+    expires_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=False)
+    provider_expires_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
+    delivered_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
+    accepted_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["invited_by_account_id", "organization_id"],
+            [
+                "organization_memberships.account_id",
+                "organization_memberships.organization_id",
+            ],
+            name="fk_organization_invitations_inviter_membership",
+        ),
+        ForeignKeyConstraint(
+            ["accepted_account_id", "organization_id"],
+            [
+                "organization_memberships.account_id",
+                "organization_memberships.organization_id",
+            ],
+            name="fk_organization_invitations_accepted_membership",
+        ),
+        UniqueConstraint(
+            "id", "organization_id", name="uq_organization_invitations_id_org"
+        ),
+        CheckConstraint(
+            _allowed("role", ("admin", "member")),
+            name="ck_organization_invitations_role",
+        ),
+        CheckConstraint(
+            _allowed("status", ("pending", "accepted", "revoked", "expired")),
+            name="ck_organization_invitations_status",
+        ),
+        CheckConstraint(
+            "expires_at > created_at",
+            name="ck_organization_invitations_expiry",
+        ),
+        CheckConstraint(
+            "(status = 'accepted' AND accepted_account_id IS NOT NULL "
+            "AND accepted_at IS NOT NULL AND revoked_at IS NULL) OR "
+            "(status = 'revoked' AND revoked_at IS NOT NULL "
+            "AND accepted_account_id IS NULL AND accepted_at IS NULL) OR "
+            "(status IN ('pending', 'expired') AND accepted_account_id IS NULL "
+            "AND accepted_at IS NULL AND revoked_at IS NULL)",
+            name="ck_organization_invitations_lifecycle",
+        ),
+        Index(
+            "uq_organization_invitations_active_email",
+            "organization_id",
+            "normalized_email",
+            unique=True,
+            postgresql_where=text("status = 'pending'"),
+        ),
+        Index(
+            "uq_organization_invitations_provider_id",
+            "provider_invitation_id",
+            unique=True,
+            postgresql_where=text("provider_invitation_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_organization_invitations_org_status",
+            "organization_id",
+            "status",
+        ),
+    )
+
+
+class SecurityAuditEvent(UUIDPrimaryKey, Base):
+    """Append-only allowlisted security evidence without request payloads."""
+
+    __tablename__ = "security_audit_events"
+    actor_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("accounts.id", name="fk_security_audit_events_actor")
+    )
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("organizations.id", name="fk_security_audit_events_organization")
+    )
+    target_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    target_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    action: Mapped[str] = mapped_column(String(80), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(16), nullable=False)
+    reason: Mapped[str | None] = mapped_column(String(64))
+    occurred_at: Mapped[object] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    __table_args__ = (
+        CheckConstraint(
+            _allowed(
+                "target_type",
+                (
+                    "account",
+                    "organization",
+                    "invitation",
+                    "membership",
+                    "report",
+                    "job",
+                    "snapshot",
+                    "artifact",
+                    "session",
+                ),
+            ),
+            name="ck_security_audit_events_target_type",
+        ),
+        CheckConstraint(
+            _allowed(
+                "action",
+                (
+                    "identity.sign_in",
+                    "organization.bootstrap",
+                    "organization.switch",
+                    "invitation.create",
+                    "invitation.deliver",
+                    "invitation.accept",
+                    "invitation.revoke",
+                    "membership.create",
+                    "membership.remove",
+                    "membership.role_change",
+                    "report.create",
+                    "report.refresh",
+                    "report.retry",
+                    "snapshot.access",
+                    "artifact.download",
+                    "authorization.deny",
+                ),
+            ),
+            name="ck_security_audit_events_action",
+        ),
+        CheckConstraint(
+            _allowed("outcome", ("allowed", "denied", "succeeded", "failed", "pending")),
+            name="ck_security_audit_events_outcome",
+        ),
+        Index(
+            "ix_security_audit_events_organization_time",
+            "organization_id",
+            "occurred_at",
+        ),
+        {
+            "info": {
+                "database_triggers": ("trg_security_audit_events_append_only",)
+            }
+        },
+    )
+
+
 class AuthTransaction(UUIDPrimaryKey, Base):
     """One-time server-side state for a managed-identity callback."""
 
     __tablename__ = "auth_transactions"
     state_digest: Mapped[str] = mapped_column(String(64), nullable=False)
-    invitation_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    invitation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(
+            "organization_invitations.id",
+            name="fk_auth_transactions_invitation",
+        )
+    )
     return_path: Mapped[str] = mapped_column(
         String(500), nullable=False, default="/", server_default="/"
     )
