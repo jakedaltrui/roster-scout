@@ -47,6 +47,23 @@ def publish_snapshot(session, snapshot_id):
         .distinct()
         .subquery()
     )
+    linked_global_players = session.execute(
+        select(
+            linked_player_pairs.c.player_id,
+            cast(linked_player_pairs.c.player_id, String).label("player_id_text"),
+        )
+        .distinct()
+        .order_by("player_id_text")
+    ).all()
+    for player_id, _player_id_text in linked_global_players:
+        session.execute(
+            text(
+                "SELECT lock_authoritative_global_player_mutation("
+                "CAST(:player_id AS uuid))"
+            ),
+            {"player_id": player_id},
+        )
+
     linked_players = session.execute(
         select(
             linked_player_pairs.c.organization_id,
