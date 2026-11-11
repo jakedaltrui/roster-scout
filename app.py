@@ -57,7 +57,11 @@ def _decode_download_ack_secret(value: str) -> bytes:
     if not isinstance(value, str) or not value.strip():
         raise RuntimeError("Download acknowledgement secret is invalid.")
     candidate = value.strip()
-    if len(candidate) % 4 == 1:
+    if (
+        candidate != value
+        or not re.fullmatch(r"[A-Za-z0-9_-]+={0,2}", candidate)
+        or len(candidate) % 4 == 1
+    ):
         raise RuntimeError("Download acknowledgement secret is invalid.")
     try:
         decoded = base64.b64decode(
@@ -238,7 +242,7 @@ def _usage_session_factory():
 
 
 def _record_workbook_download(event_key):
-    """Best-effort commit of one anonymous workbook-download event."""
+    """Best-effort commit of one acknowledged anonymous workbook download."""
     try:
         with _usage_session_factory().begin() as session:
             record_workbook_download_served(
@@ -249,7 +253,7 @@ def _record_workbook_download(event_key):
             )
     except Exception:
         app.logger.warning(
-            "usage_event_dropped route=legacy_scrape reason=database_unavailable"
+            "usage_event_dropped route=download_ack reason=database_unavailable"
         )
         return "dropped"
     return "recorded"
@@ -297,6 +301,66 @@ def teams():
         return jsonify({"division": division, "year": year, "teams": catalog})
     except NcaaError as exc:
         return jsonify({"error": str(exc)}), 400
+
+
+def _canonical_download_event_id(value) -> str:
+    """Return an exact canonical UUID string for an acknowledgement."""
+    if not isinstance(value, str) or len(value) != 36:
+        raise ValueError("Download acknowledgement is invalid.")
+    try:
+        canonical = str(uuid.UUID(value))
+    except (ValueError, AttributeError) as exc:
+        raise ValueError("Download acknowledgement is invalid.") from exc
+    if canonical != value:
+        raise ValueError("Download acknowledgement is invalid.")
+    return canonical
+
+
+@app.route("/api/downloads/ack", methods=["POST"])
+def acknowledge_workbook_download():
+    """Record one recent same-origin browser acknowledgement idempotently."""
+    if request.mimetype != "application/json":
+        return _json_error("Content-Type must be application/json.", 415)
+    if request.content_length is not None and request.content_length > 1024:
+        return _json_error("Request body is too large.", 413)
+    if len(request.get_data(cache=True)) > 1024:
+        return _json_error("Request body is too large.", 413)
+
+    expected_origin = f"{request.scheme}://{request.host}"
+    if request.headers.get("Origin") != expected_origin:
+        return _json_error("Acknowledgement origin is not allowed.", 403)
+    if request.headers.get("Sec-Fetch-Site", "").lower() == "cross-site":
+        return _json_error("Acknowledgement origin is not allowed.", 403)
+
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or set(body) != {
+        "download_event_id",
+        "acknowledgement_proof",
+    }:
+        return _json_error("Download acknowledgement is invalid.", 400)
+    try:
+        download_event_id = _canonical_download_event_id(
+            body.get("download_event_id")
+        )
+    except ValueError:
+        return _json_error("Download acknowledgement is invalid.", 400)
+
+    proof = body.get("acknowledgement_proof")
+    if (
+        not isinstance(proof, str)
+        or not proof
+        or len(proof) > 512
+        or any(ord(character) < 32 for character in proof)
+    ):
+        return _json_error("Acknowledgement proof is invalid.", 400)
+    if not _verify_download_ack_proof(proof, download_event_id):
+        return _json_error("Acknowledgement proof is invalid.", 400)
+
+    persisted = _record_workbook_download(download_event_id) == "recorded"
+    return jsonify({
+        "acknowledged": True,
+        "persisted": persisted,
+    }), 200 if persisted else 202
 
 
 @lru_cache(maxsize=1024)

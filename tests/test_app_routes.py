@@ -226,6 +226,9 @@ class DownloadAcknowledgementSecretConfigurationTests(unittest.TestCase):
         cases = (
             ({"FLY_APP_NAME": "roster-scout"}, "missing"),
             ({
+                "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET": self._secret(31),
+            }, "short local configured secret"),
+            ({
                 "WEB_CONCURRENCY": "2",
                 "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET": self._secret(31),
             }, "short"),
@@ -233,7 +236,12 @@ class DownloadAcknowledgementSecretConfigurationTests(unittest.TestCase):
                 "FLY_APP_NAME": "roster-scout",
                 "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET": "not+urlsafe!",
             }, "malformed"),
+            ({
+                "FLY_APP_NAME": "roster-scout",
+                "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET": "+" * 44,
+            }, "standard alphabet"),
             ({"WEB_CONCURRENCY": "0"}, "non-positive"),
+            ({"WEB_CONCURRENCY": "many"}, "non-integer"),
         )
         for environment, label in cases:
             with self.subTest(label=label):
