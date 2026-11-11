@@ -7,11 +7,11 @@
 
 ### Authentication
 
-- [ ] **AUTH-01**: A visitor must authenticate before accessing team search, report creation, report history, dashboards, exports, or refresh actions.
-- [ ] **AUTH-02**: A user can sign in without a password through an emailed single-use code or magic link with bounded expiry and request throttling.
-- [ ] **AUTH-03**: A user can sign in through Microsoft or Google federation while retaining the same Roster Scout account and organization memberships.
+- [x] **AUTH-01**: A visitor must authenticate before accessing team search, report creation, report history, dashboards, exports, or refresh actions.
+- [x] **AUTH-02**: A user can sign in without a password through an emailed single-use code or magic link with bounded expiry and request throttling.
+- [x] **AUTH-03**: A user can sign in through Microsoft or Google federation while retaining the same Roster Scout account and organization memberships.
 - [ ] **AUTH-04**: An organization can use an approved OIDC or SAML SSO connection without changing report ownership or authorization rules.
-- [ ] **AUTH-05**: A user session persists across ordinary browser refreshes and can be explicitly terminated through logout.
+- [x] **AUTH-05**: A user session persists across ordinary browser refreshes and can be explicitly terminated through logout.
 
 ### Organizations
 
@@ -102,7 +102,7 @@
 
 - [ ] **SECU-01**: Cross-organization access is denied for report HTML, JSON APIs, refresh actions, workbook downloads, job status, and embed-token endpoints.
 - [ ] **SECU-02**: Authorization checks derive organization context from the authenticated membership, never from an untrusted request field alone.
-- [ ] **SECU-03**: Passwordless, invitation, session, Power BI, and service-principal secrets or tokens never appear in application logs.
+- [x] **SECU-03**: Passwordless, invitation, session, Power BI, and service-principal secrets or tokens never appear in application logs.
 - [ ] **SECU-04**: Security-relevant membership, report, refresh, export, and embed-token events are auditable by actor, organization, target, and time without recording secret material.
 - [ ] **SECU-05**: External failures from NCAA, Browserless, identity, object storage, database, and Power BI produce distinct sanitized operational states.
 - [ ] **SECU-06**: Production readiness includes automated cross-organization denial tests and a manual two-organization Power BI RLS verification.

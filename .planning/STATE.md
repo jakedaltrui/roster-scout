@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 2 UI-SPEC approved
-last_updated: "2026-11-11T22:13:10.964Z"
-last_activity: 2026-11-11 -- Phase 02 planning complete
+stopped_at: Completed 02-01-PLAN.md
+last_updated: "2026-11-11T22:27:32.956Z"
+last_activity: 2026-11-11
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 57
-  completed_plans: 41
+  completed_plans: 42
   percent: 20
 ---
 
@@ -21,16 +21,16 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-11-11)
 
 **Core value:** A baseball staff can reliably turn fragmented opponent data into a trustworthy, reusable scouting report with interactive analysis and a portable Excel download.
-**Current focus:** Phase 2 — identity, organizations, and report library
+**Current focus:** Phase 02 — identity-organizations-and-report-library
 
 ## Current Position
 
-Phase: 2
-Plan: Not started
+Phase: 02 (identity-organizations-and-report-library) — EXECUTING
+Plan: 2 of 16
 Status: Ready to execute
-Last activity: 2026-11-11 -- Phase 02 planning complete
+Last activity: 2026-11-11
 
-Progress: [██░░░░░░░░] 20%
+Progress: [███████░░░] 74%
 
 ## Performance Metrics
 
@@ -181,6 +181,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 01]: Acknowledgement responses use acknowledged, definitive, and retryable outcomes. — Definitive rejection waits for a later explicit submit before a fresh UUID; ambiguity preserves acknowledgement-only retry.
 - [Phase 01]: Release diff hygiene defaults to audited baseline 95776ed and permits only equal or older ancestor overrides. — This guarantees the verified round-five committed range can only be preserved or broadened, never truncated.
 - [Phase 01]: Round-four and round-five focused Python counterexamples run together before the Node browser suite and every full release group. — Fast executable counterexamples fail before expensive lifecycle and discovery validation while retaining the complete release surface.
+- [Phase 02]: Provider subjects resolve before email; a matching verified email links only when the provider explicitly approves linking.
+- [Phase 02]: Callback state and browser session verifiers are persisted only as SHA-256 digests.
+- [Phase 02]: Local sessions use a 12-hour sliding idle lifetime, a 7-day absolute lifetime, and the __Host-rs_session cookie contract.
 
 ### Pending Todos
 
@@ -220,9 +223,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 01 P39 | 8m | 2 tasks | 5 files |
 | Phase 01 P40 | 7 min | 2 tasks | 4 files |
 | Phase 01 P41 | 9m | 2 tasks | 4 files |
+| Phase 02 P01 | 14 min | 2 tasks | 6 files |
 
 ## Session Continuity
 
-Last session: 2026-11-11T21:19:12.667Z
-Stopped at: Phase 2 UI-SPEC approved
-Resume file: .planning/phases/02-identity-organizations-and-report-library/02-UI-SPEC.md
+Last session: 2026-11-11T22:27:26.438Z
+Stopped at: Completed 02-01-PLAN.md
+Resume file: None
