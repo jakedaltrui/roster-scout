@@ -160,11 +160,17 @@ class PasswordlessBoundaryTests(_PostgreSQLIdentityCase):
         started = client.get("/auth/start")
         state = parse_qs(urlsplit(started.headers["Location"]).query)["state"][0]
 
-        with self.assertLogs("app", level="WARNING") as captured:
-            failed = client.get(
-                "/auth/callback",
-                query_string={"state": state, "code": callback_secret},
-            )
+        app_logger = logging.getLogger("app")
+        logger_was_disabled = app_logger.disabled
+        app_logger.disabled = False
+        try:
+            with self.assertLogs(app_logger, level="WARNING") as captured:
+                failed = client.get(
+                    "/auth/callback",
+                    query_string={"state": state, "code": callback_secret},
+                )
+        finally:
+            app_logger.disabled = logger_was_disabled
 
         self.assertEqual(failed.status_code, 503)
         rendered = failed.get_data(as_text=True) + " ".join(captured.output)
