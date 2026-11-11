@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-12-PLAN.md
-last_updated: "2026-11-11T23:21:31.710Z"
+stopped_at: Completed 02-03-PLAN.md
+last_updated: "2026-11-11T23:50:32.419Z"
 last_activity: 2026-11-11
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 57
-  completed_plans: 45
+  completed_plans: 46
   percent: 20
 ---
 
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-11-11)
 ## Current Position
 
 Phase: 02 (identity-organizations-and-report-library) — EXECUTING
-Plan: 5 of 16
+Plan: 6 of 16
 Status: Ready to execute
 Last activity: 2026-11-11
 
-Progress: [████████░░] 79%
+Progress: [████████░░] 81%
 
 ## Performance Metrics
 
@@ -193,6 +193,10 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 02]: Every non-public route reloads canonical local session and membership state; the public allowlist stays deliberately short.
 - [Phase 02]: Flask-WTF reads its CSRF token from the SQL-backed AccountSession projection rather than creating a second browser session cookie.
 - [Phase 02]: Hosted identity configuration fails closed, and deterministic code_verified evidence remains separate from production_auth_verified evidence.
+- [Phase 02]: Only pending, unexpired local invitations matching the account's exact normalized verified email create local membership.
+- [Phase 02]: WorkOS organization and invitation IDs remain delivery and SSO routing metadata and never grant access.
+- [Phase 02]: Provider calls run outside database transactions while local invitation, membership, and audit writes stay atomic.
+- [Phase 02]: Security audit rows accept only canonical UUIDs and fixed allowlisted tokens and are database append-only.
 
 ### Pending Todos
 
@@ -236,9 +240,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 02 P13 | 14 min | 2 tasks | 5 files |
 | Phase 02 P02 | 12 min | 2 tasks | 8 files |
 | Phase 02 P12 | 17 min | 2 tasks | 8 files |
+| Phase 02 P03 | 16 min | 2 tasks | 6 files |
 
 ## Session Continuity
 
-Last session: 2026-11-11T23:21:31.702Z
-Stopped at: Completed 02-12-PLAN.md
+Last session: 2026-11-11T23:50:32.411Z
+Stopped at: Completed 02-03-PLAN.md
 Resume file: None

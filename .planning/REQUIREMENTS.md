@@ -16,10 +16,10 @@
 ### Organizations
 
 - [x] **ORG-01**: Every report, snapshot, artifact, job, and invitation belongs to exactly one organization.
-- [ ] **ORG-02**: An organization administrator can invite a user at any valid email address; an `.edu` domain is not required.
-- [ ] **ORG-03**: Accepting an invitation grants membership only in the inviting organization.
+- [x] **ORG-02**: An organization administrator can invite a user at any valid email address; an `.edu` domain is not required.
+- [x] **ORG-03**: Accepting an invitation grants membership only in the inviting organization.
 - [x] **ORG-04**: Organization roles distinguish administrators who manage membership from members who create and review reports.
-- [ ] **ORG-05**: An organization administrator can view pending invitations, revoke invitations, and remove members.
+- [x] **ORG-05**: An organization administrator can view pending invitations, revoke invitations, and remove members.
 - [ ] **ORG-06**: All active organization members can review the organization's report library and the snapshots they are authorized to access.
 - [x] **ORG-07**: Email-domain matching may suggest an organization but can never grant membership automatically.
 
@@ -103,7 +103,7 @@
 - [ ] **SECU-01**: Cross-organization access is denied for report HTML, JSON APIs, refresh actions, workbook downloads, job status, and embed-token endpoints.
 - [ ] **SECU-02**: Authorization checks derive organization context from the authenticated membership, never from an untrusted request field alone.
 - [x] **SECU-03**: Passwordless, invitation, session, Power BI, and service-principal secrets or tokens never appear in application logs.
-- [ ] **SECU-04**: Security-relevant membership, report, refresh, export, and embed-token events are auditable by actor, organization, target, and time without recording secret material.
+- [x] **SECU-04**: Security-relevant membership, report, refresh, export, and embed-token events are auditable by actor, organization, target, and time without recording secret material.
 - [x] **SECU-05**: External failures from NCAA, Browserless, identity, object storage, database, and Power BI produce distinct sanitized operational states.
 - [ ] **SECU-06**: Production readiness includes automated cross-organization denial tests and a manual two-organization Power BI RLS verification.
 - [x] **OPS-01**: Report jobs apply bounded retries and never run more NCAA browser sessions than the configured capacity permits.
