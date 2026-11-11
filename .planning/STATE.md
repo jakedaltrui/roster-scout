@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 01-29-PLAN.md
-last_updated: "2026-11-11T01:02:01.764Z"
+status: verifying
+stopped_at: Completed 01-30-PLAN.md
+last_updated: "2026-11-11T01:13:39.990Z"
 last_activity: 2026-11-11
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 30
-  completed_plans: 29
-  percent: 0
+  completed_plans: 30
+  percent: 20
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: `.planning/PROJECT.md` (updated 2026-11-01)
 
 ## Current Position
 
-Phase: 01 (canonical-snapshot-foundation) — EXECUTING
+Phase: 01 (canonical-snapshot-foundation) — VERIFYING
 Plan: 30 of 30
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-11-11
 
-Progress: [██████████] 97%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -150,6 +150,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 01]: Malformed supplied download keys fail before collection; omitted keys receive one request-local UUID for legacy compatibility. — The opaque UUID is deduplication input only, never identity.
 - [Phase 01]: Workbook HTTP 200 is conditional on committing its usage event; persistence failure returns a sanitized 503 without workbook bytes. — A served success cannot escape durable download accounting.
 - [Phase 01]: Anonymous legacy download events retain null actor and organization IDs so they never inflate authenticated unique-user counts. — Phase 1 does not infer identity from request metadata.
+- [Phase 01]: Every Plan 01-22 through 01-29 counterexample runs explicitly before clean-process full discovery. — A missing focused class cannot hide behind broad suite coverage.
+- [Phase 01]: Successful downloads are committed deduplicated workbook_download_served events; unique users are distinct nonnull canonical account UUIDs only. — Anonymous Phase 1 traffic remains zero authenticated users without pseudonymous substitution.
+- [Phase 01]: Phase 2 records authenticated_use only after authorized durable report/job acceptance keyed by accepted ReportJob and canonical identity UUIDs. — Page views, login, rejections, and validation failures are excluded.
 
 ### Pending Todos
 
@@ -177,9 +180,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 01 P28 | 7 min | 3 tasks | 5 files |
 | Phase 01 P27 | 13 min | 2 tasks | 4 files |
 | Phase 01 P29 | 10 min | 2 tasks | 3 files |
+| Phase 01 P30 | 8 min | 2 tasks | 3 files |
 
 ## Session Continuity
 
-Last session: 2026-11-11T01:02:01.756Z
-Stopped at: Completed 01-29-PLAN.md
+Last session: 2026-11-11T01:13:17.429Z
+Stopped at: Completed 01-30-PLAN.md
 Resume file: None
