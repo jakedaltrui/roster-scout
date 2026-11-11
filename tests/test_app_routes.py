@@ -39,20 +39,29 @@ class DownloadEventContractTests(unittest.TestCase):
         with open(cls.template, encoding="utf-8") as handle:
             cls.source = handle.read()
 
-    def test_one_uuid_is_reused_for_one_inflight_submission(self):
-        guard = self.source.index("if (scrapeInFlight) return;")
-        generation = self.source.index("downloadEventId = crypto.randomUUID();")
+    def test_template_uses_retry_safe_download_state_machine(self):
+        module = self.source.index("static', filename='download_tracking.js")
+        tracker = self.source.index("createDownloadTracker", module)
+        submission = self.source.index("runDownloadSubmission", tracker)
         request_field = self.source.index("download_event_id: downloadEventId")
-        terminal_clear = self.source.index("downloadEventId = null;", request_field)
+        acknowledgement = self.source.index("/api/downloads/ack", request_field)
 
-        self.assertLess(guard, generation)
-        self.assertLess(generation, request_field)
-        self.assertLess(request_field, terminal_clear)
-        self.assertEqual(
-            self.source.count("downloadEventId = crypto.randomUUID();"),
-            1,
+        self.assertLess(module, tracker)
+        self.assertLess(tracker, submission)
+        self.assertLess(submission, request_field)
+        self.assertLess(request_field, acknowledgement)
+        self.assertIn("storage: sessionStorage", self.source)
+        self.assertNotIn("let downloadEventId = null;", self.source)
+        self.assertNotIn("downloadEventId = crypto.randomUUID();", self.source)
+        self.assertNotIn("downloadEventId = null;", self.source)
+
+    def test_success_copy_claims_start_not_filesystem_save(self):
+        self.assertIn("Your Stat Sheet download has started.", self.source)
+        self.assertNotIn("Your Stat Sheet has downloaded.", self.source)
+        self.assertNotRegex(
+            self.source,
+            r"(?i)(?:download|stat sheet).{0,30}(?:saved|save complete)",
         )
-        self.assertIn("let downloadEventId = null;", self.source)
 
     def test_download_event_id_is_request_only_and_nonidentifying(self):
         self.assertNotRegex(
@@ -68,6 +77,7 @@ class DownloadEventContractTests(unittest.TestCase):
             r"(?:fingerprint|useragent|user_agent)[^;\n]*downloadeventid",
         )
         self.assertNotIn('name="download_event_id"', self.source)
+        self.assertNotIn("navigator.sendBeacon", self.source)
 
 
 class WorkbookPreparationReceiptTests(unittest.TestCase):
