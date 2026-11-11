@@ -2164,6 +2164,294 @@ class AuthoritativeIdentitySerializationMigrationTests(PostgreSQLSnapshotTestCas
         )
 
 
+class AuthoritativeGlobalPlayerSerializationTests(
+    AuthoritativeIdentitySerializationTests
+):
+    """A Player UUID serializes identity writes across invisible tenants."""
+
+    def seed_global_player_race(self):
+        from roster_scout.models import Player
+
+        with self.Session.begin() as session:
+            _organization, team_season, _report, _snapshot = self.fixture(session)
+            player = Player(
+                source="ncaa",
+                source_player_id="42",
+                display_name="Global Lock Player",
+            )
+            session.add(player)
+            session.flush()
+            return {
+                "organization_id": uuid.uuid4(),
+                "report_id": uuid.uuid4(),
+                "snapshot_id": uuid.uuid4(),
+                "identity_id": uuid.uuid4(),
+                "source_id": uuid.uuid4(),
+                "team_season_id": team_season.id,
+                "player_id": player.id,
+            }
+
+    def insert_invisible_authoritative_source(self, connection, ids):
+        connection.execute(
+            text("INSERT INTO organizations (id, name) VALUES (:organization_id, 'Invisible Tenant')"),
+            ids,
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO reports (
+                    id, organization_id, team_season_id, name
+                ) VALUES (
+                    :report_id, :organization_id, :team_season_id,
+                    'Invisible Tenant Report'
+                )
+                """
+            ),
+            ids,
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO report_snapshots (
+                    id, organization_id, report_id, status, schema_version
+                ) VALUES (
+                    :snapshot_id, :organization_id, :report_id,
+                    'draft', 'ncaa-core-v2'
+                )
+                """
+            ),
+            ids,
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO player_team_seasons (
+                    id, organization_id, snapshot_id, player_id,
+                    team_season_id, identity_status, identity_key,
+                    display_name
+                ) VALUES (
+                    :identity_id, :organization_id, :snapshot_id, :player_id,
+                    :team_season_id, 'authoritative', 'ncaa:42',
+                    'Global Lock Player'
+                )
+                """
+            ),
+            ids,
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO source_records (
+                    id, organization_id, snapshot_id,
+                    player_team_season_id, section, row_ordinal,
+                    source_url, source_team_id, source_season_id,
+                    source_season_team_id, source_stat_category_id,
+                    source_player_id, collected_at, parser_version,
+                    schema_version, payload_sha256, raw_values
+                ) VALUES (
+                    :source_id, :organization_id, :snapshot_id,
+                    :identity_id, 'batting', 0,
+                    'https://stats.ncaa.org/invisible-tenant', '689',
+                    '17040', '615087', '15867', '42', now(),
+                    'parser-2+ncaa-core-v2', 'ncaa-core-v2',
+                    :sha, '{}'::jsonb
+                )
+                """
+            ),
+            {**ids, "sha": "9" * 64},
+        )
+
+    def assert_global_race(self, *, source_first):
+        ids = self.seed_global_player_race()
+        first_holds_lock = threading.Event()
+        release_first = threading.Event()
+        second_started = threading.Event()
+
+        def create_source():
+            engine = create_engine(self.database_url)
+            try:
+                with engine.begin() as connection:
+                    connection.execute(text("SET LOCAL lock_timeout = '3s'"))
+                    connection.execute(text("SET LOCAL statement_timeout = '4s'"))
+                    if not source_first:
+                        self.assertTrue(first_holds_lock.wait(self.WAIT_SECONDS))
+                        second_started.set()
+                    self.insert_invisible_authoritative_source(connection, ids)
+                    if source_first:
+                        first_holds_lock.set()
+                        self.assertTrue(release_first.wait(self.WAIT_SECONDS))
+            finally:
+                engine.dispose()
+
+        def mutate_player():
+            engine = create_engine(self.database_url)
+            try:
+                with engine.begin() as connection:
+                    connection.execute(text("SET LOCAL lock_timeout = '3s'"))
+                    connection.execute(text("SET LOCAL statement_timeout = '4s'"))
+                    if source_first:
+                        self.assertTrue(first_holds_lock.wait(self.WAIT_SECONDS))
+                        second_started.set()
+                    connection.execute(
+                        text(
+                            "UPDATE players SET source_player_id = '99' "
+                            "WHERE id = :player_id"
+                        ),
+                        ids,
+                    )
+                    if not source_first:
+                        first_holds_lock.set()
+                        self.assertTrue(release_first.wait(self.WAIT_SECONDS))
+            finally:
+                engine.dispose()
+
+        targets = (create_source, mutate_player) if source_first else (mutate_player, create_source)
+        workers, outcomes = self.run_workers(*targets)
+        self.assertTrue(first_holds_lock.wait(self.WAIT_SECONDS))
+        self.assertTrue(second_started.wait(self.WAIT_SECONDS))
+        for worker in workers:
+            worker.join(self.BLOCKED_ASSERTION_SECONDS)
+        release_first.set()
+        for worker in workers:
+            worker.join(self.WAIT_SECONDS)
+            self.assertFalse(worker.is_alive(), "global Player race did not finish")
+
+        errors = [outcome for outcome in outcomes if outcome != "committed"]
+        self.assertEqual(outcomes.count("committed"), 1, outcomes)
+        self.assertEqual(len(errors), 1, outcomes)
+        self.assertIsInstance(errors[0], DBAPIError)
+        self.assertIn("authoritative source player mismatch", str(errors[0]))
+        self.assertNotIn(
+            getattr(errors[0].orig, "sqlstate", None),
+            {"40P01", "55P03", "57014"},
+        )
+
+        with self.engine.connect() as connection:
+            mismatch_count = connection.scalar(
+                text(
+                    """
+                    SELECT count(*)
+                    FROM source_records AS source
+                    JOIN player_team_seasons AS identity
+                      ON identity.id = source.player_team_season_id
+                     AND identity.snapshot_id = source.snapshot_id
+                     AND identity.organization_id = source.organization_id
+                    JOIN players AS player ON player.id = identity.player_id
+                    WHERE source.source_player_id IS NOT NULL
+                      AND player.source = 'ncaa'
+                      AND player.source_player_id IS DISTINCT FROM source.source_player_id
+                    """
+                )
+            )
+        self.assertEqual(mismatch_count, 0)
+
+    def test_global_lock_key_is_player_only_and_stably_distinct(self):
+        definition = self.function_definition(
+            "lock_authoritative_global_player_mutation"
+        )
+        self.assertIn("roster-scout:authoritative-global-player:", definition)
+        self.assertIn("player_uuid::text", definition)
+        self.assertNotIn("organization_uuid", definition)
+        with self.engine.connect() as connection:
+            first = uuid.uuid4()
+            second = uuid.uuid4()
+            keys = connection.execute(
+                text(
+                    """
+                    SELECT
+                        hashtextextended(
+                            'roster-scout:authoritative-global-player:' || CAST(:first AS uuid)::text,
+                            31032026
+                        ),
+                        hashtextextended(
+                            'roster-scout:authoritative-global-player:' || CAST(:first AS uuid)::text,
+                            31032026
+                        ),
+                        hashtextextended(
+                            'roster-scout:authoritative-global-player:' || CAST(:second AS uuid)::text,
+                            31032026
+                        )
+                    """
+                ),
+                {"first": str(first), "second": str(second)},
+            ).one()
+        self.assertEqual(keys[0], keys[1])
+        self.assertNotEqual(keys[0], keys[2])
+
+    def test_authoritative_triggers_lock_snapshot_global_tenant_identity(self):
+        for function_name in (
+            "enforce_source_record_authoritative_source_player",
+            "enforce_player_authoritative_source_player",
+            "enforce_player_team_season_authoritative_source_player",
+        ):
+            with self.subTest(function=function_name):
+                definition = self.function_definition(function_name)
+                snapshot_lock = definition.index("lock_authoritative_snapshots")
+                global_lock = definition.index("lock_authoritative_global_players")
+                tenant_lock = definition.index("lock_authoritative_players")
+                identity_lock = definition.index(
+                    "lock_authoritative_player_team_seasons"
+                )
+                validation = definition.index("authoritative source player mismatch")
+                self.assertLess(snapshot_lock, global_lock)
+                self.assertLess(global_lock, tenant_lock)
+                self.assertLess(tenant_lock, identity_lock)
+                self.assertLess(identity_lock, validation)
+
+    def test_uncommitted_new_organization_race_source_first(self):
+        self.assert_global_race(source_first=True)
+
+    def test_uncommitted_new_organization_race_player_first(self):
+        self.assert_global_race(source_first=False)
+
+
+class AuthoritativeGlobalPlayerSerializationMigrationTests(
+    AuthoritativeIdentitySerializationMigrationTests
+):
+    """Revision 0014 is reversible, exact, and fresh-installable."""
+
+    GLOBAL_HELPERS = {
+        "lock_authoritative_global_player_mutation",
+        "lock_authoritative_global_players",
+    }
+
+    def test_0014_upgrade_downgrade_reupgrade_and_fresh_install(self):
+        self.assertEqual(
+            self.installed_helpers(),
+            self.HELPER_NAMES,
+        )
+        self.assertIsNotNone(
+            self.function_definition("lock_authoritative_global_player_mutation")
+        )
+
+        command.downgrade(alembic_config(self.database_url), "0013")
+        for helper_name in self.GLOBAL_HELPERS:
+            self.assertIsNone(self.function_definition(helper_name))
+        restored = self.function_definition(
+            "enforce_player_authoritative_source_player"
+        )
+        self.assertNotIn("lock_authoritative_global_players", restored)
+        self.assertIn("lock_authoritative_players", restored)
+
+        command.upgrade(alembic_config(self.database_url), "0014")
+        for helper_name in self.GLOBAL_HELPERS:
+            self.assertIsNotNone(self.function_definition(helper_name))
+        command.downgrade(alembic_config(self.database_url), "0013")
+        command.upgrade(alembic_config(self.database_url), "head")
+
+        downgrade_database(self.database_url)
+        upgrade_database(self.database_url)
+        for helper_name in self.GLOBAL_HELPERS:
+            self.assertIsNotNone(self.function_definition(helper_name))
+        command.check(alembic_config(self.database_url))
+
+    def test_0014_global_batch_deduplicates_and_sorts_uuid_text(self):
+        definition = self.function_definition("lock_authoritative_global_players")
+        self.assertIn("SELECT DISTINCT player_id", definition)
+        self.assertIn("WHERE player_id IS NOT NULL", definition)
+        self.assertIn("ORDER BY player_id::text", definition)
+
+
 class FailureEvidenceRetentionMigrationTests(PostgreSQLSnapshotTestCase):
     """Revision 0011 makes the 28-day evidence window a durable invariant."""
 
