@@ -1,0 +1,28 @@
+users:
+  - id: user_synthetic_invited
+    email: invited-coach@example.test
+    first_name: Invited
+    email_verified: true
+  - id: user_synthetic_uninvited
+    email: uninvited-coach@example.test
+    first_name: Uninvited
+    email_verified: true
+
+organizations:
+  - id: org_synthetic_university
+    name: Synthetic University
+    domains:
+      - domain: example.test
+        state: verified
+    memberships:
+      - email: invited-coach@example.test
+        role: member
+        status: active
+
+roles:
+  - slug: member
+    name: Member
+    permissions: []
+
+# The application deliberately ignores this provider membership as authority.
+# Local Roster Scout invitation membership remains canonical in every test.

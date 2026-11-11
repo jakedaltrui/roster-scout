@@ -4,7 +4,9 @@ import hashlib
 import logging
 import unittest
 import uuid
+from base64 import urlsafe_b64encode
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from urllib.parse import parse_qs, urlsplit
 
 from sqlalchemy import select
@@ -554,6 +556,268 @@ class ServerSessionLifecycleTests(_PostgreSQLIdentityCase):
         rendered = repr(credential)
         self.assertNotIn(sealed, rendered)
         self.assertNotIn("coach@example.edu", rendered)
+
+    def test_refresh_success_rotates_provider_state_and_transient_failure_preserves_it(self):
+        from roster_scout.identity import FakeIdentityProvider, RefreshResult
+        from roster_scout.models import AccountSession
+        from roster_scout.sessions import create_account_session, refresh_account_session
+
+        account_id = self._account_id()
+        with self.Session.begin() as session:
+            credential = create_account_session(
+                session,
+                account_id=account_id,
+                sealed_provider_state="sealed-original-secret",
+                now=self.now,
+            )
+
+        refreshed_provider = FakeIdentityProvider(
+            refresh_result=RefreshResult.refreshed("sealed-rotated-secret")
+        )
+        with self.Session.begin() as session:
+            outcome = refresh_account_session(
+                session,
+                provider=refreshed_provider,
+                cookie_value=credential.cookie_value,
+                now=self.now + timedelta(minutes=5),
+            )
+            self.assertEqual(outcome.status, "refreshed")
+            row = session.scalar(select(AccountSession))
+            self.assertEqual(row.sealed_provider_state, "sealed-rotated-secret")
+
+        transient_provider = FakeIdentityProvider(
+            refresh_result=RefreshResult.retryable_failure()
+        )
+        with self.Session.begin() as session:
+            outcome = refresh_account_session(
+                session,
+                provider=transient_provider,
+                cookie_value=credential.cookie_value,
+                now=self.now + timedelta(minutes=10),
+            )
+            self.assertEqual(outcome.status, "preserved")
+            row = session.scalar(select(AccountSession))
+            self.assertIsNone(row.revoked_at)
+            self.assertEqual(row.sealed_provider_state, "sealed-rotated-secret")
+
+    def test_terminal_refresh_revokes_and_logout_is_local_first(self):
+        from roster_scout.identity import FakeIdentityProvider, RefreshResult
+        from roster_scout.models import AccountSession
+        from roster_scout.sessions import (
+            complete_provider_logout,
+            create_account_session,
+            prepare_account_session_logout,
+            refresh_account_session,
+        )
+
+        account_id = self._account_id()
+        with self.Session.begin() as session:
+            terminal_credential = create_account_session(
+                session,
+                account_id=account_id,
+                sealed_provider_state="sealed-terminal-secret",
+                now=self.now,
+            )
+        with self.Session.begin() as session:
+            outcome = refresh_account_session(
+                session,
+                provider=FakeIdentityProvider(
+                    refresh_result=RefreshResult.terminal_failure()
+                ),
+                cookie_value=terminal_credential.cookie_value,
+                now=self.now + timedelta(minutes=1),
+            )
+            self.assertEqual(outcome.status, "revoked")
+            self.assertIsNotNone(session.scalar(select(AccountSession)).revoked_at)
+
+        with self.Session.begin() as session:
+            logout_credential = create_account_session(
+                session,
+                account_id=account_id,
+                sealed_provider_state="sealed-logout-secret",
+                now=self.now + timedelta(minutes=2),
+            )
+        provider = FakeIdentityProvider(logout_url="https://identity.example.test/logout")
+        with self.Session.begin() as session:
+            prepared = prepare_account_session_logout(
+                session,
+                cookie_value=logout_credential.cookie_value,
+                now=self.now + timedelta(minutes=3),
+            )
+            self.assertEqual(provider.logout_calls, [])
+            row = session.scalar(
+                select(AccountSession).where(
+                    AccountSession.lookup_id
+                    == uuid.UUID(logout_credential.cookie_value.split(".", 1)[0])
+                )
+            )
+            self.assertIsNotNone(row.revoked_at)
+
+        self.assertEqual(
+            complete_provider_logout(provider, prepared),
+            "https://identity.example.test/logout",
+        )
+        self.assertEqual(provider.logout_calls, ["sealed-logout-secret"])
+
+
+class EnterpriseSsoAuthorizationTests(_PostgreSQLIdentityCase):
+    def _account(self, email="sso-coach@example.edu"):
+        from roster_scout.models import Account
+
+        with self.Session.begin() as session:
+            account = Account(
+                normalized_email=email,
+                email_verified_at=self.now,
+                status="active",
+            )
+            session.add(account)
+            session.flush()
+            return account.id
+
+    def test_provider_organization_and_domain_do_not_grant_local_context(self):
+        from roster_scout.authorization import AuthorizationFailure, require_context
+        from roster_scout.models import Organization
+        from roster_scout.sessions import create_account_session
+
+        account_id = self._account()
+        with self.Session.begin() as session:
+            organization = Organization(name="Provider Claimed University")
+            session.add(organization)
+            session.flush()
+            organization_id = organization.id
+            credential = create_account_session(
+                session,
+                account_id=account_id,
+                sealed_provider_state="sealed-sso-session",
+                now=self.now,
+            )
+
+        with self.Session.begin() as session:
+            with self.assertRaises(AuthorizationFailure) as raised:
+                require_context(
+                    session,
+                    cookie_value=credential.cookie_value,
+                    now=self.now + timedelta(minutes=1),
+                )
+        self.assertEqual(raised.exception.category, "membership_required")
+        self.assertNotIn(str(organization_id), str(raised.exception))
+
+    def test_only_active_local_membership_grants_context(self):
+        from roster_scout.authorization import require_context
+        from roster_scout.models import Organization, OrganizationMembership
+        from roster_scout.sessions import create_account_session
+
+        account_id = self._account("invited-coach@example.edu")
+        with self.Session.begin() as session:
+            organization = Organization(name="Inviting University")
+            session.add(organization)
+            session.flush()
+            session.add(OrganizationMembership(
+                organization_id=organization.id,
+                account_id=account_id,
+                role="member",
+                status="active",
+            ))
+            session.flush()
+            credential = create_account_session(
+                session,
+                account_id=account_id,
+                active_organization_id=organization.id,
+                sealed_provider_state="sealed-invited-session",
+                now=self.now,
+            )
+            organization_id = organization.id
+
+        with self.Session.begin() as session:
+            context = require_context(
+                session,
+                cookie_value=credential.cookie_value,
+                now=self.now + timedelta(minutes=1),
+            )
+        self.assertEqual(context.account_id, account_id)
+        self.assertEqual(context.organization_id, organization_id)
+        self.assertEqual(context.role, "member")
+
+    def test_workos_adapter_ignores_provider_organization_authority(self):
+        from roster_scout.identity import WorkOSIdentityProvider
+
+        user = SimpleNamespace(
+            id="user_synthetic_sso",
+            email="synthetic-sso@example.test",
+            email_verified=True,
+            to_dict=lambda: {
+                "id": "user_synthetic_sso",
+                "email": "synthetic-sso@example.test",
+                "email_verified": True,
+            },
+        )
+        response = SimpleNamespace(
+            user=user,
+            access_token="synthetic-access-token",
+            refresh_token="synthetic-refresh-token",
+            impersonator=None,
+            organization_id="org_provider_claim_only",
+        )
+
+        class _UserManagement:
+            def authenticate_with_code(self, **kwargs):
+                self.exchange_kwargs = kwargs
+                return response
+
+            def get_authorization_url(self, **kwargs):
+                self.authorization_kwargs = kwargs
+                return "https://identity.example.test/authorize"
+
+        client = SimpleNamespace(user_management=_UserManagement())
+        provider = WorkOSIdentityProvider(
+            api_key="synthetic-api-key",
+            client_id="synthetic-client-id",
+            redirect_uri="https://app.example.test/auth/callback",
+            cookie_password=urlsafe_b64encode(b"0" * 32).decode("ascii"),
+            client=client,
+        )
+        identity = provider.exchange_code(code="synthetic-code")
+
+        self.assertEqual(identity.provider_user_id, "user_synthetic_sso")
+        self.assertFalse(hasattr(identity, "organization_id"))
+        self.assertNotIn("org_provider_claim_only", repr(identity))
+
+
+class SecretRedactionTests(_PostgreSQLIdentityCase):
+    def test_provider_exchange_and_refresh_failures_are_fixed_and_redacted(self):
+        from roster_scout.identity import FakeIdentityProvider
+        from roster_scout.sessions import create_account_session, refresh_account_session
+
+        account = EnterpriseSsoAuthorizationTests._account(self, "redaction@example.edu")
+        with self.Session.begin() as session:
+            credential = create_account_session(
+                session,
+                account_id=account,
+                sealed_provider_state="sealed-provider-state-secret",
+                now=self.now,
+            )
+
+        logger = logging.getLogger("tests.identity.refresh.redaction")
+        provider_secret = "provider-refresh-exception-secret"
+        with self.assertLogs(logger, level="WARNING") as captured:
+            with self.Session.begin() as session:
+                outcome = refresh_account_session(
+                    session,
+                    provider=FakeIdentityProvider(
+                        refresh_failure=RuntimeError(provider_secret)
+                    ),
+                    cookie_value=credential.cookie_value,
+                    now=self.now + timedelta(minutes=1),
+                    logger=logger,
+                )
+        rendered = " ".join(captured.output) + repr(outcome)
+        self.assertEqual(outcome.status, "preserved")
+        self.assertNotIn(provider_secret, rendered)
+        self.assertNotIn("sealed-provider-state-secret", rendered)
+        self.assertEqual(
+            captured.output,
+            ["WARNING:tests.identity.refresh.redaction:identity_provider_refresh_failed"],
+        )
 
 
 class IdentitySchemaConstraintTests(_PostgreSQLIdentityCase):
