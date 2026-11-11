@@ -1,100 +1,91 @@
 ---
 phase: 01-canonical-snapshot-foundation
-verified: 2026-11-11T01:30:39Z
+verified: 2026-11-11T16:03:45Z
 status: gaps_found
-score: 100/119 must-haves verified
+score: "128/143 must-haves verified"
 overrides_applied: 0
 re_verification:
   previous_status: gaps_found
-  previous_score: 63/85
+  previous_score: "100/119"
   gaps_closed:
-    - "Required NCAA core headers are unique and current durable job sections carry the bumped parser contract."
-    - "ID-less batting/pitching rows require nonempty corroboration before merging."
-    - "Failure-evidence retention is database-enforced and invalid configuration fails readiness/worker startup without losing terminal job state."
-    - "The purge deletes unlocked expired evidence in bounded SKIP LOCKED batches."
-    - "Sequential authoritative source/player mismatches are rejected by PostgreSQL and publication validation."
+    - "The native two-sheet workbook succeeds without DATABASE_URL and dropped analytics is sanitized and observable."
+    - "Unique authenticated users count distinct actors only from authenticated_use events."
+    - "The legacy NCAA result cache is bound to cache format, parser, core-header, and schema identities."
+    - "Workbook preparation no longer records success; blob-read/initiation acknowledgement and ambiguous retry reuse are implemented."
+    - "Purge certification is serialized against eligible evidence insertion and its heartbeat is monotonic."
+    - "The original existing-organization authoritative identity interleavings are serialized."
   gaps_remaining:
-    - "Authoritative source/player equivalence is not serialized across concurrent identity mutations."
-    - "The documented database-optional native workbook workflow now returns 503 after constructing a workbook."
-    - "Unique authenticated users are counted from actor-bearing download events, not only authenticated_use events."
-    - "The legacy NCAA result cache is not tied to parser/schema identity."
-    - "Workbook events are committed before client receipt and an ambiguous retry receives a new UUID."
-    - "Purge success finalization is not monotonic or serialized."
-  regressions:
-    - "Plans 01-28/01-29 made usage persistence mandatory for the legacy workbook route."
-    - "Plans 01-28/01-29 introduced analytics whose aggregate and delivery semantics do not match the accepted contract."
+    - "Authoritative identity equivalence can still be violated when the organization and its snapshot identity are created in the uncommitted source transaction."
+    - "Fly's TLS-terminating proxy causes valid public HTTPS acknowledgements to fail the endpoint's internal-scheme origin comparison."
+    - "Definitive acknowledgement 4xx responses remain pending and block later intentional reports until expiry."
+    - "Unavailable sessionStorage can break the browser report workflow."
+    - "The release diff gate does not inspect committed phase changes."
+  regressions: []
 gaps:
-  - truth: "Every authoritative source row continues to identify the same canonical Player under concurrent writes and publication."
+  - truth: "Every authoritative source row continues to identify the same canonical Player under every concurrent tenant-creation and identity-mutation schedule."
     status: failed
-    reason: "Revision 0010 uses ordinary READ COMMITTED trigger reads without a shared row/advisory lock. A two-connection counterexample committed SourceRecord.source_player_id=42 while the linked Player committed source_player_id=99."
+    reason: "Revision 0013 keys the common Player lock by organization plus Player. A direct Player update enumerates only visible organizations; an uncommitted new organization is invisible, so the source transaction and Player update take no common lock and both commit a 42-versus-99 mismatch."
     artifacts:
-      - path: "migrations/versions/0010_authoritative_source_player_binding.py"
-        issue: "The SourceRecord, Player, and PlayerTeamSeason trigger functions do not share a serialization protocol."
-      - path: "roster_scout/snapshots.py"
-        issue: "Publication rechecks one snapshot but cannot prevent a later concurrent identity mutation."
+      - path: "migrations/versions/0013_authoritative_identity_serialization.py"
+        issue: "enforce_player_authoritative_source_player cross-joins visible organizations at lines 292-310 instead of taking a visibility-independent global Player lock."
+      - path: "tests/test_snapshot_persistence.py"
+        issue: "The new identity race creates the organization before both workers and does not cover organization creation inside the uncommitted source transaction."
     missing:
-      - "Acquire one deterministic transaction lock for all three mutation directions and publication."
-      - "Add two-connection source-insert/Player-update and source-insert/PlayerTeamSeason-reassignment tests."
-  - truth: "Today's documented native workbook workflow still returns the workbook without an undeclared PostgreSQL prerequisite."
+      - "Add one global Player UUID lock acquired by every authoritative source, Player, PlayerTeamSeason, and publication path before tenant-scoped identity locks, without reversing snapshot-first ordering."
+      - "Add a real two-connection regression that creates organization, snapshot, PlayerTeamSeason, and SourceRecord in the still-uncommitted source transaction."
+  - truth: "A valid same-origin browser acknowledgement works behind the supported Fly HTTPS proxy boundary."
     status: failed
-    reason: "Every successful scrape now opens usage persistence; without DATABASE_URL the route discards the prepared workbook and returns sanitized 503, while scripts/run_local.sh and the native-runner guide do not configure PostgreSQL."
+    reason: "The endpoint compares Origin with request.scheme/request.host. Under Fly's HTTPS edge and plain-HTTP internal port, Flask sees http while the browser sends an https Origin; X-Forwarded-Proto is ignored and the valid acknowledgement returns 403."
     artifacts:
       - path: "app.py"
-        issue: "Download analytics are mandatory after workbook construction."
-      - path: "scripts/run_local.sh"
-        issue: "The documented runner has no database preflight or provisioning."
-      - path: "DEPLOYMENT.md"
-        issue: "Native setup documents only environment, Browserless token, and run_local.sh."
+        issue: "acknowledge_workbook_download builds expected_origin from the untrusted/internal WSGI scheme without a trusted external-origin contract."
+      - path: "fly.toml"
+        issue: "force_https terminates public HTTPS while the app listens on plain HTTP internal_port 5000."
+      - path: "tests/test_app_routes.py"
+        issue: "Origin tests use matching direct request schemes and do not model the Fly forwarding hop."
     missing:
-      - "Either make legacy-route analytics best-effort with observable loss, or make PostgreSQL an explicit startup prerequisite and provision/check it in the native workflow."
-      - "Add an unmocked native-runner route contract test."
-  - truth: "Unique authenticated users are distinct canonical accounts that performed an authorized accepted report/job action."
+      - "Configure a trusted one-hop proxy scheme/host boundary or a validated public origin without trusting arbitrary forwarded headers."
+      - "Add a route test for internal HTTP plus public HTTPS Origin and trusted Fly forwarded-proto metadata."
+  - truth: "A definitive acknowledgement rejection ends the pending attempt so a later intentional submission can receive a fresh UUID."
     status: failed
-    reason: "query_usage_metrics counts every nonnull actor_account_id regardless of event_type. An actor-bearing workbook_download_served event with no authenticated_use event produced unique_authenticated_users=1."
+    reason: "postDownloadAcknowledgement collapses every non-2xx response to acknowledged=false. The state machine treats 400/403 exactly like network/5xx ambiguity, preserves needs_ack, and refuses to start another workbook until the 15-minute client TTL expires."
     artifacts:
-      - path: "roster_scout/usage.py"
-        issue: "The distinct-actor aggregate lacks event_type == authenticated_use."
-      - path: "tests/test_usage_metrics.py"
-        issue: "Existing fixtures pair actor-bearing downloads with authenticated_use and miss the counterexample."
-    missing:
-      - "Filter the unique-user aggregate to authenticated_use."
-      - "Test global and organization-scoped windows containing only actor-bearing download events."
-  - truth: "Every successful NCAA result cache entry is invalidated when the parser/header/schema contract changes."
-    status: failed
-    reason: "The legacy workbook result cache still uses cache_version=2 and ncaa:{year}:{season_team_id}; payloads contain no parser or schema identity. A pre-contract cached player was returned without invoking collection."
-    artifacts:
-      - path: "roster_scraper.py"
-        issue: "_read_json_cache validates only the unchanged integer cache version."
-    missing:
-      - "Persist and compare resolved parser/schema identities and bump the legacy cache format/key."
-      - "Add a pre-contract successful-result cache invalidation test."
-  - truth: "Successful workbook downloads are counted exactly once according to client-receipt semantics."
-    status: failed
-    reason: "The server commits the event before returning the response; a lost connection can count zero received workbooks. The browser then clears the UUID in finally, so a retry uses a new key and can count a second event."
-    artifacts:
-      - path: "app.py"
-        issue: "record_workbook_download_served commits before any client acknowledgement."
       - path: "templates/index.html"
-        issue: "downloadEventId is regenerated for every submit and cleared after ambiguous network failure."
-      - path: "DEPLOYMENT.md"
-        issue: "It labels a committed event as a successful download without defining the weaker prepared-response semantic."
+        issue: "The acknowledgement callback discards the HTTP status classification."
+      - path: "static/download_tracking.js"
+        issue: "runDownloadSubmission has no transition that clears needs_ack after a definitive acknowledgement failure."
+      - path: "tests/js/download_tracking.test.mjs"
+        issue: "Tests cover ambiguous failure but not 400/403 versus 500/network classification."
     missing:
-      - "Choose and document received-download versus prepared-response semantics."
-      - "For received-download semantics, preserve the UUID across ambiguous retries and record an idempotent acknowledgement only after resp.blob() succeeds."
-      - "Add a lost-response/retry browser-level regression."
-  - truth: "A purge success heartbeat advances monotonically and represents a serialized complete eligibility scan."
+      - "Return success, retryable ambiguity/5xx, or definitive 4xx from the acknowledgement callback."
+      - "Clear the matching pending state on definitive 4xx and allocate a fresh UUID only on a later explicit submit."
+      - "Add executable Node and template regressions for 400/403, 500, and network outcomes."
+  - truth: "The browser workbook form remains usable when session storage is unavailable or throws."
     status: partial
-    reason: "The upsert unconditionally overwrites last_success_at, so an older invocation can commit after a newer one and move time backward. The final count and upsert are not serialized against concurrent eligible-row insertion. Readiness independently recounts expired bytes, so this does not by itself prove a sustained false-ready response, but it violates the Plan 01-27 heartbeat contract and can cause false unavailability."
+    reason: "The template passes sessionStorage directly and the state machine does not guard getItem, setItem, or removeItem. A SecurityError or quota error escapes instead of using a current-page fallback."
     artifacts:
-      - path: "roster_scout/evidence.py"
-        issue: "Finalization has neither a monotonic GREATEST update nor a common advisory/serializable protocol."
+      - path: "templates/index.html"
+        issue: "Top-level sessionStorage acquisition has no fallback."
+      - path: "static/download_tracking.js"
+        issue: "All storage methods are called without exception handling."
     missing:
-      - "Make the heartbeat monotonic and serialize/retry final scan finalization."
-      - "Add forced out-of-order completion and count-to-upsert insertion tests."
+      - "Use a safe storage adapter with an in-memory per-page fallback."
+      - "Test throwing storage methods and form initialization/submission."
+  - truth: "The release diff-hygiene gate inspects the committed Phase 1 change range."
+    status: partial
+    reason: "The validator runs only git diff --check after all plan commits, so a clean working tree makes the check inspect none of the 30 committed files changed since the round-four base."
+    artifacts:
+      - path: "scripts/validate_phase1_release.py"
+        issue: "DIFF_LABEL runs git diff --check without an explicit validated base..HEAD range."
+      - path: "tests/test_deployment_config.py"
+        issue: "Manifest tests assert ordering but not a nonempty release-scoped diff range."
+    missing:
+      - "Resolve and validate the release base and run git diff --check <base>..HEAD, optionally followed by a working-tree check."
+      - "Add a contract test that requires the commit range and proves a committed whitespace defect is detected."
 deferred:
-  - truth: "Authenticated-use production wiring and actor-account foreign key exist."
+  - truth: "Authenticated-use production wiring and the actor-account foreign key exist."
     addressed_in: "Phase 2"
-    evidence: "ROADMAP Phase 2 success criterion 6 and Plan 02-04 explicitly require membership-authorized accepted report/job events and the account FK."
+    evidence: "ROADMAP Phase 2 success criterion 6 requires membership-authorized accepted report/job events and the canonical account foreign key."
   - truth: "Fielding facts share the same canonical player identity."
     addressed_in: "Phase 3"
     evidence: "Phase 3 adds fielding to the canonical schema and consistent player identity."
@@ -106,20 +97,22 @@ deferred:
 # Phase 1: Canonical Snapshot Foundation Verification Report
 
 **Phase Goal:** As a Roster Scout operator, I want to publish existing NCAA D1/D2/D3 results through a durable job into an immutable, provenance-rich canonical snapshot, so that every downstream report can rely on one auditable source of truth without breaking today's workbook workflow.
-**Verified:** 2026-11-11T01:30:39Z
+**Verified:** 2026-11-11T16:03:45Z
 **Status:** gaps_found
-**Re-verification:** Yes — after Plans 01-22 through 01-30.
+**Re-verification:** Yes — after round-four Plans 01-31 through 01-37.
 
 ## User Flow Coverage
 
+User story: “As a Roster Scout operator, I want to publish existing NCAA D1/D2/D3 results through a durable job into an immutable, provenance-rich canonical snapshot, so that every downstream report can rely on one auditable source of truth without breaking today's workbook workflow.”
+
 | Step | Expected | Evidence | Status |
 | --- | --- | --- | --- |
-| Accept build | Durable job/idempotency and generation-bound retry | Release gate and PostgreSQL tests pass | ✓ VERIFIED |
-| Collect/publish | D1/D2/D3 evidence becomes one immutable auditable snapshot | Representative builds pass, but concurrent identity writes can commit mismatched source/Player IDs | ✗ FAILED |
-| Rely on source of truth | Exact source row, fact identity, and canonical Player remain equivalent | Two-connection counterexample committed `42 != 99` | ✗ FAILED |
-| Preserve workbook | The documented native runner still downloads the two-sheet workbook | Unmocked no-`DATABASE_URL` route returned HTTP 503 after workbook creation | ✗ FAILED |
-| Measure usage | Download and authenticated-user metrics match the documented meanings | Privacy and anonymous totals pass; event-type and receipt/retry semantics fail | ✗ FAILED |
-| Outcome | Downstream reports can rely on one auditable truth without breaking today's workflow | Three core outcome conditions remain false | ✗ FAILED |
+| Accept build | A durable idempotent job is accepted and runs outside the request | Full release validator and job/outbox suites pass | ✓ VERIFIED |
+| Collect and publish | D1/D2/D3 evidence becomes one immutable provenance-rich snapshot | Representative publication tests pass, but the new-organization race commits mismatched source/Player IDs | ✗ FAILED |
+| Rely on source of truth | Every downstream reader sees an authoritative identity consistent with its source row | PostgreSQL probe stored Player `99` and SourceRecord `42` with `mismatch_count=1` | ✗ FAILED |
+| Preserve workbook workflow | Native workbook remains available and hosted users can run later reports | Native no-database XLSX passes; Fly-style acknowledgement returns 403 and the browser then blocks later submissions | ✗ FAILED |
+| Measure successful downloads | Blob read/initiation produces one retry-safe acknowledged event | Local happy path passes; production proxy and definitive-4xx transitions fail | ✗ FAILED |
+| Outcome | Auditable truth is reliable without breaking today's workbook workflow | Three deterministic blockers remain | ✗ FAILED |
 
 ## Goal Achievement
 
@@ -127,163 +120,166 @@ deferred:
 
 | # | Truth | Status | Evidence |
 | --- | --- | --- | --- |
-| R1 | Representative D1/D2/D3 builds publish canonical immutable facts | ✓ VERIFIED | D1/D2/D3 publication and mutation-regression tests pass sequentially. |
-| R2 | Durable state/capacity prevent failed or half-written ready snapshots | ✗ FAILED | Concurrent Player/source mutation can leave a ready snapshot whose provenance no longer names its canonical Player. |
-| R3 | Retries are idempotent and caches are schema/version aware | ✗ FAILED | Durable section cache is version-aware; legacy successful-result cache is not. |
-| R4 | Numeric, identity, raw, and metric lineage are unambiguous | ✗ FAILED | Numeric/metric paths pass, but concurrent authoritative identity equivalence fails. |
-| R5 | Existing selector/scraper/cache/basic workbook behavior remains working | ✗ FAILED | The documented native workbook route now requires undeclared PostgreSQL and returns 503 without it. |
+| R1 | Representative D1/D2/D3 builds publish canonical immutable facts | ✓ VERIFIED | Goal-level and division publication tests pass in the full release validator. |
+| R2 | Durable state/capacity prevent failed or half-written ready snapshots | ✗ FAILED | A concurrently created organization can commit a ready source identity inconsistent with the global Player. |
+| R3 | Retries are idempotent and caches are schema/version aware | ✓ VERIFIED | Job/snapshot retry tests, cache-v3 rejection, coalescing, and force-refresh tests pass. |
+| R4 | Numeric, identity, raw, and metric lineage are unambiguous | ✗ FAILED | Numeric/raw/metric paths pass, but authoritative identity is ambiguous under the reproduced tenant-creation race. |
+| R5 | Existing selector/scraper/cache/basic workbook regression tests continue to pass | ✓ VERIFIED | Complete release validator exits 0, including catalog, workbook, cache, template, and discovery groups. |
 
-### Plan Must-Have Truths
+### Round-Four and Prior Must-Have Truths
 
-All 114 PLAN truths were resolved against code and behavior. Plans 01-01 through 01-21 contribute 80 truths; Plans 01-22 through 01-30 add 34.
+The previous report established 99/114 Phase 1 PLAN truths plus 1/5 roadmap truths. Re-verification quick-checked prior passes, fully re-tested the six previous gaps, and added the 24 truths from Plans 01-31 through 01-37.
 
-| Plan truths | Status | Evidence / failed truth IDs |
+| Scope | Verified | Total | Notes |
+| --- | ---: | ---: | --- |
+| Prior Plan 01-01 through 01-30 truths | 106 | 114 | Native workbook, cache, aggregate, and purge gaps close; authoritative identity and hosted download semantics remain open. |
+| Plan 01-31 authoritative serialization | 1 | 3 | Named errors/order remain; mutation and publication truths fail for an uncommitted new organization. |
+| Plan 01-32 cache contract | 3 | 3 | Format/parser/header/schema contract and coalescing verified. |
+| Plan 01-33 native workbook and aggregates | 3 | 3 | No-database XLSX and authenticated_use-only aggregate verified. |
+| Plan 01-34 protected acknowledgement | 3 | 4 | Preparation, forgery bounds, and shared-secret preflight pass; Fly HTTPS same-origin operation fails. |
+| Plan 01-35 browser state machine | 2 | 3 | Ordering and successful completion pass; definitive acknowledgement failure does not reset. |
+| Plan 01-36 purge certification | 4 | 4 | Shared advisory lock, monotonic heartbeat, SKIP LOCKED, and fail-closed readiness verified. |
+| Plan 01-37 release gate/runbook | 3 | 4 | Ordered groups/lifecycle/runbook pass; committed-range diff coverage and new blocker counterexamples are absent. |
+| Roadmap success criteria | 3 | 5 | R2 and R4 fail on authoritative identity. |
+
+**Score:** 128/143 must-haves verified.
+
+## Original Gap Re-test
+
+| Original gap | Result | Evidence |
 | --- | --- | --- |
-| 01-01.1–.6 | 6/6 | Canonical schema, ownership, provenance homes, and innings representation. |
-| 01-02.1–.9 | 9/9 | Durable job/section/idempotency and same-job versioned evidence. |
-| 01-03.1–.7 | 4/7 | ✗ .5 concurrent canonical-player trace; ✗ .6/.7 legacy/native workbook compatibility. |
-| 01-04.1–.4 | 4/4 | Published child/metric immutability, frozen migration, counts. |
-| 01-05.1–.3 | 2/3 | ✗ .3 traceability can be invalidated by concurrent Player mutation. |
-| 01-06.1–01-10.2 | 12/12 | Exclusive claims, outbox, recovery, evidence safety, capacity/network binding. |
-| 01-11.1–.4 | 2/4 | ✗ .2 native workbook path; ✗ .3 invalid ready identity race. The named owner-plan regressions themselves pass. |
-| 01-12.1–01-21.4 | 35/35 | Scheduler, retention, snapshot locks, retry generations, corroboration, bounded purge, readiness. Later batching safely supersedes the former single-transaction purge shape. |
-| 01-22.1–.4 | 3/4 | ✗ .2 persisted parser identity does not cover the legacy successful-result cache. |
-| 01-23.1–.3 | 3/3 | No-support/one-sided rows unresolved; supported two-way rows merge. |
-| 01-24.1–.4 | 1/4 | ✗ .1/.2 concurrent reciprocal invariant; ✗ .3 publication is not serialized with identity mutation; migration lifecycle passes. |
-| 01-25.1–.3 | 3/3 | Exact PostgreSQL 28-day constraint and migration lifecycle. |
-| 01-26.1–.3 | 3/3 | Readiness/worker validation and terminal failure durability. |
-| 01-27.1–.4 | 3/4 | Batching/contention/retry pass; ✗ .3 heartbeat can move backward and finalization is not serialized. |
-| 01-28.1–.5 | 4/5 | Privacy, idempotency, event contract, and Phase 2 boundary pass; ✗ .3 aggregate counts actor IDs from wrong event type. |
-| 01-29.1–.4 | 2/4 | Server-key dedupe and anonymous behavior pass; ✗ .1/.3 receipt/retry semantics. |
-| 01-30.1–.4 | 3/4 | The command runs every named new regression and the migration/runbook contract passes; ✗ .4 native workflow is not green. The manifest still omits the verifier's adversarial counterexamples. |
+| Authoritative identity write skew | ⚠ PARTIAL | Original existing-organization source/Player, reassignment, and publication schedules pass; a stronger new-organization schedule still commits mismatch. |
+| Database-optional native workbook | ✓ CLOSED | `NativeWorkbookDatabaseOptionalTests` returns a readable Hitters/Pitchers XLSX without DATABASE_URL. |
+| authenticated_use-only unique users | ✓ CLOSED | Actor-bearing download-only and organization-scoped counterexamples pass. |
+| Contract-bound legacy NCAA cache | ✓ CLOSED | Version-2 and individually mismatched contract payloads recollect; current payload reuses; coalescing/refresh pass. |
+| Receipt/retry download semantics | ✓ ORIGINAL GAP CLOSED, NEW BLOCKERS | Preparation writes no event; blob/initiation precede ack; ambiguous retry preserves UUID. Fly origin and definitive 4xx handling remain broken. |
+| Serialized monotonic purge heartbeat | ✓ CLOSED | Real two-connection insert/finalization and out-of-order completion tests pass. |
 
-**Score:** 100/119 merged roadmap and PLAN truths verified.
+Focused execution: 50 Python counterexamples passed in 17.968 seconds; 8 Node browser-state tests passed.
 
-### Required Artifacts
+## Required Artifacts
+
+All 19 artifacts declared by Plans 01-31 through 01-37 exist and pass structural artifact checks. Substance and wiring results differ where noted.
 
 | Artifact | Expected | Status | Details |
 | --- | --- | --- | --- |
-| `roster_scraper.py` | Unique schema validation and version-aware cache | ⚠ PARTIAL | Durable job parser contract works; legacy result payload/key omit parser/schema identity. |
-| `roster_scout/canonical.py` | Safe ID-less canonical matching | ✓ VERIFIED | No-support and one-sided-support rows remain unresolved; corroborated pairs merge. |
-| `0010_authoritative_source_player_binding.py` | Reciprocal source/Player invariant | ✗ HOLLOW UNDER CONCURRENCY | Sequential triggers work, but ordinary reads permit write skew. |
-| `0011_failure_evidence_retention_constraint.py` | Database retention invariant | ✓ VERIFIED | Exact positive-to-28-day checks, history validation, reversible lifecycle. |
-| `roster_scout/evidence.py` | Bounded purge and durable readiness | ⚠ PARTIAL | SKIP LOCKED forward progress works; heartbeat finalization is non-monotonic/unserialized. |
-| `0012_product_usage_events.py` | Minimal privacy-safe usage ledger | ✓ VERIFIED | No substitute identity fields; named type/scope/key constraints. |
-| `roster_scout/usage.py` | Exact aggregate semantics | ✗ HOLLOW AGGREGATE | Download dedupe works; distinct actor count is not filtered to authenticated_use. |
-| `app.py` + `templates/index.html` | Workbook delivery and exactly-once download event | ✗ PARTIAL | Event precedes receipt, retries get new IDs, and DB failure blocks workbook. |
-| `scripts/validate_phase1_release.py` | Complete final gate | ⚠ PARTIAL | Exits 0 over 344 tests but does not exercise the confirmed counterexamples. |
+| `0013_authoritative_identity_serialization.py` | Shared authoritative serialization | ✗ HOLLOW FOR NEW TENANT | Substantive triggers/locks exist, but the Player-side common domain depends on visible organizations. |
+| `roster_scout/snapshots.py` | Publication identity locking | ⚠ PARTIAL | Wired and ordered for visible snapshot identities; cannot repair the missing global Player domain. |
+| `roster_scraper.py` | Cache-v3 semantic contract | ✓ VERIFIED | Exact four-field payload equality and contract-qualified cache/lock key. |
+| `roster_scout/usage.py` | Exact aggregate semantics | ✓ VERIFIED | Downloads and authenticated unique users use separate event-type filters. |
+| `app.py` | Native workbook and protected acknowledgement | ⚠ PARTIAL | Native/preparation/crypto/idempotency work; hosted external-origin resolution does not. |
+| `static/download_tracking.js` | Retry-safe UUID state machine | ⚠ PARTIAL | Ambiguous retries work; definitive acknowledgement 4xx is indistinguishable from ambiguity; storage exceptions escape. |
+| `templates/index.html` | Blob/initiation/ack wiring | ⚠ PARTIAL | Call order is correct; non-2xx ack classification and safe storage adapter are absent. |
+| `roster_scout/evidence.py` | Serialized monotonic purge | ✓ VERIFIED | Same advisory key guards writer/finalization; SQL GREATEST and conditional count update are wired. |
+| `scripts/validate_phase1_release.py` | Complete release gate | ⚠ PARTIAL | All planned groups run in order and pass; diff checks only the clean working tree and new adversarial blockers are absent. |
+| Round-four test files and `DEPLOYMENT.md` | Executable contracts/runbook | ⚠ PARTIAL | Planned tests pass; reviewed schedules above remain uncovered. |
 
-### Key Link Verification
+## Key Link Verification
 
 | From | To | Via | Status | Details |
 | --- | --- | --- | --- | --- |
-| NCAA headers | durable ReportSection cache | parser/header identity equality | ✓ WIRED | Current same-job stale sections recollect. |
-| NCAA parser contract | legacy result cache | payload/key parser/schema identity | ✗ NOT WIRED | Only integer cache version 2 is checked. |
-| SourceRecord ID | canonical Player ID | reciprocal trigger protocol | ✗ NOT SERIALIZED | Sequential validation only; concurrent write skew commits mismatch. |
-| FailureEvidence dates | retention cap | named PostgreSQL check | ✓ WIRED | Direct SQL beyond 672h rejected. |
-| Expired evidence | purge progress | bounded SKIP LOCKED batches | ✓ WIRED | Locked row does not undo unlocked deletions. |
-| Complete scan | purge heartbeat | count then upsert | ⚠ PARTIAL | No monotonic or common transaction-serialization guard. |
-| Browser event UUID | download total | unique event key | ✓ WIRED | Repeated same key deduplicates. |
-| Authorized accepted action | unique authenticated users | authenticated_use-only distinct actor query | ✗ NOT WIRED | Aggregate includes every actor-bearing event. |
-| Prepared response | received workbook metric | client acknowledgement/retry identity | ✗ NOT WIRED | Commit happens before receipt; retry ID is replaced. |
-| Native runner | workbook route | declared runtime dependencies | ✗ NOT WIRED | PostgreSQL is required in code but absent from native setup. |
+| Source/Player/identity mutations | authoritative equality | snapshot → tenant Player → identity locks | ✗ NOT UNIVERSAL | New uncommitted organization produces no common tenant Player lock. |
+| Publisher | authoritative mismatch query | ordered visible identity locks before validation | ⚠ PARTIAL | Correct for visible identities; vulnerable to the same missing global domain. |
+| NCAA result cache key | cache payload validation | format/parser/header/schema contract | ✓ WIRED | Runtime-derived key and exact body equality. |
+| Usage events | operator unique-user aggregate | authenticated_use plus non-null actor filter | ✓ WIRED | Global and organization windows share the rule. |
+| `/scrape` | `/api/downloads/ack` | UUID/proof after successful XLSX build | ✓ WIRED | No event at preparation; no-store headers and proof bounds exist. |
+| Public HTTPS browser | acknowledgement route | exact same-origin validation | ✗ NOT WIRED ON FLY | Internal HTTP scheme is compared to public HTTPS Origin. |
+| Browser blob | download initiation → acknowledgement | one session UUID | ⚠ PARTIAL | Happy/ambiguous paths work; definitive acknowledgement failure never ends the attempt. |
+| Evidence writer | purge final count/upsert | shared transaction advisory lock | ✓ WIRED | Real two-connection blocking test passes. |
+| Purge upsert | heartbeat state | GREATEST plus timestamp-associated count | ✓ WIRED | Out-of-order test preserves newer timestamp/count. |
+| Release validator | committed round-four changes | diff hygiene | ✗ NOT WIRED | `git diff --check` sees no committed change range. |
 
-### Data-Flow Trace (Level 4)
+The generic key-link scanner cannot resolve route/behavior labels as file paths; the statuses above come from direct source tracing and executable probes.
 
-| Artifact / flow | Data source | Produces real data | Status |
+## Data-Flow Trace (Level 4)
+
+| Flow | Source | Produces real data | Status |
 | --- | --- | --- | --- |
-| Durable job → snapshot | PostgreSQL job/sections/source/facts | Yes | ⚠ FLOWING, concurrent identity mutation unsafe |
-| Legacy cache → workbook | JSON successful-result cache | Yes | ⚠ FLOWING, stale parser contract accepted |
-| Usage event → download total | ProductUsageEvent filtered by workbook event type | Yes | ✓ FLOWING, per-key idempotent |
-| Usage event → unique users | ProductUsageEvent distinct actor | Yes | ✗ WRONG SEMANTIC FILTER |
-| Browser response → successful-download event | Server commits before response transfer | Event yes; receipt unknown | ✗ DISCONNECTED FROM RECEIPT |
-| Purge scan → readiness | PostgreSQL state plus independent expired-byte count | Yes | ⚠ FLOWING, timestamp can regress; outstanding-byte recount remains fail-closed |
+| Durable job → published snapshot | PostgreSQL report/job/section/source/fact rows | Yes | ⚠ FLOWING, but global Player identity can diverge under new-tenant race |
+| Legacy NCAA cache → native workbook | Contract-v3 JSON players | Yes | ✓ FLOWING |
+| authenticated_use → unique users | PostgreSQL ProductUsageEvent | Yes | ✓ FLOWING |
+| Blob/initiation → successful download event | Browser UUID/proof → ack API → PostgreSQL | Yes locally | ✗ BROKEN at Fly proxy; 4xx retry state also blocks later flow |
+| Evidence scan → readiness heartbeat | PostgreSQL evidence + purge state | Yes | ✓ FLOWING |
 
-### Review-Finding Adjudication
+## Review-Finding Adjudication
 
-| Finding | Verdict | Evidence |
+| Finding | Verdict | Independent evidence |
 | --- | --- | --- |
-| CR-01 concurrent authoritative identity write skew | **CONFIRMED BLOCKER** | Two real PostgreSQL transactions committed SourceRecord `42` and linked Player `99`; trigger code has no shared lock. |
-| CR-02 native workflow now needs PostgreSQL | **CONFIRMED BLOCKER** | Unmocked `/scrape` without `DATABASE_URL` returned 503; run_local.sh has no DB setup/preflight. |
-| CR-03 wrong unique-user event type | **CONFIRMED BLOCKER** | One actor-bearing download and no authenticated_use returned downloads=1, unique users=1. |
-| CR-04 legacy cache survives parser bump | **CONFIRMED BLOCKER** | Pre-contract cache_version=2 payload returned its player with collector call count 0. |
-| CR-05 counted before receipt/new retry UUID | **CONFIRMED BLOCKER** | Code ordering commits at app.py 341–348 before browser `resp.blob()`; finally clears the ID and the next submit generates a new UUID. |
-| WR-01 purge finalization race | **CONFIRMED WARNING / PLAN FAILURE** | Older heartbeat overwrote newer timestamp in PostgreSQL. Count-to-upsert is unguarded. Independent readiness recount prevents this fact alone from establishing sustained false-ready state, but false stale/unavailability and stale heartbeat certification remain. |
+| CR-01 Fly HTTPS acknowledgement rejected | **CONFIRMED BLOCKER** | Flask test client with internal `http://roster-scout.fly.dev`, public `Origin: https://roster-scout.fly.dev`, and `X-Forwarded-Proto: https` returned 403 because app.py compares request.scheme directly. |
+| CR-02 definitive acknowledgement 4xx traps browser | **CONFIRMED BLOCKER** | Node probe: first 403 left `needs_ack`; second intentional submission returned `pendingAcknowledgement=true`; workbook request count stayed 1. |
+| CR-03 new organization bypasses Player lock | **CONFIRMED BLOCKER** | Real PostgreSQL probe committed both transactions and printed Player `99`, SourceRecord `42`, `mismatch_count: 1`. |
+| WR-01 unavailable session storage breaks flow | **CONFIRMED WARNING** | Throwing-storage Node probe propagated `SecurityError`; no safe adapter exists. Top-level sessionStorage access can also throw before form wiring in restricted contexts. |
+| WR-02 diff gate checks only clean tree | **CONFIRMED WARNING** | `git diff --name-only 8061e03..HEAD` listed 30 files while plain `git diff --check` inspected the clean working tree and returned no output. |
 
-### Analytics Contract
-
-| Contract | Status | Evidence |
-| --- | --- | --- |
-| Successful downloads counted exactly once under documented product meaning | ✗ FAILED | Exactly once per committed key works; actual client receipt and ambiguous retry do not. |
-| Anonymous successful downloads count in totals, never authenticated uniques | ✓ VERIFIED for Phase 1 producer | App writes null actor/org and download total includes it. |
-| Unique users are canonical accounts performing authorized accepted report/job action | ✗ FAILED in aggregate | Producer contract uses authenticated_use, but query counts actor-bearing downloads too. |
-| Phase 2 wiring is explicitly deferred and guaranteed | ✓ VERIFIED / DEFERRED | ROADMAP criterion 2.6 and Plan 02-04 specify membership authorization, accepted ReportJob UUID, canonical IDs, and FK. |
-| No IP/cookie/email/user-agent/fingerprint substitute identity is collected | ✓ VERIFIED | Usage table/service have no such columns; migration tests and runbook forbid substitutes. Request rate limiting uses IP separately and does not store it as usage identity. |
-
-### Behavioral Spot-Checks
+## Behavioral Spot-Checks
 
 | Behavior | Command / probe | Result | Status |
 | --- | --- | --- | --- |
-| Full release validator | `DATABASE_URL=...roster_scout_test .venv/bin/python scripts/validate_phase1_release.py` | 344 tests; migrations through 0012; drift; 942 catalog; Compose; diff; PASS | ✓ PASS |
-| Concurrent source/Player mutation | Two READ COMMITTED connections: insert source 42, update Player 99, commit both | `mismatch_committed: True` | ✗ FAIL |
-| Native workbook without DB | Unset DATABASE_URL; patched local scraper; POST `/scrape` | HTTP 503 JSON after valid workbook construction path | ✗ FAIL |
-| Unique users, wrong event type | Insert only actor-bearing workbook_download_served; query window | downloads=1, unique_authenticated_users=1 | ✗ FAIL |
-| Legacy cache parser bump | Write current-format pre-contract payload; call team scraper | cached player returned; collector_calls=0 | ✗ FAIL |
-| Purge timestamp monotonicity | Upsert newer heartbeat then older heartbeat | stored older time; regressed=True | ✗ FAIL |
-| Download lost-response boundary | Static order trace: event commit → return response → browser blob → finally clear ID | No receipt acknowledgement; retry gets new UUID | ✗ FAIL |
+| Round-four focused Python | 10 named Plan 31–36 test classes | 50 passed | ✓ PASS |
+| Browser UUID state machine | `node --test tests/js/download_tracking.test.mjs` | 8 passed | ✓ PASS |
+| Complete release validator | `DATABASE_URL=... .venv/bin/python scripts/validate_phase1_release.py` | Exit 0; Phase 1 release gate PASS | ✓ PASS, incomplete scenarios |
+| Fly proxy origin | Internal HTTP request + public HTTPS Origin + forwarded proto | HTTP 403 | ✗ FAIL |
+| Definitive ack 403 | Node two-submit state probe | Second submit blocked; same needs_ack retained | ✗ FAIL |
+| Concurrent new-tenant identity | Two PostgreSQL transactions | Both committed; `42 != 99` | ✗ FAIL |
+| Throwing session storage | Node tracker probe | `SecurityError` escaped | ⚠ FAIL |
+| Release diff range | Compare `8061e03..HEAD` to plain diff check | 30 committed files; plain check sees none | ⚠ FAIL |
 
-### Probe Execution
+## Probe Execution
 
-No PLAN-declared `probe-*.sh` files exist. The release validator and focused disposable-PostgreSQL counterexamples above were executed directly by this verifier.
+No PLAN-declared `probe-*.sh` files exist. The required release probe was run independently:
 
-### Requirements Coverage
+| Probe | Command | Result | Status |
+| --- | --- | --- | --- |
+| Phase 1 release validator | `DATABASE_URL=...roster_scout_test .venv/bin/python scripts/validate_phase1_release.py` | Story, head 0013, focused Python/Node, migration lifecycle/drift, clean discovery, 942-team catalog, Compose/deployment, workbook, compilation/templates, and current diff groups all passed | ✓ PASS |
+
+## Requirements Coverage
 
 | Requirement | Status | Evidence |
 | --- | --- | --- |
-| SNAP-01 | ✓ SATISFIED | Report stores organization, opponent, division, and season. |
-| SNAP-02 | ✓ SATISFIED | Durable job states, outbox/generation retry, worker, and capacity gate. |
-| SNAP-03 | ✗ BLOCKED | Concurrent global Player mutation can invalidate authoritative provenance behind a published snapshot. |
-| SNAP-04 | ✓ SATISFIED | Per-section state/count/source time/sanitized failure category. |
-| DATA-01 | ✓ SATISFIED | Authoritative, corroborated fallback, and unresolved states behave safely sequentially. |
+| SNAP-01 | ✓ SATISFIED | Report ownership/opponent/division/season schema and D1/D2/D3 publication tests pass. |
+| SNAP-02 | ✓ SATISFIED | Durable job/outbox/generation state and Browserless capacity gates pass. |
+| SNAP-03 | ✗ BLOCKED | New-tenant concurrency can invalidate authoritative provenance behind a published immutable snapshot. |
+| SNAP-04 | ✓ SATISFIED | Per-section status/count/source time/sanitized failure state remains green. |
+| DATA-01 | ✗ BLOCKED | Stable NCAA ID exists, but its canonical Player association can diverge under the confirmed race. |
 | DATA-02 | ✓ SATISFIED | Team/season/category/source URL/time provenance persists. |
-| DATA-03 | ✗ BLOCKED | Concurrent authoritative identity mismatch remains; fielding is explicitly Phase 3. |
-| DATA-04 | ✓ SATISFIED | Transfer-aware player/team-season schema. |
+| DATA-03 | ✗ BLOCKED | Batting/pitching facts can point through an identity whose Player ID no longer matches authoritative source evidence; fielding remains Phase 3. |
+| DATA-04 | ✓ SATISFIED | Transfer-aware PlayerTeamSeason model and tests pass. |
 | DATA-05 | ✓ SATISFIED | Zero and unavailable remain distinct. |
-| DATA-06 | ✓ SATISFIED | Innings stored as outs with raw value. |
-| DATA-07 | ✗ BLOCKED | Raw row exists, but concurrent source/Player mismatch can make its canonical audit association false. |
-| DATA-08 | ✓ SATISFIED | Versioned immutable metric definition/value linkage. |
-| DATA-09 | ✓ SATISFIED | Composite tenant ownership constraints. |
-| DATA-10 | ↪ DEFERRED | Phase 4/5 exact-snapshot Excel and Power BI consumers. |
-| OPS-01 | ✓ SATISFIED | Bounded retry and shared Browserless capacity. |
-| OPS-02 | ✗ BLOCKED | Legacy successful-result cache lacks parser/schema identity. |
-| OPS-04 | ✓ SATISFIED | 0012 fresh install, full downgrade/re-upgrade, and drift pass. |
-| OPS-05 | ✗ BLOCKED | Mocked regressions pass, but the documented native basic-workbook workflow returns 503 without PostgreSQL. |
+| DATA-06 | ✓ SATISFIED | Innings are nullable integer outs with raw source values. |
+| DATA-07 | ✗ BLOCKED | Raw values persist, but the authoritative audit association can be false after the reproduced race. |
+| DATA-08 | ✓ SATISFIED | Immutable versioned metric definition/value lineage passes. |
+| DATA-09 | ✓ SATISFIED | Composite tenant ownership constraints pass. |
+| DATA-10 | ↪ DEFERRED | Exact-snapshot Excel and Power BI consumers are explicit Phase 4/5 work. |
+| OPS-01 | ✓ SATISFIED | Bounded retries and shared Browserless capacity pass. |
+| OPS-02 | ✓ SATISFIED | Durable sections and legacy result cache now use semantic version identities. |
+| OPS-04 | ✓ SATISFIED | Revision 0013 fresh install, downgrade/re-upgrade, head, and drift checks pass. |
+| OPS-05 | ✗ BLOCKED | Local regressions pass, but supported Fly acknowledgement and later report behavior lack coverage and fail direct probes. |
 
-All 18 Phase 1 requirement IDs appear in Phase plans; none are orphaned.
+All 18 Phase 1 requirement IDs are claimed by phase plans; none are orphaned.
 
-### Anti-Patterns Found
+## Anti-Patterns Found
 
-No unreferenced `TBD`, `FIXME`, or `XXX` markers were found in phase-modified runtime files. No placeholder implementation was used as evidence. `git diff --check` passed.
+No unreferenced `TBD`, `FIXME`, or `XXX` markers were found in the round-four runtime files. UI `placeholder` matches in `templates/index.html` are ordinary input/CSS attributes, not implementation stubs. No override applies.
 
-### Human Verification Required
+## Human Verification Required
 
-None. The blocking failures are deterministic code/data-flow defects or were reproduced against the disposable PostgreSQL database; visual judgment is not needed to decide this gate.
+None. The release blockers and warnings are deterministic source/data-flow defects reproduced without visual judgment or external customer accounts.
 
-### Deferred Items
+## Deferred Items
 
 | Item | Addressed In | Evidence |
 | --- | --- | --- |
-| Authenticated producer wiring/account FK | Phase 2 | ROADMAP criterion 6 and Plan 02-04. |
-| Fielding canonical identity | Phase 3 | Detailed NCAA Intelligence scope. |
-| Exact-snapshot Excel/Power BI consumption | Phases 4–5 | Detailed Excel and embedded dashboard goals. |
+| Authenticated producer wiring/account FK | Phase 2 | ROADMAP criterion 2.6 explicitly requires membership-authorized accepted report/job events and canonical account/organization IDs. |
+| Fielding canonical identity | Phase 3 | Detailed NCAA Intelligence adds fielding facts and consistent identity. |
+| Exact-snapshot Excel/Power BI consumption | Phases 4–5 | Detailed Excel and embedded dashboard goals own those consumers. |
 
-### Gaps Summary
+## Gaps Summary
 
-Five blockers prevent Phase 1's user-story outcome: the canonical authoritative identity can be corrupted by concurrent writes; the existing native workbook flow is broken without an undeclared database; unique users use the wrong event-type population; legacy result cache entries survive parser-contract changes; and “successful download” events are disconnected from client receipt and ambiguous retry identity. Purge finalization adds one plan-level concurrency gap: the timestamp can regress and the final scan is not serialized, although the separate expired-byte readiness query remains fail-closed.
+Five earlier gaps are closed and the original authoritative schedules are fixed, but Phase 1 still cannot pass. A visibility-dependent tenant Player lock leaves one real write-skew schedule, the supported Fly proxy rejects valid HTTPS acknowledgements, and the browser treats definitive acknowledgement rejection as indefinitely retryable. Storage-restricted browsers and the clean-tree-only diff gate are additional robustness/release-quality gaps.
 
-The 344-test release gate is valuable evidence for the happy path, migrations, and earlier gap closures, but its green result does not cover these counterexamples.
+The next command should be `$gsd-plan-phase 1 --gaps`; the structured frontmatter above is ready for gap planning.
 
 ---
 
-_Verified: 2026-11-11T01:30:39Z_
+_Verified: 2026-11-11T16:03:45Z_
 _Verifier: the agent (gsd-verifier)_
