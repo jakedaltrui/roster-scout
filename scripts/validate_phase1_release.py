@@ -17,6 +17,7 @@ MVP_STORY = (
     "snapshot, so that every downstream report can rely on one auditable source "
     "of truth without breaking today's workbook workflow."
 )
+EXPECTED_MIGRATION_HEAD = "0012"
 GAP_REGRESSION_TESTS = (
     "tests.test_report_jobs.SectionHeaderPublicationTests",
     "tests.test_snapshot_persistence.SnapshotMutationSerializationTests",
@@ -41,6 +42,23 @@ GAP_REGRESSION_TESTS = (
         "tests.test_app_routes.AppRouteTests."
         "test_d2_selector_id_downloads_workbook_without_fuzzy_matching"
     ),
+    # Plans 01-22 through 01-29: round-3 verifier counterexamples and metrics.
+    "tests.test_ncaa_workflow.NcaaParserCorruptionTests",
+    "tests.test_report_jobs.ParserContractRecoveryTests",
+    "tests.test_canonical_publish.IdlessCorroborationPublicationTests",
+    "tests.test_snapshot_persistence.AuthoritativeSourcePlayerConstraintTests",
+    "tests.test_snapshot_persistence.AuthoritativeSourcePlayerPublicationTests",
+    "tests.test_evidence.FailureEvidenceDatabaseRetentionTests",
+    "tests.test_snapshot_persistence.FailureEvidenceRetentionMigrationTests",
+    "tests.test_deployment_config.WorkerRetentionPreflightTests",
+    "tests.test_report_jobs.InvalidRetentionTerminalStateTests",
+    "tests.test_evidence.BatchedEvidencePurgeTests",
+    "tests.test_deployment_config.BatchedPurgeRunnerTests",
+    "tests.test_usage_metrics.UsageEventSchemaTests",
+    "tests.test_usage_metrics.UsageServiceTests",
+    "tests.test_usage_metrics.UsageReportCliTests",
+    "tests.test_app_routes.DownloadEventContractTests",
+    "tests.test_app_routes.WorkbookDownloadUsageTests",
 )
 
 
@@ -118,6 +136,10 @@ def release_command_manifest(python):
             [python, "-m", "alembic", "upgrade", "head"],
         ),
         (
+            f"Alembic current revision is {EXPECTED_MIGRATION_HEAD}",
+            [python, "-m", "alembic", "current", "--check-heads"],
+        ),
+        (
             "Alembic downgrade to base",
             [python, "-m", "alembic", "downgrade", "base"],
         ),
@@ -126,11 +148,15 @@ def release_command_manifest(python):
             [python, "-m", "alembic", "upgrade", "head"],
         ),
         (
+            f"Alembic re-upgrade reaches {EXPECTED_MIGRATION_HEAD}",
+            [python, "-m", "alembic", "current", "--check-heads"],
+        ),
+        (
             "Alembic model drift check",
             [python, "-m", "alembic", "check"],
         ),
         (
-            "Plans 14-21 gap and focused workbook regressions",
+            "Plans 14-29 gap, analytics, and focused workbook regressions",
             [python, "-m", "unittest", *GAP_REGRESSION_TESTS, "-v"],
         ),
         (

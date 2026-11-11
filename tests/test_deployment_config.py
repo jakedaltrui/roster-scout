@@ -1125,8 +1125,45 @@ class Phase1ReleaseValidatorContractTests(unittest.TestCase):
         }
         self.assertTrue(expected.issubset(GAP_REGRESSION_TESTS))
 
+    def test_manifest_names_every_plan_22_through_29_regression_class(self):
+        from scripts.validate_phase1_release import GAP_REGRESSION_TESTS
+
+        expected = {
+            "tests.test_ncaa_workflow.NcaaParserCorruptionTests",
+            "tests.test_report_jobs.ParserContractRecoveryTests",
+            "tests.test_canonical_data.CanonicalIdentityResolutionTests",
+            "tests.test_canonical_publish.IdlessCorroborationPublicationTests",
+            (
+                "tests.test_snapshot_persistence."
+                "AuthoritativeSourcePlayerConstraintTests"
+            ),
+            (
+                "tests.test_snapshot_persistence."
+                "AuthoritativeSourcePlayerPublicationTests"
+            ),
+            "tests.test_evidence.FailureEvidenceDatabaseRetentionTests",
+            (
+                "tests.test_snapshot_persistence."
+                "FailureEvidenceRetentionMigrationTests"
+            ),
+            "tests.test_app_routes.AppReadinessTests",
+            "tests.test_deployment_config.WorkerRetentionPreflightTests",
+            "tests.test_report_jobs.InvalidRetentionTerminalStateTests",
+            "tests.test_evidence.BatchedEvidencePurgeTests",
+            "tests.test_deployment_config.BatchedPurgeRunnerTests",
+            "tests.test_usage_metrics.UsageEventSchemaTests",
+            "tests.test_usage_metrics.UsageServiceTests",
+            "tests.test_usage_metrics.UsageReportCliTests",
+            "tests.test_app_routes.DownloadEventContractTests",
+            "tests.test_app_routes.WorkbookDownloadUsageTests",
+        }
+        self.assertTrue(expected.issubset(GAP_REGRESSION_TESTS))
+
     def test_manifest_contains_migrations_catalog_compose_full_suite_and_diff(self):
-        from scripts.validate_phase1_release import release_command_manifest
+        from scripts.validate_phase1_release import (
+            EXPECTED_MIGRATION_HEAD,
+            release_command_manifest,
+        )
 
         rendered = "\n".join(
             " ".join(command)
@@ -1135,6 +1172,7 @@ class Phase1ReleaseValidatorContractTests(unittest.TestCase):
         for command in (
             "python -m alembic upgrade head",
             "python -m alembic downgrade base",
+            "python -m alembic current --check-heads",
             "python -m alembic check",
             "python -m unittest discover -s tests -v",
             "scripts/validate_ncaa_catalog.py",
@@ -1148,6 +1186,16 @@ class Phase1ReleaseValidatorContractTests(unittest.TestCase):
         ):
             with self.subTest(command=command):
                 self.assertIn(command, rendered)
+
+        self.assertEqual(EXPECTED_MIGRATION_HEAD, "0012")
+        head_revision = (
+            PROJECT_ROOT
+            / "migrations"
+            / "versions"
+            / "0012_product_usage_events.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn('revision = "0012"', head_revision)
+        self.assertIn('down_revision = "0011"', head_revision)
 
     def test_missing_database_url_fails_closed_before_release_commands(self):
         from scripts.validate_phase1_release import _validate_database_url
