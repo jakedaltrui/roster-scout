@@ -5,10 +5,13 @@ Accept a team and division, collect the roster and season statistics, and
 return a formatted Excel workbook containing Hitters and Pitchers worksheets.
 """
 
+import base64
+import binascii
 import io
 import logging
 import os
 import re
+import secrets
 import uuid
 from datetime import date
 from functools import lru_cache
@@ -17,6 +20,7 @@ import requests
 import xlsxwriter
 from PIL import Image, ImageDraw, UnidentifiedImageError
 from flask import Flask, jsonify, render_template, request, send_file
+from itsdangerous import BadSignature, URLSafeTimedSerializer
 from werkzeug.exceptions import RequestEntityTooLarge
 from xlsxwriter.utility import xl_pixel_width
 from usage_limits import BrowserCapacityError, check_request_limit
@@ -42,6 +46,85 @@ from roster_scraper import (
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024
+
+_DOWNLOAD_ACK_PURPOSE = "roster-scout-workbook-download-v1"
+_DOWNLOAD_ACK_SALT = "roster-scout-download-ack-v1"
+_DOWNLOAD_ACK_MAX_AGE_SECONDS = 15 * 60
+
+
+def _decode_download_ack_secret(value: str) -> bytes:
+    """Decode one URL-safe base64 secret without exposing it in errors."""
+    if not isinstance(value, str) or not value.strip():
+        raise RuntimeError("Download acknowledgement secret is invalid.")
+    candidate = value.strip()
+    if len(candidate) % 4 == 1:
+        raise RuntimeError("Download acknowledgement secret is invalid.")
+    try:
+        decoded = base64.b64decode(
+            candidate + ("=" * (-len(candidate) % 4)),
+            altchars=b"-_",
+            validate=True,
+        )
+    except (binascii.Error, ValueError) as exc:
+        raise RuntimeError(
+            "Download acknowledgement secret is invalid."
+        ) from exc
+    if len(decoded) < 32:
+        raise RuntimeError("Download acknowledgement secret is invalid.")
+    return decoded
+
+
+def _configure_download_acknowledgements() -> URLSafeTimedSerializer:
+    """Validate runtime mode and create the process acknowledgement signer."""
+    raw_concurrency = os.environ.get("WEB_CONCURRENCY", "1").strip()
+    try:
+        web_concurrency = int(raw_concurrency)
+    except ValueError as exc:
+        raise RuntimeError("WEB_CONCURRENCY must be a positive integer.") from exc
+    if web_concurrency <= 0:
+        raise RuntimeError("WEB_CONCURRENCY must be a positive integer.")
+
+    hosted_production = bool(os.environ.get("FLY_APP_NAME", "").strip())
+    shared_secret_required = hosted_production or web_concurrency > 1
+    configured_secret = os.environ.get("ROSTER_SCOUT_DOWNLOAD_ACK_SECRET", "")
+    if not configured_secret.strip():
+        if shared_secret_required:
+            raise RuntimeError(
+                "A shared download acknowledgement secret is required."
+            )
+        configured_secret = secrets.token_urlsafe(32)
+
+    secret_key = _decode_download_ack_secret(configured_secret)
+    return URLSafeTimedSerializer(secret_key, salt=_DOWNLOAD_ACK_SALT)
+
+
+_DOWNLOAD_ACK_SERIALIZER = _configure_download_acknowledgements()
+
+
+def _download_ack_payload(download_event_id: str) -> dict[str, str]:
+    return {
+        "purpose": _DOWNLOAD_ACK_PURPOSE,
+        "download_event_id": download_event_id,
+    }
+
+
+def _issue_download_ack_proof(download_event_id: str) -> str:
+    """Sign one recent, nonidentity workbook-preparation receipt."""
+    return _DOWNLOAD_ACK_SERIALIZER.dumps(
+        _download_ack_payload(download_event_id)
+    )
+
+
+def _verify_download_ack_proof(proof: str, download_event_id: str) -> bool:
+    """Return whether a proof is recent and bound to the submitted UUID."""
+    try:
+        payload = _DOWNLOAD_ACK_SERIALIZER.loads(
+            proof,
+            max_age=_DOWNLOAD_ACK_MAX_AGE_SECONDS,
+        )
+    except BadSignature:
+        return False
+    return payload == _download_ack_payload(download_event_id)
 
 _ALLOWED_DIVISIONS = {"", "d1", "d2", "d3", "juco"}
 _MAX_TEAM_LENGTH = 120
@@ -345,7 +428,11 @@ def scrape():
         response.headers["X-Roster-Scout-Players"] = str(len(rows))
         response.headers["X-Roster-Scout-Hitters"] = str(len(hitters))
         response.headers["X-Roster-Scout-Pitchers"] = str(len(pitchers))
-        _record_workbook_download(download_event_id)
+        response.headers["X-Roster-Scout-Download-Event-ID"] = download_event_id
+        response.headers["X-Roster-Scout-Download-Ack-Proof"] = (
+            _issue_download_ack_proof(download_event_id)
+        )
+        response.headers["Cache-Control"] = "no-store"
         return response
 
     except BrowserCapacityError as exc:
