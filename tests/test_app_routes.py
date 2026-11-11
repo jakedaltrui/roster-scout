@@ -1,5 +1,6 @@
 import base64
 import io
+import json
 import os
 import subprocess
 import sys
@@ -287,6 +288,194 @@ class DownloadAcknowledgementSecretConfigurationTests(unittest.TestCase):
         self.assertEqual(rejected.stdout.strip(), "False")
 
 
+class WorkbookDownloadAcknowledgementTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.database_url = require_test_database_url()
+        upgrade_database(cls.database_url)
+        from roster_scout.database import create_session_factory, get_engine
+
+        cls.engine = get_engine(cls.database_url)
+        cls.Session = create_session_factory(cls.engine)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.engine.dispose()
+
+    def setUp(self):
+        clean_database(self.database_url)
+        app_module.app.config.update(TESTING=True)
+        self.client = app_module.app.test_client()
+        app_module._usage_session_factory.cache_clear()
+        self.addCleanup(app_module._usage_session_factory.cache_clear)
+
+    def _events(self):
+        with self.Session() as session:
+            return list(session.scalars(select(ProductUsageEvent)))
+
+    def _proof(self, event_id, *, issued_at=None):
+        if issued_at is None:
+            return app_module._issue_download_ack_proof(event_id)
+        with patch("itsdangerous.timed.time.time", return_value=issued_at):
+            return app_module._issue_download_ack_proof(event_id)
+
+    def _ack(self, event_id, proof, *, origin="http://localhost", **kwargs):
+        headers = {
+            "Origin": origin,
+            "Sec-Fetch-Site": "same-origin",
+            **kwargs.pop("headers", {}),
+        }
+        return self.client.post(
+            "/api/downloads/ack",
+            json={
+                "download_event_id": event_id,
+                "acknowledgement_proof": proof,
+            },
+            headers=headers,
+            **kwargs,
+        )
+
+    def test_valid_ack_and_lost_response_retry_record_one_event(self):
+        event_id = str(uuid.uuid4())
+        proof = self._proof(event_id)
+
+        first_response = self._ack(event_id, proof)
+        retry_response = self._ack(event_id, proof)
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(
+            first_response.get_json(),
+            {"acknowledged": True, "persisted": True},
+        )
+        self.assertEqual(retry_response.status_code, 200)
+        self.assertEqual(retry_response.get_json(), first_response.get_json())
+        events = self._events()
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].event_key, event_id)
+        self.assertIsNone(events[0].actor_account_id)
+        self.assertIsNone(events[0].organization_id)
+
+    def test_cross_origin_malformed_and_forged_acknowledgements_are_rejected(self):
+        event_id = str(uuid.uuid4())
+        proof = self._proof(event_id)
+        other_id = str(uuid.uuid4())
+        cases = (
+            ("missing origin", {}, {
+                "download_event_id": event_id,
+                "acknowledgement_proof": proof,
+            }),
+            ("cross origin", {"Origin": "https://evil.test"}, {
+                "download_event_id": event_id,
+                "acknowledgement_proof": proof,
+            }),
+            ("cross site", {
+                "Origin": "http://localhost",
+                "Sec-Fetch-Site": "cross-site",
+            }, {
+                "download_event_id": event_id,
+                "acknowledgement_proof": proof,
+            }),
+            ("malformed uuid", {"Origin": "http://localhost"}, {
+                "download_event_id": "not-a-uuid",
+                "acknowledgement_proof": proof,
+            }),
+            ("mismatched uuid", {"Origin": "http://localhost"}, {
+                "download_event_id": other_id,
+                "acknowledgement_proof": proof,
+            }),
+            ("tampered proof", {"Origin": "http://localhost"}, {
+                "download_event_id": event_id,
+                "acknowledgement_proof": proof + "x",
+            }),
+            ("extra field", {"Origin": "http://localhost"}, {
+                "download_event_id": event_id,
+                "acknowledgement_proof": proof,
+                "actor": "attacker@example.test",
+            }),
+        )
+        for label, headers, payload in cases:
+            with self.subTest(label=label):
+                response = self.client.post(
+                    "/api/downloads/ack",
+                    json=payload,
+                    headers=headers,
+                )
+                self.assertIn(response.status_code, (400, 403))
+        self.assertEqual(self._events(), [])
+
+    def test_acknowledgement_body_and_proof_are_bounded(self):
+        event_id = str(uuid.uuid4())
+        oversized_body = json.dumps({
+            "download_event_id": event_id,
+            "acknowledgement_proof": "x" * 1100,
+        })
+        response = self.client.post(
+            "/api/downloads/ack",
+            data=oversized_body,
+            content_type="application/json",
+            headers={"Origin": "http://localhost"},
+        )
+        self.assertEqual(response.status_code, 413)
+
+        response = self._ack(event_id, "x" * 513)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self._events(), [])
+
+    def test_proof_expiry_boundary_is_exactly_15_minutes(self):
+        issued_at = 2_000_000_000
+        for age, expected_status in ((899, 200), (900, 200), (901, 400)):
+            event_id = str(uuid.uuid4())
+            proof = self._proof(event_id, issued_at=issued_at)
+            with self.subTest(age=age), patch(
+                "itsdangerous.timed.time.time",
+                return_value=issued_at + age,
+            ):
+                response = self._ack(event_id, proof)
+            self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(len(self._events()), 2)
+
+    def test_native_no_database_ack_is_accepted_with_sanitized_drop(self):
+        environment = dict(os.environ)
+        for name in ("DATABASE_URL", "FLY_APP_NAME", "WEB_CONCURRENCY"):
+            environment.pop(name, None)
+        environment["ROSTER_SCOUT_DOWNLOAD_ACK_SECRET"] = (
+            base64.urlsafe_b64encode(b"n" * 32).decode().rstrip("=")
+        )
+        code = """
+import json, uuid
+import app
+event_id = str(uuid.uuid4())
+proof = app._issue_download_ack_proof(event_id)
+response = app.app.test_client().post(
+    '/api/downloads/ack',
+    json={'download_event_id': event_id, 'acknowledgement_proof': proof},
+    headers={'Origin': 'http://localhost', 'Sec-Fetch-Site': 'same-origin'},
+)
+print(response.status_code)
+print(json.dumps(response.get_json(), sort_keys=True))
+"""
+        completed = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=os.path.dirname(os.path.dirname(__file__)),
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(
+            completed.stdout.splitlines(),
+            ["202", '{"acknowledged": true, "persisted": false}'],
+        )
+        self.assertIn(
+            "usage_event_dropped route=download_ack reason=database_unavailable",
+            completed.stderr,
+        )
+        for sensitive_value in ("postgresql", "Traceback", "ACK_PROOF"):
+            self.assertNotIn(sensitive_value, completed.stderr)
+
+
 class NativeWorkbookDatabaseOptionalTests(unittest.TestCase):
     def setUp(self):
         app_module.app.config.update(TESTING=True)
@@ -294,7 +483,7 @@ class NativeWorkbookDatabaseOptionalTests(unittest.TestCase):
         app_module._usage_session_factory.cache_clear()
         self.addCleanup(app_module._usage_session_factory.cache_clear)
 
-    def test_native_workbook_succeeds_without_database_and_logs_sanitized_drop(self):
+    def test_native_workbook_succeeds_without_persisting_before_ack(self):
         event_key = str(uuid.uuid4())
         sensitive_team = "Sensitive Opponent"
         sensitive_ip = "203.0.113.44"
@@ -306,14 +495,11 @@ class NativeWorkbookDatabaseOptionalTests(unittest.TestCase):
                 os.environ,
                 environment,
                 clear=True,
-            ), self.assertLogs(
-                app_module.app.logger,
-                level="WARNING",
-            ) as logs, patch.object(
+            ), patch.object(
                 app_module,
                 "scrape_ncaa_by_id",
                 return_value=([SAMPLE_PLAYER], sensitive_team),
-            ):
+            ), patch.object(app_module.app.logger, "warning") as warning:
                 response = self.client.post(
                     "/scrape",
                     json={
@@ -335,19 +521,11 @@ class NativeWorkbookDatabaseOptionalTests(unittest.TestCase):
         self.assertIn('name="Hitters"', workbook_xml)
         self.assertIn('name="Pitchers"', workbook_xml)
         self.assertEqual(
-            [record.getMessage() for record in logs.records],
-            ["usage_event_dropped route=legacy_scrape reason=database_unavailable"],
-        )
-        rendered_logs = "\n".join(logs.output)
-        for sensitive_value in (
-            sensitive_team,
-            sensitive_ip,
+            response.headers["X-Roster-Scout-Download-Event-ID"],
             event_key,
-            "DATABASE_URL",
-            "required for persistence",
-            "Traceback",
-        ):
-            self.assertNotIn(sensitive_value, rendered_logs)
+        )
+        self.assertTrue(response.headers["X-Roster-Scout-Download-Ack-Proof"])
+        warning.assert_not_called()
 
 
 class AppReadinessTests(unittest.TestCase):
