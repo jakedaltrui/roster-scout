@@ -10,6 +10,7 @@ import sys
 import threading
 import tomllib
 import unittest
+from urllib.parse import urlsplit
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -161,6 +162,29 @@ class BrowserlessCapacityConfigTests(unittest.TestCase):
         self.assertNotIn("postgresql://", source)
         self.assertNotIn("postgresql+psycopg://", source)
         self.assertNotIn("redis://", source)
+
+
+class DownloadAcknowledgementPublicOriginConfigTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        with (PROJECT_ROOT / "fly.toml").open("rb") as handle:
+            cls.fly = tomllib.load(handle)
+
+    def test_fly_declares_exact_public_https_origin_at_internal_http_edge(self):
+        origin = self.fly["env"].get("ROSTER_SCOUT_PUBLIC_ORIGIN")
+        self.assertEqual(origin, "https://roster-scout.fly.dev")
+        parsed = urlsplit(origin)
+        self.assertEqual(parsed.scheme, "https")
+        self.assertEqual(parsed.netloc, "roster-scout.fly.dev")
+        self.assertEqual((parsed.path, parsed.query, parsed.fragment), ("", "", ""))
+        self.assertEqual(self.fly["http_service"]["internal_port"], 5000)
+        self.assertTrue(self.fly["http_service"]["force_https"])
+
+    def test_manifest_keeps_acknowledgement_secret_out_of_nonsecret_env(self):
+        self.assertNotIn(
+            "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET",
+            self.fly["env"],
+        )
 
 
 class WorkerRetentionPreflightTests(unittest.TestCase):
@@ -1398,6 +1422,19 @@ class RoundFourOperationsRunbookContractTests(unittest.TestCase):
             "wait the exact 15-minute proof TTL",
             "Mixed-secret rolling workers are unsupported",
             "Neither the shared secret nor an acknowledgement proof may be logged",
+        ):
+            with self.subTest(statement=statement):
+                self.assertIn(statement, self.normalized)
+
+    def test_public_origin_validation_and_cutover_match_runtime(self):
+        for statement in (
+            "A non-empty `FLY_APP_NAME` or `WEB_CONCURRENCY>1` requires `ROSTER_SCOUT_PUBLIC_ORIGIN`",
+            "Fly requires the configured origin to use HTTPS",
+            "only non-Fly `WEB_CONCURRENCY==1` may fall back to the direct request origin",
+            "contains no credentials, path, query, or fragment",
+            "`Forwarded`, `X-Forwarded-Proto`, `X-Forwarded-Host`, and `Host` are not trusted as origin authority",
+            "ROSTER_SCOUT_PUBLIC_ORIGIN=https://roster-scout.fly.dev",
+            "restart every app worker with the same new value before directing browser traffic to the custom domain",
         ):
             with self.subTest(statement=statement):
                 self.assertIn(statement, self.normalized)
