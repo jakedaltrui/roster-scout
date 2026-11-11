@@ -325,86 +325,64 @@ def upgrade():
         DECLARE global_player_ids uuid[];
         DECLARE identity_ids uuid[];
         BEGIN
-            IF TG_OP = 'INSERT' THEN
-                SELECT
-                    array_agg(affected.snapshot_id ORDER BY affected.snapshot_id::text),
-                    array_agg(affected.organization_id ORDER BY
-                        affected.organization_id::text, affected.player_id::text),
-                    array_agg(affected.player_id ORDER BY
-                        affected.organization_id::text, affected.player_id::text),
-                    array_agg(affected.player_id ORDER BY affected.player_id::text),
-                    array_agg(affected.id ORDER BY affected.id::text)
-                INTO snapshot_ids, organization_ids, player_ids,
-                    global_player_ids, identity_ids
+            SELECT
+                array_agg(affected.snapshot_id ORDER BY affected.snapshot_id::text),
+                array_agg(affected.organization_id ORDER BY
+                    affected.organization_id::text, affected.player_id::text),
+                array_agg(affected.player_id ORDER BY
+                    affected.organization_id::text, affected.player_id::text),
+                array_agg(affected.player_id ORDER BY affected.player_id::text),
+                array_agg(affected.id ORDER BY affected.id::text)
+            INTO snapshot_ids, organization_ids, player_ids,
+                global_player_ids, identity_ids
+            FROM (
+                SELECT DISTINCT identity.snapshot_id,
+                    identity.organization_id,
+                    identity.player_id,
+                    identity.id
                 FROM (
-                    SELECT DISTINCT identity.snapshot_id,
-                        identity.organization_id,
-                        identity.player_id,
-                        identity.id
-                    FROM new_identity_rows AS identity
-                ) AS affected;
-            ELSE
-                SELECT
-                    array_agg(affected.snapshot_id ORDER BY affected.snapshot_id::text),
-                    array_agg(affected.organization_id ORDER BY
-                        affected.organization_id::text, affected.player_id::text),
-                    array_agg(affected.player_id ORDER BY
-                        affected.organization_id::text, affected.player_id::text),
-                    array_agg(affected.player_id ORDER BY affected.player_id::text),
-                    array_agg(affected.id ORDER BY affected.id::text)
-                INTO snapshot_ids, organization_ids, player_ids,
-                    global_player_ids, identity_ids
-                FROM (
-                    SELECT DISTINCT identity.snapshot_id,
-                        identity.organization_id,
-                        identity.player_id,
-                        identity.id
-                    FROM (
-                        SELECT id, snapshot_id, organization_id, player_id
-                        FROM old_identity_rows
-                        UNION
-                        SELECT id, snapshot_id, organization_id, player_id
-                        FROM new_identity_rows
-                    ) AS identity
-                ) AS affected;
-            END IF;
+                    SELECT id, snapshot_id, organization_id, player_id
+                    FROM old_identity_rows
+                    UNION
+                    SELECT id, snapshot_id, organization_id, player_id
+                    FROM new_identity_rows
+                ) AS identity
+            ) AS affected;
 
             PERFORM lock_authoritative_snapshots(snapshot_ids);
             PERFORM lock_authoritative_global_players(global_player_ids);
             PERFORM lock_authoritative_players(organization_ids, player_ids);
             PERFORM lock_authoritative_player_team_seasons(identity_ids);
 
-            IF TG_OP = 'UPDATE' THEN
-                IF EXISTS (
-                    SELECT 1
-                    FROM new_identity_rows AS identity
-                    JOIN old_identity_rows AS old_identity
-                      ON old_identity.id = identity.id
-                    JOIN source_records AS source
-                      ON source.player_team_season_id = identity.id
-                     AND source.snapshot_id = identity.snapshot_id
-                     AND source.organization_id = identity.organization_id
-                    JOIN players AS player ON player.id = identity.player_id
-                    WHERE (
-                        old_identity.player_id IS DISTINCT FROM identity.player_id
-                        OR old_identity.snapshot_id IS DISTINCT FROM
-                           identity.snapshot_id
-                        OR old_identity.organization_id IS DISTINCT FROM
-                           identity.organization_id
-                    )
-                      AND source.source_player_id IS NOT NULL
-                      AND (
-                          player.source <> 'ncaa'
-                          OR player.source_player_id IS NULL
-                          OR player.source_player_id <> source.source_player_id
-                      )
-                ) THEN
-                    RAISE EXCEPTION USING
-                        MESSAGE = 'authoritative source player mismatch',
-                        ERRCODE = '23514',
-                        CONSTRAINT =
-                            'ck_player_team_seasons_authoritative_source_player';
-                END IF;
+            IF EXISTS (
+                SELECT 1
+                FROM new_identity_rows AS identity
+                JOIN old_identity_rows AS old_identity
+                  ON old_identity.id = identity.id
+                JOIN source_records AS source
+                  ON source.player_team_season_id = identity.id
+                 AND source.snapshot_id = identity.snapshot_id
+                 AND source.organization_id = identity.organization_id
+                JOIN players AS player ON player.id = identity.player_id
+                WHERE (
+                    old_identity.player_id IS DISTINCT FROM identity.player_id
+                    OR old_identity.snapshot_id IS DISTINCT FROM
+                       identity.snapshot_id
+                    OR old_identity.organization_id IS DISTINCT FROM
+                       identity.organization_id
+                )
+                  AND source.source_player_id IS NOT NULL
+                  AND (
+                      player.source <> 'ncaa'
+                      OR player.source_player_id IS NULL
+                      OR player.source_player_id <> source.source_player_id
+                  )
+            ) THEN
+                RAISE EXCEPTION USING
+                    MESSAGE = 'authoritative source player mismatch',
+                    ERRCODE = '23514',
+                    CONSTRAINT =
+                        'ck_player_team_seasons_authoritative_source_player';
             END IF;
             RETURN NULL;
         END;
@@ -437,15 +415,6 @@ def upgrade():
         REFERENCING OLD TABLE AS old_player_rows NEW TABLE AS new_player_rows
         FOR EACH STATEMENT
         EXECUTE FUNCTION enforce_player_authoritative_source_player()
-        """
-    )
-    op.execute(
-        """
-        CREATE TRIGGER trg_player_team_seasons_authoritative_source_player_insert
-        AFTER INSERT ON player_team_seasons
-        REFERENCING NEW TABLE AS new_identity_rows
-        FOR EACH STATEMENT
-        EXECUTE FUNCTION enforce_player_team_season_authoritative_source_player()
         """
     )
     op.execute(

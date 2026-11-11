@@ -874,6 +874,42 @@ def _persist_canonical(session, job, snapshot, sections):
         session.flush()
         identities[item.identity_key] = identity
 
+    metric_definition_ids = {}
+    metric_definitions = sorted(
+        {
+            (
+                metric.code,
+                f"{metric.definition_version}:{metric.provenance}",
+                metric.provenance,
+            )
+            for metric in canonical.metrics
+        }
+    )
+    for code, version, formula in metric_definitions:
+        definition_id = session.scalar(
+            postgresql_insert(MetricDefinition)
+            .values(
+                id=uuid.uuid4(),
+                code=code,
+                version=version,
+                formula=formula,
+            )
+            .on_conflict_do_nothing(
+                constraint="uq_metric_definitions_code_version"
+            )
+            .returning(MetricDefinition.id)
+        )
+        if definition_id is None:
+            definition_id = session.scalar(
+                select(MetricDefinition.id).where(
+                    MetricDefinition.code == code,
+                    MetricDefinition.version == version,
+                )
+            )
+        if definition_id is None:
+            raise RuntimeError("metric definition conflict was not visible")
+        metric_definition_ids[(code, version)] = definition_id
+
     for fact in canonical.facts:
         source = source_by_key[fact.source_record]
         identity = identities[fact.identity_key]
@@ -907,32 +943,10 @@ def _persist_canonical(session, job, snapshot, sections):
 
     for metric in canonical.metrics:
         version = f"{metric.definition_version}:{metric.provenance}"
-        definition_id = session.scalar(
-            postgresql_insert(MetricDefinition)
-            .values(
-                id=uuid.uuid4(),
-                code=metric.code,
-                version=version,
-                formula=metric.provenance,
-            )
-            .on_conflict_do_nothing(
-                constraint="uq_metric_definitions_code_version"
-            )
-            .returning(MetricDefinition.id)
-        )
-        if definition_id is None:
-            definition_id = session.scalar(
-                select(MetricDefinition.id).where(
-                    MetricDefinition.code == metric.code,
-                    MetricDefinition.version == version,
-                )
-            )
-        if definition_id is None:
-            raise RuntimeError("metric definition conflict was not visible")
         session.add(MetricValue(
             organization_id=job.organization_id,
             snapshot_id=snapshot.id,
-            metric_definition_id=definition_id,
+            metric_definition_id=metric_definition_ids[(metric.code, version)],
             player_team_season_id=identities[metric.identity_key].id,
             value=metric.value,
             unavailable_reason=(
