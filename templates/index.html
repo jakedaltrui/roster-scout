@@ -1278,7 +1278,12 @@
       }
     });
 
-    const { createSafeStorage, createDownloadTracker, runDownloadSubmission } =
+    const {
+      createSafeStorage,
+      classifyAcknowledgementResponse,
+      createDownloadTracker,
+      runDownloadSubmission,
+    } =
       window.RosterScoutDownloadTracking;
     let browserSessionStorage = null;
     try {
@@ -1301,9 +1306,10 @@
           acknowledgement_proof: pending.acknowledgementProof,
         }),
       });
-      if (!response.ok) return { acknowledged: false };
       const result = await response.json().catch(() => ({}));
-      return { acknowledged: result.acknowledged === true };
+      return classifyAcknowledgementResponse(response.status,
+        result.acknowledged === true,
+      );
     }
 
     let scrapeInFlight = false;
@@ -1374,6 +1380,13 @@
         if (result.pendingAcknowledgement) {
           document.getElementById('error-msg').textContent =
             'Your previous download could not be confirmed. Please try again.';
+          show('error');
+          return;
+        }
+
+        if (result.definitiveAcknowledgementFailure && !result.downloadStarted) {
+          document.getElementById('error-msg').textContent =
+            'Your previous download confirmation was rejected. Please submit again.';
           show('error');
           return;
         }

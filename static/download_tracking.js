@@ -91,6 +91,20 @@
     };
   }
 
+  function classifyAcknowledgementResponse(status, acknowledged) {
+    const normalizedStatus = Number(status);
+    if (normalizedStatus >= 200 && normalizedStatus < 300) {
+      return {
+        outcome: acknowledged === true ? "acknowledged" : "retryable",
+      };
+    }
+    if (normalizedStatus >= 400 && normalizedStatus < 500
+        && ![408, 425, 429].includes(normalizedStatus)) {
+      return { outcome: "definitive" };
+    }
+    return { outcome: "retryable" };
+  }
+
   function createDownloadTracker({ storage, uuidFactory, now = Date.now } = {}) {
     if (typeof uuidFactory !== "function" || typeof now !== "function") {
       throw new TypeError("UUID and time providers are required.");
@@ -231,8 +245,19 @@
       };
     }
 
+    function abandonPendingAcknowledgement(downloadEventId) {
+      const current = load();
+      if (!current || current.state !== "needs_ack"
+          || current.download_event_id !== downloadEventId) {
+        return false;
+      }
+      discard();
+      return true;
+    }
+
     return {
       acknowledgeSuccess,
+      abandonPendingAcknowledgement,
       beginOrReuse,
       markDefinitiveFailure,
       markDownloadInitiated,
@@ -254,10 +279,17 @@
       }
       try {
         const retryResult = await retryPendingAcknowledgement(pending);
-        if (!retryResult || retryResult.acknowledged !== true) {
+        if (retryResult && retryResult.outcome === "acknowledged") {
+          tracker.acknowledgeSuccess(pending.downloadEventId);
+        } else if (retryResult && retryResult.outcome === "definitive") {
+          tracker.abandonPendingAcknowledgement(pending.downloadEventId);
+          return {
+            downloadStarted: false,
+            definitiveAcknowledgementFailure: true,
+          };
+        } else {
           return { downloadStarted: false, pendingAcknowledgement: true };
         }
-        tracker.acknowledgeSuccess(pending.downloadEventId);
       } catch (_error) {
         return { downloadStarted: false, pendingAcknowledgement: true };
       }
@@ -289,9 +321,18 @@
 
     try {
       const acknowledgementResult = await acknowledgeDownload(acknowledgement);
-      if (acknowledgementResult && acknowledgementResult.acknowledged === true) {
+      if (acknowledgementResult && acknowledgementResult.outcome === "acknowledged") {
         tracker.acknowledgeSuccess(attempt.downloadEventId);
         return { downloadStarted: true, acknowledged: true, response };
+      }
+      if (acknowledgementResult && acknowledgementResult.outcome === "definitive") {
+        tracker.abandonPendingAcknowledgement(attempt.downloadEventId);
+        return {
+          downloadStarted: true,
+          acknowledged: false,
+          definitiveAcknowledgementFailure: true,
+          response,
+        };
       }
     } catch (_error) {
       // The workbook was already handed to the browser. Preserve needs_ack for retry.
@@ -302,6 +343,7 @@
   return {
     PROOF_TTL_MS,
     STORAGE_KEY,
+    classifyAcknowledgementResponse,
     createSafeStorage,
     createDownloadTracker,
     runDownloadSubmission,
