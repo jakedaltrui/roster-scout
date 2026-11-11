@@ -24,6 +24,7 @@ FAILURE_EVIDENCE_MAX_RETENTION_DAYS = 28
 EVIDENCE_PURGE_LOCK_TIMEOUT_MS = 5_000
 EVIDENCE_PURGE_STATEMENT_TIMEOUT_MS = 30_000
 EVIDENCE_PURGE_READINESS_FRESHNESS = timedelta(hours=6)
+EVIDENCE_PURGE_BATCH_SIZE = 100
 
 
 class FailureEvidenceConfigurationError(RuntimeError):
@@ -37,6 +38,35 @@ class EvidencePurgeReadiness:
     last_success_at: datetime | None
     last_purged_count: int
     expired_bytes_count: int
+
+
+@dataclass(frozen=True, eq=False)
+class EvidencePurgeResult:
+    """Safe aggregate outcome for one complete or partial purge scan."""
+
+    purged_count: int
+    complete: bool
+    outstanding_count: int
+    batches: int
+
+    def __eq__(self, other):
+        # Preserve the original integer result contract for existing callers while
+        # exposing completion explicitly to the standalone purge runner.
+        if isinstance(other, int):
+            return self.purged_count == other
+        if isinstance(other, EvidencePurgeResult):
+            return (
+                self.purged_count,
+                self.complete,
+                self.outstanding_count,
+                self.batches,
+            ) == (
+                other.purged_count,
+                other.complete,
+                other.outstanding_count,
+                other.batches,
+            )
+        return NotImplemented
 
 
 def get_failure_evidence_retention(environ=None):
@@ -223,25 +253,65 @@ def _upsert_evidence_purge_state(session, *, now, purged_count):
 
 
 def purge_expired_evidence(session_factory, *, now=None):
-    """Remove expired bytes and persist safe health in one bounded transaction."""
+    """Commit bounded expired-byte batches and record only complete scans."""
     now = now or datetime.now(UTC)
+    purged_count = 0
+    batches = 0
+
+    while True:
+        with session_factory.begin() as session:
+            _set_evidence_purge_timeouts(session)
+            claimed_ids = list(
+                session.scalars(
+                    select(FailureEvidence.id)
+                    .where(
+                        FailureEvidence.expires_at <= now,
+                        FailureEvidence.compressed_html.is_not(None),
+                    )
+                    .order_by(FailureEvidence.expires_at, FailureEvidence.id)
+                    .limit(EVIDENCE_PURGE_BATCH_SIZE)
+                    .with_for_update(skip_locked=True)
+                )
+            )
+            if claimed_ids:
+                result = session.execute(
+                    update(FailureEvidence)
+                    .where(FailureEvidence.id.in_(claimed_ids))
+                    .values(compressed_html=None, purged_at=now)
+                )
+                purged_count += int(result.rowcount or 0)
+                batches += 1
+        if not claimed_ids:
+            break
+
+    # This ordinary MVCC count includes rows skipped because another transaction
+    # still holds their row lock. Only a zero result may advance readiness.
     with session_factory.begin() as session:
         _set_evidence_purge_timeouts(session)
-        result = session.execute(
-            update(FailureEvidence)
-            .where(
-                FailureEvidence.expires_at <= now,
-                FailureEvidence.compressed_html.is_not(None),
+        outstanding_count = int(
+            session.scalar(
+                select(func.count())
+                .select_from(FailureEvidence)
+                .where(
+                    FailureEvidence.expires_at <= now,
+                    FailureEvidence.compressed_html.is_not(None),
+                )
             )
-            .values(compressed_html=None, purged_at=now)
+            or 0
         )
-        purged_count = int(result.rowcount or 0)
-        _upsert_evidence_purge_state(
-            session,
-            now=now,
-            purged_count=purged_count,
-        )
-    return purged_count
+        complete = outstanding_count == 0
+        if complete:
+            _upsert_evidence_purge_state(
+                session,
+                now=now,
+                purged_count=purged_count,
+            )
+    return EvidencePurgeResult(
+        purged_count=purged_count,
+        complete=complete,
+        outstanding_count=outstanding_count,
+        batches=batches,
+    )
 
 
 def get_evidence_purge_readiness(session_factory, *, now=None):

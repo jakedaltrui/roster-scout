@@ -625,7 +625,7 @@ class EvidencePurgePersistenceTests(PostgreSQLJobTestCase):
                 },
             )
 
-    def test_failure_after_delete_rolls_back_bytes_and_prior_health(self):
+    def test_failure_after_committed_batch_preserves_deletion_and_prior_health(self):
         import roster_scout.evidence as evidence_service
         from roster_scout.models import EvidencePurgeState, FailureEvidence
 
@@ -656,12 +656,15 @@ class EvidencePurgePersistenceTests(PostgreSQLJobTestCase):
         with self.Session() as session:
             evidence = session.get(FailureEvidence, evidence_id)
             health = session.get(EvidencePurgeState, 1)
-            self.assertIsNotNone(evidence.compressed_html)
-            self.assertIsNone(evidence.purged_at)
+            self.assertIsNone(evidence.compressed_html)
+            self.assertEqual(
+                evidence.purged_at,
+                first_success + timedelta(hours=1),
+            )
             self.assertEqual(health.last_success_at, first_success)
             self.assertEqual(health.last_purged_count, 0)
 
-    def test_lock_timeout_rolls_back_without_recording_success(self):
+    def test_locked_only_row_returns_incomplete_without_recording_success(self):
         import roster_scout.evidence as evidence_service
         from roster_scout.models import EvidencePurgeState, FailureEvidence
 
@@ -683,15 +686,18 @@ class EvidencePurgePersistenceTests(PostgreSQLJobTestCase):
                 "EVIDENCE_PURGE_LOCK_TIMEOUT_MS",
                 50,
             ):
-                with self.assertRaises(DBAPIError):
-                    evidence_service.purge_expired_evidence(
-                        self.Session,
-                        now=expires_at,
-                    )
+                result = evidence_service.purge_expired_evidence(
+                    self.Session,
+                    now=expires_at,
+                )
         finally:
             blocker.rollback()
             blocker.close()
 
+        self.assertFalse(result.complete)
+        self.assertEqual(result.purged_count, 0)
+        self.assertEqual(result.outstanding_count, 1)
+        self.assertEqual(result.batches, 0)
         with self.Session() as session:
             evidence = session.get(FailureEvidence, evidence_id)
             self.assertIsNotNone(evidence.compressed_html)
