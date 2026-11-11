@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-34-PLAN.md
-last_updated: "2026-11-11T05:52:03.626Z"
-last_activity: 2026-11-11 -- Completed Plan 01-34 protected download acknowledgement
+stopped_at: Completed 01-35-PLAN.md
+last_updated: "2026-11-11T06:03:18.629Z"
+last_activity: 2026-11-11 -- Completed Plan 01-35 browser download acknowledgement
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 37
-  completed_plans: 35
-  percent: 95
+  completed_plans: 36
+  percent: 97
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-11-01)
 ## Current Position
 
 Phase: 01 (canonical-snapshot-foundation) — EXECUTING
-Plan: 35 of 37
+Plan: 36 of 37
 Status: Ready to execute
-Last activity: 2026-11-11 -- Completed Plan 01-34 protected download acknowledgement
+Last activity: 2026-11-11 -- Completed Plan 01-35 browser download acknowledgement
 
-Progress: [██████████] 95%
+Progress: [██████████] 97%
 
 ## Performance Metrics
 
@@ -167,6 +167,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 01]: A workbook response is preparation only; successful-download usage is recorded after a recent same-origin browser acknowledgement.
 - [Phase 01]: Acknowledgement proofs contain only a fixed purpose and opaque UUID, expire after exactly 15 minutes, and rely on the existing unique usage-event key for replay idempotency.
 - [Phase 01]: Fly and WEB_CONCURRENCY greater than one require one validated shared URL-safe base64 secret; only native single-process local mode may generate a process-random fallback.
+- [Phase 01]: One session-scoped opaque UUID survives ambiguous scrape, blob, and acknowledgement failures; definitive HTTP failure or acknowledged success ends that attempt. — Preserves idempotency without turning client state into identity.
+- [Phase 01]: The browser records needs_ack only after readable workbook bytes and synchronous anchor initiation, so acknowledgement never claims filesystem-save proof. — Counts the strongest browser-observable outcome without overstating what the browser can prove.
+- [Phase 01]: Only UUID, lifecycle state, signed proof, and bounded timestamps enter sessionStorage; acknowledged is an ephemeral terminal transition and not persistent identity. — Bounds retry state to the proof lifetime and excludes identifying or report data.
 
 ### Pending Todos
 
@@ -200,9 +203,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 01 P33 | 8 min | 2 tasks | 4 files |
 | Phase 01 P36 | 6 min | 2 tasks | 2 files |
 | Phase 01 P34 | 8 min | 2 tasks | 2 files |
+| Phase 01 P35 | 8 min | 2 tasks | 4 files |
 
 ## Session Continuity
 
-Last session: 2026-11-11T05:52:03.618Z
-Stopped at: Completed 01-34-PLAN.md
+Last session: 2026-11-11T06:03:18.621Z
+Stopped at: Completed 01-35-PLAN.md
 Resume file: None

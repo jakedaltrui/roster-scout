@@ -29,7 +29,7 @@ Roster Scout v2.0 is delivered in five dependency-ordered slices. The roadmap fi
 4. Innings, missing values, two-way players, transfers, raw values, and metric-definition lineage are represented without ambiguity.
 5. Existing selector, scraper, cache, and basic workbook regression tests continue to pass.
 
-**Plans:** 35/37 plans executed
+**Plans:** 36/37 plans executed
 
 Plans:
 **Wave 1**
@@ -141,7 +141,7 @@ Plans:
 
 **Wave 25** *(blocked on 01-34)*
 
-- [ ] 01-35: Preserve download UUIDs across ambiguous browser retries and acknowledge only after blob read and download initiation.
+- [x] 01-35: Preserve download UUIDs across ambiguous browser retries and acknowledge only after blob read and download initiation.
 
 **Wave 26** *(blocked on Waves 23-25 completion)*
 
@@ -249,7 +249,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |---|---:|---|---|
-| 1. Canonical Snapshot Foundation | 35/37 | Active (gap closure) | — |
+| 1. Canonical Snapshot Foundation | 36/37 | Active (gap closure) | — |
 | 2. Identity, Organizations, and Report Library | 0/4 | Not started | - |
 | 3. Detailed NCAA Intelligence | 0/4 | Not started | - |
 | 4. Detailed Excel Report | 0/3 | Not started | - |
