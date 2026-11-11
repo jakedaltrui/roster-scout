@@ -2,14 +2,18 @@ import io
 import os
 import tempfile
 import unittest
+import uuid
 import zipfile
 import xml.etree.ElementTree as ET
 from unittest.mock import MagicMock, patch
 from PIL import Image
+from sqlalchemy import func, select
 
 import app as app_module
 from roster_scout.evidence import EvidencePurgeReadiness
+from roster_scout.models import ProductUsageEvent
 from roster_scraper import NcaaAccessError
+from tests.db_support import clean_database, require_test_database_url, upgrade_database
 
 
 SAMPLE_PLAYER = {
@@ -60,6 +64,127 @@ class DownloadEventContractTests(unittest.TestCase):
             r"(?:fingerprint|useragent|user_agent)[^;\n]*downloadeventid",
         )
         self.assertNotIn('name="download_event_id"', self.source)
+
+
+class WorkbookDownloadUsageTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.database_url = require_test_database_url()
+        upgrade_database(cls.database_url)
+        from roster_scout.database import create_session_factory, get_engine
+
+        cls.engine = get_engine(cls.database_url)
+        cls.Session = create_session_factory(cls.engine)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.engine.dispose()
+
+    def setUp(self):
+        clean_database(self.database_url)
+        app_module.app.config.update(TESTING=True)
+        self.client = app_module.app.test_client()
+        factory = getattr(app_module, "_usage_session_factory", None)
+        if factory is not None and hasattr(factory, "cache_clear"):
+            factory.cache_clear()
+            self.addCleanup(factory.cache_clear)
+
+    def _download(self, event_key=None):
+        payload = {
+            "team": "Tampa",
+            "division": "d2",
+            "season_team_id": "615087",
+        }
+        if event_key is not None:
+            payload["download_event_id"] = event_key
+        with patch.object(
+            app_module,
+            "check_request_limit",
+            return_value=None,
+        ), patch.object(
+            app_module,
+            "scrape_ncaa_by_id",
+            return_value=([SAMPLE_PLAYER], "Tampa"),
+        ):
+            return self.client.post("/scrape", json=payload)
+
+    def _events(self):
+        with self.Session() as session:
+            return list(
+                session.scalars(
+                    select(ProductUsageEvent).order_by(ProductUsageEvent.occurred_at)
+                )
+            )
+
+    def assert_excel_download(self, response):
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.mimetype,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        self.assertIn("Tampa", response.headers["Content-Disposition"])
+        self.assertTrue(response.data.startswith(b"PK"))
+        with zipfile.ZipFile(io.BytesIO(response.data)) as archive:
+            workbook_xml = archive.read("xl/workbook.xml").decode("utf-8")
+            self.assertIn('name="Hitters"', workbook_xml)
+            self.assertIn('name="Pitchers"', workbook_xml)
+
+    def test_same_key_deduplicates_and_new_key_counts_again(self):
+        first_key = str(uuid.uuid4())
+        for response in (
+            self._download(first_key),
+            self._download(first_key),
+            self._download(str(uuid.uuid4())),
+        ):
+            self.assert_excel_download(response)
+
+        events = self._events()
+        self.assertEqual(len(events), 2)
+        self.assertEqual({event.actor_account_id for event in events}, {None})
+        self.assertEqual({event.organization_id for event in events}, {None})
+        with self.Session() as session:
+            unique_actors = session.scalar(
+                select(func.count(func.distinct(ProductUsageEvent.actor_account_id)))
+            )
+        self.assertEqual(unique_actors, 0)
+
+    def test_omitted_key_gets_one_request_local_uuid(self):
+        self.assert_excel_download(self._download())
+        events = self._events()
+        self.assertEqual(len(events), 1)
+        self.assertEqual(str(uuid.UUID(events[0].event_key)), events[0].event_key)
+
+    def test_malformed_supplied_key_is_rejected_before_collection(self):
+        with patch.object(app_module, "scrape_ncaa_by_id") as scrape:
+            response = self.client.post("/scrape", json={
+                "team": "Tampa",
+                "division": "d2",
+                "season_team_id": "615087",
+                "download_event_id": "not-a-uuid",
+            })
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self._events(), [])
+        scrape.assert_not_called()
+
+    def test_persistence_failure_returns_sanitized_503_without_workbook(self):
+        event_key = str(uuid.uuid4())
+        secret = f"postgresql://operator:secret@example.test/db event={event_key}"
+        with patch.object(
+            app_module,
+            "record_workbook_download_served",
+            side_effect=RuntimeError(secret),
+            create=True,
+        ):
+            response = self._download(event_key)
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.mimetype, "application/json")
+        self.assertFalse(response.data.startswith(b"PK"))
+        body = response.get_data(as_text=True)
+        self.assertNotIn(secret, body)
+        self.assertNotIn(event_key, body)
+        self.assertNotIn("postgresql", body)
+        self.assertEqual(self._events(), [])
 
 
 class AppReadinessTests(unittest.TestCase):
