@@ -718,6 +718,136 @@ class EvidencePurgePersistenceTests(PostgreSQLJobTestCase):
         self.assertIn("evidence_purge_state", inspect(self.engine).get_table_names())
 
 
+class BatchedEvidencePurgeTests(PostgreSQLJobTestCase):
+    """The purge makes durable progress without overstating completion."""
+
+    def _failed_job(self, suffix):
+        from roster_scout.jobs import accept_report_job
+        from roster_scout.models import ReportJob
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            f"batched-purge-{suffix}",
+            dispatch=None,
+        )
+        with self.Session.begin() as session:
+            stored_job = session.get(ReportJob, job.id)
+            stored_job.status = "failed"
+            return stored_job.id, stored_job.organization_id
+
+    def _insert_expired_rows(self, *, suffix, count, now):
+        from roster_scout.models import FailureEvidence
+
+        job_id, organization_id = self._failed_job(suffix)
+        collected_at = now - timedelta(days=28)
+        rows = [
+            FailureEvidence(
+                organization_id=organization_id,
+                job_id=job_id,
+                compressed_html=f"evidence-{index}".encode(),
+                sha256=f"{index % 10}" * 64,
+                section="batting",
+                source_url="https://stats.ncaa.org/batched-purge",
+                failure_category="source_blocked",
+                collected_at=collected_at,
+                expires_at=now,
+            )
+            for index in range(count)
+        ]
+        with self.Session.begin() as session:
+            session.add_all(rows)
+        return [row.id for row in rows]
+
+    def test_locked_row_does_not_rollback_unlocked_batches_or_advance_heartbeat(self):
+        from roster_scout.evidence import purge_expired_evidence
+        from roster_scout.models import EvidencePurgeState, FailureEvidence
+
+        previous_success = datetime(2026, 3, 1, tzinfo=UTC)
+        self.assertTrue(
+            purge_expired_evidence(self.Session, now=previous_success).complete
+        )
+        row_ids = self._insert_expired_rows(
+            suffix="contention",
+            count=3,
+            now=previous_success + timedelta(hours=1),
+        )
+
+        blocker = self.Session()
+        blocker.begin()
+        blocker.scalar(
+            select(FailureEvidence)
+            .where(FailureEvidence.id == row_ids[0])
+            .with_for_update()
+        )
+        try:
+            result = purge_expired_evidence(
+                self.Session,
+                now=previous_success + timedelta(hours=1),
+            )
+        finally:
+            blocker.rollback()
+            blocker.close()
+
+        self.assertEqual(result.purged_count, 2)
+        self.assertFalse(result.complete)
+        self.assertEqual(result.outstanding_count, 1)
+        self.assertEqual(result.batches, 1)
+        with self.Session() as session:
+            stored_rows = {
+                row.id: row
+                for row in session.scalars(
+                    select(FailureEvidence).where(FailureEvidence.id.in_(row_ids))
+                )
+            }
+            self.assertIsNotNone(stored_rows[row_ids[0]].compressed_html)
+            self.assertIsNone(stored_rows[row_ids[0]].purged_at)
+            for row_id in row_ids[1:]:
+                self.assertIsNone(stored_rows[row_id].compressed_html)
+                self.assertEqual(
+                    stored_rows[row_id].purged_at,
+                    previous_success + timedelta(hours=1),
+                )
+            heartbeat = session.get(EvidencePurgeState, 1)
+            self.assertEqual(heartbeat.last_success_at, previous_success)
+            self.assertEqual(heartbeat.last_purged_count, 0)
+
+    def test_large_backlog_commits_three_deterministic_batches(self):
+        from roster_scout.evidence import purge_expired_evidence
+        from roster_scout.models import EvidencePurgeState, FailureEvidence
+
+        now = datetime(2026, 3, 2, tzinfo=UTC)
+        row_ids = self._insert_expired_rows(
+            suffix="volume",
+            count=205,
+            now=now,
+        )
+
+        result = purge_expired_evidence(self.Session, now=now)
+
+        self.assertEqual(result.purged_count, 205)
+        self.assertTrue(result.complete)
+        self.assertEqual(result.outstanding_count, 0)
+        self.assertEqual(result.batches, 3)
+        with self.Session() as session:
+            self.assertEqual(
+                session.scalar(
+                    select(func.count())
+                    .select_from(FailureEvidence)
+                    .where(
+                        FailureEvidence.id.in_(row_ids),
+                        FailureEvidence.compressed_html.is_not(None),
+                    )
+                ),
+                0,
+            )
+            heartbeat = session.get(EvidencePurgeState, 1)
+            self.assertEqual(heartbeat.last_success_at, now)
+            self.assertEqual(heartbeat.last_purged_count, 205)
+
+
 class PersistedPurgeReadinessTests(PostgreSQLJobTestCase):
     def _store_expired_evidence(self, *, suffix, now):
         from roster_scout.evidence import store_failure_evidence
