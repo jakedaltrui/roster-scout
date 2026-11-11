@@ -4,6 +4,7 @@ import test from "node:test";
 
 const require = createRequire(import.meta.url);
 const {
+  createSafeStorage,
   createDownloadTracker,
   runDownloadSubmission,
 } = require("../../static/download_tracking.js");
@@ -31,6 +32,34 @@ class FakeStorage {
   }
 }
 
+class FailingStorage extends FakeStorage {
+  constructor() {
+    super();
+    this.failGet = false;
+    this.failSet = false;
+    this.failRemove = false;
+    this.calls = [];
+  }
+
+  getItem(key) {
+    this.calls.push(`get:${key}`);
+    if (this.failGet) throw new DOMException("storage blocked", "SecurityError");
+    return super.getItem(key);
+  }
+
+  setItem(key, value) {
+    this.calls.push(`set:${key}`);
+    if (this.failSet) throw new DOMException("quota exceeded", "QuotaExceededError");
+    super.setItem(key, value);
+  }
+
+  removeItem(key) {
+    this.calls.push(`remove:${key}`);
+    if (this.failRemove) throw new DOMException("storage blocked", "SecurityError");
+    super.removeItem(key);
+  }
+}
+
 function trackerFixture() {
   const storage = new FakeStorage();
   let now = START;
@@ -48,6 +77,86 @@ function trackerFixture() {
     },
   };
 }
+
+test("safe storage falls back permanently when a storage method throws", () => {
+  const candidate = new FailingStorage();
+  const storage = createSafeStorage(candidate);
+
+  storage.setItem("attempt", "pending");
+  candidate.failGet = true;
+  assert.equal(storage.getItem("attempt"), "pending");
+
+  candidate.failGet = false;
+  storage.setItem("later", "memory-only");
+  assert.equal(storage.getItem("later"), "memory-only");
+  assert.equal(candidate.values.has("later"), false);
+});
+
+test("tracker remains usable when storage acquisition supplied no candidate", () => {
+  const ids = [FIRST_ID];
+  const tracker = createDownloadTracker({
+    storage: null,
+    now: () => START,
+    uuidFactory: () => ids.shift(),
+  });
+
+  assert.deepEqual(tracker.beginOrReuse(), {
+    downloadEventId: FIRST_ID,
+    state: "requesting",
+  });
+});
+
+test("successful persistent write survives a later read failure without duplicate workbook", async () => {
+  const candidate = new FailingStorage();
+  const ids = [FIRST_ID, SECOND_ID];
+  const tracker = createDownloadTracker({
+    storage: candidate,
+    now: () => START,
+    uuidFactory: () => ids.shift(),
+  });
+  tracker.beginOrReuse();
+  tracker.markDownloadInitiated(FIRST_ID, PROOF);
+  candidate.failGet = true;
+  let workbookRequests = 0;
+
+  const result = await runDownloadSubmission({
+    tracker,
+    retryPendingAcknowledgement: async (pending) => {
+      assert.equal(pending.downloadEventId, FIRST_ID);
+      return { acknowledged: false };
+    },
+    requestWorkbook: async () => {
+      workbookRequests += 1;
+      throw new Error("workbook request must not run");
+    },
+    initiateDownload: async () => {},
+    acknowledgeDownload: async () => ({ acknowledged: true }),
+  });
+
+  assert.deepEqual(result, {
+    downloadStarted: false,
+    pendingAcknowledgement: true,
+  });
+  assert.equal(workbookRequests, 0);
+  assert.equal(tracker.pendingAcknowledgement().downloadEventId, FIRST_ID);
+});
+
+test("set and remove failures preserve logical state in page memory", () => {
+  const candidate = new FailingStorage();
+  candidate.failSet = true;
+  const ids = [FIRST_ID, SECOND_ID];
+  const tracker = createDownloadTracker({
+    storage: candidate,
+    now: () => START,
+    uuidFactory: () => ids.shift(),
+  });
+
+  assert.equal(tracker.beginOrReuse().downloadEventId, FIRST_ID);
+  candidate.failSet = false;
+  candidate.failRemove = true;
+  assert.equal(tracker.markDefinitiveFailure(FIRST_ID), true);
+  assert.equal(tracker.beginOrReuse().downloadEventId, SECOND_ID);
+});
 
 test("ambiguous scrape and blob failures preserve one requesting UUID", () => {
   const { tracker } = trackerFixture();

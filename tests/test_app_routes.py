@@ -41,16 +41,21 @@ class DownloadEventContractTests(unittest.TestCase):
 
     def test_template_uses_retry_safe_download_state_machine(self):
         module = self.source.index("static', filename='download_tracking.js")
+        safe_storage = self.source.index("createSafeStorage", module)
         tracker = self.source.index("createDownloadTracker", module)
         submission = self.source.index("runDownloadSubmission", tracker)
         request_field = self.source.index("download_event_id: downloadEventId")
         acknowledgement = self.source.index("/api/downloads/ack")
 
-        self.assertLess(module, tracker)
+        self.assertLess(module, safe_storage)
+        self.assertLess(safe_storage, tracker)
         self.assertLess(tracker, submission)
         self.assertLess(submission, request_field)
         self.assertGreater(acknowledgement, module)
-        self.assertIn("storage: sessionStorage", self.source)
+        self.assertIn("window.sessionStorage", self.source)
+        self.assertIn("createSafeStorage", self.source)
+        self.assertIn("try {", self.source)
+        self.assertNotIn("storage: sessionStorage", self.source)
         self.assertNotIn("let downloadEventId = null;", self.source)
         self.assertNotIn("downloadEventId = crypto.randomUUID();", self.source)
         self.assertNotIn("downloadEventId = null;", self.source)
