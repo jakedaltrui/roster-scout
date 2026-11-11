@@ -245,4 +245,3 @@ def downgrade():
     )
     op.drop_table("organization_invitations")
     op.drop_table("organization_identity_connections")
-

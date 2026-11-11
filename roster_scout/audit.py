@@ -130,4 +130,3 @@ def append_security_audit_event(
     session.add(event)
     session.flush()
     return event
-
