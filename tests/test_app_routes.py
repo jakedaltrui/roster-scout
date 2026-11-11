@@ -348,6 +348,8 @@ class DownloadAcknowledgementPublicOriginTests(unittest.TestCase):
             "WEB_CONCURRENCY",
             "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET",
             "ROSTER_SCOUT_PUBLIC_ORIGIN",
+            "BROWSER_ORIGIN",
+            "REJECTED_ORIGIN",
         ):
             environment.pop(name, None)
         environment.update(updates or {})
@@ -406,6 +408,73 @@ class DownloadAcknowledgementPublicOriginTests(unittest.TestCase):
                     "ROSTER_SCOUT_PUBLIC_ORIGIN": origin,
                 })
                 self.assertEqual(completed.returncode, 0, completed.stderr)
+
+    def test_shared_runtime_matches_browser_origin_default_port_rules(self):
+        route_code = """
+import os
+import uuid
+import app
+app._record_workbook_download = lambda event_id: 'recorded'
+client = app.app.test_client()
+def status(origin):
+    event_id = str(uuid.uuid4())
+    proof = app._issue_download_ack_proof(event_id)
+    response = client.post(
+        '/api/downloads/ack',
+        json={
+            'download_event_id': event_id,
+            'acknowledgement_proof': proof,
+        },
+        headers={'Origin': origin, 'Sec-Fetch-Site': 'same-origin'},
+    )
+    return response.status_code
+print(status(os.environ['BROWSER_ORIGIN']))
+print(status(os.environ['REJECTED_ORIGIN']))
+"""
+        cases = (
+            (
+                {"FLY_APP_NAME": "roster-scout"},
+                "https://reports.example.test:443/",
+                "https://reports.example.test",
+                "https://reports.example.test:443",
+            ),
+            (
+                {"WEB_CONCURRENCY": "2"},
+                "http://reports.internal.test:80/",
+                "http://reports.internal.test",
+                "http://reports.internal.test:80",
+            ),
+            (
+                {"WEB_CONCURRENCY": "2"},
+                "https://reports.example.test:8443/",
+                "https://reports.example.test:8443",
+                "https://reports.example.test",
+            ),
+        )
+        for runtime, configured, browser, rejected in cases:
+            environment = {
+                **runtime,
+                "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET": self._secret(),
+                "ROSTER_SCOUT_PUBLIC_ORIGIN": configured,
+            }
+            with self.subTest(configured=configured, check="startup"):
+                completed = self._run_app_process(
+                    "import app; print(app._DOWNLOAD_ACK_PUBLIC_ORIGIN)",
+                    updates=environment,
+                )
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                self.assertEqual(completed.stdout.strip(), browser)
+            with self.subTest(configured=configured, check="route"):
+                completed = self._run_app_process(
+                    route_code,
+                    updates={
+                        **environment,
+                        "BROWSER_ORIGIN": browser,
+                        "REJECTED_ORIGIN": rejected,
+                    },
+                )
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                self.assertEqual(completed.stdout.splitlines(), ["200", "403"])
 
     def test_non_fly_single_process_preserves_request_origin_fallback(self):
         code = """

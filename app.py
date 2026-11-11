@@ -109,7 +109,10 @@ def _canonical_public_origin(value: str, *, require_https: bool) -> str:
     canonical_host = hostname.lower()
     if ":" in canonical_host:
         canonical_host = f"[{canonical_host}]"
-    canonical_port = f":{port}" if port is not None else ""
+    default_port = (scheme == "https" and port == 443) or (
+        scheme == "http" and port == 80
+    )
+    canonical_port = "" if port is None or default_port else f":{port}"
     return f"{scheme}://{canonical_host}{canonical_port}"
 
 
