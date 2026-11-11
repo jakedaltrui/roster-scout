@@ -2,6 +2,7 @@
 
 import hashlib
 import logging
+import os
 import unittest
 import uuid
 from base64 import urlsafe_b64encode
@@ -658,6 +659,261 @@ class ServerSessionLifecycleTests(_PostgreSQLIdentityCase):
             "https://identity.example.test/logout",
         )
         self.assertEqual(provider.logout_calls, ["sealed-logout-secret"])
+
+
+class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
+    """Complete Flask composition contract for the Phase 2 auth boundary."""
+
+    @staticmethod
+    def _verified_identity(email="coach@example.edu"):
+        from roster_scout.identity import VerifiedIdentity
+
+        return VerifiedIdentity(
+            issuer="https://identity.example.test",
+            subject=f"subject-{email}",
+            provider_user_id=f"user-{email}",
+            email=email,
+            email_verified=True,
+            linking_approved=True,
+            sealed_session="sealed-browser-session",
+        )
+
+    def setUp(self):
+        super().setUp()
+        import app as app_module
+        from roster_scout.identity import FakeIdentityProvider
+
+        self.app_module = app_module
+        self.original_config = dict(app_module.app.config)
+        self.original_provider = app_module.app.extensions.get(
+            "roster_scout_identity_provider"
+        )
+        self.original_factory = app_module.app.extensions.get(
+            "roster_scout_auth_session_factory"
+        )
+        app_module.app.config.update(
+            TESTING=True,
+            ROSTER_SCOUT_TEST_AUTH_ENFORCEMENT=True,
+            WTF_CSRF_ENABLED=True,
+            WTF_CSRF_SSL_STRICT=False,
+        )
+        app_module.app.extensions["roster_scout_identity_provider"] = (
+            FakeIdentityProvider()
+        )
+        app_module.app.extensions["roster_scout_auth_session_factory"] = self.Session
+        self.client = app_module.app.test_client()
+
+    def tearDown(self):
+        self.app_module.app.config.clear()
+        self.app_module.app.config.update(self.original_config)
+        self.app_module.app.extensions["roster_scout_identity_provider"] = (
+            self.original_provider
+        )
+        self.app_module.app.extensions["roster_scout_auth_session_factory"] = (
+            self.original_factory
+        )
+        super().tearDown()
+
+    def _account_with_memberships(self, count):
+        from roster_scout.models import Account, Organization, OrganizationMembership
+
+        with self.Session.begin() as session:
+            account = Account(
+                normalized_email="coach@example.edu",
+                email_verified_at=self.now,
+                status="active",
+            )
+            session.add(account)
+            session.flush()
+            organizations = []
+            for index in range(count):
+                organization = Organization(name=f"University {index + 1}")
+                session.add(organization)
+                session.flush()
+                session.add(OrganizationMembership(
+                    organization_id=organization.id,
+                    account_id=account.id,
+                    role="admin" if index == 0 else "member",
+                    status="active",
+                ))
+                organizations.append(organization.id)
+            session.flush()
+            return account.id, organizations
+
+    def _credential(self):
+        from roster_scout.sessions import create_account_session
+
+        account_id, organizations = self._account_with_memberships(1)
+        with self.Session.begin() as session:
+            credential = create_account_session(
+                session,
+                account_id=account_id,
+                active_organization_id=organizations[0],
+                sealed_provider_state="sealed-local-session",
+                now=self.now,
+            )
+        return credential
+
+    def _set_cookie(self, credential):
+        from roster_scout.sessions import SESSION_COOKIE_NAME
+
+        self.client.set_cookie(SESSION_COOKIE_NAME, credential.cookie_value)
+
+    def _csrf_token(self, credential):
+        from itsdangerous import URLSafeTimedSerializer
+
+        return URLSafeTimedSerializer(
+            self.app_module.app.secret_key,
+            salt="wtf-csrf-token",
+        ).dumps(credential.csrf_secret)
+
+    def test_every_current_route_is_explicitly_public_account_only_or_protected(self):
+        routes = {
+            (rule.rule, tuple(sorted(rule.methods - {"HEAD", "OPTIONS"})))
+            for rule in self.app_module.app.url_map.iter_rules()
+        }
+        self.assertEqual(
+            routes,
+            {
+                ("/", ("GET",)),
+                ("/api/downloads/ack", ("POST",)),
+                ("/api/team-logo/<team_id>", ("GET",)),
+                ("/api/teams", ("GET",)),
+                ("/auth/callback", ("GET",)),
+                ("/auth/error", ("GET",)),
+                ("/auth/start", ("GET",)),
+                ("/demo", ("GET",)),
+                ("/healthz", ("GET",)),
+                ("/login", ("GET",)),
+                ("/logout", ("POST",)),
+                ("/organizations/none", ("GET",)),
+                ("/readyz", ("GET",)),
+                ("/scrape", ("POST",)),
+                ("/static/<path:filename>", ("GET",)),
+            },
+        )
+        self.assertEqual(
+            self.app_module._PUBLIC_ENDPOINTS,
+            frozenset({
+                "static",
+                "healthz",
+                "readyz",
+                "demo",
+                "auth.login",
+                "auth.start",
+                "auth.callback",
+                "auth.error",
+            }),
+        )
+        self.assertEqual(
+            self.app_module._ACCOUNT_ONLY_ENDPOINTS,
+            frozenset({"auth.no_membership", "auth.logout"}),
+        )
+
+    def test_unauthenticated_product_and_legacy_routes_fail_before_view_execution(self):
+        html = self.client.get("/")
+        self.assertEqual(html.status_code, 302)
+        self.assertEqual(urlsplit(html.headers["Location"]).path, "/login")
+
+        for method, path, kwargs in (
+            ("get", "/api/teams?division=d1", {}),
+            ("get", "/api/team-logo/1", {}),
+            ("post", "/scrape", {"json": {"team": "Tampa"}}),
+            ("post", "/api/downloads/ack", {"json": {}}),
+        ):
+            with self.subTest(method=method, path=path):
+                response = getattr(self.client, method)(path, **kwargs)
+                self.assertEqual(response.status_code, 401)
+                self.assertEqual(response.get_json(), {"error": "authentication_required"})
+
+        for path in ("/login", "/auth/error", "/demo", "/healthz"):
+            with self.subTest(path=path):
+                self.assertNotEqual(self.client.get(path).status_code, 302)
+
+    def test_callback_selects_only_current_local_memberships(self):
+        from roster_scout.identity import FakeIdentityProvider
+        from roster_scout.models import AccountSession
+
+        for membership_count, expected_path in (
+            (0, "/organizations/none"),
+            (1, "/reports"),
+            (2, "/organizations/select"),
+        ):
+            with self.subTest(membership_count=membership_count):
+                clean_database(self.database_url)
+                if membership_count:
+                    self._account_with_memberships(membership_count)
+                provider = FakeIdentityProvider(
+                    identities={"browser-code": self._verified_identity()}
+                )
+                self.app_module.app.extensions[
+                    "roster_scout_identity_provider"
+                ] = provider
+                client = self.app_module.app.test_client()
+                started = client.get("/auth/start")
+                state = parse_qs(
+                    urlsplit(started.headers["Location"]).query
+                )["state"][0]
+                response = client.get(
+                    "/auth/callback",
+                    query_string={"state": state, "code": "browser-code"},
+                )
+                self.assertEqual(response.status_code, 302)
+                self.assertEqual(
+                    urlsplit(response.headers["Location"]).path,
+                    expected_path,
+                )
+                with self.Session.begin() as session:
+                    row = session.scalar(select(AccountSession))
+                    self.assertEqual(
+                        row.active_organization_id is not None,
+                        membership_count == 1,
+                    )
+
+    def test_logout_requires_csrf_and_revokes_locally_when_provider_fails(self):
+        from roster_scout.identity import FakeIdentityProvider
+        from roster_scout.models import AccountSession
+
+        credential = self._credential()
+        provider = FakeIdentityProvider(
+            logout_failure=RuntimeError("provider-logout-secret")
+        )
+        self.app_module.app.extensions["roster_scout_identity_provider"] = provider
+        self._set_cookie(credential)
+
+        missing = self.client.post("/logout")
+        self.assertEqual(missing.status_code, 400)
+        with self.Session.begin() as session:
+            self.assertIsNone(session.scalar(select(AccountSession)).revoked_at)
+
+        with self.assertLogs("app", level="WARNING") as captured:
+            response = self.client.post(
+                "/logout",
+                headers={"X-CSRFToken": self._csrf_token(credential)},
+            )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(urlsplit(response.headers["Location"]).path, "/login")
+        self.assertNotIn("provider-logout-secret", " ".join(captured.output))
+        with self.Session.begin() as session:
+            self.assertIsNotNone(session.scalar(select(AccountSession)).revoked_at)
+
+    def test_shared_shell_is_accessible_and_contains_one_csrf_logout(self):
+        source = os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "templates",
+            "product_base.html",
+        )
+        with open(source, encoding="utf-8") as handle:
+            template = handle.read()
+        self.assertIn('href="#main-content"', template)
+        self.assertEqual(template.count("<main"), 1)
+        self.assertIn("{% block page_title %}", template)
+        self.assertIn("csrf_token()", template)
+        self.assertIn('action="{{ url_for(\'auth.logout\') }}"', template)
+        self.assertNotIn('type="password"', template)
+        self.assertNotIn('type="email"', template)
+        self.assertIn("static', filename='product.css'", template)
 
 
 class EnterpriseSsoAuthorizationTests(_PostgreSQLIdentityCase):

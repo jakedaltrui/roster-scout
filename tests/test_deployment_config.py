@@ -1664,6 +1664,108 @@ class RoundFourOperationsRunbookContractTests(unittest.TestCase):
         self.assertLess(focused_node, lifecycle)
 
 
+class Phase2IdentityDeploymentConfigTests(unittest.TestCase):
+    @staticmethod
+    def _secret(byte=b"s"):
+        import base64
+
+        return base64.urlsafe_b64encode(byte * 32).decode().rstrip("=")
+
+    def _run_app_process(self, code, *, updates=None):
+        environment = dict(os.environ)
+        for name in (
+            "FLY_APP_NAME",
+            "WEB_CONCURRENCY",
+            "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET",
+            "ROSTER_SCOUT_PUBLIC_ORIGIN",
+            "ROSTER_SCOUT_IDENTITY_MODE",
+            "ROSTER_SCOUT_SESSION_SECRET",
+            "WORKOS_API_KEY",
+            "WORKOS_CLIENT_ID",
+            "WORKOS_REDIRECT_URI",
+            "WORKOS_COOKIE_PASSWORD",
+        ):
+            environment.pop(name, None)
+        environment.update(updates or {})
+        return subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=PROJECT_ROOT,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+
+    def test_tracked_sources_name_identity_secrets_without_containing_values(self):
+        tracked = {
+            path: (PROJECT_ROOT / path).read_text(encoding="utf-8")
+            for path in (
+                ".env.example",
+                "DEPLOYMENT.md",
+                "fly.toml",
+                "app.py",
+                "roster_scout/auth_routes.py",
+            )
+        }
+        source = "\n".join(tracked.values())
+        for name in (
+            "ROSTER_SCOUT_SESSION_SECRET",
+            "WORKOS_API_KEY",
+            "WORKOS_CLIENT_ID",
+            "WORKOS_REDIRECT_URI",
+            "WORKOS_COOKIE_PASSWORD",
+        ):
+            self.assertIn(name, source)
+        self.assertNotRegex(source, r"sk_(?:live|test)_[A-Za-z0-9]{8,}")
+        self.assertNotRegex(source, r"client_[A-Za-z0-9]{8,}")
+        self.assertNotRegex(source, r"WORKOS_API_KEY\s*=\s*[^\s\n]+")
+        self.assertNotRegex(source, r"WORKOS_COOKIE_PASSWORD\s*=\s*[^\s\n]+")
+
+    def test_hosted_runtime_missing_identity_configuration_fails_closed(self):
+        completed = self._run_app_process(
+            "import app; print(app._AUTH_CONFIGURATION_READY)",
+            updates={
+                "FLY_APP_NAME": "roster-scout",
+                "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET": self._secret(b"a"),
+                "ROSTER_SCOUT_PUBLIC_ORIGIN": "https://roster-scout.fly.dev",
+            },
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout.strip(), "False")
+
+    def test_complete_workos_configuration_is_code_verified_without_network(self):
+        completed = self._run_app_process(
+            "import app; print(app._AUTH_CONFIGURATION_READY, app._AUTH_VERIFICATION_STATUS)",
+            updates={
+                "FLY_APP_NAME": "roster-scout",
+                "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET": self._secret(b"a"),
+                "ROSTER_SCOUT_PUBLIC_ORIGIN": "https://roster-scout.fly.dev",
+                "ROSTER_SCOUT_IDENTITY_MODE": "workos",
+                "ROSTER_SCOUT_SESSION_SECRET": self._secret(b"b"),
+                "WORKOS_API_KEY": "synthetic-api-key",
+                "WORKOS_CLIENT_ID": "synthetic-client-id",
+                "WORKOS_REDIRECT_URI": "https://roster-scout.fly.dev/auth/callback",
+                "WORKOS_COOKIE_PASSWORD": self._secret(b"c"),
+            },
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout.strip(), "True code_verified")
+
+    def test_runbook_separates_code_and_live_auth_verification(self):
+        runbook = (PROJECT_ROOT / "DEPLOYMENT.md").read_text(encoding="utf-8")
+        self.assertIn("code_verified", runbook)
+        self.assertIn("production_auth_verified", runbook)
+        self.assertIn("WorkOS workspace", runbook)
+        self.assertIn("billing", runbook)
+        self.assertIn("redirect", runbook)
+        self.assertIn("passwordless email", runbook)
+        self.assertIn("Google", runbook)
+        self.assertIn("Microsoft", runbook)
+        self.assertIn("OIDC", runbook)
+        self.assertIn("SAML", runbook)
+
+
 @dataclass(frozen=True)
 class _DrainResult:
     claimed: int = 0
