@@ -74,7 +74,7 @@ NCAA_HEADERS = {
     "Upgrade-Insecure-Requests": "1",
 }
 
-_NCAA_CACHE_VERSION = 2
+_NCAA_CACHE_VERSION = 3
 _NCAA_CACHE_LOCK = threading.Lock()
 _NCAA_BROWSER_LOCK = threading.Lock()
 _NCAA_TEAM_ROWS = None
@@ -1089,6 +1089,28 @@ def _cache_fresh(path: Path, ttl_seconds: int) -> bool:
         return False
 
 
+def _ncaa_result_cache_contract() -> dict:
+    return {
+        "cache_version": _NCAA_CACHE_VERSION,
+        "parser_version": NCAA_PARSER_VERSION,
+        "core_header_contract_version": NCAA_CORE_HEADER_CONTRACT_VERSION,
+        "schema_version": NCAA_SCHEMA_VERSION,
+    }
+
+
+def _ncaa_result_cache_key(team: dict, year: int) -> str:
+    contract = _ncaa_result_cache_contract()
+    parts = (
+        _NCAA_CACHE_VERSION,
+        year,
+        team["season_team_id"],
+        contract["parser_version"],
+        contract["core_header_contract_version"],
+        contract["schema_version"],
+    )
+    return "ncaa-result:" + json.dumps(parts, separators=(",", ":"))
+
+
 def _read_json_cache(key: str, ttl_seconds: int):
     digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
     path = _ncaa_cache_dir() / f"result-{digest}.json"
@@ -1098,7 +1120,10 @@ def _read_json_cache(key: str, ttl_seconds: int):
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
-    if payload.get("cache_version") != _NCAA_CACHE_VERSION:
+    contract = _ncaa_result_cache_contract()
+    if not isinstance(payload, dict) or any(
+        payload.get(field) != expected for field, expected in contract.items()
+    ):
         return None
     return payload
 
@@ -1107,7 +1132,7 @@ def _write_json_cache(key: str, payload: dict) -> None:
     digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
     path = _ncaa_cache_dir() / f"result-{digest}.json"
     body = dict(payload)
-    body["cache_version"] = _NCAA_CACHE_VERSION
+    body.update(_ncaa_result_cache_contract())
     body["cached_at"] = datetime.now().isoformat(timespec="seconds")
     _atomic_write(path, json.dumps(body, separators=(",", ":")))
 
@@ -2410,7 +2435,7 @@ def _scrape_ncaa_team_locked(team: dict, year: int, force_refresh: bool = False)
     """Scrape one already-resolved NCAA catalog row."""
     label = team["team_name"]
     season_team_id = team["season_team_id"]
-    cache_key = f"ncaa:{year}:{season_team_id}"
+    cache_key = _ncaa_result_cache_key(team, year)
     ttl = int(os.environ.get("NCAA_RESULT_CACHE_TTL_SECONDS", "21600"))
 
     if not force_refresh:
