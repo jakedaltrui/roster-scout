@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import logging
+import io
+import importlib
+import os
 import unittest
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -554,4 +557,311 @@ class NoDomainAutoJoinTests(_PostgreSQLOrganizationCase):
                     )
                 )
             )
+
+
+class OrganizationBootstrapCliTests(_PostgreSQLOrganizationCase):
+    def test_cli_bootstrap_is_idempotent_and_prints_only_fixed_output(self):
+        from roster_scout.identity import FakeIdentityProvider
+        from roster_scout.models import Organization, OrganizationInvitation
+
+        provision = importlib.import_module("scripts.provision_organization")
+        provider = FakeIdentityProvider()
+        for _ in range(2):
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            result = provision.main(
+                [
+                    "--name",
+                    "Example University Baseball",
+                    "--admin-email",
+                    "Admin@Example.EDU",
+                ],
+                session_factory=self.Session,
+                provider=provider,
+                stdout=stdout,
+                stderr=stderr,
+            )
+            self.assertEqual(result, 0)
+            self.assertEqual(stdout.getvalue(), "organization provisioned\n")
+            self.assertEqual(stderr.getvalue(), "")
+            self.assertNotIn("admin@example.edu", stdout.getvalue().casefold())
+            self.assertNotIn("provider", stdout.getvalue().casefold())
+
+        with self.Session.begin() as session:
+            self.assertEqual(session.query(Organization).count(), 1)
+            self.assertEqual(session.query(OrganizationInvitation).count(), 1)
+        self.assertEqual(len(provider.organization_calls), 1)
+        self.assertEqual(len(provider.invitation_calls), 1)
+
+    def test_cli_errors_are_fixed_and_do_not_echo_operator_input(self):
+        provision = importlib.import_module("scripts.provision_organization")
+        secret = "private-admin@example.edu"
+        stderr = io.StringIO()
+        result = provision.main(
+            ["--name", "", "--admin-email", secret],
+            session_factory=self.Session,
+            stdout=io.StringIO(),
+            stderr=stderr,
+        )
+        self.assertEqual(result, 2)
+        self.assertEqual(stderr.getvalue(), "organization provisioning invalid arguments\n")
+        self.assertNotIn(secret, stderr.getvalue())
+
+
+class OrganizationInvitationRouteTests(_PostgreSQLOrganizationCase):
+    def setUp(self):
+        super().setUp()
+        import app as app_module
+        from roster_scout.identity import FakeIdentityProvider
+
+        self.app_module = app_module
+        self.original_config = dict(app_module.app.config)
+        self.original_provider = app_module.app.extensions.get(
+            "roster_scout_identity_provider"
+        )
+        self.original_factory = app_module.app.extensions.get(
+            "roster_scout_auth_session_factory"
+        )
+        app_module.app.config.update(
+            TESTING=True,
+            ROSTER_SCOUT_TEST_AUTH_ENFORCEMENT=True,
+            WTF_CSRF_ENABLED=True,
+            WTF_CSRF_SSL_STRICT=False,
+        )
+        app_module.app.extensions["roster_scout_identity_provider"] = (
+            FakeIdentityProvider()
+        )
+        app_module.app.extensions["roster_scout_auth_session_factory"] = self.Session
+        self.client = app_module.app.test_client()
+
+    def tearDown(self):
+        self.app_module.app.config.clear()
+        self.app_module.app.config.update(self.original_config)
+        self.app_module.app.extensions["roster_scout_identity_provider"] = (
+            self.original_provider
+        )
+        self.app_module.app.extensions["roster_scout_auth_session_factory"] = (
+            self.original_factory
+        )
+        super().tearDown()
+
+    def _credential(self, *, email, role="admin", organization_name="Example Baseball"):
+        from roster_scout.models import Account, Organization, OrganizationMembership
+        from roster_scout.sessions import create_account_session
+
+        with self.Session.begin() as session:
+            organization = Organization(name=organization_name)
+            account = Account(
+                normalized_email=email,
+                email_verified_at=self.now,
+                status="active",
+            )
+            session.add_all((organization, account))
+            session.flush()
+            session.add(OrganizationMembership(
+                organization_id=organization.id,
+                account_id=account.id,
+                role=role,
+                status="active",
+            ))
+            session.flush()
+            credential = create_account_session(
+                session,
+                account_id=account.id,
+                active_organization_id=organization.id,
+                sealed_provider_state="sealed-organization-session",
+                now=self.now,
+            )
+            return credential, organization.id, account.id
+
+    def _set_cookie(self, credential):
+        from roster_scout.sessions import SESSION_COOKIE_NAME
+
+        self.client.set_cookie(SESSION_COOKIE_NAME, credential.cookie_value)
+
+    def _csrf_token(self, credential):
+        from itsdangerous import URLSafeTimedSerializer
+
+        return URLSafeTimedSerializer(
+            self.app_module.app.secret_key,
+            salt="wtf-csrf-token",
+        ).dumps(credential.csrf_secret)
+
+    def test_admin_members_page_and_invitation_forms_are_accessible(self):
+        credential, _, _ = self._credential(email="admin@example.edu")
+        self._set_cookie(credential)
+        response = self.client.get("/organization/members")
+        body = response.get_data(as_text=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Manage who can access Example Baseball", body)
+        self.assertIn("Any valid email address can be invited", body)
+        self.assertIn('name="email"', body)
+        self.assertIn('name="role"', body)
+        self.assertIn("Active members (1)", body)
+        self.assertIn("Pending invitations (0)", body)
+        self.assertIn("<table", body)
+        self.assertIn('class="member-cards"', body)
+        self.assertNotIn(str(credential.account_id), body)
+
+    def test_member_direct_request_gets_fixed_permission_page_without_data(self):
+        credential, organization_id, _ = self._credential(
+            email="member@example.edu", role="member"
+        )
+        with self.Session.begin() as session:
+            from roster_scout.models import OrganizationInvitation
+
+            invitation = OrganizationInvitation(
+                organization_id=organization_id,
+                normalized_email="private-invite@example.edu",
+                role="member",
+                status="pending",
+                expires_at=self.now + timedelta(days=7),
+            )
+            session.add(invitation)
+        self._set_cookie(credential)
+        response = self.client.get("/organization/members")
+        body = response.get_data(as_text=True)
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("You don’t have permission to manage members.", body)
+        self.assertNotIn("private-invite@example.edu", body)
+        self.assertNotIn(str(organization_id), body)
+
+    def test_invite_and_revoke_require_csrf_and_server_derived_admin(self):
+        credential, _, _ = self._credential(email="admin@example.edu")
+        self._set_cookie(credential)
+        missing_csrf = self.client.post(
+            "/organization/invitations",
+            data={"email": "coach@example.edu", "role": "member"},
+        )
+        self.assertEqual(missing_csrf.status_code, 400)
+
+        created = self.client.post(
+            "/organization/invitations",
+            data={
+                "csrf_token": self._csrf_token(credential),
+                "email": "coach@example.edu",
+                "role": "member",
+            },
+        )
+        self.assertEqual(created.status_code, 201)
+        body = created.get_data(as_text=True)
+        self.assertIn("Invitation sent to coach@example.edu", body)
+        self.assertNotIn("provider-invite", body)
+
+        from roster_scout.models import OrganizationInvitation
+
+        with self.Session.begin() as session:
+            invitation = session.scalar(select(OrganizationInvitation))
+            invitation_id = invitation.id
+        revoked = self.client.post(
+            f"/organization/invitations/{invitation_id}/revoke",
+            data={"csrf_token": self._csrf_token(credential)},
+        )
+        self.assertEqual(revoked.status_code, 200)
+        self.assertIn("Invitation revoked.", revoked.get_data(as_text=True))
+
+    def test_invalid_form_focuses_fixed_summary_without_echoing_secrets(self):
+        credential, _, _ = self._credential(email="admin@example.edu")
+        self._set_cookie(credential)
+        secret = "provider-token-do-not-log"
+        response = self.client.post(
+            "/organization/invitations",
+            data={
+                "csrf_token": self._csrf_token(credential),
+                "email": secret,
+                "role": "owner",
+            },
+        )
+        body = response.get_data(as_text=True)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('id="form-errors"', body)
+        self.assertIn('tabindex="-1"', body)
+        self.assertIn("Check the invitation details and try again.", body)
+        self.assertNotIn(secret, body)
+
+    def test_acceptance_uses_account_context_and_fixed_outcomes(self):
+        from roster_scout.models import OrganizationInvitation, OrganizationMembership
+        from roster_scout.organizations import create_invitation
+
+        admin_credential, organization_id, admin_id = self._credential(
+            email="admin@example.edu"
+        )
+        invitee_credential, _, invitee_id = self._credential(
+            email="coach@example.edu",
+            role="member",
+            organization_name="Unrelated Baseball",
+        )
+        with self.Session.begin() as session:
+            invitation = create_invitation(
+                session,
+                organization_id=organization_id,
+                actor_account_id=admin_id,
+                email="coach@example.edu",
+                role="member",
+                now=self.now,
+            )
+            invitation_id = invitation.id
+
+        self._set_cookie(invitee_credential)
+        accepted = self.client.post(
+            f"/invitations/{invitation_id}/accept",
+            data={"csrf_token": self._csrf_token(invitee_credential)},
+        )
+        body = accepted.get_data(as_text=True)
+        self.assertEqual(accepted.status_code, 200)
+        self.assertIn("You joined Example Baseball", body)
+        self.assertIn("Open reports", body)
+        with self.Session.begin() as session:
+            self.assertIsNotNone(session.scalar(select(OrganizationMembership).where(
+                OrganizationMembership.organization_id == organization_id,
+                OrganizationMembership.account_id == invitee_id,
+            )))
+
+        self.client = self.app_module.app.test_client()
+        wrong_credential, _, _ = self._credential(
+            email="other@example.edu",
+            organization_name="Other Baseball",
+        )
+        self._set_cookie(wrong_credential)
+        unavailable = self.client.post(
+            f"/invitations/{invitation_id}/accept",
+            data={"csrf_token": self._csrf_token(wrong_credential)},
+        )
+        unavailable_body = unavailable.get_data(as_text=True)
+        self.assertEqual(unavailable.status_code, 409)
+        self.assertIn("This invitation is no longer available", unavailable_body)
+        self.assertNotIn("coach@example.edu", unavailable_body)
+        self.assertNotIn("Example Baseball", unavailable_body)
+
+    def test_provider_failure_keeps_pending_invite_and_returns_fixed_copy(self):
+        from roster_scout.identity import FakeIdentityProvider
+        from roster_scout.models import OrganizationInvitation
+
+        credential, _, _ = self._credential(email="admin@example.edu")
+        self.app_module.app.extensions["roster_scout_identity_provider"] = (
+            FakeIdentityProvider(invitation_failure=RuntimeError("provider-secret"))
+        )
+        self._set_cookie(credential)
+        response = self.client.post(
+            "/organization/invitations",
+            data={
+                "csrf_token": self._csrf_token(credential),
+                "email": "coach@example.edu",
+                "role": "member",
+            },
+        )
+        body = response.get_data(as_text=True)
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("Invitation sign-in is temporarily unavailable", body)
+        self.assertIn("The invitation has not been used.", body)
+        self.assertNotIn("provider-secret", body)
+        with self.Session.begin() as session:
+            invitation = session.scalar(select(OrganizationInvitation))
+            self.assertEqual(invitation.status, "pending")
+            self.assertIsNone(invitation.provider_invitation_id)
+
+    def test_no_public_organization_create_route_exists(self):
+        routes = {rule.rule for rule in self.app_module.app.url_map.iter_rules()}
+        self.assertNotIn("/organizations", routes)
+        self.assertNotIn("/organization/create", routes)
 
