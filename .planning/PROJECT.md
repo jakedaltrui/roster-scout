@@ -30,13 +30,14 @@ A baseball staff can reliably turn fragmented opponent data into a trustworthy, 
 - ✓ Successful NCAA results are normalized, cached, and split into hitter and pitcher records, including two-way-player handling — existing
 - ✓ Users can download an in-memory, school-branded Excel workbook with Hitters and Pitchers worksheets — existing
 - ✓ The request path applies bounded input validation, per-client rate limits, browser-capacity protection, and consistent error responses — existing
+- ✓ Durable jobs publish immutable organization-owned snapshots with section status, provenance, source identifiers, collection times, and canonical player identity — Phase 1
+- ✓ Published snapshot facts provide one versioned canonical boundary for downstream Excel and Power BI consumers without duplicating source truth — Phase 1
 
 ### Active
 
 - [ ] Customers authenticate before using Roster Scout and access reports only through explicit organization membership
 - [ ] Organization administrators can invite members without relying on an `.edu` domain as authorization
 - [ ] Reports are saved as immutable organization-owned snapshots and an explicit refresh creates a linked successor snapshot
-- [ ] NCAA records preserve player IDs, team/season IDs, source URLs, collection timestamps, and data-quality provenance
 - [ ] Reports include expanded batting, pitching, fielding, derived, split, career, and game-log statistics
 - [ ] One canonical analytics model supplies both the formatted Excel workbook and the embedded Power BI report
 - [ ] Customers can review an opponent-branded embedded dashboard and download the corresponding complete Excel snapshot
@@ -53,7 +54,7 @@ A baseball staff can reliably turn fragmented opponent data into a trustworthy, 
 
 ## Context
 
-- The current public UI presents a current-season NCAA selector and immediately downloads an Excel file; there are no users, organizations, report records, database-backed snapshots, or dashboards.
+- The current public UI still presents a current-season NCAA selector and immediate Excel download. Phase 1 added durable report jobs and organization-owned canonical snapshots behind that compatibility surface; customer accounts, report-library workflows, and dashboards remain for later phases.
 - NCAA places the live statistics boundary behind terms acceptance and Akamai verification. The existing Browserless sticky residential workflow is proven for representative D1, D2, and D3 teams and must remain the acquisition path until a safer official alternative exists.
 - The current normalizer extracts NCAA player IDs to merge batting and pitching rows, then discards those IDs from the public record. It also parses several raw values needed for advanced metrics without retaining all of them in workbook output.
 - Power BI customer embedding uses the app-owns-data model. End users do not need Power BI licenses, but production embedding requires paid Embedded, Premium, or Fabric capacity plus an embedding identity and Power BI workspace.
@@ -82,8 +83,8 @@ A baseball staff can reliably turn fragmented opponent data into a trustworthy, 
 | Model customers as organizations with shared reports | Coaching and scouting staffs collaborate on the same opponents | — Pending |
 | Use explicit invitations for organization membership | School email domains are useful hints but insufficient authorization evidence | — Pending |
 | Support passwordless email and federated school/work identities | Customers may use `.edu`, athletics, vendor, or personal addresses across Microsoft and Google ecosystems | — Pending |
-| Preserve report snapshots and make refresh create a linked new version | Teams may prepare for the same opponent on consecutive days and need the original evidence | — Pending |
-| Use one canonical analytics model for Excel and Power BI | Shared definitions prevent conflicting metrics and make verification practical | — Pending |
+| Preserve report snapshots and make refresh create a linked new version | Teams may prepare for the same opponent on consecutive days and need the original evidence | ✓ Phase 1 established immutable predecessor-aware snapshots; Phase 2 adds the customer refresh workflow |
+| Use one canonical analytics model for Excel and Power BI | Shared definitions prevent conflicting metrics and make verification practical | ✓ Phase 1 established the published canonical fact boundary; Phases 3–5 add detailed consumers |
 | Keep the proven Python/Browserless acquisition layer | The prior live `baseballr` runtime experiment was invalidated by NCAA verification | ✓ Good |
 
 ## Evolution
@@ -104,4 +105,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-01 after v2.0 Opponent Intelligence initialization*
+*Last updated: 2026-11-11 after Phase 1 completion*
