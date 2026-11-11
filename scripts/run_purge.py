@@ -68,7 +68,7 @@ def run_purge(
     next_run_at = monotonic()
     while not stop_event.is_set() or cycles == 0:
         try:
-            purge(session_factory)
+            result = purge(session_factory)
         except Exception:
             # Exception text can contain database URLs or retained evidence.
             logger.error("evidence_purge health=degraded")
@@ -77,14 +77,27 @@ def run_purge(
                 PURGE_FAILURE_RETRY_SECONDS,
             )
         else:
-            persisted = readiness(session_factory)
-            logger.info(
-                "evidence_purge health=%s purged=%d expired=%d",
-                persisted.status,
-                persisted.last_purged_count,
-                persisted.expired_bytes_count,
-            )
-            delay = config.interval.total_seconds()
+            # Integer results are accepted for compatibility with older injected
+            # purge callables; production returns EvidencePurgeResult.
+            if not getattr(result, "complete", True):
+                logger.info(
+                    "evidence_purge health=incomplete purged=%d outstanding=%d",
+                    int(getattr(result, "purged_count", 0)),
+                    int(getattr(result, "outstanding_count", 0)),
+                )
+                delay = min(
+                    config.interval.total_seconds(),
+                    PURGE_FAILURE_RETRY_SECONDS,
+                )
+            else:
+                persisted = readiness(session_factory)
+                logger.info(
+                    "evidence_purge health=%s purged=%d expired=%d",
+                    persisted.status,
+                    persisted.last_purged_count,
+                    persisted.expired_bytes_count,
+                )
+                delay = config.interval.total_seconds()
 
         cycles += 1
         if stop_event.is_set() or (
