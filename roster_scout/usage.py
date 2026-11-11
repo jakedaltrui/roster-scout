@@ -197,7 +197,10 @@ def query_usage_metrics(
         .filter(ProductUsageEvent.event_type == WORKBOOK_DOWNLOAD_SERVED)
         .label("successful_workbook_downloads"),
         func.count(func.distinct(ProductUsageEvent.actor_account_id))
-        .filter(ProductUsageEvent.actor_account_id.is_not(None))
+        .filter(
+            ProductUsageEvent.event_type == AUTHENTICATED_USE,
+            ProductUsageEvent.actor_account_id.is_not(None),
+        )
         .label("unique_authenticated_users"),
     ).where(
         ProductUsageEvent.occurred_at >= start,
