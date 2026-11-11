@@ -1278,10 +1278,16 @@
       }
     });
 
-    const { createDownloadTracker, runDownloadSubmission } =
+    const { createSafeStorage, createDownloadTracker, runDownloadSubmission } =
       window.RosterScoutDownloadTracking;
+    let browserSessionStorage = null;
+    try {
+      browserSessionStorage = window.sessionStorage;
+    } catch (_error) {
+      // Storage can be disabled by browser policy; page-memory fallback remains usable.
+    }
     const downloadTracker = createDownloadTracker({
-      storage: sessionStorage,
+      storage: createSafeStorage(browserSessionStorage),
       uuidFactory: () => crypto.randomUUID(),
       now: () => Date.now(),
     });

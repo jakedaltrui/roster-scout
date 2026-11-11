@@ -27,26 +27,86 @@
       && !/[^\x20-\x7e]/.test(value);
   }
 
-  function createDownloadTracker({ storage, uuidFactory, now = Date.now } = {}) {
-    if (!storage || typeof storage.getItem !== "function"
-        || typeof storage.setItem !== "function"
-        || typeof storage.removeItem !== "function") {
-      throw new TypeError("A session storage interface is required.");
+  function createSafeStorage(storageCandidate) {
+    const shadow = new Map();
+    let useShadowOnly = false;
+
+    function shadowGet(key) {
+      return shadow.has(key) ? shadow.get(key) : null;
     }
+
+    return {
+      getItem(key) {
+        const normalizedKey = String(key);
+        if (useShadowOnly) return shadowGet(normalizedKey);
+        try {
+          const method = storageCandidate && storageCandidate.getItem;
+          if (typeof method !== "function") throw new TypeError("Storage getItem is unavailable.");
+          const value = method.call(storageCandidate, normalizedKey);
+          if (value === null) {
+            shadow.delete(normalizedKey);
+            return null;
+          }
+          const normalizedValue = String(value);
+          shadow.set(normalizedKey, normalizedValue);
+          return normalizedValue;
+        } catch (_error) {
+          useShadowOnly = true;
+          return shadowGet(normalizedKey);
+        }
+      },
+
+      setItem(key, value) {
+        const normalizedKey = String(key);
+        const normalizedValue = String(value);
+        if (!useShadowOnly) {
+          try {
+            const method = storageCandidate && storageCandidate.setItem;
+            if (typeof method !== "function") throw new TypeError("Storage setItem is unavailable.");
+            method.call(storageCandidate, normalizedKey, normalizedValue);
+            shadow.set(normalizedKey, normalizedValue);
+            return;
+          } catch (_error) {
+            useShadowOnly = true;
+          }
+        }
+        shadow.set(normalizedKey, normalizedValue);
+      },
+
+      removeItem(key) {
+        const normalizedKey = String(key);
+        if (!useShadowOnly) {
+          try {
+            const method = storageCandidate && storageCandidate.removeItem;
+            if (typeof method !== "function") throw new TypeError("Storage removeItem is unavailable.");
+            method.call(storageCandidate, normalizedKey);
+            shadow.delete(normalizedKey);
+            return;
+          } catch (_error) {
+            useShadowOnly = true;
+          }
+        }
+        shadow.delete(normalizedKey);
+      },
+    };
+  }
+
+  function createDownloadTracker({ storage, uuidFactory, now = Date.now } = {}) {
     if (typeof uuidFactory !== "function" || typeof now !== "function") {
       throw new TypeError("UUID and time providers are required.");
     }
+    const safeStorage = createSafeStorage(storage);
 
     function discard() {
-      storage.removeItem(STORAGE_KEY);
+      safeStorage.removeItem(STORAGE_KEY);
     }
 
     function save(record) {
-      storage.setItem(STORAGE_KEY, JSON.stringify(record));
+      safeStorage.setItem(STORAGE_KEY, JSON.stringify(record));
     }
 
     function load() {
-      const serialized = storage.getItem(STORAGE_KEY);
+      const serialized = safeStorage.getItem(STORAGE_KEY);
       if (serialized === null) return null;
 
       let record;
@@ -242,6 +302,7 @@
   return {
     PROOF_TTL_MS,
     STORAGE_KEY,
+    createSafeStorage,
     createDownloadTracker,
     runDownloadSubmission,
   };
