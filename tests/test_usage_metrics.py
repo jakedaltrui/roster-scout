@@ -4,6 +4,9 @@ import unittest
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from io import StringIO
+from unittest.mock import patch
+import json
 
 from alembic import command
 from sqlalchemy import create_engine, inspect, text
@@ -373,6 +376,177 @@ class UsageServiceTests(unittest.TestCase):
                     start=datetime(2026, 1, 2, tzinfo=UTC),
                     end=datetime(2026, 1, 1, tzinfo=UTC),
                 )
+
+
+class UsageReportCliTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.database_url = require_test_database_url()
+        upgrade_database(cls.database_url)
+        from roster_scout.database import create_session_factory, get_engine
+
+        cls.engine = get_engine(cls.database_url)
+        cls.Session = create_session_factory(cls.engine)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.engine.dispose()
+
+    def setUp(self):
+        clean_database(self.database_url)
+
+    def _run(self, arguments, *, environ=None):
+        from scripts import report_usage
+
+        stdout = StringIO()
+        stderr = StringIO()
+        status = report_usage.main(
+            arguments,
+            environ={
+                "DATABASE_URL": self.database_url,
+                **(environ or {}),
+            },
+            stdout=stdout,
+            stderr=stderr,
+        )
+        return status, stdout.getvalue(), stderr.getvalue()
+
+    def test_global_and_tenant_reports_return_only_aggregate_contract(self):
+        from roster_scout.models import Organization
+        from roster_scout.usage import (
+            record_authenticated_report_request_accepted,
+            record_workbook_download_served,
+        )
+
+        start = datetime(2026, 4, 1, tzinfo=UTC)
+        end = start + timedelta(days=1)
+        with self.Session.begin() as session:
+            organization = Organization(name="CLI Org")
+            session.add(organization)
+            session.flush()
+            organization_id = organization.id
+            actor_id = uuid.uuid4()
+            record_authenticated_report_request_accepted(
+                session,
+                event_key=str(uuid.uuid4()),
+                actor_account_id=actor_id,
+                organization_id=organization_id,
+                occurred_at=start,
+            )
+            record_workbook_download_served(
+                session,
+                event_key=str(uuid.uuid4()),
+                actor_account_id=actor_id,
+                organization_id=organization_id,
+                occurred_at=start,
+            )
+            record_workbook_download_served(
+                session,
+                event_key=str(uuid.uuid4()),
+                occurred_at=start,
+            )
+        arguments = [
+            "--from",
+            "2026-04-01T00:00:00Z",
+            "--to",
+            "2026-04-02T00:00:00Z",
+        ]
+        status, stdout, stderr = self._run(arguments)
+        self.assertEqual(status, 0)
+        self.assertEqual(stderr, "")
+        self.assertEqual(
+            json.loads(stdout),
+            {
+                "window_start": "2026-04-01T00:00:00Z",
+                "window_end": "2026-04-02T00:00:00Z",
+                "unique_authenticated_users": 1,
+                "successful_workbook_downloads": 2,
+            },
+        )
+        status, stdout, stderr = self._run(
+            arguments + ["--organization-id", str(organization_id)]
+        )
+        self.assertEqual(status, 0)
+        self.assertEqual(stderr, "")
+        self.assertEqual(
+            json.loads(stdout),
+            {
+                "window_start": "2026-04-01T00:00:00Z",
+                "window_end": "2026-04-02T00:00:00Z",
+                "organization_id": str(organization_id),
+                "unique_authenticated_users": 1,
+                "successful_workbook_downloads": 1,
+            },
+        )
+
+    def test_pre_auth_downloads_report_zero_unique_users(self):
+        from roster_scout.usage import record_workbook_download_served
+
+        start = datetime(2026, 5, 1, tzinfo=UTC)
+        with self.Session.begin() as session:
+            record_workbook_download_served(
+                session,
+                event_key=str(uuid.uuid4()),
+                occurred_at=start,
+            )
+        status, stdout, stderr = self._run(
+            [
+                "--from",
+                "2026-05-01T00:00:00Z",
+                "--to",
+                "2026-05-02T00:00:00Z",
+            ]
+        )
+        self.assertEqual(status, 0)
+        self.assertEqual(stderr, "")
+        payload = json.loads(stdout)
+        self.assertEqual(payload["successful_workbook_downloads"], 1)
+        self.assertEqual(payload["unique_authenticated_users"], 0)
+
+    def test_invalid_arguments_and_runtime_errors_are_sanitized(self):
+        status, stdout, stderr = self._run(
+            ["--from", "email@example.com", "--to", "not-a-time"]
+        )
+        self.assertEqual(status, 2)
+        self.assertEqual(stdout, "")
+        self.assertEqual(stderr, "usage report invalid arguments\n")
+
+        from scripts import report_usage
+
+        with patch.object(
+            report_usage,
+            "_runtime_dependencies",
+            side_effect=RuntimeError(
+                "postgresql://private-user:secret@private-host/customer"
+            ),
+        ):
+            status, stdout, stderr = self._run(
+                [
+                    "--from",
+                    "2026-05-01T00:00:00Z",
+                    "--to",
+                    "2026-05-02T00:00:00Z",
+                ]
+            )
+        self.assertEqual(status, 1)
+        self.assertEqual(stdout, "")
+        self.assertEqual(stderr, "usage report unavailable\n")
+        self.assertNotIn("private-user", stderr)
+        self.assertNotIn("secret", stderr)
+
+    def test_help_defines_phase_two_contract_and_forbids_fallback_ids(self):
+        from scripts.report_usage import build_parser
+
+        help_text = " ".join(build_parser().format_help().split())
+        for required in (
+            "authorized report/job request is accepted",
+            "accepted ReportJob UUID",
+            "canonical account and organization UUIDs",
+            "page views do not qualify",
+            "Email, IP, cookie, user-agent",
+            "pseudonymous IDs are forbidden",
+        ):
+            self.assertIn(required, help_text)
 
 
 if __name__ == "__main__":
