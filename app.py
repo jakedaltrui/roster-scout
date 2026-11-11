@@ -9,6 +9,7 @@ import io
 import logging
 import os
 import re
+import uuid
 from datetime import date
 from functools import lru_cache
 
@@ -26,6 +27,7 @@ from roster_scout.evidence import (
     get_evidence_purge_readiness,
     get_failure_evidence_retention,
 )
+from roster_scout.usage import record_workbook_download_served
 from roster_scraper import (
     HITTER_HEADERS,
     PITCHER_HEADERS,
@@ -146,6 +148,23 @@ def _evidence_purge_session_factory():
     return create_session_factory(get_engine())
 
 
+@lru_cache(maxsize=1)
+def _usage_session_factory():
+    """Construct usage persistence lazily for successful workbook responses."""
+    return create_session_factory(get_engine())
+
+
+def _record_workbook_download(event_key):
+    """Commit one anonymous, idempotent workbook-download event."""
+    with _usage_session_factory().begin() as session:
+        record_workbook_download_served(
+            session,
+            event_key=event_key,
+            actor_account_id=None,
+            organization_id=None,
+        )
+
+
 @app.route("/readyz")
 def readyz():
     """Fail closed until persisted failure-evidence purge health is ready."""
@@ -247,6 +266,18 @@ def scrape():
         season_team_id = _string_field(body, "season_team_id", max_length=12)
         _string_field(body, "team_id", max_length=12)
         _string_field(body, "display_name", max_length=_MAX_TEAM_LENGTH)
+        if "download_event_id" in body and body["download_event_id"] is not None:
+            download_event_id = _string_field(
+                body,
+                "download_event_id",
+                max_length=36,
+            )
+            try:
+                download_event_id = str(uuid.UUID(download_event_id))
+            except (ValueError, AttributeError) as exc:
+                raise ValueError("'download_event_id' must be a UUID.") from exc
+        else:
+            download_event_id = str(uuid.uuid4())
     except ValueError as exc:
         return _json_error(str(exc), 400)
 
@@ -307,6 +338,13 @@ def scrape():
         response.headers["X-Roster-Scout-Players"] = str(len(rows))
         response.headers["X-Roster-Scout-Hitters"] = str(len(hitters))
         response.headers["X-Roster-Scout-Pitchers"] = str(len(pitchers))
+        try:
+            _record_workbook_download(download_event_id)
+        except Exception:
+            return _json_error(
+                "Roster Scout could not record that download. Please try again.",
+                503,
+            )
         return response
 
     except BrowserCapacityError as exc:

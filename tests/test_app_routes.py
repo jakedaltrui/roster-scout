@@ -365,6 +365,9 @@ class AppRouteTests(unittest.TestCase):
         self.addCleanup(env.stop)
         app_module.app.config.update(TESTING=True)
         self.client = app_module.app.test_client()
+        usage = patch.object(app_module, "_record_workbook_download")
+        usage.start()
+        self.addCleanup(usage.stop)
 
     def assert_excel_download(self, response, team_name):
         self.assertEqual(response.status_code, 200)
