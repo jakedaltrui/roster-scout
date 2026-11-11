@@ -10,18 +10,18 @@
 - [x] **AUTH-01**: A visitor must authenticate before accessing team search, report creation, report history, dashboards, exports, or refresh actions.
 - [x] **AUTH-02**: A user can sign in without a password through an emailed single-use code or magic link with bounded expiry and request throttling.
 - [x] **AUTH-03**: A user can sign in through Microsoft or Google federation while retaining the same Roster Scout account and organization memberships.
-- [ ] **AUTH-04**: An organization can use an approved OIDC or SAML SSO connection without changing report ownership or authorization rules.
+- [x] **AUTH-04**: An organization can use an approved OIDC or SAML SSO connection without changing report ownership or authorization rules.
 - [x] **AUTH-05**: A user session persists across ordinary browser refreshes and can be explicitly terminated through logout.
 
 ### Organizations
 
-- [ ] **ORG-01**: Every report, snapshot, artifact, job, and invitation belongs to exactly one organization.
+- [x] **ORG-01**: Every report, snapshot, artifact, job, and invitation belongs to exactly one organization.
 - [ ] **ORG-02**: An organization administrator can invite a user at any valid email address; an `.edu` domain is not required.
 - [ ] **ORG-03**: Accepting an invitation grants membership only in the inviting organization.
-- [ ] **ORG-04**: Organization roles distinguish administrators who manage membership from members who create and review reports.
+- [x] **ORG-04**: Organization roles distinguish administrators who manage membership from members who create and review reports.
 - [ ] **ORG-05**: An organization administrator can view pending invitations, revoke invitations, and remove members.
 - [ ] **ORG-06**: All active organization members can review the organization's report library and the snapshots they are authorized to access.
-- [ ] **ORG-07**: Email-domain matching may suggest an organization but can never grant membership automatically.
+- [x] **ORG-07**: Email-domain matching may suggest an organization but can never grant membership automatically.
 
 ### Snapshot Foundation
 
@@ -104,7 +104,7 @@
 - [ ] **SECU-02**: Authorization checks derive organization context from the authenticated membership, never from an untrusted request field alone.
 - [x] **SECU-03**: Passwordless, invitation, session, Power BI, and service-principal secrets or tokens never appear in application logs.
 - [ ] **SECU-04**: Security-relevant membership, report, refresh, export, and embed-token events are auditable by actor, organization, target, and time without recording secret material.
-- [ ] **SECU-05**: External failures from NCAA, Browserless, identity, object storage, database, and Power BI produce distinct sanitized operational states.
+- [x] **SECU-05**: External failures from NCAA, Browserless, identity, object storage, database, and Power BI produce distinct sanitized operational states.
 - [ ] **SECU-06**: Production readiness includes automated cross-organization denial tests and a manual two-organization Power BI RLS verification.
 - [x] **OPS-01**: Report jobs apply bounded retries and never run more NCAA browser sessions than the configured capacity permits.
 - [x] **OPS-02**: Successful source responses and normalized sections are cached with schema/version keys to control upstream requests and rebuild cost.

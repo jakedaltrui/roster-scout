@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-13-PLAN.md
-last_updated: "2026-11-11T22:47:56.442Z"
+stopped_at: Completed 02-02-PLAN.md
+last_updated: "2026-11-11T23:01:40.975Z"
 last_activity: 2026-11-11
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 57
-  completed_plans: 43
+  completed_plans: 44
   percent: 20
 ---
 
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-11-11)
 ## Current Position
 
 Phase: 02 (identity-organizations-and-report-library) — EXECUTING
-Plan: 3 of 16
+Plan: 4 of 16
 Status: Ready to execute
 Last activity: 2026-11-11
 
-Progress: [████████░░] 75%
+Progress: [████████░░] 77%
 
 ## Performance Metrics
 
@@ -187,6 +187,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 02]: Callback state commits as consumed before provider code exchange. — Failed exchanges must not leave replayable bearer state.
 - [Phase 02]: Only exact local return paths are accepted, with no-membership as the default callback destination. — Exact allowlisting prevents open redirects and gives new accounts a safe landing state.
 - [Phase 02]: Authentication routes remain thin and provider-neutral. — Routes compose injected provider, account, and session services without identity SQL.
+- [Phase 02]: Only active canonical local memberships grant organization access; provider organization, domain, and JIT claims never authorize the product.
+- [Phase 02]: Transient provider refresh failures preserve local sessions, while explicit terminal invalid or revoked state revokes them.
+- [Phase 02]: Logout commits local session revocation before a separate best-effort provider logout call.
 
 ### Pending Todos
 
@@ -228,9 +231,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 01 P41 | 9m | 2 tasks | 4 files |
 | Phase 02 P01 | 14 min | 2 tasks | 6 files |
 | Phase 02 P13 | 14 min | 2 tasks | 5 files |
+| Phase 02 P02 | 12 min | 2 tasks | 8 files |
 
 ## Session Continuity
 
-Last session: 2026-11-11T22:47:56.433Z
-Stopped at: Completed 02-13-PLAN.md
+Last session: 2026-11-11T23:01:40.967Z
+Stopped at: Completed 02-02-PLAN.md
 Resume file: None
