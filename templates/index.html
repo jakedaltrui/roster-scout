@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#f6f6f3" />
+  <script src="{{ url_for('static', filename='download_tracking.js') }}"></script>
   <script>
     try {
       document.documentElement.dataset.theme = localStorage.getItem('roster-scout-theme') === 'dark' ? 'dark' : 'light';
@@ -1277,8 +1278,29 @@
       }
     });
 
+    const { createDownloadTracker, runDownloadSubmission } =
+      window.RosterScoutDownloadTracking;
+    const downloadTracker = createDownloadTracker({
+      storage: sessionStorage,
+      uuidFactory: () => crypto.randomUUID(),
+      now: () => Date.now(),
+    });
+
+    async function postDownloadAcknowledgement(pending) {
+      const response = await fetch('/api/downloads/ack', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          download_event_id: pending.downloadEventId,
+          acknowledgement_proof: pending.acknowledgementProof,
+        }),
+      });
+      if (!response.ok) return { acknowledged: false };
+      const result = await response.json().catch(() => ({}));
+      return { acknowledged: result.acknowledged === true };
+    }
+
     let scrapeInFlight = false;
-    let downloadEventId = null;
     document.getElementById('scout-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       if (scrapeInFlight) return;
@@ -1296,7 +1318,6 @@
       }
       if (!team) return;
 
-      downloadEventId = crypto.randomUUID();
       scrapeInFlight = true;
       const runStarted = performance.now();
       document.getElementById('submit-btn').disabled = true;
@@ -1308,45 +1329,58 @@
       document.getElementById('loading-team').textContent = team;
 
       try {
-        const resp = await fetch('/scrape', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            team,
-            division: selectedDiv,
-            season_team_id: seasonTeamId,
-            team_id: teamId,
-            display_name: displayName,
-            download_event_id: downloadEventId,
+        let preparedPlayers = null;
+        const result = await runDownloadSubmission({
+          tracker: downloadTracker,
+          retryPendingAcknowledgement: postDownloadAcknowledgement,
+          requestWorkbook: downloadEventId => fetch('/scrape', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              team,
+              division: selectedDiv,
+              season_team_id: seasonTeamId,
+              team_id: teamId,
+              display_name: displayName,
+              download_event_id: downloadEventId,
+            }),
           }),
+          initiateDownload: (workbook, resp) => {
+            clearTimeout(loadingActivityTimer);
+            updateLoadingStage(4);
+            recordRunTime(performance.now() - runStarted);
+            const disposition = resp.headers.get('Content-Disposition') || '';
+            const encodedMatch = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+            const plainMatch = disposition.match(/filename="?([^";]+)"?/i);
+            const filename = encodedMatch
+              ? decodeURIComponent(encodedMatch[1])
+              : plainMatch ? plainMatch[1] : 'roster-scout.xlsx';
+            preparedPlayers = resp.headers.get('X-Roster-Scout-Players');
+
+            if (lastDownloadUrl) URL.revokeObjectURL(lastDownloadUrl);
+            lastDownloadUrl = URL.createObjectURL(workbook);
+            lastDownloadName = filename;
+            downloadFile(lastDownloadUrl, lastDownloadName);
+          },
+          acknowledgeDownload: postDownloadAcknowledgement,
         });
 
-        if (!resp.ok) {
-          const data = await resp.json().catch(() => ({}));
+        if (result.pendingAcknowledgement) {
+          document.getElementById('error-msg').textContent =
+            'Your previous download could not be confirmed. Please try again.';
+          show('error');
+          return;
+        }
+
+        if (result.definitiveFailure) {
+          const data = await result.response.json().catch(() => ({}));
           document.getElementById('error-msg').textContent = data.error || 'Unknown error. Please try again.';
           show('error');
           return;
         }
 
-        clearTimeout(loadingActivityTimer);
-        updateLoadingStage(4);
-        const workbook = await resp.blob();
-        recordRunTime(performance.now() - runStarted);
-        const disposition = resp.headers.get('Content-Disposition') || '';
-        const encodedMatch = disposition.match(/filename\*=UTF-8''([^;]+)/i);
-        const plainMatch = disposition.match(/filename="?([^";]+)"?/i);
-        const filename = encodedMatch
-          ? decodeURIComponent(encodedMatch[1])
-          : plainMatch ? plainMatch[1] : 'roster-scout.xlsx';
-        const players = resp.headers.get('X-Roster-Scout-Players');
-
-        if (lastDownloadUrl) URL.revokeObjectURL(lastDownloadUrl);
-        lastDownloadUrl = URL.createObjectURL(workbook);
-        lastDownloadName = filename;
-        downloadFile(lastDownloadUrl, lastDownloadName);
-
         document.getElementById('success-msg').textContent =
-          `${players || 'Roster'} players found for ${team}. Your Stat Sheet has downloaded.`;
+          `${preparedPlayers || 'Roster'} players found for ${team}. Your Stat Sheet download has started.`;
         show('success');
       } catch (err) {
         document.getElementById('error-msg').textContent =
@@ -1354,7 +1388,6 @@
         show('error');
       } finally {
         scrapeInFlight = false;
-        downloadEventId = null;
       }
     });
 
