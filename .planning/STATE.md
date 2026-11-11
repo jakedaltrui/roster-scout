@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-25-PLAN.md
-last_updated: "2026-11-11T00:11:48.875Z"
+stopped_at: Completed 01-26-PLAN.md
+last_updated: "2026-11-11T00:21:02.651Z"
 last_activity: 2026-11-11
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 30
-  completed_plans: 25
+  completed_plans: 26
   percent: 0
 ---
 
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-11-01)
 ## Current Position
 
 Phase: 01 (canonical-snapshot-foundation) — EXECUTING
-Plan: 26 of 30
+Plan: 27 of 30
 Status: Ready to execute
 Last activity: 2026-11-11
 
-Progress: [████████░░] 83%
+Progress: [█████████░] 87%
 
 ## Performance Metrics
 
@@ -136,6 +136,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 01]: Publication independently joins SourceRecord through PlayerTeamSeason to Player and rejects sanitized mismatches, while null ID-less fallback evidence remains valid.
 - [Phase 01]: PostgreSQL owns the positive-through-28-day failure-evidence retention invariant so application and direct-SQL callers cannot bypass policy.
 - [Phase 01]: Revision 0011 aborts on invalid historical rows instead of rewriting, extending, truncating, or deleting evidence timestamps.
+- [Phase 01]: Readiness and worker startup use the same strict 1-28 day retention parser before constructing external dependencies. — One configuration contract prevents false readiness and unsafe worker startup.
+- [Phase 01]: Invalid optional-evidence configuration persists a fixed safe unexpected failure without HTML evidence. — Optional diagnostics cannot roll authoritative terminal job state back to running.
+- [Phase 01]: Prevalidated retention is passed into coordinated evidence insertion. — The terminal transaction cannot observe a different environment value after validation.
 
 ### Pending Todos
 
@@ -159,9 +162,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 01 P23 | 4 min | 2 tasks | 3 files |
 | Phase 01 P24 | 57 min | 2 tasks | 4 files |
 | Phase 01 P25 | 380 min | 2 tasks | 4 files |
+| Phase 01 P26 | 4 min | 2 tasks | 7 files |
 
 ## Session Continuity
 
-Last session: 2026-11-11T00:11:48.868Z
-Stopped at: Completed 01-25-PLAN.md
+Last session: 2026-11-11T00:20:52.203Z
+Stopped at: Completed 01-26-PLAN.md
 Resume file: None
