@@ -52,12 +52,13 @@ letting request headers redefine the trust boundary.
 
 The checked-in Fly origin is
 `ROSTER_SCOUT_PUBLIC_ORIGIN=https://roster-scout.fly.dev`. Treat a custom-domain
-change as a coordinated cutover: set the exact canonical HTTPS origin;
-internationalized domains must use their canonical ASCII A-label/Punycode form
-rather than a Unicode hostname. Then restart every app worker with the same new
-value before directing browser traffic to the custom domain. Do not configure an
-origin list or overlap old and new domains; the acknowledgement boundary
-intentionally accepts one canonical browser origin.
+change as a coordinated cutover: set the exact HTTPS origin; internationalized
+domains are canonicalized with UTS46 and STD3 rules to the exact ASCII A-label
+form browsers send; malformed or noncanonical A-labels fail startup. Then restart
+every app worker with the same new value before directing browser traffic to the
+custom domain. Do not configure an origin list or overlap old and new domains;
+the acknowledgement boundary intentionally accepts one canonical browser
+origin.
 
 Secret rotation invalidates every outstanding acknowledgement proof. Drain
 downloads or wait the exact 15-minute proof TTL, then perform one coordinated

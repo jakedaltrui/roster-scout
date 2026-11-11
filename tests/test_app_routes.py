@@ -411,6 +411,15 @@ class DownloadAcknowledgementPublicOriginTests(unittest.TestCase):
                             completed.stderr,
                         )
                         self.assertNotIn(origin, completed.stderr)
+                        for unsafe_detail in (
+                            "Codepoint",
+                            "Normalization Form",
+                            "Joiner",
+                        ):
+                            self.assertNotIn(
+                                unsafe_detail,
+                                completed.stderr,
+                            )
 
     def test_fly_requires_https_but_multiworker_accepts_valid_http_or_port(self):
         fly_http = self._run_app_process(updates={

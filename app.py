@@ -13,12 +13,12 @@ import logging
 import os
 import re
 import secrets
-import unicodedata
 import uuid
 from datetime import date
 from functools import lru_cache
 from urllib.parse import urlsplit
 
+import idna
 import requests
 import xlsxwriter
 from PIL import Image, ImageDraw, UnidentifiedImageError
@@ -136,9 +136,35 @@ def _canonical_public_hostname(hostname: str) -> str:
 
     if ":" in hostname:
         raise RuntimeError("Roster Scout public origin is invalid.")
-    if not hostname.isascii():
-        raise RuntimeError("Roster Scout public origin is invalid.")
-    canonical_dns = hostname.lower()
+
+    try:
+        canonical_dns = idna.encode(
+            hostname,
+            uts46=True,
+            std3_rules=True,
+        ).decode("ascii").lower()
+    except idna.IDNAError:
+        raise RuntimeError("Roster Scout public origin is invalid.") from None
+
+    # A-labels must be canonical under the same rules used for Unicode input.
+    # This rejects superficially well-formed Punycode that browsers reject.
+    try:
+        for label in canonical_dns.split("."):
+            if label.startswith("xn--"):
+                decoded = idna.decode(label, uts46=True, std3_rules=True)
+                if (
+                    idna.encode(
+                        decoded,
+                        uts46=True,
+                        std3_rules=True,
+                    ).decode("ascii").lower()
+                    != label
+                ):
+                    raise RuntimeError(
+                        "Roster Scout public origin is invalid."
+                    )
+    except idna.IDNAError:
+        raise RuntimeError("Roster Scout public origin is invalid.") from None
 
     numeric_label = r"(?:[0-9]+|0[xX][0-9A-Fa-f]+)"
     if re.fullmatch(rf"{numeric_label}(?:\.{numeric_label})*", canonical_dns):
@@ -153,38 +179,11 @@ def _canonical_public_hostname(hostname: str) -> str:
             or not re.fullmatch(r"[a-z0-9-]+", label)
             or label.startswith("-")
             or label.endswith("-")
-            or not _valid_ascii_dns_label(label)
             for label in labels
         )
     ):
         raise RuntimeError("Roster Scout public origin is invalid.")
     return canonical_dns
-
-
-def _valid_ascii_dns_label(label: str) -> bool:
-    """Reject A-label forms that the standard-library Punycode codec disproves."""
-    if not label.startswith("xn--"):
-        return True
-
-    payload = label[4:]
-    if not payload:
-        return False
-    try:
-        decoded = payload.encode("ascii").decode("punycode")
-        round_trip = decoded.encode("punycode").decode("ascii").lower()
-    except UnicodeError:
-        return False
-
-    return (
-        round_trip == payload
-        and any(not character.isascii() for character in decoded)
-        and all(
-            not character.isspace()
-            and ord(character) >= 32
-            and unicodedata.category(character) not in {"Cc", "Cf", "Cs"}
-            for character in decoded
-        )
-    )
 
 
 def _configure_download_acknowledgements(
