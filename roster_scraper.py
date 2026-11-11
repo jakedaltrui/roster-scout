@@ -2404,7 +2404,7 @@ def _ncaa_team_lock(team, year):
     """Coalesce legacy workbook requests sharing this machine's result cache."""
     from usage_limits import BrowserCapacityExceeded
 
-    key = f"ncaa:{year}:{team['season_team_id']}"
+    key = _ncaa_result_cache_key(team, year)
     digest = hashlib.sha256(key.encode()).hexdigest()[:24]
     with (_ncaa_cache_dir() / f"team-{digest}.lock").open("a") as handle:
         deadline = time.monotonic() + 90
