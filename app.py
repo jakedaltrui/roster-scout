@@ -15,6 +15,7 @@ import secrets
 import uuid
 from datetime import date
 from functools import lru_cache
+from urllib.parse import urlsplit
 
 import requests
 import xlsxwriter
@@ -78,7 +79,42 @@ def _decode_download_ack_secret(value: str) -> bytes:
     return decoded
 
 
-def _configure_download_acknowledgements() -> URLSafeTimedSerializer:
+def _canonical_public_origin(value: str, *, require_https: bool) -> str:
+    """Validate and canonicalize one configured browser origin."""
+    if not isinstance(value, str) or not value.strip() or value != value.strip():
+        raise RuntimeError("Roster Scout public origin is invalid.")
+    try:
+        parsed = urlsplit(value)
+        hostname = parsed.hostname
+        port = parsed.port
+    except ValueError as exc:
+        raise RuntimeError("Roster Scout public origin is invalid.") from exc
+
+    scheme = parsed.scheme.lower()
+    if (
+        scheme not in {"http", "https"}
+        or (require_https and scheme != "https")
+        or not parsed.netloc
+        or hostname is None
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+        or parsed.netloc.endswith(":")
+        or any(character.isspace() or ord(character) < 32 for character in hostname)
+    ):
+        raise RuntimeError("Roster Scout public origin is invalid.")
+
+    canonical_host = hostname.lower()
+    if ":" in canonical_host:
+        canonical_host = f"[{canonical_host}]"
+    canonical_port = f":{port}" if port is not None else ""
+    return f"{scheme}://{canonical_host}{canonical_port}"
+
+
+def _configure_download_acknowledgements(
+) -> tuple[URLSafeTimedSerializer, str | None]:
     """Validate runtime mode and create the process acknowledgement signer."""
     raw_concurrency = os.environ.get("WEB_CONCURRENCY", "1").strip()
     try:
@@ -90,6 +126,19 @@ def _configure_download_acknowledgements() -> URLSafeTimedSerializer:
 
     hosted_production = bool(os.environ.get("FLY_APP_NAME", "").strip())
     shared_secret_required = hosted_production or web_concurrency > 1
+    configured_origin = os.environ.get("ROSTER_SCOUT_PUBLIC_ORIGIN", "")
+    if not configured_origin.strip():
+        if shared_secret_required:
+            raise RuntimeError(
+                "A trusted Roster Scout public origin is required."
+            )
+        public_origin = None
+    else:
+        public_origin = _canonical_public_origin(
+            configured_origin,
+            require_https=hosted_production,
+        )
+
     configured_secret = os.environ.get("ROSTER_SCOUT_DOWNLOAD_ACK_SECRET", "")
     if not configured_secret.strip():
         if shared_secret_required:
@@ -99,10 +148,16 @@ def _configure_download_acknowledgements() -> URLSafeTimedSerializer:
         configured_secret = secrets.token_urlsafe(32)
 
     secret_key = _decode_download_ack_secret(configured_secret)
-    return URLSafeTimedSerializer(secret_key, salt=_DOWNLOAD_ACK_SALT)
+    return (
+        URLSafeTimedSerializer(secret_key, salt=_DOWNLOAD_ACK_SALT),
+        public_origin,
+    )
 
 
-_DOWNLOAD_ACK_SERIALIZER = _configure_download_acknowledgements()
+(
+    _DOWNLOAD_ACK_SERIALIZER,
+    _DOWNLOAD_ACK_PUBLIC_ORIGIN,
+) = _configure_download_acknowledgements()
 
 
 def _download_ack_payload(download_event_id: str) -> dict[str, str]:
@@ -326,7 +381,10 @@ def acknowledge_workbook_download():
     if len(request.get_data(cache=True)) > 1024:
         return _json_error("Request body is too large.", 413)
 
-    expected_origin = f"{request.scheme}://{request.host}"
+    expected_origin = (
+        _DOWNLOAD_ACK_PUBLIC_ORIGIN
+        or f"{request.scheme}://{request.host}"
+    )
     if request.headers.get("Origin") != expected_origin:
         return _json_error("Acknowledgement origin is not allowed.", 403)
     if request.headers.get("Sec-Fetch-Site", "").lower() == "cross-site":
