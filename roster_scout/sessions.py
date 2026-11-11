@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import secrets
 import uuid
 from dataclasses import dataclass, field
@@ -11,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
+from .identity import IdentityProvider
 from .models import Account, AccountSession
 
 
@@ -36,6 +38,17 @@ class LoadedAccountSession:
     sealed_provider_state: str = field(repr=False)
     idle_expires_at: datetime
     absolute_expires_at: datetime
+
+
+@dataclass(frozen=True)
+class SessionRefreshOutcome:
+    status: str
+    session: LoadedAccountSession | None = None
+
+
+@dataclass(frozen=True)
+class LogoutPreparation:
+    sealed_provider_state: str = field(repr=False)
 
 
 def _utc_now() -> datetime:
@@ -86,6 +99,38 @@ def _session_row_for_cookie(session, cookie_value: str, *, lock: bool):
     ):
         return None
     return row
+
+
+def _row_is_current(session, row, current: datetime) -> bool:
+    if (
+        row is None
+        or row.revoked_at is not None
+        or current >= row.idle_expires_at
+        or current >= row.absolute_expires_at
+    ):
+        return False
+    account = session.get(Account, row.account_id)
+    return account is not None and account.status == "active"
+
+
+def _touch_row(row, current: datetime) -> None:
+    row.last_seen_at = current
+    row.idle_expires_at = min(
+        current + SESSION_IDLE_LIFETIME,
+        row.absolute_expires_at,
+    )
+
+
+def _loaded_from_row(row) -> LoadedAccountSession:
+    return LoadedAccountSession(
+        session_id=row.id,
+        account_id=row.account_id,
+        active_organization_id=row.active_organization_id,
+        csrf_secret=row.csrf_secret,
+        sealed_provider_state=row.sealed_provider_state,
+        idle_expires_at=row.idle_expires_at,
+        absolute_expires_at=row.absolute_expires_at,
+    )
 
 
 def revoke_account_session(
@@ -174,29 +219,98 @@ def load_account_session(
     """Resolve and optionally slide one valid local session's idle expiry."""
     current = now or _utc_now()
     row = _session_row_for_cookie(session, cookie_value, lock=touch)
-    if (
-        row is None
-        or row.revoked_at is not None
-        or current >= row.idle_expires_at
-        or current >= row.absolute_expires_at
-    ):
-        return None
-    account = session.get(Account, row.account_id)
-    if account is None or account.status != "active":
+    if not _row_is_current(session, row, current):
         return None
     if touch:
-        row.last_seen_at = current
-        row.idle_expires_at = min(
-            current + SESSION_IDLE_LIFETIME,
-            row.absolute_expires_at,
-        )
+        _touch_row(row, current)
         session.flush()
-    return LoadedAccountSession(
-        session_id=row.id,
-        account_id=row.account_id,
-        active_organization_id=row.active_organization_id,
-        csrf_secret=row.csrf_secret,
-        sealed_provider_state=row.sealed_provider_state,
-        idle_expires_at=row.idle_expires_at,
-        absolute_expires_at=row.absolute_expires_at,
-    )
+    return _loaded_from_row(row)
+
+
+def refresh_account_session(
+    session,
+    *,
+    provider: IdentityProvider,
+    cookie_value: str,
+    now: datetime | None = None,
+    logger: logging.Logger | None = None,
+) -> SessionRefreshOutcome:
+    """Refresh provider state under a local row lock without reviving revocation."""
+    current = now or _utc_now()
+    row = _session_row_for_cookie(session, cookie_value, lock=True)
+    if not _row_is_current(session, row, current):
+        return SessionRefreshOutcome(status="revoked")
+    try:
+        result = provider.refresh(sealed_session=row.sealed_provider_state)
+    except Exception:
+        (logger or logging.getLogger(__name__)).warning(
+            "identity_provider_refresh_failed"
+        )
+        _touch_row(row, current)
+        session.flush()
+        return SessionRefreshOutcome(
+            status="preserved",
+            session=_loaded_from_row(row),
+        )
+
+    if result.authenticated:
+        if not result.sealed_session:
+            row.revoked_at = current
+            session.flush()
+            return SessionRefreshOutcome(status="revoked")
+        row.sealed_provider_state = result.sealed_session
+        _touch_row(row, current)
+        session.flush()
+        return SessionRefreshOutcome(
+            status="refreshed",
+            session=_loaded_from_row(row),
+        )
+    if result.retryable:
+        _touch_row(row, current)
+        session.flush()
+        return SessionRefreshOutcome(
+            status="preserved",
+            session=_loaded_from_row(row),
+        )
+    row.revoked_at = current
+    session.flush()
+    return SessionRefreshOutcome(status="revoked")
+
+
+def prepare_account_session_logout(
+    session,
+    *,
+    cookie_value: str,
+    now: datetime | None = None,
+) -> LogoutPreparation | None:
+    """Revoke locally and return opaque provider state for use after commit."""
+    current = now or _utc_now()
+    row = _session_row_for_cookie(session, cookie_value, lock=True)
+    if row is None:
+        return None
+    sealed_provider_state = row.sealed_provider_state
+    if row.revoked_at is None:
+        row.revoked_at = current
+        session.flush()
+    return LogoutPreparation(sealed_provider_state=sealed_provider_state)
+
+
+def complete_provider_logout(
+    provider: IdentityProvider,
+    prepared: LogoutPreparation | None,
+    *,
+    logger: logging.Logger | None = None,
+) -> str | None:
+    """Best-effort provider logout; call only after local revoke commits."""
+    if prepared is None:
+        return None
+    try:
+        value = provider.logout_url(
+            sealed_session=prepared.sealed_provider_state
+        )
+        return value if isinstance(value, str) and value else None
+    except Exception:
+        (logger or logging.getLogger(__name__)).warning(
+            "identity_provider_logout_failed"
+        )
+        return None

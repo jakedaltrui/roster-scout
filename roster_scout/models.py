@@ -61,6 +61,64 @@ class Organization(UUIDPrimaryKey, Timestamped, Base):
     name: Mapped[str] = mapped_column(String(200), nullable=False)
 
 
+class OrganizationMembership(UUIDPrimaryKey, Timestamped, Base):
+    """Canonical local authorization relationship for one account and tenant."""
+
+    __tablename__ = "organization_memberships"
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("organizations.id", name="fk_memberships_organization"),
+        nullable=False,
+    )
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("accounts.id", name="fk_memberships_account"),
+        nullable=False,
+    )
+    role: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="member", server_default="member"
+    )
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="active", server_default="active"
+    )
+    deactivated_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "account_id",
+            name="uq_memberships_organization_account",
+        ),
+        UniqueConstraint(
+            "account_id",
+            "organization_id",
+            name="uq_memberships_account_organization",
+        ),
+        UniqueConstraint(
+            "id",
+            "organization_id",
+            name="uq_memberships_id_organization",
+        ),
+        CheckConstraint(
+            _allowed("role", ("admin", "member")),
+            name="ck_memberships_role",
+        ),
+        CheckConstraint(
+            _allowed("status", ("active", "inactive")),
+            name="ck_memberships_status",
+        ),
+        CheckConstraint(
+            "(status = 'active' AND deactivated_at IS NULL) OR "
+            "(status = 'inactive' AND deactivated_at IS NOT NULL)",
+            name="ck_memberships_deactivated_at",
+        ),
+        Index("ix_memberships_account_status", "account_id", "status"),
+        Index(
+            "ix_memberships_organization_status_role",
+            "organization_id",
+            "status",
+            "role",
+        ),
+    )
+
+
 class Account(UUIDPrimaryKey, Timestamped, Base):
     """Canonical local customer identity, independent of any provider."""
 
@@ -156,10 +214,7 @@ class AccountSession(UUIDPrimaryKey, Timestamped, Base):
     csrf_secret: Mapped[str] = mapped_column(String(200), nullable=False)
     rotation_family: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     active_organization_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey(
-            "organizations.id",
-            name="fk_account_sessions_active_organization",
-        )
+        Uuid
     )
     last_seen_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=False)
     idle_expires_at: Mapped[object] = mapped_column(
@@ -184,6 +239,14 @@ class AccountSession(UUIDPrimaryKey, Timestamped, Base):
             "AND absolute_expires_at > created_at "
             "AND idle_expires_at <= absolute_expires_at",
             name="ck_account_sessions_expiry",
+        ),
+        ForeignKeyConstraint(
+            ["account_id", "active_organization_id"],
+            [
+                "organization_memberships.account_id",
+                "organization_memberships.organization_id",
+            ],
+            name="fk_account_sessions_active_membership",
         ),
         Index("ix_account_sessions_account_id", "account_id"),
         Index("ix_account_sessions_absolute_expires_at", "absolute_expires_at"),
