@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlsplit, urlunsplit
 
-from sqlalchemy import func, select, text, update
+from sqlalchemy import case, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.orm import Session
 
@@ -256,9 +256,22 @@ def _upsert_evidence_purge_state(session, *, now, purged_count):
         statement.on_conflict_do_update(
             index_elements=[EvidencePurgeState.singleton_key],
             set_={
-                "last_success_at": now,
-                "last_purged_count": purged_count,
-                "updated_at": now,
+                "last_success_at": func.greatest(
+                    EvidencePurgeState.last_success_at,
+                    statement.excluded.last_success_at,
+                ),
+                "last_purged_count": case(
+                    (
+                        statement.excluded.last_success_at
+                        >= EvidencePurgeState.last_success_at,
+                        statement.excluded.last_purged_count,
+                    ),
+                    else_=EvidencePurgeState.last_purged_count,
+                ),
+                "updated_at": func.greatest(
+                    EvidencePurgeState.updated_at,
+                    statement.excluded.updated_at,
+                ),
             },
         )
     )
