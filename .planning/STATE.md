@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 01-40-PLAN.md
-last_updated: "2026-11-11T17:32:04.183Z"
-last_activity: 2026-11-11 -- Completed Plan 01-40 browser acknowledgement resilience
+status: verifying
+stopped_at: Completed 01-41-PLAN.md
+last_updated: "2026-11-11T17:46:39.807Z"
+last_activity: 2026-11-11
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 41
-  completed_plans: 40
-  percent: 98
+  completed_plans: 41
+  percent: 0
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: `.planning/PROJECT.md` (updated 2026-11-01)
 
 ## Current Position
 
-Phase: 01 (canonical-snapshot-foundation) — EXECUTING
-Plan: 40 of 41
-Status: Ready for Plan 01-41
-Last activity: 2026-11-11 -- Completed Plan 01-40 browser acknowledgement resilience
+Phase: 01 (canonical-snapshot-foundation) — PENDING INDEPENDENT VERIFICATION
+Plan: 41 of 41
+Status: Implementation complete; pending independent verification
+Last activity: 2026-11-11
 
-Progress: [██████████] 98%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -179,6 +179,8 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 01]: Fly acknowledgement origin is HTTPS-only and forwarding headers remain inert. — A startup-validated external origin bridges Fly's public HTTPS edge to internal HTTP without trusting Forwarded, X-Forwarded-*, or Host values.
 - [Phase 01]: Browser storage uses a private per-page shadow and permanently falls back after the first storage exception. — Preserves the current pending UUID without adding identity, cookies, or network persistence.
 - [Phase 01]: Acknowledgement responses use acknowledged, definitive, and retryable outcomes. — Definitive rejection waits for a later explicit submit before a fresh UUID; ambiguity preserves acknowledgement-only retry.
+- [Phase 01]: Release diff hygiene defaults to audited baseline 95776ed and permits only equal or older ancestor overrides. — This guarantees the verified round-five committed range can only be preserved or broadened, never truncated.
+- [Phase 01]: Round-four and round-five focused Python counterexamples run together before the Node browser suite and every full release group. — Fast executable counterexamples fail before expensive lifecycle and discovery validation while retaining the complete release surface.
 
 ### Pending Todos
 
@@ -217,9 +219,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 01 P38 | 19m | 2 tasks | 5 files |
 | Phase 01 P39 | 8m | 2 tasks | 5 files |
 | Phase 01 P40 | 7 min | 2 tasks | 4 files |
+| Phase 01 P41 | 9m | 2 tasks | 4 files |
 
 ## Session Continuity
 
-Last session: 2026-11-11T17:32:04.174Z
-Stopped at: Completed 01-40-PLAN.md
+Last session: 2026-11-11T17:46:39.798Z
+Stopped at: Completed 01-41-PLAN.md
 Resume file: None
