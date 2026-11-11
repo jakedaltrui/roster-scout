@@ -2,7 +2,8 @@
 
 import unittest
 import uuid
-from datetime import UTC, datetime
+from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
 
 from alembic import command
 from sqlalchemy import create_engine, inspect, text
@@ -188,6 +189,190 @@ class UsageEventSchemaTests(unittest.TestCase):
                 "organization_id",
             },
         )
+class UsageServiceTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.database_url = require_test_database_url()
+        upgrade_database(cls.database_url)
+        from roster_scout.database import create_session_factory, get_engine
+
+        cls.engine = get_engine(cls.database_url)
+        cls.Session = create_session_factory(cls.engine)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.engine.dispose()
+
+    def setUp(self):
+        clean_database(self.database_url)
+
+    def _organization(self, name):
+        from roster_scout.models import Organization
+
+        with self.Session.begin() as session:
+            organization = Organization(name=name)
+            session.add(organization)
+            session.flush()
+            return organization.id
+
+    def test_duplicate_and_concurrent_download_recording_is_idempotent(self):
+        from roster_scout.usage import record_workbook_download_served
+
+        event_key = str(uuid.uuid4())
+
+        def record_once():
+            with self.Session.begin() as session:
+                return record_workbook_download_served(
+                    session,
+                    event_key=event_key,
+                ).id
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            identifiers = list(pool.map(lambda _value: record_once(), range(2)))
+        self.assertEqual(identifiers[0], identifiers[1])
+        with self.Session.begin() as session:
+            self.assertEqual(record_once(), identifiers[0])
+
+        with self.Session() as session:
+            count = session.scalar(
+                text(
+                    "SELECT count(*) FROM product_usage_events "
+                    "WHERE event_type = 'workbook_download_served'"
+                )
+            )
+        self.assertEqual(count, 1)
+
+    def test_windowed_metrics_count_downloads_and_distinct_nonnull_actors(self):
+        from roster_scout.usage import (
+            query_usage_metrics,
+            record_authenticated_report_request_accepted,
+            record_workbook_download_served,
+        )
+
+        organization_id = self._organization("Window Org")
+        start = datetime(2026, 1, 1, tzinfo=UTC)
+        end = start + timedelta(days=1)
+        actor_one = uuid.uuid4()
+        actor_two = uuid.uuid4()
+        with self.Session.begin() as session:
+            record_workbook_download_served(
+                session,
+                event_key=str(uuid.uuid4()),
+                occurred_at=start,
+            )
+            record_workbook_download_served(
+                session,
+                event_key=str(uuid.uuid4()),
+                occurred_at=end - timedelta(microseconds=1),
+            )
+            record_workbook_download_served(
+                session,
+                event_key=str(uuid.uuid4()),
+                occurred_at=end,
+            )
+            for actor in (actor_one, actor_one, actor_two):
+                record_authenticated_report_request_accepted(
+                    session,
+                    event_key=str(uuid.uuid4()),
+                    actor_account_id=actor,
+                    organization_id=organization_id,
+                    occurred_at=start + timedelta(hours=1),
+                )
+        with self.Session() as session:
+            metrics = query_usage_metrics(session, start=start, end=end)
+        self.assertEqual(metrics.successful_workbook_downloads, 2)
+        self.assertEqual(metrics.unique_authenticated_users, 2)
+        self.assertEqual(metrics.window_start, start)
+        self.assertEqual(metrics.window_end, end)
+
+    def test_organization_filter_is_scoped_while_global_query_includes_all(self):
+        from roster_scout.usage import (
+            query_usage_metrics,
+            record_authenticated_report_request_accepted,
+            record_workbook_download_served,
+        )
+
+        first_org = self._organization("First Org")
+        second_org = self._organization("Second Org")
+        start = datetime(2026, 2, 1, tzinfo=UTC)
+        end = start + timedelta(days=1)
+        with self.Session.begin() as session:
+            for organization_id in (first_org, second_org):
+                actor_id = uuid.uuid4()
+                record_authenticated_report_request_accepted(
+                    session,
+                    event_key=str(uuid.uuid4()),
+                    actor_account_id=actor_id,
+                    organization_id=organization_id,
+                    occurred_at=start,
+                )
+                record_workbook_download_served(
+                    session,
+                    event_key=str(uuid.uuid4()),
+                    actor_account_id=actor_id,
+                    organization_id=organization_id,
+                    occurred_at=start,
+                )
+            record_workbook_download_served(
+                session,
+                event_key=str(uuid.uuid4()),
+                occurred_at=start,
+            )
+        with self.Session() as session:
+            scoped = query_usage_metrics(
+                session,
+                start=start,
+                end=end,
+                organization_id=first_org,
+            )
+            global_metrics = query_usage_metrics(session, start=start, end=end)
+        self.assertEqual(scoped.successful_workbook_downloads, 1)
+        self.assertEqual(scoped.unique_authenticated_users, 1)
+        self.assertEqual(global_metrics.successful_workbook_downloads, 3)
+        self.assertEqual(global_metrics.unique_authenticated_users, 2)
+
+    def test_null_actor_never_counts_as_unique_user(self):
+        from roster_scout.usage import query_usage_metrics, record_workbook_download_served
+
+        start = datetime(2026, 3, 1, tzinfo=UTC)
+        end = start + timedelta(days=1)
+        with self.Session.begin() as session:
+            record_workbook_download_served(
+                session,
+                event_key=str(uuid.uuid4()),
+                occurred_at=start,
+            )
+        with self.Session() as session:
+            metrics = query_usage_metrics(session, start=start, end=end)
+        self.assertEqual(metrics.successful_workbook_downloads, 1)
+        self.assertEqual(metrics.unique_authenticated_users, 0)
+
+    def test_invalid_inputs_and_nonqualifying_actions_have_no_event_path(self):
+        import roster_scout.usage as usage
+
+        self.assertFalse(hasattr(usage, "record_page_view"))
+        self.assertFalse(hasattr(usage, "record_login"))
+        self.assertFalse(hasattr(usage, "record_rejected_request"))
+        with self.Session.begin() as session:
+            with self.assertRaises(ValueError):
+                usage.record_usage_event(
+                    session,
+                    event_type="page_view",
+                    event_key=str(uuid.uuid4()),
+                )
+            with self.assertRaises(ValueError):
+                usage.record_authenticated_report_request_accepted(
+                    session,
+                    event_key=str(uuid.uuid4()),
+                    actor_account_id=None,
+                    organization_id=None,
+                )
+            with self.assertRaises(ValueError):
+                usage.query_usage_metrics(
+                    session,
+                    start=datetime(2026, 1, 2, tzinfo=UTC),
+                    end=datetime(2026, 1, 1, tzinfo=UTC),
+                )
 
 
 if __name__ == "__main__":
