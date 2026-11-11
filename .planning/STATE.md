@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-36-PLAN.md
-last_updated: "2026-11-11T05:39:46.298Z"
-last_activity: 2026-11-11 -- Completed Plan 01-36 serialized monotonic purge certification
+stopped_at: Completed 01-34-PLAN.md
+last_updated: "2026-11-11T05:52:03.626Z"
+last_activity: 2026-11-11 -- Completed Plan 01-34 protected download acknowledgement
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 37
-  completed_plans: 34
-  percent: 92
+  completed_plans: 35
+  percent: 95
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-11-01)
 ## Current Position
 
 Phase: 01 (canonical-snapshot-foundation) — EXECUTING
-Plan: 34 of 37
+Plan: 35 of 37
 Status: Ready to execute
-Last activity: 2026-11-11 -- Completed Plan 01-36 serialized monotonic purge certification
+Last activity: 2026-11-11 -- Completed Plan 01-34 protected download acknowledgement
 
-Progress: [█████████░] 92%
+Progress: [██████████] 95%
 
 ## Performance Metrics
 
@@ -164,6 +164,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 01]: Eligible evidence writers and final complete-scan certification share one stable signed-bigint transaction advisory lock. — New eligible bytes cannot commit inside the final zero-count-to-heartbeat window.
 - [Phase 01]: The singleton lock covers only the final count and heartbeat upsert; bounded SKIP LOCKED deletion batches remain independently concurrent. — Retention progress stays bounded and contention-safe while complete-scan certification is serialized.
 - [Phase 01]: PostgreSQL GREATEST preserves heartbeat time while last_purged_count changes only when the incoming certification timestamp wins. — Out-of-order purge completion cannot regress readiness time or associate a stale count with a newer heartbeat.
+- [Phase 01]: A workbook response is preparation only; successful-download usage is recorded after a recent same-origin browser acknowledgement.
+- [Phase 01]: Acknowledgement proofs contain only a fixed purpose and opaque UUID, expire after exactly 15 minutes, and rely on the existing unique usage-event key for replay idempotency.
+- [Phase 01]: Fly and WEB_CONCURRENCY greater than one require one validated shared URL-safe base64 secret; only native single-process local mode may generate a process-random fallback.
 
 ### Pending Todos
 
@@ -196,9 +199,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 01 P32 | 6 min | 2 tasks | 3 files |
 | Phase 01 P33 | 8 min | 2 tasks | 4 files |
 | Phase 01 P36 | 6 min | 2 tasks | 2 files |
+| Phase 01 P34 | 8 min | 2 tasks | 2 files |
 
 ## Session Continuity
 
-Last session: 2026-11-11T05:39:46.291Z
-Stopped at: Completed 01-36-PLAN.md
+Last session: 2026-11-11T05:52:03.618Z
+Stopped at: Completed 01-34-PLAN.md
 Resume file: None
