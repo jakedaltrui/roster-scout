@@ -1645,13 +1645,13 @@ class RoundFourOperationsRunbookContractTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertIn(command, self.normalized)
         focused_python = self.normalized.index(
-            "every Plan 31-36 Python counterexample"
+            "every round-four and round-five Python counterexample"
         )
         focused_node = self.normalized.index(
             "`node --test tests/js/download_tracking.test.mjs`"
         )
         lifecycle = self.normalized.index(
-            "revision-0013 migration class"
+            "revision `0014` global Player serialization class"
         )
         self.assertLess(focused_python, focused_node)
         self.assertLess(focused_node, lifecycle)
