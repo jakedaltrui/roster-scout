@@ -25,6 +25,10 @@ EVIDENCE_PURGE_LOCK_TIMEOUT_MS = 5_000
 EVIDENCE_PURGE_STATEMENT_TIMEOUT_MS = 30_000
 EVIDENCE_PURGE_READINESS_FRESHNESS = timedelta(hours=6)
 EVIDENCE_PURGE_BATCH_SIZE = 100
+# Stable signed-bigint lock domain shared by eligible evidence writers and the
+# final complete-scan certification transaction.  The ASCII value is
+# "EVIDENCE" and remains below PostgreSQL's signed bigint maximum.
+EVIDENCE_ELIGIBILITY_CERTIFICATION_LOCK_KEY = 0x45564944454E4345
 
 
 class FailureEvidenceConfigurationError(RuntimeError):
@@ -153,6 +157,7 @@ def _store_failure_evidence(
     collected_at,
     retention,
 ):
+    _lock_evidence_eligibility_certification(session)
     category = (
         failure_category
         if failure_category in SAFE_FAILURE_MESSAGES
@@ -233,6 +238,13 @@ def _set_evidence_purge_timeouts(session):
     )
 
 
+def _lock_evidence_eligibility_certification(session):
+    session.execute(
+        text("SELECT pg_advisory_xact_lock(:key)"),
+        {"key": EVIDENCE_ELIGIBILITY_CERTIFICATION_LOCK_KEY},
+    )
+
+
 def _upsert_evidence_purge_state(session, *, now, purged_count):
     statement = postgresql_insert(EvidencePurgeState).values(
         singleton_key=1,
@@ -252,7 +264,13 @@ def _upsert_evidence_purge_state(session, *, now, purged_count):
     )
 
 
-def purge_expired_evidence(session_factory, *, now=None):
+def purge_expired_evidence(
+    session_factory,
+    *,
+    now=None,
+    _before_finalization_hook=None,
+    _finalization_hook=None,
+):
     """Commit bounded expired-byte batches and record only complete scans."""
     now = now or datetime.now(UTC)
     purged_count = 0
@@ -284,10 +302,16 @@ def purge_expired_evidence(session_factory, *, now=None):
         if not claimed_ids:
             break
 
+    if _before_finalization_hook is not None:
+        _before_finalization_hook()
+
     # This ordinary MVCC count includes rows skipped because another transaction
-    # still holds their row lock. Only a zero result may advance readiness.
+    # still holds their row lock. Only a zero result may advance readiness. The
+    # advisory lock prevents an eligible writer from committing between this
+    # count and the success heartbeat in the same transaction.
     with session_factory.begin() as session:
         _set_evidence_purge_timeouts(session)
+        _lock_evidence_eligibility_certification(session)
         outstanding_count = int(
             session.scalar(
                 select(func.count())
@@ -299,6 +323,8 @@ def purge_expired_evidence(session_factory, *, now=None):
             )
             or 0
         )
+        if _finalization_hook is not None:
+            _finalization_hook()
         complete = outstanding_count == 0
         if complete:
             _upsert_evidence_purge_state(
