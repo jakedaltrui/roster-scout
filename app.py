@@ -487,6 +487,7 @@ _PUBLIC_ENDPOINTS = frozenset({
     "healthz",
     "readyz",
     "demo",
+    "acknowledge_workbook_download",
     "auth.login",
     "auth.start",
     "auth.callback",

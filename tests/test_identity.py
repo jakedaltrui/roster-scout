@@ -799,6 +799,7 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
                 "healthz",
                 "readyz",
                 "demo",
+                "acknowledge_workbook_download",
                 "auth.login",
                 "auth.start",
                 "auth.callback",
@@ -819,12 +820,21 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
             ("get", "/api/teams?division=d1", {}),
             ("get", "/api/team-logo/1", {}),
             ("post", "/scrape", {"json": {"team": "Tampa"}}),
-            ("post", "/api/downloads/ack", {"json": {}}),
         ):
             with self.subTest(method=method, path=path):
                 response = getattr(self.client, method)(path, **kwargs)
                 self.assertEqual(response.status_code, 401)
                 self.assertEqual(response.get_json(), {"error": "authentication_required"})
+
+        acknowledgement = self.client.post(
+            "/api/downloads/ack",
+            json={},
+        )
+        self.assertEqual(acknowledgement.status_code, 403)
+        self.assertNotEqual(
+            acknowledgement.get_json(),
+            {"error": "authentication_required"},
+        )
 
         for path in ("/login", "/auth/error", "/demo", "/healthz"):
             with self.subTest(path=path):
@@ -886,11 +896,17 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
         with self.Session.begin() as session:
             self.assertIsNone(session.scalar(select(AccountSession)).revoked_at)
 
-        with self.assertLogs("app", level="WARNING") as captured:
-            response = self.client.post(
-                "/logout",
-                headers={"X-CSRFToken": self._csrf_token(credential)},
-            )
+        app_logger = logging.getLogger("app")
+        logger_was_disabled = app_logger.disabled
+        app_logger.disabled = False
+        try:
+            with self.assertLogs(app_logger, level="WARNING") as captured:
+                response = self.client.post(
+                    "/logout",
+                    headers={"X-CSRFToken": self._csrf_token(credential)},
+                )
+        finally:
+            app_logger.disabled = logger_was_disabled
         self.assertEqual(response.status_code, 302)
         self.assertEqual(urlsplit(response.headers["Location"]).path, "/login")
         self.assertNotIn("provider-logout-secret", " ".join(captured.output))
