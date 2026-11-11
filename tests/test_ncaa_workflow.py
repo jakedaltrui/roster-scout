@@ -1,8 +1,10 @@
+import hashlib
 import json
 import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -530,6 +532,91 @@ class NcaaWorkflowTests(unittest.TestCase):
             with self.assertRaises(rs.NcaaAccessError):
                 rs.scrape_ncaa_by_name("Tampa", "d2", year=2026)
         self.assertEqual(list(Path(self.temp_dir.name).glob("result-*.json")), [])
+
+
+class NcaaResultCacheContractTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.env = patch.dict(os.environ, {
+            "ROSTER_SCOUT_CACHE_DIR": self.temp_dir.name,
+            "NCAA_RESULT_CACHE_TTL_SECONDS": "21600",
+        })
+        self.env.start()
+        self.team = {
+            "team_id": "633",
+            "team_name": "Scranton",
+            "season_team_id": "615349",
+            "division": "3",
+        }
+        self.fresh_player = {"Name": "Fresh Player", "AB": "12"}
+
+    def tearDown(self):
+        self.env.stop()
+        self.temp_dir.cleanup()
+
+    def _cache_path(self, key):
+        digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
+        return Path(self.temp_dir.name) / f"result-{digest}.json"
+
+    def _write_raw_cache(self, key, payload):
+        self._cache_path(key).write_text(json.dumps(payload), encoding="utf-8")
+
+    def _collect_once_then_reuse(self):
+        collection = SimpleNamespace(players=(dict(self.fresh_player),))
+        with patch.object(rs, "_collect_ncaa_team", return_value=collection) as collect:
+            first = rs._scrape_ncaa_team_locked(self.team, 2026)
+            second = rs._scrape_ncaa_team_locked(self.team, 2026)
+        self.assertEqual(first, ([self.fresh_player], "Scranton"))
+        self.assertEqual(second, first)
+        self.assertEqual(collect.call_count, 1)
+
+    def test_version_two_payload_recollects_once_then_current_payload_reuses(self):
+        legacy_key = "ncaa:2026:615349"
+        self._write_raw_cache(legacy_key, {
+            "cache_version": 2,
+            "team_label": "Scranton",
+            "players": [{"Name": "Stale Player", "AB": "99"}],
+        })
+
+        self._collect_once_then_reuse()
+
+        current_payloads = [
+            json.loads(path.read_text(encoding="utf-8"))
+            for path in Path(self.temp_dir.name).glob("result-*.json")
+            if json.loads(path.read_text(encoding="utf-8")).get("players")
+            == [self.fresh_player]
+        ]
+        self.assertEqual(len(current_payloads), 1)
+        self.assertEqual(
+            {
+                field: current_payloads[0].get(field)
+                for field in rs._ncaa_result_cache_contract()
+            },
+            rs._ncaa_result_cache_contract(),
+        )
+
+    def test_missing_or_mismatched_contract_field_is_never_returned(self):
+        key = rs._ncaa_result_cache_key(self.team, 2026)
+        contract = rs._ncaa_result_cache_contract()
+        corruptions = []
+        for field in contract:
+            missing = dict(contract)
+            missing.pop(field)
+            corruptions.append((f"missing-{field}", missing))
+            mismatched = dict(contract)
+            mismatched[field] = "stale" if field != "cache_version" else 2
+            corruptions.append((f"mismatched-{field}", mismatched))
+
+        for label, corrupted_contract in corruptions:
+            with self.subTest(label=label):
+                for path in Path(self.temp_dir.name).glob("result-*.json"):
+                    path.unlink()
+                self._write_raw_cache(key, {
+                    **corrupted_contract,
+                    "team_label": "Scranton",
+                    "players": [{"Name": "Stale Player", "AB": "99"}],
+                })
+                self._collect_once_then_reuse()
 
 
 class NcaaStructuredCollectionTests(unittest.TestCase):
