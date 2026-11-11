@@ -5,6 +5,7 @@ import logging
 import unittest
 import uuid
 from datetime import UTC, datetime, timedelta
+from urllib.parse import parse_qs, urlsplit
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -32,6 +33,159 @@ class _PostgreSQLIdentityCase(unittest.TestCase):
 
 
 class PasswordlessBoundaryTests(_PostgreSQLIdentityCase):
+    @staticmethod
+    def _verified_identity(**overrides):
+        from roster_scout.identity import VerifiedIdentity
+
+        values = {
+            "issuer": "https://identity.example.test",
+            "subject": "browser-subject-1",
+            "provider_user_id": "browser-user-1",
+            "email": "coach@example.edu",
+            "email_verified": True,
+            "linking_approved": False,
+            "sealed_session": "sealed-browser-session",
+        }
+        values.update(overrides)
+        return VerifiedIdentity(**values)
+
+    def _auth_client(self, provider):
+        import app as app_module
+
+        app_module.app.config.update(TESTING=True)
+        app_module.app.extensions["roster_scout_identity_provider"] = provider
+        app_module.app.extensions["roster_scout_auth_session_factory"] = self.Session
+        return app_module.app.test_client()
+
+    def test_login_page_hands_off_without_local_credentials(self):
+        from roster_scout.identity import FakeIdentityProvider
+
+        response = self._auth_client(FakeIdentityProvider()).get("/login")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn("Sign in to Roster Scout", body)
+        self.assertIn(
+            "Use your work email to access your organization’s opponent reports.",
+            body,
+        )
+        self.assertIn("Continue to sign in", body)
+        self.assertIn(
+            "Passwordless email, Google, Microsoft, and your organization’s SSO may be available.",
+            body,
+        )
+        self.assertIn('href="#main-content"', body)
+        self.assertNotIn('type="password"', body)
+        self.assertNotIn('type="email"', body)
+        self.assertNotIn('name="email"', body)
+
+    def test_start_creates_state_and_preserves_only_allowlisted_return_path(self):
+        from roster_scout.identity import FakeIdentityProvider
+        from roster_scout.models import AuthTransaction
+
+        provider = FakeIdentityProvider()
+        client = self._auth_client(provider)
+        response = client.get("/auth/start?return_to=/reports")
+
+        self.assertEqual(response.status_code, 302)
+        query = parse_qs(urlsplit(response.headers["Location"]).query)
+        self.assertEqual(set(query), {"state"})
+        state = query["state"][0]
+        self.assertGreaterEqual(len(state), 32)
+        with self.Session.begin() as session:
+            row = session.scalar(select(AuthTransaction))
+            self.assertEqual(row.return_path, "/reports")
+            self.assertNotEqual(row.state_digest, state)
+
+        unsafe = client.get("/auth/start?return_to=//attacker.example/path")
+        self.assertEqual(unsafe.status_code, 400)
+        unsafe_body = unsafe.get_data(as_text=True)
+        self.assertIn("We couldn’t sign you in", unsafe_body)
+        self.assertNotIn("attacker.example", unsafe_body)
+
+    def test_callback_links_account_sets_secure_cookie_and_replay_is_fixed(self):
+        from roster_scout.identity import FakeIdentityProvider
+        from roster_scout.models import Account, AccountSession, AuthTransaction
+        from roster_scout.sessions import SESSION_COOKIE_NAME
+
+        provider = FakeIdentityProvider(
+            identities={"browser-code-secret": self._verified_identity()}
+        )
+        client = self._auth_client(provider)
+        started = client.get("/auth/start")
+        state = parse_qs(urlsplit(started.headers["Location"]).query)["state"][0]
+
+        callback = client.get(
+            "/auth/callback",
+            query_string={"state": state, "code": "browser-code-secret"},
+        )
+
+        self.assertEqual(callback.status_code, 302)
+        self.assertEqual(
+            urlsplit(callback.headers["Location"]).path,
+            "/organizations/none",
+        )
+        cookie = callback.headers["Set-Cookie"]
+        self.assertIn(f"{SESSION_COOKIE_NAME}=", cookie)
+        self.assertIn("Secure", cookie)
+        self.assertIn("HttpOnly", cookie)
+        self.assertIn("SameSite=Lax", cookie)
+        self.assertIn("Path=/", cookie)
+        self.assertNotIn("Domain=", cookie)
+        with self.Session.begin() as session:
+            self.assertEqual(session.query(Account).count(), 1)
+            self.assertEqual(session.query(AccountSession).count(), 1)
+            transaction = session.scalar(select(AuthTransaction))
+            self.assertIsNotNone(transaction.consumed_at)
+
+        replay = client.get(
+            "/auth/callback",
+            query_string={"state": state, "code": "browser-code-secret"},
+        )
+        self.assertEqual(replay.status_code, 400)
+        replay_body = replay.get_data(as_text=True)
+        self.assertIn("We couldn’t sign you in", replay_body)
+        self.assertIn("Return to sign in", replay_body)
+        self.assertNotIn(state, replay_body)
+        self.assertNotIn("browser-code-secret", replay_body)
+
+    def test_provider_failure_consumes_state_and_redacts_callback_material(self):
+        from roster_scout.identity import FakeIdentityProvider
+
+        provider_secret = "provider-exception-secret"
+        callback_secret = "callback-code-secret"
+        client = self._auth_client(
+            FakeIdentityProvider(failure=RuntimeError(provider_secret))
+        )
+        started = client.get("/auth/start")
+        state = parse_qs(urlsplit(started.headers["Location"]).query)["state"][0]
+
+        with self.assertLogs("app", level="WARNING") as captured:
+            failed = client.get(
+                "/auth/callback",
+                query_string={"state": state, "code": callback_secret},
+            )
+
+        self.assertEqual(failed.status_code, 503)
+        rendered = failed.get_data(as_text=True) + " ".join(captured.output)
+        self.assertIn("We couldn’t sign you in", rendered)
+        self.assertNotIn(provider_secret, rendered)
+        self.assertNotIn(callback_secret, rendered)
+        self.assertNotIn(state, rendered)
+        self.assertEqual(
+            captured.output,
+            [
+                "WARNING:app:identity_provider_exchange_failed",
+                "WARNING:app:identity_callback_failed",
+            ],
+        )
+
+        replay = client.get(
+            "/auth/callback",
+            query_string={"state": state, "code": callback_secret},
+        )
+        self.assertEqual(replay.status_code, 400)
+
     def test_authorization_state_is_hashed_bounded_and_consumed_once(self):
         from roster_scout.identity import (
             IdentityFailure,
