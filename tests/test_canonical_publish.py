@@ -1620,16 +1620,20 @@ class AuthoritativeIdentityPublicationSerializationTests(
             session.flush()
             return player.id
 
-    def test_publisher_uses_snapshot_player_identity_lock_order(self):
+    def test_publisher_uses_snapshot_global_tenant_identity_lock_order(self):
         source = (Path(__file__).parent.parent / "roster_scout" / "snapshots.py").read_text()
         snapshot_lock = source.index("lock_snapshot_mutation")
-        player_lock = source.index("lock_authoritative_player_mutation")
+        global_player_lock = source.index(
+            "lock_authoritative_global_player_mutation"
+        )
+        tenant_player_lock = source.index("lock_authoritative_player_mutation")
         identity_lock = source.index(
             "lock_authoritative_player_team_season_mutation"
         )
         mismatch_query = source.index("authoritative_mismatch_count")
-        self.assertLess(snapshot_lock, player_lock)
-        self.assertLess(player_lock, identity_lock)
+        self.assertLess(snapshot_lock, global_player_lock)
+        self.assertLess(global_player_lock, tenant_player_lock)
+        self.assertLess(tenant_player_lock, identity_lock)
         self.assertLess(identity_lock, mismatch_query)
 
     def test_source_mutation_commits_before_waiting_publication_rechecks(self):
