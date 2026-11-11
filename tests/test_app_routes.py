@@ -217,6 +217,7 @@ class DownloadAcknowledgementSecretConfigurationTests(unittest.TestCase):
             "FLY_APP_NAME",
             "WEB_CONCURRENCY",
             "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET",
+            "ROSTER_SCOUT_PUBLIC_ORIGIN",
             "ACK_EVENT_ID",
             "ACK_PROOF",
         ):
@@ -234,21 +235,27 @@ class DownloadAcknowledgementSecretConfigurationTests(unittest.TestCase):
 
     def test_shared_runtime_rejects_missing_short_and_malformed_secrets(self):
         cases = (
-            ({"FLY_APP_NAME": "roster-scout"}, "missing"),
+            ({
+                "FLY_APP_NAME": "roster-scout",
+                "ROSTER_SCOUT_PUBLIC_ORIGIN": "https://roster-scout.fly.dev",
+            }, "missing"),
             ({
                 "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET": self._secret(31),
             }, "short local configured secret"),
             ({
                 "WEB_CONCURRENCY": "2",
                 "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET": self._secret(31),
+                "ROSTER_SCOUT_PUBLIC_ORIGIN": "https://reports.example.test",
             }, "short"),
             ({
                 "FLY_APP_NAME": "roster-scout",
                 "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET": "not+urlsafe!",
+                "ROSTER_SCOUT_PUBLIC_ORIGIN": "https://roster-scout.fly.dev",
             }, "malformed"),
             ({
                 "FLY_APP_NAME": "roster-scout",
                 "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET": "+" * 44,
+                "ROSTER_SCOUT_PUBLIC_ORIGIN": "https://roster-scout.fly.dev",
             }, "standard alphabet"),
             ({"WEB_CONCURRENCY": "0"}, "non-positive"),
             ({"WEB_CONCURRENCY": "many"}, "non-integer"),
@@ -264,6 +271,7 @@ class DownloadAcknowledgementSecretConfigurationTests(unittest.TestCase):
             updates={
                 "FLY_APP_NAME": "roster-scout",
                 "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET": self._secret(32),
+                "ROSTER_SCOUT_PUBLIC_ORIGIN": "https://roster-scout.fly.dev",
             },
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
@@ -277,6 +285,7 @@ class DownloadAcknowledgementSecretConfigurationTests(unittest.TestCase):
             updates={
                 "WEB_CONCURRENCY": "2",
                 "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET": shared_secret,
+                "ROSTER_SCOUT_PUBLIC_ORIGIN": "https://reports.example.test",
                 "ACK_EVENT_ID": event_id,
             },
         )
@@ -287,6 +296,7 @@ class DownloadAcknowledgementSecretConfigurationTests(unittest.TestCase):
             updates={
                 "WEB_CONCURRENCY": "2",
                 "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET": shared_secret,
+                "ROSTER_SCOUT_PUBLIC_ORIGIN": "https://reports.example.test",
                 "ACK_EVENT_ID": event_id,
                 "ACK_PROOF": proof,
             },
@@ -298,12 +308,143 @@ class DownloadAcknowledgementSecretConfigurationTests(unittest.TestCase):
             updates={
                 "WEB_CONCURRENCY": "2",
                 "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET": self._secret(32, b"b"),
+                "ROSTER_SCOUT_PUBLIC_ORIGIN": "https://reports.example.test",
                 "ACK_EVENT_ID": event_id,
                 "ACK_PROOF": proof,
             },
         )
         self.assertEqual(rejected.returncode, 0, rejected.stderr)
         self.assertEqual(rejected.stdout.strip(), "False")
+
+
+class DownloadAcknowledgementPublicOriginTests(unittest.TestCase):
+    @staticmethod
+    def _secret():
+        return base64.urlsafe_b64encode(b"o" * 32).decode().rstrip("=")
+
+    def _run_app_process(self, code="import app; print('ready')", *, updates=None):
+        environment = dict(os.environ)
+        for name in (
+            "FLY_APP_NAME",
+            "WEB_CONCURRENCY",
+            "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET",
+            "ROSTER_SCOUT_PUBLIC_ORIGIN",
+        ):
+            environment.pop(name, None)
+        environment.update(updates or {})
+        return subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=os.path.dirname(os.path.dirname(__file__)),
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+
+    def test_shared_runtime_requires_an_absolute_bare_public_origin(self):
+        invalid_origins = (
+            None,
+            "reports.example.test",
+            "https://user:secret@reports.example.test",
+            "https://reports.example.test/path",
+            "https://reports.example.test?preview=1",
+            "https://reports.example.test#fragment",
+            "https://reports.example.test:not-a-port",
+        )
+        runtimes = (
+            {"FLY_APP_NAME": "roster-scout"},
+            {"WEB_CONCURRENCY": "2"},
+        )
+        for runtime in runtimes:
+            for origin in invalid_origins:
+                environment = {
+                    **runtime,
+                    "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET": self._secret(),
+                }
+                if origin is not None:
+                    environment["ROSTER_SCOUT_PUBLIC_ORIGIN"] = origin
+                with self.subTest(runtime=runtime, origin=origin):
+                    completed = self._run_app_process(updates=environment)
+                    self.assertNotEqual(completed.returncode, 0)
+
+    def test_fly_requires_https_but_multiworker_accepts_valid_http_or_port(self):
+        fly_http = self._run_app_process(updates={
+            "FLY_APP_NAME": "roster-scout",
+            "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET": self._secret(),
+            "ROSTER_SCOUT_PUBLIC_ORIGIN": "http://roster-scout.fly.dev",
+        })
+        self.assertNotEqual(fly_http.returncode, 0)
+
+        for origin in (
+            "http://reports.internal.test",
+            "https://reports.example.test:8443/",
+        ):
+            with self.subTest(origin=origin):
+                completed = self._run_app_process(updates={
+                    "WEB_CONCURRENCY": "2",
+                    "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET": self._secret(),
+                    "ROSTER_SCOUT_PUBLIC_ORIGIN": origin,
+                })
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+
+    def test_non_fly_single_process_preserves_request_origin_fallback(self):
+        code = """
+import uuid
+import app
+app._record_workbook_download = lambda event_id: 'recorded'
+event_id = str(uuid.uuid4())
+proof = app._issue_download_ack_proof(event_id)
+response = app.app.test_client().post(
+    '/api/downloads/ack',
+    json={'download_event_id': event_id, 'acknowledgement_proof': proof},
+    headers={'Origin': 'http://localhost', 'Sec-Fetch-Site': 'same-origin'},
+)
+print(response.status_code)
+"""
+        completed = self._run_app_process(code)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout.strip(), "200")
+
+    def test_fly_uses_public_https_origin_for_internal_http_requests(self):
+        code = """
+import uuid
+import app
+app._record_workbook_download = lambda event_id: 'recorded'
+client = app.app.test_client()
+def status(origin, headers=None):
+    event_id = str(uuid.uuid4())
+    proof = app._issue_download_ack_proof(event_id)
+    response = client.post(
+        '/api/downloads/ack',
+        base_url='http://internal-roster-scout:5000',
+        json={'download_event_id': event_id, 'acknowledgement_proof': proof},
+        headers={
+            'Origin': origin,
+            'Sec-Fetch-Site': 'same-origin',
+            **(headers or {}),
+        },
+    )
+    return response.status_code
+print(status('https://roster-scout.fly.dev', {
+    'Host': 'attacker.example',
+    'X-Forwarded-Host': 'attacker.example',
+    'X-Forwarded-Proto': 'http',
+}))
+print(status('http://internal-roster-scout:5000'))
+print(status('https://attacker.example', {
+    'Host': 'roster-scout.fly.dev',
+    'X-Forwarded-Host': 'roster-scout.fly.dev',
+    'X-Forwarded-Proto': 'https',
+}))
+"""
+        completed = self._run_app_process(code, updates={
+            "FLY_APP_NAME": "roster-scout",
+            "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET": self._secret(),
+            "ROSTER_SCOUT_PUBLIC_ORIGIN": "https://roster-scout.fly.dev",
+        })
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout.splitlines(), ["200", "403", "403"])
 
 
 class WorkbookDownloadAcknowledgementTests(unittest.TestCase):
