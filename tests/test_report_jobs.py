@@ -1956,6 +1956,126 @@ class FailureEvidenceIntegrationTests(PostgreSQLJobTestCase):
             )
 
 
+class InvalidRetentionTerminalStateTests(PostgreSQLJobTestCase):
+    INVALID_VALUES = ("29", "", "not-an-integer", "0", "-1")
+
+    @staticmethod
+    def _failure_error():
+        from roster_scout.jobs import DeterministicJobError
+
+        return DeterministicJobError(
+            "schema_validation",
+            evidence=Mock(
+                section="batting",
+                source_url="https://stats.ncaa.test/player?token=secret",
+                html=b"<html>secret evidence</html>",
+                failure_category="schema_validation",
+                collected_at=datetime(2026, 11, 10, 20, 0, tzinfo=UTC),
+            ),
+        )
+
+    def _running_job(self, idempotency_key):
+        from roster_scout.jobs import accept_report_job
+        from roster_scout.models import ReportJob
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            idempotency_key,
+            dispatch=None,
+        )
+        with self.Session.begin() as session:
+            stored = session.get(ReportJob, job.id)
+            stored.status = "running"
+            stored.attempt_count = 1
+            stored.started_generation = 1
+        return job
+
+    def test_invalid_retention_commits_sanitized_terminal_state_without_evidence(self):
+        from roster_scout.jobs import SAFE_FAILURE_MESSAGES, _record_failure
+        from roster_scout.models import FailureEvidence, ReportJob, ReportJobDispatch
+
+        for index, value in enumerate(self.INVALID_VALUES):
+            clean_database(self.database_url)
+            job = self._running_job(f"invalid-retention-{index}")
+
+            with self.subTest(value=value), patch.dict(
+                os.environ,
+                {"FAILURE_EVIDENCE_RETENTION_DAYS": value},
+            ):
+                _record_failure(
+                    self.Session,
+                    job.id,
+                    1,
+                    self._failure_error(),
+                    now=datetime(2026, 11, 10, 20, 5, tzinfo=UTC),
+                )
+
+            with self.Session() as session:
+                stored = session.get(ReportJob, job.id)
+                dispatches = list(session.scalars(
+                    select(ReportJobDispatch).where(
+                        ReportJobDispatch.job_id == job.id
+                    )
+                ))
+                self.assertEqual(stored.status, "failed")
+                self.assertIsNotNone(stored.finished_at)
+                self.assertEqual(stored.failure_category, "unexpected")
+                self.assertEqual(
+                    stored.failure_message,
+                    SAFE_FAILURE_MESSAGES["unexpected"],
+                )
+                self.assertTrue(dispatches)
+                self.assertTrue(all(item.status == "closed" for item in dispatches))
+                self.assertEqual(
+                    session.scalar(select(func.count()).select_from(FailureEvidence)),
+                    0,
+                )
+                persisted_text = (
+                    f"{stored.failure_category} {stored.failure_message}"
+                )
+                for forbidden in (
+                    value,
+                    "secret evidence",
+                    "stats.ncaa.test",
+                    "token=secret",
+                    "FailureEvidenceConfigurationError",
+                ):
+                    if forbidden:
+                        self.assertNotIn(forbidden, persisted_text)
+
+    def test_valid_retention_commits_terminal_state_and_one_evidence_row(self):
+        from roster_scout.jobs import SAFE_FAILURE_MESSAGES, _record_failure
+        from roster_scout.models import FailureEvidence, ReportJob
+
+        job = self._running_job("valid-retention-control")
+        with patch.dict(
+            os.environ,
+            {"FAILURE_EVIDENCE_RETENTION_DAYS": "28"},
+        ):
+            _record_failure(
+                self.Session,
+                job.id,
+                1,
+                self._failure_error(),
+                now=datetime(2026, 11, 10, 20, 5, tzinfo=UTC),
+            )
+
+        with self.Session() as session:
+            stored = session.get(ReportJob, job.id)
+            evidence = list(session.scalars(select(FailureEvidence)))
+            self.assertEqual(stored.status, "failed")
+            self.assertEqual(stored.failure_category, "schema_validation")
+            self.assertEqual(
+                stored.failure_message,
+                SAFE_FAILURE_MESSAGES["schema_validation"],
+            )
+            self.assertEqual(len(evidence), 1)
+            self.assertEqual(evidence[0].job_id, job.id)
+
+
 class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
     TEAMS = {
         1: {
