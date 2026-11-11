@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  <title>{% block title %}Roster Scout{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='product.css') }}">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to content</a>
+  <header class="product-header">
+    <div class="product-header__inner">
+      <a class="product-brand" href="/reports" aria-label="Roster Scout reports">
+        <span class="product-brand__mark" aria-hidden="true">RS</span>
+        <span>roster scout</span>
+      </a>
+      <nav class="product-nav" aria-label="Primary navigation">
+        <a href="/reports">Reports</a>
+        {% if current_role == "admin" %}<a href="/organization/members">Members</a>{% endif %}
+      </nav>
+      <div class="product-actions">
+        {% if organization_name %}
+          <a class="organization-switcher" href="/organizations/select" title="{{ organization_name }}">
+            <span class="visually-hidden">Current organization: </span>{{ organization_name }}
+          </a>
+        {% endif %}
+        <a class="button button--primary" href="/reports/new">Create report</a>
+        <details class="account-menu">
+          <summary aria-label="Open account menu">Account</summary>
+          <div class="account-menu__panel">
+            {% if account_email %}<p class="account-email">{{ account_email }}</p>{% endif %}
+            <button class="theme-control" type="button" data-theme-control>Use device theme</button>
+            <form action="{{ url_for('auth.logout') }}" method="post">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="button button--quiet" type="submit">Sign out</button>
+            </form>
+          </div>
+        </details>
+      </div>
+    </div>
+  </header>
+  <main id="main-content" class="product-main" tabindex="-1">
+    {% block breadcrumbs %}{% endblock %}
+    <h1>{% block page_title %}Roster Scout{% endblock %}</h1>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

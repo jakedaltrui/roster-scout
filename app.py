@@ -22,13 +22,20 @@ import idna
 import requests
 import xlsxwriter
 from PIL import Image, ImageDraw, UnidentifiedImageError
-from flask import Flask, jsonify, render_template, request, send_file
+from flask import Flask, g, jsonify, redirect, render_template, request, send_file
+from flask_wtf import CSRFProtect
+from flask_wtf.csrf import CSRFError
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 from werkzeug.exceptions import RequestEntityTooLarge
 from xlsxwriter.utility import xl_pixel_width
 from usage_limits import BrowserCapacityError, check_request_limit
 
 from roster_scout.auth_routes import register_auth_routes
+from roster_scout.authorization import (
+    AuthorizationFailure,
+    list_active_memberships,
+    require_context,
+)
 from roster_scout.database import create_session_factory, get_engine
 from roster_scout.evidence import (
     FailureEvidenceConfigurationError,
@@ -36,7 +43,12 @@ from roster_scout.evidence import (
     get_failure_evidence_retention,
 )
 from roster_scout.usage import record_workbook_download_served
-from roster_scout.identity import FakeIdentityProvider
+from roster_scout.identity import (
+    FakeIdentityProvider,
+    IdentityFailure,
+    WorkOSIdentityProvider,
+)
+from roster_scout.sessions import SESSION_COOKIE_NAME, load_account_session
 from roster_scraper import (
     HITTER_HEADERS,
     PITCHER_HEADERS,
@@ -51,6 +63,92 @@ from roster_scraper import (
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024
+app.config["WTF_CSRF_CHECK_DEFAULT"] = False
+app.config["WTF_CSRF_TIME_LIMIT"] = 3600
+_CSRF = CSRFProtect(app)
+
+
+class _UnavailableIdentityProvider:
+    """Fail-closed provider used when hosted identity config is incomplete."""
+
+    @staticmethod
+    def _raise():
+        raise IdentityFailure("identity_unavailable")
+
+    def authorization_url(self, *, state, invitation_token=None):
+        self._raise()
+
+    def exchange_code(self, *, code):
+        self._raise()
+
+    def refresh(self, *, sealed_session):
+        self._raise()
+
+    def logout_url(self, *, sealed_session):
+        self._raise()
+
+
+def _valid_identity_redirect_uri(value: str, *, hosted: bool) -> bool:
+    """Accept only an exact callback URL, requiring HTTPS in hosted runtimes."""
+    try:
+        parsed = urlsplit(value)
+        parsed.port
+    except (TypeError, ValueError):
+        return False
+    return bool(
+        parsed.hostname
+        and not parsed.username
+        and not parsed.password
+        and parsed.path == "/auth/callback"
+        and not parsed.query
+        and not parsed.fragment
+        and (parsed.scheme == "https" if hosted else parsed.scheme in {"http", "https"})
+    )
+
+
+def _identity_configuration():
+    """Return provider, CSRF signing key, and deterministic readiness status."""
+    hosted = bool(os.environ.get("FLY_APP_NAME", "").strip())
+    mode = os.environ.get(
+        "ROSTER_SCOUT_IDENTITY_MODE",
+        "workos" if hosted else "fake",
+    ).strip().lower()
+    session_secret = os.environ.get("ROSTER_SCOUT_SESSION_SECRET", "").strip()
+    workos_values = {
+        "api_key": os.environ.get("WORKOS_API_KEY", "").strip(),
+        "client_id": os.environ.get("WORKOS_CLIENT_ID", "").strip(),
+        "redirect_uri": os.environ.get("WORKOS_REDIRECT_URI", "").strip(),
+        "cookie_password": os.environ.get("WORKOS_COOKIE_PASSWORD", "").strip(),
+    }
+
+    if mode == "fake" and not hosted:
+        return FakeIdentityProvider(), session_secret or secrets.token_urlsafe(32), True
+    if (
+        mode == "workos"
+        and session_secret
+        and all(workos_values.values())
+        and _valid_identity_redirect_uri(
+            workos_values["redirect_uri"],
+            hosted=hosted,
+        )
+    ):
+        try:
+            provider = WorkOSIdentityProvider(**workos_values)
+        except Exception:
+            return _UnavailableIdentityProvider(), secrets.token_urlsafe(32), False
+        return provider, session_secret, True
+    return _UnavailableIdentityProvider(), session_secret or secrets.token_urlsafe(32), False
+
+
+(
+    _IDENTITY_PROVIDER,
+    _SESSION_SIGNING_KEY,
+    _AUTH_CONFIGURATION_READY,
+) = _identity_configuration()
+_AUTH_VERIFICATION_STATUS = (
+    "code_verified" if _AUTH_CONFIGURATION_READY else "configuration_required"
+)
+app.secret_key = _SESSION_SIGNING_KEY
 
 _DOWNLOAD_ACK_PURPOSE = "roster-scout-workbook-download-v1"
 _DOWNLOAD_ACK_SALT = "roster-scout-download-ack-v1"
@@ -379,9 +477,106 @@ def _auth_session_factory():
 
 register_auth_routes(
     app,
-    identity_provider=FakeIdentityProvider(),
+    identity_provider=_IDENTITY_PROVIDER,
     session_factory=_auth_session_factory,
 )
+
+
+_PUBLIC_ENDPOINTS = frozenset({
+    "static",
+    "healthz",
+    "readyz",
+    "demo",
+    "auth.login",
+    "auth.start",
+    "auth.callback",
+    "auth.error",
+})
+_ACCOUNT_ONLY_ENDPOINTS = frozenset({
+    "auth.no_membership",
+    "auth.logout",
+})
+
+
+def _authentication_enforced() -> bool:
+    return not app.testing or bool(
+        app.config.get("ROSTER_SCOUT_TEST_AUTH_ENFORCEMENT")
+    )
+
+
+def _json_auth_response(category: str):
+    return jsonify({"error": category}), 401 if category == "authentication_required" else 404
+
+
+def _load_account_only_context(cookie_value: str):
+    with _auth_session_factory().begin() as session:
+        loaded = load_account_session(
+            session,
+            cookie_value=cookie_value,
+            touch=True,
+        )
+        memberships = (
+            list_active_memberships(session, account_id=loaded.account_id)
+            if loaded is not None
+            else []
+        )
+    return loaded, memberships
+
+
+@app.before_request
+def require_authenticated_organization():
+    """Default-deny every current and future route outside the short allowlist."""
+    if not _authentication_enforced() or request.endpoint in _PUBLIC_ENDPOINTS:
+        return None
+
+    cookie_value = request.cookies.get(SESSION_COOKIE_NAME, "")
+    try:
+        if request.endpoint in _ACCOUNT_ONLY_ENDPOINTS:
+            loaded, memberships = _load_account_only_context(cookie_value)
+            if loaded is None:
+                raise AuthorizationFailure("authentication_required")
+            g.account_session = loaded
+            g.active_memberships = memberships
+        else:
+            with _auth_session_factory().begin() as session:
+                g.authorization_context = require_context(
+                    session,
+                    cookie_value=cookie_value,
+                )
+    except AuthorizationFailure as exc:
+        if exc.category == "authentication_required":
+            if request.path.startswith("/api/") or request.path == "/scrape":
+                return _json_auth_response("authentication_required")
+            return redirect("/login", code=302)
+        try:
+            loaded, memberships = _load_account_only_context(cookie_value)
+        except Exception:
+            loaded, memberships = None, []
+        if loaded is None:
+            if request.path.startswith("/api/") or request.path == "/scrape":
+                return _json_auth_response("authentication_required")
+            return redirect("/login", code=302)
+        if request.path.startswith("/api/") or request.path == "/scrape":
+            return _json_auth_response("not_found")
+        if memberships:
+            return redirect("/organizations/select", code=302)
+        return redirect("/organizations/none", code=302)
+    except Exception:
+        app.logger.warning("identity_authorization_failed")
+        if request.path.startswith("/api/") or request.path == "/scrape":
+            return _json_auth_response("authentication_required")
+        return redirect("/login", code=302)
+
+    if request.method in app.config["WTF_CSRF_METHODS"]:
+        _CSRF.protect()
+    return None
+
+
+@app.errorhandler(CSRFError)
+def csrf_rejected(_error):
+    if request.path.startswith("/api/") or request.path == "/scrape":
+        return jsonify({"error": "request_rejected"}), 400
+    return render_template("auth_error.html", state="failure"), 400
 
 
 def _record_workbook_download(event_key):

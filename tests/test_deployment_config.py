@@ -1719,8 +1719,11 @@ class Phase2IdentityDeploymentConfigTests(unittest.TestCase):
             self.assertIn(name, source)
         self.assertNotRegex(source, r"sk_(?:live|test)_[A-Za-z0-9]{8,}")
         self.assertNotRegex(source, r"client_[A-Za-z0-9]{8,}")
-        self.assertNotRegex(source, r"WORKOS_API_KEY\s*=\s*[^\s\n]+")
-        self.assertNotRegex(source, r"WORKOS_COOKIE_PASSWORD\s*=\s*[^\s\n]+")
+        self.assertNotRegex(source, r"WORKOS_API_KEY[ \t]*=[ \t]*[^\s\n]+")
+        self.assertNotRegex(
+            source,
+            r"WORKOS_COOKIE_PASSWORD[ \t]*=[ \t]*[^\s\n]+",
+        )
 
     def test_hosted_runtime_missing_identity_configuration_fails_closed(self):
         completed = self._run_app_process(
@@ -1751,6 +1754,29 @@ class Phase2IdentityDeploymentConfigTests(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertEqual(completed.stdout.strip(), "True code_verified")
+
+    def test_hosted_runtime_rejects_non_https_or_inexact_callback(self):
+        common = {
+            "FLY_APP_NAME": "roster-scout",
+            "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET": self._secret(b"a"),
+            "ROSTER_SCOUT_PUBLIC_ORIGIN": "https://roster-scout.fly.dev",
+            "ROSTER_SCOUT_IDENTITY_MODE": "workos",
+            "ROSTER_SCOUT_SESSION_SECRET": self._secret(b"b"),
+            "WORKOS_API_KEY": "synthetic-api-key",
+            "WORKOS_CLIENT_ID": "synthetic-client-id",
+            "WORKOS_COOKIE_PASSWORD": self._secret(b"c"),
+        }
+        for redirect_uri in (
+            "http://roster-scout.fly.dev/auth/callback",
+            "https://roster-scout.fly.dev/auth/callback?return=/reports",
+        ):
+            with self.subTest(redirect_uri=redirect_uri):
+                completed = self._run_app_process(
+                    "import app; print(app._AUTH_CONFIGURATION_READY)",
+                    updates={**common, "WORKOS_REDIRECT_URI": redirect_uri},
+                )
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                self.assertEqual(completed.stdout.strip(), "False")
 
     def test_runbook_separates_code_and_live_auth_verification(self):
         runbook = (PROJECT_ROOT / "DEPLOYMENT.md").read_text(encoding="utf-8")

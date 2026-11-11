@@ -90,6 +90,63 @@ signed proof, and bounded timestamps for at most the proof lifetime.
 
 ## Docker Compose
 
+### Phase 2 managed identity readiness
+
+Roster Scout uses WorkOS AuthKit as a replaceable managed identity boundary.
+The application owns canonical accounts, organization memberships, and opaque
+server sessions; WorkOS organization, domain, and JIT claims never authorize a
+Roster Scout organization. Local and automated verification use the injected
+fake adapter and do not contact a WorkOS workspace.
+
+Configure these names only through an untracked local environment or the
+hosting provider's secret store:
+
+- `ROSTER_SCOUT_IDENTITY_MODE=workos`
+- `ROSTER_SCOUT_SESSION_SECRET` — shared high-entropy Flask-WTF signing key
+- `WORKOS_API_KEY`
+- `WORKOS_CLIENT_ID`
+- `WORKOS_REDIRECT_URI` — the exact HTTPS `/auth/callback` URL
+- `WORKOS_COOKIE_PASSWORD` — shared high-entropy sealed-session key
+
+A hosted runtime with missing or incomplete identity configuration sets the
+authentication boundary to unavailable and fails customer product access
+closed. It does not fall back to the fake provider. Never place credential
+values in `.env.example`, `fly.toml`, source, logs, screenshots, or release
+evidence.
+
+Run the deterministic identity and route-gate verification locally without a
+WorkOS workspace:
+
+```bash
+DATABASE_URL=postgresql+psycopg://roster_scout:roster_scout@127.0.0.1:5432/roster_scout_test \
+  .venv/bin/python -m unittest \
+  tests.test_identity.AuthGateRouteMatrixTests \
+  tests.test_identity.ServerSessionLifecycleTests \
+  tests.test_identity.SecretRedactionTests \
+  tests.test_deployment_config -v
+```
+
+For a non-production staging runtime, inject the six settings above from the
+platform secret store, register that runtime's exact HTTPS `/auth/callback`
+URL in WorkOS, and run the same readiness and route tests before any live IdP
+smoke. Do not reuse production keys or cookie passwords in staging.
+
+Phase 2 records two deliberately separate readiness states:
+
+- `code_verified` means deterministic fake/emulator-backed authentication,
+  callback replay protection, local membership authorization, CSRF, logout,
+  migrations, and configuration tests passed. It creates no external service.
+- `production_auth_verified` is set only after an operator provisions the
+  production WorkOS workspace, confirms billing, installs secrets, registers
+  the exact redirect URL, configures passwordless email plus Google and
+  Microsoft, and completes a real customer OIDC or SAML smoke test.
+
+Before recording `production_auth_verified`, also disable provider-side domain
+or JIT membership as an authorization source, verify outbound passwordless
+email, test local-first logout during a provider failure, and confirm a user
+without an explicit local invitation sees no organization reports. A green
+`code_verified` result never implies that these live checks passed.
+
 ```bash
 docker compose up --build
 docker compose --profile worker up --build
