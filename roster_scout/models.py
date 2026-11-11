@@ -61,6 +61,135 @@ class Organization(UUIDPrimaryKey, Timestamped, Base):
     name: Mapped[str] = mapped_column(String(200), nullable=False)
 
 
+class Account(UUIDPrimaryKey, Timestamped, Base):
+    """Canonical local customer identity, independent of any provider."""
+
+    __tablename__ = "accounts"
+    normalized_email: Mapped[str] = mapped_column(String(320), nullable=False)
+    email_verified_at: Mapped[object] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="active", server_default="active"
+    )
+    disabled_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (
+        UniqueConstraint("normalized_email", name="uq_accounts_normalized_email"),
+        CheckConstraint(
+            _allowed("status", ("active", "disabled")),
+            name="ck_accounts_status",
+        ),
+        CheckConstraint(
+            "(status = 'active' AND disabled_at IS NULL) OR "
+            "(status = 'disabled' AND disabled_at IS NOT NULL)",
+            name="ck_accounts_disabled_at",
+        ),
+    )
+
+
+class ExternalIdentity(UUIDPrimaryKey, Timestamped, Base):
+    """Verified provider subject mapped to exactly one canonical account."""
+
+    __tablename__ = "external_identities"
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("accounts.id", name="fk_external_identities_account"),
+        nullable=False,
+    )
+    issuer: Mapped[str] = mapped_column(String(500), nullable=False)
+    subject: Mapped[str] = mapped_column(String(500), nullable=False)
+    provider_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    last_verified_email: Mapped[str] = mapped_column(String(320), nullable=False)
+    verified_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=False)
+    __table_args__ = (
+        UniqueConstraint(
+            "issuer",
+            "subject",
+            name="uq_external_identities_issuer_subject",
+        ),
+        UniqueConstraint(
+            "provider_user_id",
+            name="uq_external_identities_provider_user",
+        ),
+        Index("ix_external_identities_account_id", "account_id"),
+    )
+
+
+class AuthTransaction(UUIDPrimaryKey, Base):
+    """One-time server-side state for a managed-identity callback."""
+
+    __tablename__ = "auth_transactions"
+    state_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    invitation_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    return_path: Mapped[str] = mapped_column(
+        String(500), nullable=False, default="/", server_default="/"
+    )
+    created_at: Mapped[object] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    expires_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (
+        UniqueConstraint("state_digest", name="uq_auth_transactions_state_digest"),
+        CheckConstraint(
+            "char_length(state_digest) = 64",
+            name="ck_auth_transactions_state_digest_length",
+        ),
+        CheckConstraint(
+            "expires_at > created_at",
+            name="ck_auth_transactions_expiry",
+        ),
+        Index("ix_auth_transactions_expires_at", "expires_at"),
+    )
+
+
+class AccountSession(UUIDPrimaryKey, Timestamped, Base):
+    """Opaque local server session; the browser verifier is never persisted."""
+
+    __tablename__ = "account_sessions"
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("accounts.id", name="fk_account_sessions_account"),
+        nullable=False,
+    )
+    lookup_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    verifier_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    sealed_provider_state: Mapped[str] = mapped_column(Text, nullable=False)
+    csrf_secret: Mapped[str] = mapped_column(String(200), nullable=False)
+    rotation_family: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    active_organization_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(
+            "organizations.id",
+            name="fk_account_sessions_active_organization",
+        )
+    )
+    last_seen_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=False)
+    idle_expires_at: Mapped[object] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    absolute_expires_at: Mapped[object] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    rotated_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (
+        UniqueConstraint("lookup_id", name="uq_account_sessions_lookup_id"),
+        UniqueConstraint(
+            "verifier_digest", name="uq_account_sessions_verifier_digest"
+        ),
+        CheckConstraint(
+            "char_length(verifier_digest) = 64",
+            name="ck_account_sessions_verifier_digest_length",
+        ),
+        CheckConstraint(
+            "idle_expires_at > created_at "
+            "AND absolute_expires_at > created_at "
+            "AND idle_expires_at <= absolute_expires_at",
+            name="ck_account_sessions_expiry",
+        ),
+        Index("ix_account_sessions_account_id", "account_id"),
+        Index("ix_account_sessions_absolute_expires_at", "absolute_expires_at"),
+    )
+
+
 class Team(UUIDPrimaryKey, Timestamped, Base):
     __tablename__ = "teams"
     source: Mapped[str] = mapped_column(String(32), nullable=False)
