@@ -11,6 +11,7 @@ from sqlalchemy.engine import make_url
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+AUDITED_RELEASE_DIFF_BASE = "95776ed"
 MVP_STORY = (
     "As a Roster Scout operator, I want to publish existing NCAA D1/D2/D3 "
     "results through a durable job into an immutable, provenance-rich canonical "
@@ -94,12 +95,71 @@ DEPLOYMENT_LABEL = "Rendered Compose and deployment contracts"
 WORKBOOK_LABEL = "Two-sheet workbook validation"
 COMPILATION_LABEL = "Python compilation"
 TEMPLATE_LABEL = "Required Flask template contracts"
-DIFF_LABEL = "Git diff hygiene"
+COMMITTED_DIFF_LABEL = "Committed release-range diff hygiene"
+WORKING_TREE_DIFF_LABEL = "Working-tree diff hygiene"
+DIFF_LABEL = WORKING_TREE_DIFF_LABEL
 
 
 def _run(label, command, *, env):
     print(f"\n==> {label}", flush=True)
     subprocess.run(command, cwd=PROJECT_ROOT, env=env, check=True)
+
+
+def _resolve_commit(ref, *, project_root, description):
+    completed = subprocess.run(
+        ["git", "rev-parse", "--verify", f"{ref}^{{commit}}"],
+        cwd=project_root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        raise SystemExit(f"{description} must resolve to a Git commit")
+    return completed.stdout.strip()
+
+
+def _is_ancestor(ancestor, descendant, *, project_root):
+    completed = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", ancestor, descendant],
+        cwd=project_root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return completed.returncode == 0
+
+
+def resolve_release_diff_base(
+    env, *, project_root=PROJECT_ROOT, audited_ref=AUDITED_RELEASE_DIFF_BASE
+):
+    """Return a full SHA whose range cannot omit the audited Phase 1 history."""
+    audited_base = _resolve_commit(
+        audited_ref,
+        project_root=project_root,
+        description="Audited release diff base",
+    )
+    if not _is_ancestor(audited_base, "HEAD", project_root=project_root):
+        raise SystemExit("Audited release diff base must remain an ancestor of HEAD")
+
+    if "PHASE1_RELEASE_DIFF_BASE" not in env:
+        return audited_base
+    override = env["PHASE1_RELEASE_DIFF_BASE"].strip()
+    if not override:
+        raise SystemExit("PHASE1_RELEASE_DIFF_BASE cannot be empty")
+    selected_base = _resolve_commit(
+        override,
+        project_root=project_root,
+        description="PHASE1_RELEASE_DIFF_BASE",
+    )
+    if not _is_ancestor(selected_base, audited_base, project_root=project_root):
+        raise SystemExit(
+            "PHASE1_RELEASE_DIFF_BASE must equal or predate the audited release base"
+        )
+    return selected_base
+
+
+def committed_diff_command(diff_base):
+    return ["git", "diff", "--check", f"{diff_base}..HEAD", "--"]
 
 
 def _validate_story(env):
@@ -159,8 +219,10 @@ def _validate_templates():
     print("templates/index.html and templates/demo.html exist", flush=True)
 
 
-def release_command_manifest(python):
+def release_command_manifest(python, *, diff_base=None):
     """Return every deterministic release command in fail-fast order."""
+    if diff_base is None:
+        diff_base = resolve_release_diff_base(os.environ)
     return (
         (
             MINIMAL_HEAD_SETUP_LABEL,
@@ -254,10 +316,8 @@ def release_command_manifest(python):
                 "-v",
             ],
         ),
-        (
-            DIFF_LABEL,
-            ["git", "diff", "--check"],
-        ),
+        (COMMITTED_DIFF_LABEL, committed_diff_command(diff_base)),
+        (WORKING_TREE_DIFF_LABEL, ["git", "diff", "--check"]),
     )
 
 
@@ -267,7 +327,9 @@ def main():
     _validate_database_url(env)
 
     python = sys.executable
-    commands = release_command_manifest(python)
+    diff_base = resolve_release_diff_base(env)
+    print(f"==> Release diff base: {diff_base}", flush=True)
+    commands = release_command_manifest(python, diff_base=diff_base)
     for label, command in commands:
         if label == TEMPLATE_LABEL:
             _validate_templates()
