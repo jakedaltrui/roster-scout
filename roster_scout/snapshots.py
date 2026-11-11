@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 
-from sqlalchemy import distinct, func, or_, select, text
+from sqlalchemy import String, cast, distinct, func, or_, select, text
 
 from .models import (
     BattingFact,
@@ -34,6 +34,57 @@ def publish_snapshot(session, snapshot_id):
         raise SnapshotPublicationError("snapshot does not exist")
     if snapshot.status != "draft":
         raise SnapshotPublicationError("only draft snapshots can be published")
+
+    linked_player_pairs = (
+        select(
+            PlayerTeamSeason.organization_id,
+            PlayerTeamSeason.player_id,
+        )
+        .where(
+            PlayerTeamSeason.snapshot_id == snapshot.id,
+            PlayerTeamSeason.organization_id == snapshot.organization_id,
+        )
+        .distinct()
+        .subquery()
+    )
+    linked_players = session.execute(
+        select(
+            linked_player_pairs.c.organization_id,
+            linked_player_pairs.c.player_id,
+        )
+        .order_by(
+            cast(linked_player_pairs.c.organization_id, String),
+            cast(linked_player_pairs.c.player_id, String),
+        )
+    ).all()
+    for organization_id, player_id in linked_players:
+        session.execute(
+            text(
+                "SELECT lock_authoritative_player_mutation("
+                "CAST(:organization_id AS uuid), CAST(:player_id AS uuid))"
+            ),
+            {
+                "organization_id": organization_id,
+                "player_id": player_id,
+            },
+        )
+
+    linked_identity_ids = session.scalars(
+        select(PlayerTeamSeason.id)
+        .where(
+            PlayerTeamSeason.snapshot_id == snapshot.id,
+            PlayerTeamSeason.organization_id == snapshot.organization_id,
+        )
+        .order_by(cast(PlayerTeamSeason.id, String))
+    )
+    for player_team_season_id in linked_identity_ids:
+        session.execute(
+            text(
+                "SELECT lock_authoritative_player_team_season_mutation("
+                "CAST(:player_team_season_id AS uuid))"
+            ),
+            {"player_team_season_id": player_team_season_id},
+        )
 
     sections = list(session.scalars(
         select(ReportSection).where(ReportSection.snapshot_id == snapshot.id)
