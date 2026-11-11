@@ -17,7 +17,7 @@ MVP_STORY = (
     "snapshot, so that every downstream report can rely on one auditable source "
     "of truth without breaking today's workbook workflow."
 )
-EXPECTED_MIGRATION_HEAD = "0012"
+EXPECTED_MIGRATION_HEAD = "0013"
 GAP_REGRESSION_TESTS = (
     "tests.test_report_jobs.SectionHeaderPublicationTests",
     "tests.test_snapshot_persistence.SnapshotMutationSerializationTests",
@@ -60,6 +60,41 @@ GAP_REGRESSION_TESTS = (
     "tests.test_app_routes.DownloadEventContractTests",
     "tests.test_app_routes.WorkbookDownloadUsageTests",
 )
+
+# Round-four fixes must fail fast before the slower lifecycle and downstream
+# release groups. Keep this manifest at class granularity so a renamed or
+# omitted counterexample is visible to the release-contract tests.
+ROUND_FOUR_COUNTEREXAMPLE_TESTS = (
+    "tests.test_snapshot_persistence.AuthoritativeIdentitySerializationTests",
+    (
+        "tests.test_canonical_publish."
+        "AuthoritativeIdentityPublicationSerializationTests"
+    ),
+    "tests.test_ncaa_workflow.NcaaResultCacheContractTests",
+    "tests.test_browserless_lifecycle.NcaaSameTeamCollectionLockTests",
+    "tests.test_usage_metrics.UsageServiceTests",
+    "tests.test_app_routes.NativeWorkbookDatabaseOptionalTests",
+    "tests.test_app_routes.WorkbookPreparationReceiptTests",
+    "tests.test_app_routes.DownloadAcknowledgementSecretConfigurationTests",
+    "tests.test_app_routes.WorkbookDownloadAcknowledgementTests",
+    "tests.test_evidence.EvidencePurgeFinalizationSerializationTests",
+)
+
+MINIMAL_HEAD_SETUP_LABEL = "Minimal Alembic upgrade to head"
+MINIMAL_HEAD_ASSERTION_LABEL = "Minimal Alembic current-head assertion"
+ROUND_FOUR_PYTHON_LABEL = "Round-four focused Python counterexamples"
+ROUND_FOUR_NODE_LABEL = "Round-four focused browser counterexamples"
+MIGRATION_SERIALIZATION_LABEL = (
+    "Revision 0013 authoritative serialization migration lifecycle"
+)
+FULL_MIGRATION_START_LABEL = "Full Alembic downgrade to base"
+FULL_DISCOVERY_LABEL = "Clean-process full unittest discovery"
+CATALOG_LABEL = "NCAA D1/D2/D3 catalog validation"
+DEPLOYMENT_LABEL = "Rendered Compose and deployment contracts"
+WORKBOOK_LABEL = "Two-sheet workbook validation"
+COMPILATION_LABEL = "Python compilation"
+TEMPLATE_LABEL = "Required Flask template contracts"
+DIFF_LABEL = "Git diff hygiene"
 
 
 def _run(label, command, *, env):
@@ -128,27 +163,48 @@ def release_command_manifest(python):
     """Return every deterministic release command in fail-fast order."""
     return (
         (
-            "Python compilation",
-            [python, "-m", "py_compile", *_python_sources()],
-        ),
-        (
-            "Alembic upgrade to head",
+            MINIMAL_HEAD_SETUP_LABEL,
             [python, "-m", "alembic", "upgrade", "head"],
         ),
         (
-            f"Alembic current revision is {EXPECTED_MIGRATION_HEAD}",
+            MINIMAL_HEAD_ASSERTION_LABEL,
             [python, "-m", "alembic", "current", "--check-heads"],
         ),
         (
-            "Alembic downgrade to base",
+            ROUND_FOUR_PYTHON_LABEL,
+            [python, "-m", "unittest", *ROUND_FOUR_COUNTEREXAMPLE_TESTS, "-v"],
+        ),
+        (
+            ROUND_FOUR_NODE_LABEL,
+            ["node", "--test", "tests/js/download_tracking.test.mjs"],
+        ),
+        (
+            MIGRATION_SERIALIZATION_LABEL,
+            [
+                python,
+                "-m",
+                "unittest",
+                (
+                    "tests.test_snapshot_persistence."
+                    "AuthoritativeIdentitySerializationMigrationTests"
+                ),
+                "-v",
+            ],
+        ),
+        (
+            FULL_MIGRATION_START_LABEL,
             [python, "-m", "alembic", "downgrade", "base"],
         ),
         (
-            "Alembic re-upgrade to head",
+            "Full Alembic base-to-head upgrade",
             [python, "-m", "alembic", "upgrade", "head"],
         ),
         (
-            f"Alembic re-upgrade reaches {EXPECTED_MIGRATION_HEAD}",
+            "Full Alembic re-upgrade to head",
+            [python, "-m", "alembic", "upgrade", "head"],
+        ),
+        (
+            f"Full Alembic current revision is {EXPECTED_MIGRATION_HEAD}",
             [python, "-m", "alembic", "current", "--check-heads"],
         ),
         (
@@ -156,23 +212,50 @@ def release_command_manifest(python):
             [python, "-m", "alembic", "check"],
         ),
         (
-            "Plans 14-29 gap, analytics, and focused workbook regressions",
-            [python, "-m", "unittest", *GAP_REGRESSION_TESTS, "-v"],
-        ),
-        (
-            "Full unittest discovery with PostgreSQL integrations",
+            FULL_DISCOVERY_LABEL,
             [python, "-m", "unittest", "discover", "-s", "tests", "-v"],
         ),
         (
-            "NCAA D1/D2/D3 catalog validation",
+            CATALOG_LABEL,
             [python, "scripts/validate_ncaa_catalog.py"],
         ),
         (
-            "Rendered Docker Compose deployment configuration",
+            DEPLOYMENT_LABEL,
             ["docker", "compose", "config", "--quiet"],
         ),
         (
-            "Git diff hygiene",
+            "Deployment contract tests",
+            [python, "-m", "unittest", "tests.test_deployment_config", "-v"],
+        ),
+        (
+            WORKBOOK_LABEL,
+            [
+                python,
+                "-m",
+                "unittest",
+                (
+                    "tests.test_app_routes.AppRouteTests."
+                    "test_d2_selector_id_downloads_workbook_without_fuzzy_matching"
+                ),
+                "-v",
+            ],
+        ),
+        (
+            COMPILATION_LABEL,
+            [python, "-m", "py_compile", *_python_sources()],
+        ),
+        (
+            TEMPLATE_LABEL,
+            [
+                python,
+                "-m",
+                "unittest",
+                "tests.test_app_routes.DownloadEventContractTests",
+                "-v",
+            ],
+        ),
+        (
+            DIFF_LABEL,
             ["git", "diff", "--check"],
         ),
     )
@@ -185,9 +268,9 @@ def main():
 
     python = sys.executable
     commands = release_command_manifest(python)
-    _run(*commands[0], env=env)
-    _validate_templates()
-    for label, command in commands[1:]:
+    for label, command in commands:
+        if label == TEMPLATE_LABEL:
+            _validate_templates()
         _run(label, command, env=env)
     print("\nPhase 1 release gate: PASS", flush=True)
     return 0
