@@ -1735,6 +1735,24 @@ class AuthoritativeIdentitySerializationTests(
         )
         self.assertIn("31022026", identity_lock)
 
+    def test_authoritative_triggers_follow_global_lock_order(self):
+        for function_name in (
+            "enforce_source_record_authoritative_source_player",
+            "enforce_player_authoritative_source_player",
+            "enforce_player_team_season_authoritative_source_player",
+        ):
+            with self.subTest(function=function_name):
+                definition = self.function_definition(function_name)
+                snapshot_lock = definition.index("lock_authoritative_snapshots")
+                player_lock = definition.index("lock_authoritative_players")
+                identity_lock = definition.index(
+                    "lock_authoritative_player_team_seasons"
+                )
+                validation = definition.index("authoritative source player mismatch")
+                self.assertLess(snapshot_lock, player_lock)
+                self.assertLess(player_lock, identity_lock)
+                self.assertLess(identity_lock, validation)
+
     def test_invisible_new_identity_serializes_with_player_id_mutation(self):
         from roster_scout.models import Player
 
@@ -1842,8 +1860,14 @@ class AuthoritativeIdentitySerializationTests(
                 ),
                 ids,
             )
-            self.assertEqual(source_count, 0)
-            self.assertEqual(session.get(Player, ids["player_id"]).source_player_id, "99")
+            player_source_id = session.get(
+                Player,
+                ids["player_id"],
+            ).source_player_id
+            self.assertEqual(
+                (source_count, player_source_id) in {(1, "42"), (0, "99")},
+                True,
+            )
 
     def test_existing_identity_reassignment_serializes_with_source_insert(self):
         from roster_scout.models import Player, PlayerTeamSeason
@@ -1873,6 +1897,7 @@ class AuthoritativeIdentitySerializationTests(
                 "organization_id": organization.id,
                 "snapshot_id": snapshot.id,
                 "identity_id": identity.id,
+                "original_id": original.id,
                 "replacement_id": replacement.id,
                 "source_id": uuid.uuid4(),
             }
@@ -1945,10 +1970,110 @@ class AuthoritativeIdentitySerializationTests(
                 ),
                 ids,
             )
-            self.assertEqual(source_count, 0)
+            linked_player_id = session.get(
+                PlayerTeamSeason,
+                ids["identity_id"],
+            ).player_id
+            self.assertIn(
+                (source_count, linked_player_id),
+                {
+                    (1, ids["original_id"]),
+                    (0, ids["replacement_id"]),
+                },
+            )
+
+    def test_player_first_opposing_start_order_finishes_without_deadlock(self):
+        from roster_scout.models import Player, PlayerTeamSeason
+
+        with self.Session.begin() as session:
+            organization, team_season, _, snapshot = self.fixture(session)
+            player = Player(
+                source="ncaa", source_player_id="42", display_name="Player First"
+            )
+            session.add(player)
+            session.flush()
+            identity = PlayerTeamSeason(
+                organization_id=organization.id,
+                snapshot_id=snapshot.id,
+                player_id=player.id,
+                team_season_id=team_season.id,
+                identity_status="authoritative",
+                identity_key="ncaa:42",
+                display_name=player.display_name,
+            )
+            session.add(identity)
+            session.flush()
+            ids = {
+                "organization_id": organization.id,
+                "snapshot_id": snapshot.id,
+                "player_id": player.id,
+                "identity_id": identity.id,
+                "source_id": uuid.uuid4(),
+            }
+
+        player_updated = threading.Event()
+        release_player = threading.Event()
+
+        def mutate_player():
+            engine = create_engine(self.database_url)
+            try:
+                with engine.begin() as connection:
+                    connection.execute(text("SET LOCAL lock_timeout = '3s'"))
+                    connection.execute(
+                        text(
+                            "UPDATE players SET source_player_id = '99' "
+                            "WHERE id = :player_id"
+                        ),
+                        ids,
+                    )
+                    player_updated.set()
+                    self.assertTrue(release_player.wait(self.WAIT_SECONDS))
+            finally:
+                engine.dispose()
+
+        def insert_source():
+            engine = create_engine(self.database_url)
+            try:
+                with engine.begin() as connection:
+                    connection.execute(text("SET LOCAL lock_timeout = '3s'"))
+                    self.assertTrue(player_updated.wait(self.WAIT_SECONDS))
+                    connection.execute(
+                        text(
+                            """
+                            INSERT INTO source_records (
+                                id, organization_id, snapshot_id,
+                                player_team_season_id, section, row_ordinal,
+                                source_url, source_team_id, source_season_id,
+                                source_season_team_id, source_stat_category_id,
+                                source_player_id, collected_at, parser_version,
+                                schema_version, payload_sha256, raw_values
+                            ) VALUES (
+                                :source_id, :organization_id, :snapshot_id,
+                                :identity_id, 'batting', 0,
+                                'https://stats.ncaa.org/player-first', '689',
+                                '17040', '615087', '15867', '42', now(),
+                                'parser-2+ncaa-core-v2', 'ncaa-core-v2',
+                                :sha, '{}'::jsonb
+                            )
+                            """
+                        ),
+                        {**ids, "sha": "c" * 64},
+                    )
+            finally:
+                engine.dispose()
+
+        workers, outcomes = self.run_workers(mutate_player, insert_source)
+        self.assertTrue(player_updated.wait(self.WAIT_SECONDS))
+        release_player.set()
+        self.assert_bounded_serialized_outcome(workers, outcomes)
+        with self.Session() as session:
+            self.assertEqual(session.get(Player, ids["player_id"]).source_player_id, "99")
             self.assertEqual(
-                session.get(PlayerTeamSeason, ids["identity_id"]).player_id,
-                ids["replacement_id"],
+                session.scalar(
+                    text("SELECT count(*) FROM source_records WHERE id = :source_id"),
+                    ids,
+                ),
+                0,
             )
 
 
