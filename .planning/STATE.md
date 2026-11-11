@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-02-PLAN.md
-last_updated: "2026-11-11T23:01:40.975Z"
+stopped_at: Completed 02-12-PLAN.md
+last_updated: "2026-11-11T23:21:31.710Z"
 last_activity: 2026-11-11
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 57
-  completed_plans: 44
+  completed_plans: 45
   percent: 20
 ---
 
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-11-11)
 ## Current Position
 
 Phase: 02 (identity-organizations-and-report-library) — EXECUTING
-Plan: 4 of 16
+Plan: 5 of 16
 Status: Ready to execute
 Last activity: 2026-11-11
 
-Progress: [████████░░] 77%
+Progress: [████████░░] 79%
 
 ## Performance Metrics
 
@@ -190,6 +190,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 02]: Only active canonical local memberships grant organization access; provider organization, domain, and JIT claims never authorize the product.
 - [Phase 02]: Transient provider refresh failures preserve local sessions, while explicit terminal invalid or revoked state revokes them.
 - [Phase 02]: Logout commits local session revocation before a separate best-effort provider logout call.
+- [Phase 02]: Every non-public route reloads canonical local session and membership state; the public allowlist stays deliberately short.
+- [Phase 02]: Flask-WTF reads its CSRF token from the SQL-backed AccountSession projection rather than creating a second browser session cookie.
+- [Phase 02]: Hosted identity configuration fails closed, and deterministic code_verified evidence remains separate from production_auth_verified evidence.
 
 ### Pending Todos
 
@@ -232,9 +235,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 02 P01 | 14 min | 2 tasks | 6 files |
 | Phase 02 P13 | 14 min | 2 tasks | 5 files |
 | Phase 02 P02 | 12 min | 2 tasks | 8 files |
+| Phase 02 P12 | 17 min | 2 tasks | 8 files |
 
 ## Session Continuity
 
-Last session: 2026-11-11T23:01:40.967Z
-Stopped at: Completed 02-02-PLAN.md
+Last session: 2026-11-11T23:21:31.702Z
+Stopped at: Completed 02-12-PLAN.md
 Resume file: None
