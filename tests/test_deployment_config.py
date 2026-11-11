@@ -1603,6 +1603,7 @@ class RoundFourOperationsRunbookContractTests(unittest.TestCase):
             "contains no credentials, path, query, or fragment",
             "`Forwarded`, `X-Forwarded-Proto`, `X-Forwarded-Host`, and `Host` are not trusted as origin authority",
             "ROSTER_SCOUT_PUBLIC_ORIGIN=https://roster-scout.fly.dev",
+            "internationalized domains must use their canonical ASCII A-label/Punycode form",
             "restart every app worker with the same new value before directing browser traffic to the custom domain",
         ):
             with self.subTest(statement=statement):

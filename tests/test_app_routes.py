@@ -374,6 +374,13 @@ class DownloadAcknowledgementPublicOriginTests(unittest.TestCase):
             "https://reports.example.test:not-a-port",
             "https://127.1",
             "https://0x7f.1",
+            "https://faß.de",
+            "https://bücher.example",
+            "https://ς.gr",
+            "https://a\u200db.example",
+            "https://xn--.example",
+            "https://xn--abc-.example",
+            "https://xn--1ug.example",
         )
         runtimes = (
             {"FLY_APP_NAME": "roster-scout"},
@@ -390,7 +397,17 @@ class DownloadAcknowledgementPublicOriginTests(unittest.TestCase):
                 with self.subTest(runtime=runtime, origin=origin):
                     completed = self._run_app_process(updates=environment)
                     self.assertNotEqual(completed.returncode, 0)
-                    if origin in {"https://127.1", "https://0x7f.1"}:
+                    if origin in {
+                        "https://127.1",
+                        "https://0x7f.1",
+                        "https://faß.de",
+                        "https://bücher.example",
+                        "https://ς.gr",
+                        "https://a\u200db.example",
+                        "https://xn--.example",
+                        "https://xn--abc-.example",
+                        "https://xn--1ug.example",
+                    }:
                         self.assertIn(
                             "Roster Scout public origin is invalid.",
                             completed.stderr,
@@ -509,8 +526,12 @@ print(response.status_code)
 """
         cases = (
             (
-                "https://bücher.example",
                 "https://xn--bcher-kva.example",
+                "https://xn--bcher-kva.example",
+            ),
+            (
+                "https://xn--fa-hia.de",
+                "https://xn--fa-hia.de",
             ),
             (
                 "https://[0:0:0:0:0:0:0:1]",
