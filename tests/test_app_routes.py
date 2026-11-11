@@ -1,5 +1,8 @@
+import base64
 import io
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 import uuid
@@ -7,7 +10,7 @@ import zipfile
 import xml.etree.ElementTree as ET
 from unittest.mock import MagicMock, patch
 from PIL import Image
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 import app as app_module
 from roster_scout.evidence import EvidencePurgeReadiness
@@ -66,7 +69,7 @@ class DownloadEventContractTests(unittest.TestCase):
         self.assertNotIn('name="download_event_id"', self.source)
 
 
-class WorkbookDownloadUsageTests(unittest.TestCase):
+class WorkbookPreparationReceiptTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.database_url = require_test_database_url()
@@ -129,38 +132,31 @@ class WorkbookDownloadUsageTests(unittest.TestCase):
             self.assertIn('name="Hitters"', workbook_xml)
             self.assertIn('name="Pitchers"', workbook_xml)
 
-    def test_same_key_deduplicates_and_new_key_counts_again(self):
+    def test_successful_workbook_returns_receipt_without_recording_event(self):
         first_key = str(uuid.uuid4())
-        for response in (
-            self._download(first_key),
-            self._download(first_key),
-            self._download(str(uuid.uuid4())),
+        second_key = str(uuid.uuid4())
+        for response, expected_key in (
+            (self._download(first_key), first_key),
+            (self._download(first_key), first_key),
+            (self._download(second_key), second_key),
         ):
             self.assert_excel_download(response)
-
-        events = self._events()
-        self.assertEqual(len(events), 2)
-        self.assertEqual({event.actor_account_id for event in events}, {None})
-        self.assertEqual({event.organization_id for event in events}, {None})
-        with self.Session() as session:
-            unique_actors = session.scalar(
-                select(func.count(func.distinct(ProductUsageEvent.actor_account_id)))
+            self.assertEqual(
+                response.headers["X-Roster-Scout-Download-Event-ID"],
+                expected_key,
             )
-        self.assertEqual(unique_actors, 0)
+            self.assertTrue(response.headers["X-Roster-Scout-Download-Ack-Proof"])
+            self.assertEqual(response.headers["Cache-Control"], "no-store")
 
-    def test_omitted_key_gets_one_request_local_uuid(self):
-        self.assert_excel_download(self._download())
-        events = self._events()
-        self.assertEqual(len(events), 1)
-        self.assertEqual(str(uuid.UUID(events[0].event_key)), events[0].event_key)
+        self.assertEqual(self._events(), [])
 
-    def test_configured_database_write_reports_recorded_disposition(self):
-        event_key = str(uuid.uuid4())
-
-        disposition = app_module._record_workbook_download(event_key)
-
-        self.assertEqual(disposition, "recorded")
-        self.assertEqual([event.event_key for event in self._events()], [event_key])
+    def test_omitted_key_gets_one_request_local_receipt(self):
+        response = self._download()
+        self.assert_excel_download(response)
+        event_key = response.headers["X-Roster-Scout-Download-Event-ID"]
+        self.assertEqual(str(uuid.UUID(event_key)), event_key)
+        self.assertTrue(response.headers["X-Roster-Scout-Download-Ack-Proof"])
+        self.assertEqual(self._events(), [])
 
     def test_malformed_supplied_key_is_rejected_before_collection(self):
         with patch.object(app_module, "scrape_ncaa_by_id") as scrape:
@@ -172,28 +168,123 @@ class WorkbookDownloadUsageTests(unittest.TestCase):
             })
         self.assertEqual(response.status_code, 400)
         self.assertEqual(self._events(), [])
+        self.assertNotIn("X-Roster-Scout-Download-Event-ID", response.headers)
+        self.assertNotIn("X-Roster-Scout-Download-Ack-Proof", response.headers)
         scrape.assert_not_called()
 
-    def test_persistence_failure_drops_analytics_without_blocking_workbook(self):
-        event_key = str(uuid.uuid4())
-        secret = f"postgresql://operator:secret@example.test/db event={event_key}"
+    def test_failed_workbook_has_no_receipt_and_no_event(self):
         with patch.object(
             app_module,
-            "_usage_session_factory",
-            side_effect=RuntimeError(secret),
-        ), patch.object(app_module.app.logger, "warning") as warning:
-            disposition = app_module._record_workbook_download(event_key)
+            "check_request_limit",
+            return_value=None,
+        ), patch.object(
+            app_module,
+            "scrape_ncaa_by_id",
+            side_effect=ValueError("upstream failed"),
+        ):
+            response = self.client.post("/scrape", json={
+                "team": "Tampa",
+                "division": "d2",
+                "season_team_id": "615087",
+                "download_event_id": str(uuid.uuid4()),
+            })
 
-        self.assertEqual(disposition, "dropped")
-        warning.assert_called_once_with(
-            "usage_event_dropped route=legacy_scrape reason=database_unavailable"
-        )
-        rendered_logs = repr(warning.call_args)
-        self.assertNotIn(secret, rendered_logs)
-        self.assertNotIn(event_key, rendered_logs)
-        self.assertNotIn("postgresql", rendered_logs)
-        self.assertNotIn("Traceback", rendered_logs)
+        self.assertEqual(response.status_code, 502)
+        self.assertNotIn("X-Roster-Scout-Download-Event-ID", response.headers)
+        self.assertNotIn("X-Roster-Scout-Download-Ack-Proof", response.headers)
         self.assertEqual(self._events(), [])
+
+
+class DownloadAcknowledgementSecretConfigurationTests(unittest.TestCase):
+    @staticmethod
+    def _secret(byte_count, byte=b"s"):
+        return base64.urlsafe_b64encode(byte * byte_count).decode().rstrip("=")
+
+    def _run_app_process(self, code, *, updates=None):
+        environment = dict(os.environ)
+        for name in (
+            "FLY_APP_NAME",
+            "WEB_CONCURRENCY",
+            "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET",
+            "ACK_EVENT_ID",
+            "ACK_PROOF",
+        ):
+            environment.pop(name, None)
+        environment.update(updates or {})
+        return subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=os.path.dirname(os.path.dirname(__file__)),
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+
+    def test_shared_runtime_rejects_missing_short_and_malformed_secrets(self):
+        cases = (
+            ({"FLY_APP_NAME": "roster-scout"}, "missing"),
+            ({
+                "WEB_CONCURRENCY": "2",
+                "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET": self._secret(31),
+            }, "short"),
+            ({
+                "FLY_APP_NAME": "roster-scout",
+                "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET": "not+urlsafe!",
+            }, "malformed"),
+            ({"WEB_CONCURRENCY": "0"}, "non-positive"),
+        )
+        for environment, label in cases:
+            with self.subTest(label=label):
+                completed = self._run_app_process("import app", updates=environment)
+                self.assertNotEqual(completed.returncode, 0)
+
+    def test_valid_32_byte_shared_secret_starts(self):
+        completed = self._run_app_process(
+            "import app; print('ready')",
+            updates={
+                "FLY_APP_NAME": "roster-scout",
+                "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET": self._secret(32),
+            },
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout.strip(), "ready")
+
+    def test_clean_processes_with_same_secret_interoperate(self):
+        event_id = str(uuid.uuid4())
+        shared_secret = self._secret(32, b"a")
+        issued = self._run_app_process(
+            "import os, app; print(app._issue_download_ack_proof(os.environ['ACK_EVENT_ID']))",
+            updates={
+                "WEB_CONCURRENCY": "2",
+                "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET": shared_secret,
+                "ACK_EVENT_ID": event_id,
+            },
+        )
+        self.assertEqual(issued.returncode, 0, issued.stderr)
+        proof = issued.stdout.strip()
+        verified = self._run_app_process(
+            "import os, app; print(app._verify_download_ack_proof(os.environ['ACK_PROOF'], os.environ['ACK_EVENT_ID']))",
+            updates={
+                "WEB_CONCURRENCY": "2",
+                "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET": shared_secret,
+                "ACK_EVENT_ID": event_id,
+                "ACK_PROOF": proof,
+            },
+        )
+        self.assertEqual(verified.returncode, 0, verified.stderr)
+        self.assertEqual(verified.stdout.strip(), "True")
+        rejected = self._run_app_process(
+            "import os, app; print(app._verify_download_ack_proof(os.environ['ACK_PROOF'], os.environ['ACK_EVENT_ID']))",
+            updates={
+                "WEB_CONCURRENCY": "2",
+                "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET": self._secret(32, b"b"),
+                "ACK_EVENT_ID": event_id,
+                "ACK_PROOF": proof,
+            },
+        )
+        self.assertEqual(rejected.returncode, 0, rejected.stderr)
+        self.assertEqual(rejected.stdout.strip(), "False")
 
 
 class NativeWorkbookDatabaseOptionalTests(unittest.TestCase):
