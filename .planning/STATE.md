@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-27-PLAN.md
-last_updated: "2026-11-11T00:48:55.758Z"
+stopped_at: Completed 01-29-PLAN.md
+last_updated: "2026-11-11T01:02:01.764Z"
 last_activity: 2026-11-11
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 30
-  completed_plans: 28
+  completed_plans: 29
   percent: 0
 ---
 
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-11-01)
 ## Current Position
 
 Phase: 01 (canonical-snapshot-foundation) — EXECUTING
-Plan: 29 of 30
+Plan: 30 of 30
 Status: Ready to execute
 Last activity: 2026-11-11
 
-Progress: [█████████░] 93%
+Progress: [██████████] 97%
 
 ## Performance Metrics
 
@@ -146,6 +146,10 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 01]: Every expired-evidence batch claims at most 100 IDs in deterministic (expires_at,id) order with FOR UPDATE SKIP LOCKED and commits independently. — Locked rows cannot roll back unrelated retention progress.
 - [Phase 01]: Purge heartbeat advances only after an ordinary MVCC count confirms zero expired rows retain bytes. — Lock-skipped evidence keeps readiness fail-closed.
 - [Phase 01]: Incomplete purge scans retry within 60 seconds without querying or announcing readiness. — Fixed statuses and aggregate counts preserve truthful, disclosure-safe operations.
+- [Phase 01]: Browser download submissions generate one UUID only after validation, reuse it through the in-flight request, and clear it after terminal handling. — This preserves the existing double-submit guard and prevents phantom attempts.
+- [Phase 01]: Malformed supplied download keys fail before collection; omitted keys receive one request-local UUID for legacy compatibility. — The opaque UUID is deduplication input only, never identity.
+- [Phase 01]: Workbook HTTP 200 is conditional on committing its usage event; persistence failure returns a sanitized 503 without workbook bytes. — A served success cannot escape durable download accounting.
+- [Phase 01]: Anonymous legacy download events retain null actor and organization IDs so they never inflate authenticated unique-user counts. — Phase 1 does not infer identity from request metadata.
 
 ### Pending Todos
 
@@ -172,9 +176,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 01 P26 | 4 min | 2 tasks | 7 files |
 | Phase 01 P28 | 7 min | 3 tasks | 5 files |
 | Phase 01 P27 | 13 min | 2 tasks | 4 files |
+| Phase 01 P29 | 10 min | 2 tasks | 3 files |
 
 ## Session Continuity
 
-Last session: 2026-11-11T00:48:55.750Z
-Stopped at: Completed 01-27-PLAN.md
+Last session: 2026-11-11T01:02:01.756Z
+Stopped at: Completed 01-29-PLAN.md
 Resume file: None
