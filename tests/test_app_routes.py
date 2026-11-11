@@ -177,23 +177,18 @@ class WorkbookDownloadUsageTests(unittest.TestCase):
     def test_persistence_failure_drops_analytics_without_blocking_workbook(self):
         event_key = str(uuid.uuid4())
         secret = f"postgresql://operator:secret@example.test/db event={event_key}"
-        with self.assertLogs(
-            app_module.app.logger,
-            level="WARNING",
-        ) as logs, patch.object(
+        with patch.object(
             app_module,
-            "record_workbook_download_served",
+            "_usage_session_factory",
             side_effect=RuntimeError(secret),
-            create=True,
-        ):
-            response = self._download(event_key)
+        ), patch.object(app_module.app.logger, "warning") as warning:
+            disposition = app_module._record_workbook_download(event_key)
 
-        self.assert_excel_download(response)
-        self.assertEqual(
-            [record.getMessage() for record in logs.records],
-            ["usage_event_dropped route=legacy_scrape reason=database_unavailable"],
+        self.assertEqual(disposition, "dropped")
+        warning.assert_called_once_with(
+            "usage_event_dropped route=legacy_scrape reason=database_unavailable"
         )
-        rendered_logs = "\n".join(logs.output)
+        rendered_logs = repr(warning.call_args)
         self.assertNotIn(secret, rendered_logs)
         self.assertNotIn(event_key, rendered_logs)
         self.assertNotIn("postgresql", rendered_logs)
