@@ -7,6 +7,7 @@ import logging
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 import tomllib
 import unittest
@@ -1116,6 +1117,120 @@ class FailureEvidenceRetentionConfigTests(unittest.TestCase):
         ):
             with self.subTest(statement=statement):
                 self.assertIn(statement, normalized_guide)
+
+
+class Phase1ReleaseDiffHygieneTests(unittest.TestCase):
+    def setUp(self):
+        self._temporary_directory = tempfile.TemporaryDirectory()
+        self.repo = Path(self._temporary_directory.name)
+        self._git("init")
+        self._git("config", "user.email", "release-gate@example.com")
+        self._git("config", "user.name", "Release Gate")
+        self.older_base = self._commit("history.txt", "older\n", "older base")
+        self.audited_base = self._commit(
+            "history.txt", "older\naudited\n", "audited baseline"
+        )
+        self.round_five_commits = (
+            self._commit("round-five.txt", "one\n", "round five one"),
+            self._commit("round-five.txt", "one\ntwo\n", "round five two"),
+        )
+
+    def tearDown(self):
+        self._temporary_directory.cleanup()
+
+    def _git(self, *arguments, check=True):
+        return subprocess.run(
+            ["git", *arguments],
+            cwd=self.repo,
+            check=check,
+            capture_output=True,
+            text=True,
+        )
+
+    def _commit(self, relative_path, contents, message):
+        (self.repo / relative_path).write_text(contents, encoding="utf-8")
+        self._git("add", relative_path)
+        self._git("commit", "-m", message)
+        return self._git("rev-parse", "HEAD").stdout.strip()
+
+    def test_default_equal_and_older_bases_preserve_round_five_range(self):
+        from scripts.validate_phase1_release import resolve_release_diff_base
+
+        for override, expected in (
+            (None, self.audited_base),
+            (self.audited_base, self.audited_base),
+            (self.older_base, self.older_base),
+        ):
+            env = {} if override is None else {"PHASE1_RELEASE_DIFF_BASE": override}
+            with self.subTest(override=override):
+                selected = resolve_release_diff_base(
+                    env, project_root=self.repo, audited_ref=self.audited_base
+                )
+                self.assertEqual(selected, expected)
+                included = set(
+                    self._git("rev-list", f"{selected}..HEAD")
+                    .stdout.strip()
+                    .splitlines()
+                )
+                self.assertTrue(set(self.round_five_commits).issubset(included))
+
+    def test_invalid_truncated_and_post_baseline_bases_fail_closed(self):
+        from scripts.validate_phase1_release import resolve_release_diff_base
+
+        rejected = (
+            "missing-ref",
+            "HEAD",
+            "HEAD^",
+            self.round_five_commits[0],
+            f"{self.audited_base}^{{tree}}",
+        )
+        for override in rejected:
+            with self.subTest(override=override), self.assertRaises(SystemExit):
+                resolve_release_diff_base(
+                    {"PHASE1_RELEASE_DIFF_BASE": override},
+                    project_root=self.repo,
+                    audited_ref=self.audited_base,
+                )
+
+        with self.assertRaises(SystemExit):
+            resolve_release_diff_base(
+                {}, project_root=self.repo, audited_ref="missing-audited-base"
+            )
+
+    def test_committed_whitespace_defect_fails_with_clean_worktree(self):
+        from scripts.validate_phase1_release import committed_diff_command
+
+        self._commit("defect.txt", "trailing whitespace  \n", "committed defect")
+        self.assertEqual(self._git("status", "--short").stdout, "")
+        command = committed_diff_command(self.audited_base)
+        with self.assertRaises(subprocess.CalledProcessError):
+            subprocess.run(command, cwd=self.repo, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "diff", "--check"],
+            cwd=self.repo,
+            check=True,
+            capture_output=True,
+        )
+
+    def test_manifest_ends_with_committed_then_working_tree_hygiene(self):
+        from scripts import validate_phase1_release as validator
+
+        manifest = validator.release_command_manifest(
+            "python", diff_base=self.audited_base
+        )
+        self.assertEqual(
+            manifest[-2:],
+            (
+                (
+                    validator.COMMITTED_DIFF_LABEL,
+                    ["git", "diff", "--check", f"{self.audited_base}..HEAD", "--"],
+                ),
+                (validator.WORKING_TREE_DIFF_LABEL, ["git", "diff", "--check"]),
+            ),
+        )
+        labels = [label for label, _command in manifest]
+        self.assertLess(labels.index(validator.COMPILATION_LABEL), len(labels) - 2)
+        self.assertLess(labels.index(validator.TEMPLATE_LABEL), len(labels) - 2)
 
 
 class Phase1ReleaseValidatorContractTests(unittest.TestCase):
