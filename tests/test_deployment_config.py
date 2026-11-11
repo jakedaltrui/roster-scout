@@ -161,6 +161,54 @@ class BrowserlessCapacityConfigTests(unittest.TestCase):
         self.assertNotIn("redis://", source)
 
 
+class WorkerRetentionPreflightTests(unittest.TestCase):
+    def test_invalid_retention_is_rejected_before_worker_command_is_built(self):
+        from scripts.run_worker import worker_command
+
+        for value in ("29", "", "not-an-integer", "0", "-1"):
+            with self.subTest(value=value), self.assertRaisesRegex(
+                RuntimeError,
+                "invalid failure evidence retention configuration",
+            ):
+                worker_command({
+                    "FAILURE_EVIDENCE_RETENTION_DAYS": value,
+                    "CELERY_WORKER_CONCURRENCY": "1",
+                    "BROWSERLESS_ACCOUNT_MAX_SESSIONS": "1",
+                })
+
+    def test_retention_boundaries_preserve_worker_command(self):
+        from scripts.run_worker import worker_command
+
+        for value in ("1", "28"):
+            with self.subTest(value=value):
+                command = worker_command({
+                    "FAILURE_EVIDENCE_RETENTION_DAYS": value,
+                    "CELERY_WORKER_CONCURRENCY": "1",
+                    "BROWSERLESS_ACCOUNT_MAX_SESSIONS": "1",
+                })
+            self.assertEqual(command[-2:], ["--concurrency", "1"])
+
+    def test_main_does_not_touch_cache_or_exec_for_invalid_retention(self):
+        from scripts import run_worker
+
+        with patch.dict(
+            "os.environ",
+            {"FAILURE_EVIDENCE_RETENTION_DAYS": "29"},
+            clear=True,
+        ), patch.object(run_worker.os, "makedirs") as makedirs, patch.object(
+            run_worker.os,
+            "execvp",
+        ) as execvp:
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "invalid failure evidence retention configuration",
+            ):
+                run_worker.main()
+
+        makedirs.assert_not_called()
+        execvp.assert_not_called()
+
+
 class DispatchSchedulerEntrypointTests(unittest.TestCase):
     def test_valid_configuration_invokes_bounded_service_boundary(self):
         from scripts.run_scheduler import SchedulerConfig, run_scheduler

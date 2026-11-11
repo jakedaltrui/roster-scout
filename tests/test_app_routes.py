@@ -143,6 +143,53 @@ class AppReadinessTests(unittest.TestCase):
             {"status": "not_ready", "evidence_purge": "unavailable"},
         )
 
+    def test_readyz_rejects_invalid_retention_before_purge_dependencies(self):
+        invalid_values = ("29", "", "not-an-integer", "0", "-1")
+        for value in invalid_values:
+            with self.subTest(value=value), patch.dict(
+                os.environ,
+                {"FAILURE_EVIDENCE_RETENTION_DAYS": value},
+            ), patch.object(
+                app_module,
+                "_evidence_purge_session_factory",
+            ) as session_factory:
+                response = self.client.get("/readyz")
+
+            self.assertEqual(response.status_code, 503)
+            self.assertEqual(
+                response.get_json(),
+                {"status": "not_ready", "evidence_purge": "unavailable"},
+            )
+            session_factory.assert_not_called()
+            payload = response.get_data(as_text=True)
+            self.assertNotIn(value or "blank", payload)
+            self.assertNotIn("configuration", payload)
+
+    def test_readyz_accepts_retention_boundaries(self):
+        readiness = self._readiness(ready=True, status="fresh")
+        for value in ("1", "28"):
+            app_module._evidence_purge_session_factory.cache_clear()
+            with self.subTest(value=value), patch.dict(
+                os.environ,
+                {"FAILURE_EVIDENCE_RETENTION_DAYS": value},
+            ):
+                response = self._request_with_readiness(readiness)
+            self.assertEqual(response.status_code, 200)
+
+    def test_healthz_remains_connection_free_with_invalid_retention(self):
+        with patch.dict(
+            os.environ,
+            {"FAILURE_EVIDENCE_RETENTION_DAYS": "29"},
+        ), patch.object(
+            app_module,
+            "_evidence_purge_session_factory",
+        ) as session_factory:
+            response = self.client.get("/healthz")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json(), {"status": "ok"})
+        session_factory.assert_not_called()
+
 
 class AppRouteTests(unittest.TestCase):
     def setUp(self):
