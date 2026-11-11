@@ -1370,6 +1370,87 @@ class UsageMetricsRunbookContractTests(unittest.TestCase):
         )
 
 
+class RoundFourOperationsRunbookContractTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.guide = (PROJECT_ROOT / "DEPLOYMENT.md").read_text(encoding="utf-8")
+        cls.normalized = " ".join(cls.guide.split())
+
+    def test_native_analytics_and_production_postgresql_boundaries_are_explicit(self):
+        for statement in (
+            "`scripts/run_local.sh` and the legacy native `POST /scrape` workbook remain usable when `DATABASE_URL` is unset",
+            "returns the two-sheet workbook without opening PostgreSQL",
+            "`usage_event_dropped route=download_ack reason=database_unavailable`",
+            "Production durable report jobs, migrations, `/readyz`, usage reports, and authoritative analytics require PostgreSQL",
+        ):
+            with self.subTest(statement=statement):
+                self.assertIn(statement, self.normalized)
+
+    def test_shared_secret_predicate_and_rotation_match_runtime(self):
+        for statement in (
+            "Fly production is detected by a non-empty `FLY_APP_NAME`",
+            "multi-worker mode is exactly `WEB_CONCURRENCY>1`",
+            "valid URL-safe-base64 material that decodes to at least 32 random bytes",
+            "missing, malformed, or short value fails startup before serving",
+            "non-Fly native/local mode with `WEB_CONCURRENCY==1`",
+            "Every worker in one deployment must share the exact same configured value",
+            "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET=your-url-safe-base64-32-byte-secret",
+            "wait the exact 15-minute proof TTL",
+            "Mixed-secret rolling workers are unsupported",
+            "Neither the shared secret nor an acknowledgement proof may be logged",
+        ):
+            with self.subTest(statement=statement):
+                self.assertIn(statement, self.normalized)
+
+    def test_download_success_is_bounded_stateless_and_does_not_overclaim(self):
+        for statement in (
+            "browser read the response blob, initiated the anchor download, and idempotently acknowledged the same opaque UUID",
+            "exact 15-minute signed proof",
+            "it is not proof of a filesystem save",
+            "there is no receipt registry, table, cache, collection, list, or set",
+            "acknowledgement must be same-origin",
+            "JSON body is limited to 1 KiB",
+            "token is limited to 512 characters",
+            "Ambiguous scrape, blob, or acknowledgement failures reuse the same UUID",
+            "PostgreSQL's unique usage-event key makes proof replay idempotent",
+        ):
+            with self.subTest(statement=statement):
+                self.assertIn(statement, self.normalized)
+
+    def test_metric_privacy_cache_identity_and_purge_contracts_are_exact(self):
+        for statement in (
+            "`actor_account_id` from `authenticated_use` events only",
+            "actor-bearing download events and anonymous downloads never increase that metric",
+            "Do not attach or derive an IP address, cookie, email address, user-agent, device fingerprint, pseudonymous identifier",
+            "legacy successful-result cache uses contract version 3",
+            "metric-definition (when applicable) -> snapshot -> tenant-scoped Player -> PlayerTeamSeason",
+            "Eligible failure-evidence writers and final complete-scan certification share one stable transaction advisory lock",
+            "PostgreSQL `GREATEST` keeps the purge heartbeat monotonic",
+        ):
+            with self.subTest(statement=statement):
+                self.assertIn(statement, self.normalized)
+
+    def test_exact_release_commands_and_fail_fast_order_are_documented(self):
+        for command in (
+            "DATABASE_URL=postgresql+psycopg://roster_scout:roster_scout@localhost:5432/roster_scout_test .venv/bin/python scripts/validate_phase1_release.py",
+            "node --test tests/js/download_tracking.test.mjs",
+            ".venv/bin/python scripts/live_ncaa_smoke.py",
+        ):
+            with self.subTest(command=command):
+                self.assertIn(command, self.normalized)
+        focused_python = self.normalized.index(
+            "every Plan 31-36 Python counterexample"
+        )
+        focused_node = self.normalized.index(
+            "`node --test tests/js/download_tracking.test.mjs`"
+        )
+        lifecycle = self.normalized.index(
+            "revision-0013 migration class"
+        )
+        self.assertLess(focused_python, focused_node)
+        self.assertLess(focused_node, lifecycle)
+
+
 @dataclass(frozen=True)
 class _DrainResult:
     claimed: int = 0

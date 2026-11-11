@@ -14,6 +14,53 @@ The bundled scripts create an isolated environment, collect the Browserless toke
 
 Open [http://localhost:5050](http://localhost:5050). The token is stored with owner-only permissions in the Git-ignored `.browserless-token` file. The runner never opens or reuses a personal Chrome profile.
 
+`scripts/run_local.sh` and the legacy native `POST /scrape` workbook remain
+usable when `DATABASE_URL` is unset. The route builds and returns the two-sheet
+workbook without opening PostgreSQL; analytics are attempted only after the
+browser acknowledges the prepared response. If that local acknowledgement
+cannot persist, the endpoint returns `persisted=false` and emits only the fixed
+sanitized telemetry token
+`usage_event_dropped route=download_ack reason=database_unavailable`. It never
+logs request data, identity data, a database URL, exception text, or a
+traceback.
+
+That database-optional boundary applies only to the legacy/native workbook and
+its best-effort local analytics. Production durable report jobs, migrations,
+`/readyz`, usage reports, and authoritative analytics require PostgreSQL and
+must fail closed when it is unavailable.
+
+### Download acknowledgement secret and success semantics
+
+Fly production is detected by a non-empty `FLY_APP_NAME`; multi-worker mode is
+exactly `WEB_CONCURRENCY>1`. Either condition requires
+`ROSTER_SCOUT_DOWNLOAD_ACK_SECRET` before the app serves traffic. The value
+must be valid URL-safe-base64 material that decodes to at least 32 random
+bytes. A missing, malformed, or short value fails startup before serving.
+Only non-Fly native/local mode with `WEB_CONCURRENCY==1` may omit it and create
+one process-random secret. Every worker in one deployment must share the exact
+same configured value.
+
+Secret rotation invalidates every outstanding acknowledgement proof. Drain
+downloads or wait the exact 15-minute proof TTL, then perform one coordinated
+restart with the new value. Mixed-secret rolling workers are unsupported.
+Neither the shared secret nor an acknowledgement proof may be logged.
+
+A successful workbook download means the browser read the response blob,
+initiated the anchor download, and idempotently acknowledged the same opaque
+UUID with its exact 15-minute signed proof. This is the strongest outcome the
+browser can observe; it is not proof of a filesystem save. The proof is
+stateless: there is no receipt registry, table, cache, collection, list, or set.
+The acknowledgement must be same-origin, its JSON body is limited to 1 KiB,
+and its token is limited to 512 characters. Ambiguous scrape, blob, or
+acknowledgement failures reuse the same UUID. PostgreSQL's unique usage-event
+key makes proof replay idempotent.
+
+The UUID and proof are deduplication material, never identity. Do not attach or
+derive an IP address, cookie, email address, user-agent, device fingerprint,
+pseudonymous identifier, account, organization, opponent, or report data from
+them. Browser session storage is limited to the opaque UUID, lifecycle state,
+signed proof, and bounded timestamps for at most the proof lifetime.
+
 ## Docker Compose
 
 ```bash
@@ -101,6 +148,13 @@ PostgreSQL connectivity, run the safe `--check`, and confirm eligible bytes are
 physically absent before 720 hours after collection. Do not waive readiness or
 extend retention while responding.
 
+Eligible failure-evidence writers and final complete-scan certification share
+one stable transaction advisory lock. Bounded `FOR UPDATE SKIP LOCKED` deletion
+batches remain outside that singleton lock, while the final ordinary count and
+heartbeat upsert are serialized. PostgreSQL `GREATEST` keeps the purge
+heartbeat monotonic, and `last_purged_count` changes only when its certification
+timestamp wins; an older purge completion cannot move readiness backward.
+
 Apply migrations before starting either process and verify rollback safety in
 the disposable test database:
 
@@ -131,7 +185,7 @@ broker credentials are not exposed to the deletion runtime.
 ```bash
 fly auth login
 fly launch --copy-config --no-deploy
-fly secrets set BROWSERLESS_TOKEN=your-token DATABASE_URL=your-managed-postgres-url CELERY_BROKER_URL=your-managed-redis-url
+fly secrets set BROWSERLESS_TOKEN=your-token DATABASE_URL=your-managed-postgres-url CELERY_BROKER_URL=your-managed-redis-url ROSTER_SCOUT_DOWNLOAD_ACK_SECRET=your-url-safe-base64-32-byte-secret
 fly scale count app=1 worker=1 scheduler=1 purge=1
 fly deploy
 ```
@@ -165,18 +219,23 @@ DATABASE_URL=postgresql+psycopg://roster_scout:roster_scout@localhost:5432/roste
 ```
 
 The validator first requires `valid: true` from the centralized user-story
-validator for the exact Phase 1 ROADMAP goal. It then fails fast on Python
-compilation, required template existence, migration upgrade/downgrade/re-upgrade
-or model drift, any full-suite test (including all 16 review regressions and the
-goal-level durable D1/D2/D3 flow), catalog validation, rendered Compose
-configuration, or `git diff --check`.
+validator for the exact Phase 1 ROADMAP goal and requires a disposable
+PostgreSQL database. It performs only the minimal upgrade-to-head setup and
+current-head assertion before running every Plan 31-36 Python counterexample,
+followed immediately by
+`node --test tests/js/download_tracking.test.mjs`. Only after both focused
+groups pass does it run the revision-0013 migration class, full
+downgrade/base-to-head/re-upgrade lifecycle, head and drift assertions,
+clean-process discovery, catalog, rendered Compose and deployment contracts,
+two-sheet workbook validation, Python compilation and template contracts, and
+finally `git diff --check`.
 
-The deterministic suite explicitly runs every Plan 14-29 gap-regression class,
-then full discovery for exact source-row traceability, duplicate delivery,
-same-job recovery, failure evidence and purge deadlines, distributed Browserless
-capacity, dispatch and purge scheduling, secure deployment configuration,
-legacy cache and selector behavior, and the unchanged two-sheet workbook
-contract. Catalog validation must report `"valid": true`, 942
+Full discovery retains the Plan 14-29 regressions and verifies exact source-row
+traceability, duplicate delivery, same-job recovery, failure evidence and purge
+deadlines, distributed Browserless capacity, dispatch and purge scheduling,
+secure deployment configuration, legacy cache and selector behavior, and the
+unchanged two-sheet workbook contract. Catalog validation must report
+`"valid": true`, 942
 selectable teams, and the reviewed D1/D2/D3 counts unless a catalog update is
 part of the release.
 
@@ -221,11 +280,13 @@ python scripts/report_usage.py --from 2026-11-01T00:00:00Z --to 2026-12-01T00:00
 
 Output is aggregate-only: window bounds, successful workbook downloads, unique
 authenticated users, and the organization UUID when a filter is supplied. A
-successful workbook download is one committed, deduplicated
-`workbook_download_served` event. Replaying the same opaque per-submission UUID
+successful workbook download becomes one committed, deduplicated
+`workbook_download_served` event only after blob read, anchor initiation, and
+same-origin acknowledgement. Replaying the same opaque per-submission UUID
 does not increase the count. A unique authenticated user is one distinct,
-nonnull canonical `actor_account_id` observed in the selected window; anonymous
-downloads never synthesize an actor.
+nonnull canonical `actor_account_id` from `authenticated_use` events only;
+actor-bearing download events and anonymous downloads never increase that
+metric.
 
 Phase 1 does not authenticate users. Its legacy workbook events therefore keep
 both actor and organization null, so `unique_authenticated_users` remains zero
@@ -256,6 +317,8 @@ production prerequisites remain independently blocked until verified.
 | `NCAA_RESULT_CACHE_TTL_SECONDS` | `21600` | Successful team result lifetime |
 | `NCAA_LOOKUP_CACHE_TTL_SECONDS` | `86400` | Team and season catalog lifetime |
 | `NCAA_SEASON_YEAR` | current season | Optional season override |
+| `WEB_CONCURRENCY` | `1` | HTTP worker count; values greater than one require a shared acknowledgement secret |
+| `ROSTER_SCOUT_DOWNLOAD_ACK_SECRET` | local random fallback | URL-safe-base64 secret decoding to at least 32 bytes; required on Fly or with multiple workers |
 | `NCAA_BROWSER_PROVIDER` | local browser | Set to `browserless` to use the hosted browser workflow |
 | `BROWSERLESS_TOKEN` | unset | Browserless API token |
 | `BROWSERLESS_CAPACITY_BACKEND` | `local` | `local` for single-machine development; hosted app and worker must use `postgresql` |
@@ -305,6 +368,19 @@ NCAA request. An explicit refresh creates a new accepted job and successor build
 only retries for that same job may reuse a successfully collected section whose
 job ID, source identity, schema version, and parser version still match. Reused
 sections retain their original `collected_at` timestamp.
+
+The legacy successful-result cache uses contract version 3. A cached payload is
+trusted only when its cache format, parser identity, accepted core-header
+identity, and report-schema identity all exactly match the running collector.
+Any mismatch or pre-contract payload is a miss and forces recollection; the
+artifact key and same-team lock use the same contract identity so incompatible
+collectors neither share results nor coalesce.
+
+Authoritative persistence and publication use one global lock order:
+metric-definition (when applicable) -> snapshot -> tenant-scoped Player ->
+PlayerTeamSeason. Every lock set is deterministic. Do not introduce a source,
+canonical fact, identity mutation, or publication path that acquires these
+domains in a different order.
 
 Failed or blocked HTML is operator evidence, not canonical report data. It is
 gzip-compressed in PostgreSQL, has no public file path or object key, expires no
