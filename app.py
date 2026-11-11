@@ -21,7 +21,11 @@ from xlsxwriter.utility import xl_pixel_width
 from usage_limits import BrowserCapacityError, check_request_limit
 
 from roster_scout.database import create_session_factory, get_engine
-from roster_scout.evidence import get_evidence_purge_readiness
+from roster_scout.evidence import (
+    FailureEvidenceConfigurationError,
+    get_evidence_purge_readiness,
+    get_failure_evidence_retention,
+)
 from roster_scraper import (
     HITTER_HEADERS,
     PITCHER_HEADERS,
@@ -145,6 +149,14 @@ def _evidence_purge_session_factory():
 @app.route("/readyz")
 def readyz():
     """Fail closed until persisted failure-evidence purge health is ready."""
+    try:
+        get_failure_evidence_retention()
+    except FailureEvidenceConfigurationError:
+        return jsonify({
+            "status": "not_ready",
+            "evidence_purge": "unavailable",
+        }), 503
+
     try:
         readiness = get_evidence_purge_readiness(
             _evidence_purge_session_factory()

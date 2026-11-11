@@ -4,6 +4,11 @@
 import os
 import sys
 
+from roster_scout.evidence import (
+    FailureEvidenceConfigurationError,
+    get_failure_evidence_retention,
+)
+
 
 WORKER_CACHE_DIR = "/tmp/roster-scout-worker"
 
@@ -30,6 +35,7 @@ def parse_account_capacity(raw_value):
 
 def worker_command(environ=None):
     environ = environ or os.environ
+    get_failure_evidence_retention(environ)
     concurrency = parse_concurrency(
         environ.get(
             "CELERY_WORKER_CONCURRENCY",
@@ -70,6 +76,9 @@ def main():
 if __name__ == "__main__":
     try:
         main()
+    except FailureEvidenceConfigurationError:
+        print("invalid failure evidence retention configuration", file=sys.stderr)
+        raise SystemExit(2) from None
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         raise SystemExit(2) from None
