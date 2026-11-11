@@ -171,7 +171,7 @@ or model drift, any full-suite test (including all 16 review regressions and the
 goal-level durable D1/D2/D3 flow), catalog validation, rendered Compose
 configuration, or `git diff --check`.
 
-The deterministic suite explicitly runs every Plan 14-20 gap-regression class,
+The deterministic suite explicitly runs every Plan 14-29 gap-regression class,
 then full discovery for exact source-row traceability, duplicate delivery,
 same-job recovery, failure evidence and purge deadlines, distributed Browserless
 capacity, dispatch and purge scheduling, secure deployment configuration,
@@ -202,6 +202,46 @@ After deterministic verification, the optional external smoke is:
 The smoke depends on NCAA/Akamai and the configured Browserless or proxy path;
 its external failure does not invalidate a green deterministic release gate,
 but a production launch still requires one successful target-network smoke.
+
+### Usage metrics operator report
+
+The usage report reads committed aggregate events from PostgreSQL. Set
+`DATABASE_URL` to the intended database, then choose a half-open UTC window:
+`--from` is inclusive and `--to` is exclusive. Run the global report with:
+
+```bash
+python scripts/report_usage.py --from 2026-11-01T00:00:00Z --to 2026-12-01T00:00:00Z
+```
+
+Filter the same window to one canonical organization UUID with:
+
+```bash
+python scripts/report_usage.py --from 2026-11-01T00:00:00Z --to 2026-12-01T00:00:00Z --organization-id 00000000-0000-0000-0000-000000000000
+```
+
+Output is aggregate-only: window bounds, successful workbook downloads, unique
+authenticated users, and the organization UUID when a filter is supplied. A
+successful workbook download is one committed, deduplicated
+`workbook_download_served` event. Replaying the same opaque per-submission UUID
+does not increase the count. A unique authenticated user is one distinct,
+nonnull canonical `actor_account_id` observed in the selected window; anonymous
+downloads never synthesize an actor.
+
+Phase 1 does not authenticate users. Its legacy workbook events therefore keep
+both actor and organization null, so `unique_authenticated_users` remains zero
+until Phase 2 supplies canonical identities. After authentication and
+membership authorization, Phase 2 records exactly one `authenticated_use` only
+when the application accepts and durably creates an authorized report/job
+request. The event key is the accepted `ReportJob` UUID, and the event carries
+the canonical account UUID plus the authorized organization UUID. Page views,
+login, rejected requests, and validation failures are not usage events. Never
+substitute an IP address, cookie, email address, user-agent, fingerprint, or
+pseudonymous identifier for the canonical account UUID.
+
+A successful local report proves only the query and event contracts. It does
+not provision or validate managed PostgreSQL, authentication, authorization,
+object storage, Redis, Fly billing/capacity, or Power BI/Fabric services; those
+production prerequisites remain independently blocked until verified.
 
 ## Environment variables
 

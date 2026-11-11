@@ -1204,6 +1204,59 @@ class Phase1ReleaseValidatorContractTests(unittest.TestCase):
             _validate_database_url({})
 
 
+class UsageMetricsRunbookContractTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.guide = (PROJECT_ROOT / "DEPLOYMENT.md").read_text(encoding="utf-8")
+        cls.normalized = " ".join(cls.guide.split())
+
+    def test_runbook_contains_global_and_organization_window_commands(self):
+        global_command = (
+            "python scripts/report_usage.py --from 2026-11-01T00:00:00Z "
+            "--to 2026-12-01T00:00:00Z"
+        )
+        organization_command = (
+            f"{global_command} --organization-id "
+            "00000000-0000-0000-0000-000000000000"
+        )
+        self.assertIn(global_command, self.normalized)
+        self.assertIn(organization_command, self.normalized)
+        self.assertIn("`--from` is inclusive and `--to` is exclusive", self.normalized)
+        self.assertIn("half-open UTC window", self.normalized)
+
+    def test_metric_definitions_and_phase_two_boundary_are_explicit(self):
+        for statement in (
+            "committed, deduplicated `workbook_download_served` event",
+            "distinct, nonnull canonical `actor_account_id`",
+            "Phase 1 does not authenticate users",
+            "`unique_authenticated_users` remains zero",
+            "exactly one `authenticated_use`",
+            "accepts and durably creates an authorized report/job request",
+            "accepted `ReportJob` UUID",
+            "canonical account UUID plus the authorized organization UUID",
+            "Page views, login, rejected requests, and validation failures",
+        ):
+            with self.subTest(statement=statement):
+                self.assertIn(statement, self.normalized)
+
+    def test_runbook_forbids_identity_substitutes_and_provisioning_claims(self):
+        for forbidden_substitute in (
+            "IP address",
+            "cookie",
+            "email address",
+            "user-agent",
+            "fingerprint",
+            "pseudonymous identifier",
+        ):
+            with self.subTest(forbidden_substitute=forbidden_substitute):
+                self.assertIn(forbidden_substitute, self.normalized)
+        self.assertIn("Output is aggregate-only", self.normalized)
+        self.assertIn(
+            "does not provision or validate managed PostgreSQL",
+            self.normalized,
+        )
+
+
 @dataclass(frozen=True)
 class _DrainResult:
     claimed: int = 0
