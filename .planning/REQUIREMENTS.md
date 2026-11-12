@@ -29,7 +29,7 @@
 - [x] **SNAP-02**: A report build runs outside the request process and exposes queued, running, partial, ready, and failed states.
 - [x] **SNAP-03**: A published snapshot is immutable and records schema version, creator, source collection time, publication time, and predecessor snapshot when present.
 - [x] **SNAP-04**: Each report section records its own status, row count, source time, and sanitized failure category.
-- [ ] **SNAP-05**: A user can explicitly refresh a report, producing a new linked snapshot without modifying prior snapshots.
+- [x] **SNAP-05**: A user can explicitly refresh a report, producing a new linked snapshot without modifying prior snapshots.
 - [x] **SNAP-06**: A user can review all dated snapshots for a report and identify the newest complete or partial version.
 - [x] **SNAP-07**: Repeating an accepted report-build request with the same idempotency key does not create duplicate jobs or snapshots.
 - [ ] **SNAP-08**: A failed report build leaves no snapshot falsely marked ready and can be retried safely.

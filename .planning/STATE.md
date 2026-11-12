@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-07-PLAN.md
-last_updated: "2026-11-12T16:14:39.341Z"
+stopped_at: Completed 02-08-PLAN.md
+last_updated: "2026-11-12T16:31:53.072Z"
 last_activity: 2026-11-12
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 57
-  completed_plans: 52
+  completed_plans: 53
   percent: 20
 ---
 
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-11-11)
 ## Current Position
 
 Phase: 02 (identity-organizations-and-report-library) — EXECUTING
-Plan: 12 of 16
+Plan: 13 of 16
 Status: Ready to execute
 Last activity: 2026-11-12
 
-Progress: [█████████░] 91%
+Progress: [█████████░] 93%
 
 ## Performance Metrics
 
@@ -215,6 +215,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 02]: The newest published snapshot remains dominant while an active refresh runs. — A refresh must never displace durable scouting data.
 - [Phase 02]: Report status JSON exposes only a complete allowlisted view model with fixed failure copy. — Tenant identifiers and raw worker failures cannot cross the route boundary.
 - [Phase 02]: Progressive polling pauses when hidden, backs off 3s/5s/10s, and stops at terminal state or 15 minutes. — Bounded polling protects the service while keeping state understandable.
+- [Phase 02]: Explicit refresh serializes on the organization-scoped report row and converges every active click on one durable job, usage event, and audit event. — Prevents duplicate live work and duplicate adoption accounting under concurrent clicks.
+- [Phase 02]: A refresh uses a new accepted job identity after terminal work; same-job evidence remains reusable while older build evidence never is. — Preserves live freshness without weakening Phase 1 retry recovery.
+- [Phase 02]: Latest snapshot, active build, failed attempts, and requested history page remain independent projections. — Keeps published scouting data dominant and immutable throughout refresh.
 
 ### Pending Todos
 
@@ -265,9 +268,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 02 P06 | 20 min | 2 tasks | 7 files |
 | Phase 02 P15 | 28 min | 2 tasks | 5 files |
 | Phase 02 P07 | 11min | 2 tasks | 8 files |
+| Phase 02 P08 | 14min | 2 tasks | 6 files |
 
 ## Session Continuity
 
-Last session: 2026-11-12T16:14:39.330Z
-Stopped at: Completed 02-07-PLAN.md
+Last session: 2026-11-12T16:31:53.064Z
+Stopped at: Completed 02-08-PLAN.md
 Resume file: None
