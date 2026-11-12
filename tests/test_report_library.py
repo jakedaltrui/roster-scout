@@ -7,7 +7,7 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from threading import Barrier
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from sqlalchemy import create_engine, func, select, text
 from sqlalchemy.exc import DBAPIError
@@ -338,6 +338,53 @@ class ReportAcceptanceIdempotencyTests(unittest.TestCase):
     def setUp(self):
         clean_database(self.database_url)
         self.now = datetime.now(UTC)
+        import app as app_module
+
+        self.app_module = app_module
+        self.original_config = dict(app_module.app.config)
+        self.original_auth_factory = app_module.app.extensions.get(
+            "roster_scout_auth_session_factory"
+        )
+        self.original_report_factory = app_module.app.extensions.get(
+            "roster_scout_report_session_factory"
+        )
+        self.original_dispatch = app_module.app.extensions.get(
+            "roster_scout_report_dispatch"
+        )
+        app_module.app.config.update(
+            TESTING=True,
+            ROSTER_SCOUT_TEST_AUTH_ENFORCEMENT=True,
+            WTF_CSRF_ENABLED=True,
+            WTF_CSRF_SSL_STRICT=False,
+        )
+        app_module.app.extensions["roster_scout_auth_session_factory"] = self.Session
+        app_module.app.extensions["roster_scout_report_session_factory"] = self.Session
+
+    def tearDown(self):
+        self.app_module.app.config.clear()
+        self.app_module.app.config.update(self.original_config)
+        if self.original_auth_factory is None:
+            self.app_module.app.extensions.pop(
+                "roster_scout_auth_session_factory", None
+            )
+        else:
+            self.app_module.app.extensions["roster_scout_auth_session_factory"] = (
+                self.original_auth_factory
+            )
+        if self.original_report_factory is None:
+            self.app_module.app.extensions.pop(
+                "roster_scout_report_session_factory", None
+            )
+        else:
+            self.app_module.app.extensions["roster_scout_report_session_factory"] = (
+                self.original_report_factory
+            )
+        if self.original_dispatch is None:
+            self.app_module.app.extensions.pop("roster_scout_report_dispatch", None)
+        else:
+            self.app_module.app.extensions["roster_scout_report_dispatch"] = (
+                self.original_dispatch
+            )
 
     def _member(self, *, organization_name="Acceptance University"):
         from roster_scout.models import (
@@ -393,6 +440,40 @@ class ReportAcceptanceIdempotencyTests(unittest.TestCase):
                 request=request,
                 idempotency_key=action_id,
             )
+
+    def _route_client(self, organization_id, account_id):
+        from roster_scout.sessions import SESSION_COOKIE_NAME, create_account_session
+
+        with self.Session.begin() as session:
+            credential = create_account_session(
+                session,
+                account_id=account_id,
+                active_organization_id=organization_id,
+                sealed_provider_state="sealed-report-form-session",
+                now=self.now,
+            )
+        client = self.app_module.app.test_client()
+        client.set_cookie(SESSION_COOKIE_NAME, credential.cookie_value)
+        return client, credential
+
+    def _csrf_token(self, credential):
+        from itsdangerous import URLSafeTimedSerializer
+
+        return URLSafeTimedSerializer(
+            self.app_module.app.secret_key,
+            salt="wtf-csrf-token",
+        ).dumps(credential.csrf_secret)
+
+    @staticmethod
+    def _catalog():
+        return [{
+            "name": "State University",
+            "display_name": "State University",
+            "team_id": "12345",
+            "season_team_id": "67890",
+            "division": "d1",
+            "year": 2026,
+        }]
 
     def _counts(self):
         from roster_scout.models import (
@@ -622,6 +703,131 @@ class ReportAcceptanceIdempotencyTests(unittest.TestCase):
         self.assertEqual(job.organization_id, organization_id)
         self.assertEqual(job.requested_by_account_id, account_id)
         self.assertNotEqual(organization_id, other_organization_id)
+
+    def test_create_report_get_renders_exact_accessible_selector_contract(self):
+        organization_id, account_id, _membership_id = self._member()
+        client, _credential = self._route_client(organization_id, account_id)
+
+        response = client.get("/reports/new")
+        body = response.get_data(as_text=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Create opponent report", body)
+        self.assertIn('role="combobox"', body)
+        self.assertIn('role="listbox"', body)
+        self.assertIn('name="season_team_id"', body)
+        self.assertIn('name="idempotency_key"', body)
+        self.assertIn("Choose an exact NCAA team", body)
+        self.assertIn("report_form.js", body)
+        self.assertIn('id="create-report-submit"', body)
+        self.assertIn("disabled", body)
+
+        from pathlib import Path
+
+        script = Path("static/report_form.js")
+        source = script.read_text(encoding="utf-8")
+        self.assertIn("ArrowDown", source)
+        self.assertIn("Home", source)
+        self.assertIn("End", source)
+        self.assertIn("Escape", source)
+        self.assertIn("textContent", source)
+        self.assertNotIn("innerHTML", source)
+
+    def test_typed_only_stale_and_tampered_selector_values_write_nothing(self):
+        organization_id, account_id, _membership_id = self._member()
+        client, credential = self._route_client(organization_id, account_id)
+        base = {
+            "csrf_token": self._csrf_token(credential),
+            "division": "d1",
+            "team_name": "State University",
+            "idempotency_key": str(uuid.uuid4()),
+            "organization_id": str(uuid.uuid4()),
+            "account_id": str(uuid.uuid4()),
+            "role": "admin",
+        }
+
+        with patch(
+            "roster_scout.report_routes.list_ncaa_teams",
+            return_value=self._catalog(),
+        ):
+            typed_only = client.post(
+                "/reports/new",
+                data={**base, "season_team_id": ""},
+            )
+            stale = client.post(
+                "/reports/new",
+                data={**base, "season_team_id": "99999"},
+            )
+            tampered = client.post(
+                "/reports/new",
+                data={**base, "season_team_id": "67890", "team_name": "Other"},
+            )
+
+        for response in (typed_only, stale, tampered):
+            self.assertEqual(response.status_code, 400)
+            self.assertIn(b"Choose an NCAA team from the list.", response.data)
+            self.assertIn(b'id="form-errors"', response.data)
+            self.assertIn(b'autofocus', response.data)
+        self.assertEqual(self._counts()["reports"], 0)
+        self.assertEqual(self._counts()["jobs"], 0)
+        self.assertEqual(self._counts()["usage"], 0)
+
+    def test_valid_and_repeated_posts_use_server_context_and_converge(self):
+        from roster_scout.models import ReportJob
+
+        organization_id, account_id, _membership_id = self._member()
+        client, credential = self._route_client(organization_id, account_id)
+        action_id = str(uuid.uuid4())
+        form = {
+            "csrf_token": self._csrf_token(credential),
+            "division": "d1",
+            "team_name": "State University",
+            "season_team_id": "67890",
+            "idempotency_key": action_id,
+            "organization_id": str(uuid.uuid4()),
+            "account_id": str(uuid.uuid4()),
+            "role": "admin",
+        }
+        dispatch = Mock()
+        self.app_module.app.extensions["roster_scout_report_dispatch"] = dispatch
+
+        with patch(
+            "roster_scout.report_routes.list_ncaa_teams",
+            return_value=self._catalog(),
+        ):
+            first = client.post("/reports/new", data=form)
+            second = client.post("/reports/new", data=form)
+
+        self.assertEqual(first.status_code, 303)
+        self.assertRegex(first.headers["Location"], r"^/reports/[0-9a-f-]{36}$")
+        self.assertEqual(second.status_code, 303)
+        self.assertEqual(
+            second.headers["Location"],
+            first.headers["Location"] + "?notice=active",
+        )
+        self.assertEqual(self._counts()["reports"], 1)
+        self.assertEqual(self._counts()["jobs"], 1)
+        self.assertEqual(self._counts()["usage"], 1)
+        with self.Session() as session:
+            job = session.scalar(select(ReportJob))
+        self.assertEqual(job.organization_id, organization_id)
+        self.assertEqual(job.requested_by_account_id, account_id)
+        self.assertGreaterEqual(dispatch.call_count, 1)
+
+    def test_create_report_post_requires_csrf(self):
+        organization_id, account_id, _membership_id = self._member()
+        client, _credential = self._route_client(organization_id, account_id)
+        response = client.post(
+            "/reports/new",
+            data={
+                "division": "d1",
+                "team_name": "State University",
+                "season_team_id": "67890",
+                "idempotency_key": str(uuid.uuid4()),
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self._counts()["jobs"], 0)
 
 
 if __name__ == "__main__":
