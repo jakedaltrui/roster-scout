@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-14-PLAN.md
-last_updated: "2026-11-12T00:09:47.818Z"
+stopped_at: Completed 02-04-PLAN.md
+last_updated: "2026-11-12T00:33:38.493Z"
 last_activity: 2026-11-12
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 57
-  completed_plans: 47
+  completed_plans: 48
   percent: 20
 ---
 
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-11-11)
 ## Current Position
 
 Phase: 02 (identity-organizations-and-report-library) — EXECUTING
-Plan: 7 of 16
+Plan: 8 of 16
 Status: Ready to execute
 Last activity: 2026-11-12
 
-Progress: [████████░░] 82%
+Progress: [████████░░] 84%
 
 ## Performance Metrics
 
@@ -200,6 +200,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 02]: Organization creation remains operator-only; the browser exposes no organization-create route. — Keeps organization authority behind a restricted operator boundary.
 - [Phase 02]: Invitation mutations reuse the Plan 02-03 service boundary, with provider delivery after the canonical local transaction commits. — Preserves canonical local durability through provider outages.
 - [Phase 02]: Invitation acceptance is account-only and compares the signed-in canonical account through the domain service; browser organization and role claims are never accepted. — Keeps local membership and verified email authoritative.
+- [Phase 02]: Organization switches rotate the verifier and CSRF secret while preserving the session family and original absolute expiration. — Switching tenants must not retain a bearer credential or extend the maximum login lifetime.
+- [Phase 02]: Rendered member controls use signed candidate tokens; every mutation reloads and scopes the canonical membership by server-derived account or organization context. — Browser fields are lookup candidates only and never become tenant or role authority.
+- [Phase 02]: Last-admin checks serialize on the organization row before validating actor and target, so concurrent demote/remove attempts cannot both succeed. — One stable lock order prevents zero-admin write skew.
 
 ### Pending Todos
 
@@ -245,9 +248,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 02 P12 | 17 min | 2 tasks | 8 files |
 | Phase 02 P03 | 16 min | 2 tasks | 6 files |
 | Phase 02 P14 | 19m | 2 tasks | 8 files |
+| Phase 02 P04 | 18m | 2 tasks | 8 files |
 
 ## Session Continuity
 
-Last session: 2026-11-12T00:09:47.810Z
-Stopped at: Completed 02-14-PLAN.md
+Last session: 2026-11-12T00:33:38.485Z
+Stopped at: Completed 02-04-PLAN.md
 Resume file: None
