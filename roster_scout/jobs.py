@@ -347,7 +347,14 @@ def reconcile_stale_report_jobs(
     return ReconciliationResult(reopened=reopened, closed=closed, active=active)
 
 
-def create_or_get_job(session, organization_id, report_id, idempotency_key):
+def create_or_get_job(
+    session,
+    organization_id,
+    report_id,
+    idempotency_key,
+    *,
+    requested_by_account_id=None,
+):
     """Accept one durable job per organization/idempotency key."""
     if not idempotency_key or len(idempotency_key) > 200:
         raise ValueError("idempotency_key must contain 1-200 characters")
@@ -358,6 +365,7 @@ def create_or_get_job(session, organization_id, report_id, idempotency_key):
             id=job_id,
             organization_id=organization_id,
             report_id=report_id,
+            requested_by_account_id=requested_by_account_id,
             idempotency_key=idempotency_key,
             status="queued",
             max_attempts=MAX_ATTEMPTS,
@@ -436,6 +444,7 @@ def _new_or_existing_snapshot(session, job):
         report_id=job.report_id,
         predecessor_snapshot_id=previous.id if previous else None,
         schema_version=SCHEMA_VERSION,
+        created_by_account_id=job.requested_by_account_id,
     )
     session.add(snapshot)
     session.flush()

@@ -163,8 +163,10 @@ def record_authenticated_report_request_accepted(
     """Record one authorized report/job request after durable acceptance.
 
     Phase 2 calls this only after authentication, membership authorization,
-    validation, and durable ReportJob acceptance. Page views, login, rejected
-    requests, and validation failures never call this producer.
+    validation, and durable ReportJob acceptance. Canonical account and
+    organization membership foreign keys enforce the actor scope in PostgreSQL.
+    Page views, login, rejected requests, and validation failures never call
+    this producer.
     """
     return record_usage_event(
         session,

@@ -46,6 +46,36 @@ class UsageEventSchemaTests(unittest.TestCase):
             )
         return organization_id
 
+    def _actor_id(self, organization_id):
+        actor_id = uuid.uuid4()
+        with self.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO accounts "
+                    "(id, normalized_email, email_verified_at, status) "
+                    "VALUES (:id, :email, :verified_at, 'active')"
+                ),
+                {
+                    "id": actor_id,
+                    "email": f"{actor_id}@example.edu",
+                    "verified_at": datetime.now(UTC),
+                },
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO organization_memberships "
+                    "(id, organization_id, account_id, role, status) "
+                    "VALUES (:id, :organization_id, :account_id, "
+                    "'member', 'active')"
+                ),
+                {
+                    "id": uuid.uuid4(),
+                    "organization_id": organization_id,
+                    "account_id": actor_id,
+                },
+            )
+        return actor_id
+
     def _insert_event(self, **overrides):
         values = {
             "id": uuid.uuid4(),
@@ -112,13 +142,16 @@ class UsageEventSchemaTests(unittest.TestCase):
             for item in inspector.get_foreign_keys("product_usage_events")
         }
         self.assertIn("fk_product_usage_events_organization", foreign_keys)
+        self.assertIn("fk_product_usage_events_actor", foreign_keys)
+        self.assertIn("fk_product_usage_events_actor_membership", foreign_keys)
 
     def test_valid_anonymous_download_and_authenticated_use(self):
         self._insert_event()
         organization_id = self._organization_id()
+        actor_id = self._actor_id(organization_id)
         self._insert_event(
             event_type="authenticated_use",
-            actor_account_id=uuid.uuid4(),
+            actor_account_id=actor_id,
             organization_id=organization_id,
         )
         with self.engine.connect() as connection:
@@ -218,6 +251,25 @@ class UsageServiceTests(unittest.TestCase):
             session.flush()
             return organization.id
 
+    def _actor(self, organization_id):
+        from roster_scout.models import Account, OrganizationMembership
+
+        with self.Session.begin() as session:
+            account = Account(
+                normalized_email=f"{uuid.uuid4()}@example.edu",
+                email_verified_at=datetime.now(UTC),
+                status="active",
+            )
+            session.add(account)
+            session.flush()
+            session.add(OrganizationMembership(
+                organization_id=organization_id,
+                account_id=account.id,
+                role="member",
+                status="active",
+            ))
+            return account.id
+
     def test_duplicate_and_concurrent_download_recording_is_idempotent(self):
         from roster_scout.usage import record_workbook_download_served
 
@@ -255,8 +307,8 @@ class UsageServiceTests(unittest.TestCase):
         organization_id = self._organization("Window Org")
         start = datetime(2026, 1, 1, tzinfo=UTC)
         end = start + timedelta(days=1)
-        actor_one = uuid.uuid4()
-        actor_two = uuid.uuid4()
+        actor_one = self._actor(organization_id)
+        actor_two = self._actor(organization_id)
         with self.Session.begin() as session:
             record_workbook_download_served(
                 session,
@@ -301,7 +353,7 @@ class UsageServiceTests(unittest.TestCase):
         end = start + timedelta(days=1)
         with self.Session.begin() as session:
             for organization_id in (first_org, second_org):
-                actor_id = uuid.uuid4()
+                actor_id = self._actor(organization_id)
                 record_authenticated_report_request_accepted(
                     session,
                     event_key=str(uuid.uuid4()),
@@ -342,7 +394,7 @@ class UsageServiceTests(unittest.TestCase):
         )
 
         organization_id = self._organization("Download Actor Org")
-        actor_id = uuid.uuid4()
+        actor_id = self._actor(organization_id)
         start = datetime(2026, 2, 2, tzinfo=UTC)
         end = start + timedelta(days=1)
         with self.Session.begin() as session:
@@ -384,9 +436,9 @@ class UsageServiceTests(unittest.TestCase):
 
         first_org = self._organization("Scoped Auth First")
         second_org = self._organization("Scoped Auth Second")
-        first_actor = uuid.uuid4()
-        second_actor = uuid.uuid4()
-        download_only_actor = uuid.uuid4()
+        first_actor = self._actor(first_org)
+        second_actor = self._actor(second_org)
+        download_only_actor = self._actor(first_org)
         start = datetime(2026, 2, 3, tzinfo=UTC)
         end = start + timedelta(days=1)
         with self.Session.begin() as session:
@@ -509,7 +561,7 @@ class UsageReportCliTests(unittest.TestCase):
         return status, stdout.getvalue(), stderr.getvalue()
 
     def test_global_and_tenant_reports_return_only_aggregate_contract(self):
-        from roster_scout.models import Organization
+        from roster_scout.models import Account, Organization, OrganizationMembership
         from roster_scout.usage import (
             record_authenticated_report_request_accepted,
             record_workbook_download_served,
@@ -522,7 +574,21 @@ class UsageReportCliTests(unittest.TestCase):
             session.add(organization)
             session.flush()
             organization_id = organization.id
-            actor_id = uuid.uuid4()
+            account = Account(
+                normalized_email=f"{uuid.uuid4()}@example.edu",
+                email_verified_at=start,
+                status="active",
+            )
+            session.add(account)
+            session.flush()
+            actor_id = account.id
+            session.add(OrganizationMembership(
+                organization_id=organization_id,
+                account_id=actor_id,
+                role="member",
+                status="active",
+            ))
+            session.flush()
             record_authenticated_report_request_accepted(
                 session,
                 event_key=str(uuid.uuid4()),

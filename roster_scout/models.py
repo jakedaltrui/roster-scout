@@ -520,6 +520,9 @@ class ReportSnapshot(UUIDPrimaryKey, Timestamped, Base):
     source_collected_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
     published_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
     created_by: Mapped[str | None] = mapped_column(String(200))
+    created_by_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("accounts.id", name="fk_report_snapshots_creator_account")
+    )
     __table_args__ = (
         UniqueConstraint("id", "organization_id", name="uq_report_snapshots_id_organization"),
         UniqueConstraint("id", "report_id", "organization_id", name="uq_report_snapshots_lineage_key"),
@@ -531,6 +534,11 @@ class ReportSnapshot(UUIDPrimaryKey, Timestamped, Base):
             ["predecessor_snapshot_id", "report_id", "organization_id"],
             ["report_snapshots.id", "report_snapshots.report_id", "report_snapshots.organization_id"],
             name="fk_report_snapshots_predecessor_lineage",
+        ),
+        ForeignKeyConstraint(
+            ["created_by_account_id", "organization_id"],
+            ["organization_memberships.account_id", "organization_memberships.organization_id"],
+            name="fk_report_snapshots_creator_membership",
         ),
         CheckConstraint(_allowed("status", SNAPSHOT_STATUSES), name="ck_report_snapshots_status"),
         CheckConstraint(
@@ -794,6 +802,9 @@ class ReportJob(UUIDPrimaryKey, Timestamped, Base):
     organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     report_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     result_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, unique=True)
+    requested_by_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("accounts.id", name="fk_report_jobs_requester_account")
+    )
     idempotency_key: Mapped[str] = mapped_column(String(200), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued", server_default="queued")
     failure_category: Mapped[str | None] = mapped_column(String(100))
@@ -821,6 +832,11 @@ class ReportJob(UUIDPrimaryKey, Timestamped, Base):
             ["result_snapshot_id", "organization_id"],
             ["report_snapshots.id", "report_snapshots.organization_id"],
             name="fk_report_jobs_result_snapshot_organization",
+        ),
+        ForeignKeyConstraint(
+            ["requested_by_account_id", "organization_id"],
+            ["organization_memberships.account_id", "organization_memberships.organization_id"],
+            name="fk_report_jobs_requester_membership",
         ),
         CheckConstraint(_allowed("status", JOB_STATUSES), name="ck_report_jobs_status"),
         CheckConstraint("attempt_count >= 0", name="ck_report_jobs_attempt_count_nonnegative"),
@@ -972,7 +988,9 @@ class ProductUsageEvent(UUIDPrimaryKey, Base):
         nullable=False,
         server_default=func.now(),
     )
-    actor_account_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    actor_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("accounts.id", name="fk_product_usage_events_actor")
+    )
     organization_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey(
             "organizations.id",
@@ -1000,6 +1018,11 @@ class ProductUsageEvent(UUIDPrimaryKey, Base):
             "event_type <> 'authenticated_use' "
             "OR (actor_account_id IS NOT NULL AND organization_id IS NOT NULL)",
             name="ck_product_usage_events_authenticated_scope",
+        ),
+        ForeignKeyConstraint(
+            ["actor_account_id", "organization_id"],
+            ["organization_memberships.account_id", "organization_memberships.organization_id"],
+            name="fk_product_usage_events_actor_membership",
         ),
         Index("ix_product_usage_events_occurred_at", "occurred_at"),
         Index(

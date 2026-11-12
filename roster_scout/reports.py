@@ -1,23 +1,332 @@
-"""Connection-free report-library presentation service."""
+"""Connection-free report-library and authorized acceptance services."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from math import ceil
+import uuid
+
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+
+from .audit import append_security_audit_event
+from .jobs import TERMINAL_JOB_STATUSES, create_or_get_job
+from .models import (
+    OrganizationMembership,
+    Report,
+    ReportJob,
+    Season,
+    SecurityAuditEvent,
+    Team,
+    TeamSeason,
+)
 
 from .repositories import (
     REPORT_LIBRARY_PAGE_SIZE,
     count_reports_for_organization,
     count_reports_updated_since,
+    ensure_report_dispatch,
     list_report_library_records,
 )
+from .usage import record_authenticated_report_request_accepted
 
 
 class ReportLibraryFailure(RuntimeError):
     def __init__(self, category):
         self.category = category
         super().__init__(category)
+
+
+class ReportAcceptanceFailure(RuntimeError):
+    """Fixed report-acceptance failure with no tenant or selector detail."""
+
+    def __init__(self, category):
+        self.category = category
+        super().__init__(category)
+
+
+def _bounded_identifier(value, *, field, optional=False):
+    if value is None and optional:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be a canonical NCAA identifier")
+    candidate = value.strip()
+    if (
+        not candidate
+        or len(candidate) > 100
+        or not candidate.isascii()
+        or not candidate.isdigit()
+    ):
+        raise ValueError(f"{field} must be a canonical NCAA identifier")
+    return candidate
+
+
+def _canonical_uuid(value, *, field):
+    try:
+        return uuid.UUID(str(value))
+    except (TypeError, ValueError, AttributeError):
+        raise ValueError(f"{field} must be a UUID") from None
+
+
+@dataclass(frozen=True)
+class CanonicalReportRequest:
+    """Bounded NCAA selector identity already resolved by the catalog."""
+
+    source_team_id: str
+    team_name: str
+    source_season_id: str
+    season_year: int
+    source_season_team_id: str
+    division: str
+    batting_stat_category_id: str | None = None
+    pitching_stat_category_id: str | None = None
+
+    def __post_init__(self):
+        for field in (
+            "source_team_id",
+            "source_season_id",
+            "source_season_team_id",
+        ):
+            object.__setattr__(
+                self,
+                field,
+                _bounded_identifier(getattr(self, field), field=field),
+            )
+        for field in ("batting_stat_category_id", "pitching_stat_category_id"):
+            object.__setattr__(
+                self,
+                field,
+                _bounded_identifier(
+                    getattr(self, field), field=field, optional=True
+                ),
+            )
+        if not isinstance(self.team_name, str):
+            raise ValueError("team_name must be bounded canonical text")
+        team_name = " ".join(self.team_name.split())
+        if not team_name or len(team_name) > 200:
+            raise ValueError("team_name must be bounded canonical text")
+        object.__setattr__(self, "team_name", team_name)
+        if (
+            not isinstance(self.season_year, int)
+            or isinstance(self.season_year, bool)
+            or not 1900 <= self.season_year <= 2200
+        ):
+            raise ValueError("season_year must be a bounded year")
+        if self.division not in {"d1", "d2", "d3"}:
+            raise ValueError("division must be d1, d2, or d3")
+
+
+@dataclass(frozen=True)
+class AcceptedReportRequest:
+    report_id: uuid.UUID
+    job_id: uuid.UUID
+    created_report: bool
+
+
+def _upsert_team(session, request):
+    team_id = session.scalar(
+        postgresql_insert(Team)
+        .values(
+            id=uuid.uuid4(),
+            source="ncaa",
+            source_team_id=request.source_team_id,
+            name=request.team_name,
+        )
+        .on_conflict_do_update(
+            constraint="uq_teams_source_identity",
+            set_={"name": request.team_name},
+        )
+        .returning(Team.id)
+    )
+    return session.get(Team, team_id)
+
+
+def _upsert_season(session, request):
+    season_id = session.scalar(
+        postgresql_insert(Season)
+        .values(
+            id=uuid.uuid4(),
+            source="ncaa",
+            source_season_id=request.source_season_id,
+            year=request.season_year,
+        )
+        .on_conflict_do_update(
+            constraint="uq_seasons_source_identity",
+            set_={"year": request.season_year},
+        )
+        .returning(Season.id)
+    )
+    return session.get(Season, season_id)
+
+
+def _upsert_team_season(session, team, season, request):
+    inserted_id = session.scalar(
+        postgresql_insert(TeamSeason)
+        .values(
+            id=uuid.uuid4(),
+            team_id=team.id,
+            season_id=season.id,
+            source_season_team_id=request.source_season_team_id,
+            division=request.division.upper(),
+            batting_stat_category_id=request.batting_stat_category_id,
+            pitching_stat_category_id=request.pitching_stat_category_id,
+        )
+        .on_conflict_do_nothing(
+            constraint="uq_team_seasons_team_season"
+        )
+        .returning(TeamSeason.id)
+    )
+    team_season = (
+        session.get(TeamSeason, inserted_id)
+        if inserted_id is not None
+        else session.scalar(
+            select(TeamSeason)
+            .where(
+                TeamSeason.team_id == team.id,
+                TeamSeason.season_id == season.id,
+            )
+            .with_for_update()
+        )
+    )
+    if (
+        team_season is None
+        or team_season.source_season_team_id != request.source_season_team_id
+        or team_season.division != request.division.upper()
+    ):
+        raise ReportAcceptanceFailure("canonical_identity_conflict")
+    for field in ("batting_stat_category_id", "pitching_stat_category_id"):
+        requested = getattr(request, field)
+        existing = getattr(team_season, field)
+        if existing is not None and requested is not None and existing != requested:
+            raise ReportAcceptanceFailure("canonical_identity_conflict")
+        if existing is None and requested is not None:
+            setattr(team_season, field, requested)
+    return team_season
+
+
+def _locked_report(session, organization_id, team_season, team_name):
+    inserted_id = session.scalar(
+        postgresql_insert(Report)
+        .values(
+            id=uuid.uuid4(),
+            organization_id=organization_id,
+            team_season_id=team_season.id,
+            name=team_name,
+        )
+        .on_conflict_do_nothing(
+            constraint="uq_reports_organization_team_season"
+        )
+        .returning(Report.id)
+    )
+    report = session.scalar(
+        select(Report)
+        .where(
+            Report.organization_id == organization_id,
+            Report.team_season_id == team_season.id,
+        )
+        .with_for_update()
+    )
+    if report is None:
+        raise RuntimeError("report upsert did not produce a durable row")
+    return report, inserted_id is not None
+
+
+def accept_authorized_report_request(
+    session,
+    *,
+    actor_account_id,
+    organization_id,
+    request,
+    idempotency_key,
+):
+    """Accept one authorized report build inside the caller's transaction."""
+    if not isinstance(request, CanonicalReportRequest):
+        raise ValueError("request must be a CanonicalReportRequest")
+    actor_account_id = _canonical_uuid(
+        actor_account_id, field="actor_account_id"
+    )
+    organization_id = _canonical_uuid(
+        organization_id, field="organization_id"
+    )
+    idempotency_key = str(
+        _canonical_uuid(idempotency_key, field="idempotency_key")
+    )
+
+    membership = session.scalar(
+        select(OrganizationMembership)
+        .where(
+            OrganizationMembership.account_id == actor_account_id,
+            OrganizationMembership.organization_id == organization_id,
+            OrganizationMembership.status == "active",
+        )
+        .with_for_update()
+    )
+    if membership is None:
+        raise ReportAcceptanceFailure("membership_required")
+
+    team = _upsert_team(session, request)
+    season = _upsert_season(session, request)
+    team_season = _upsert_team_season(session, team, season, request)
+    report, created_report = _locked_report(
+        session,
+        organization_id,
+        team_season,
+        request.team_name,
+    )
+    job = session.scalar(
+        select(ReportJob)
+        .where(
+            ReportJob.organization_id == organization_id,
+            ReportJob.report_id == report.id,
+            ReportJob.status.not_in(TERMINAL_JOB_STATUSES),
+        )
+        .order_by(ReportJob.created_at, ReportJob.id)
+        .limit(1)
+        .with_for_update()
+    )
+    if job is None:
+        job = create_or_get_job(
+            session,
+            organization_id,
+            report.id,
+            idempotency_key,
+            requested_by_account_id=actor_account_id,
+        )
+    else:
+        ensure_report_dispatch(session, job)
+
+    record_authenticated_report_request_accepted(
+        session,
+        event_key=str(job.id),
+        actor_account_id=actor_account_id,
+        organization_id=organization_id,
+    )
+    existing_audit = session.scalar(
+        select(SecurityAuditEvent.id).where(
+            SecurityAuditEvent.organization_id == organization_id,
+            SecurityAuditEvent.target_type == "job",
+            SecurityAuditEvent.target_id == job.id,
+            SecurityAuditEvent.action.in_(("report.create", "report.refresh")),
+            SecurityAuditEvent.reason.in_(("job_accepted", "refresh_accepted")),
+        )
+    )
+    if existing_audit is None:
+        append_security_audit_event(
+            session,
+            actor_account_id=actor_account_id,
+            organization_id=organization_id,
+            target_type="job",
+            target_id=job.id,
+            action="report.create" if created_report else "report.refresh",
+            outcome="pending",
+            reason="job_accepted" if created_report else "refresh_accepted",
+        )
+    return AcceptedReportRequest(
+        report_id=report.id,
+        job_id=job.id,
+        created_report=created_report,
+    )
 
 
 @dataclass(frozen=True)

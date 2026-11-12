@@ -567,7 +567,7 @@ class ReportAcceptanceIdempotencyTests(unittest.TestCase):
         self.assertEqual(self._counts()["audit"], 1)
 
     def test_database_rejects_unknown_and_cross_organization_actor_pairing(self):
-        from roster_scout.models import ProductUsageEvent, ReportJob
+        from roster_scout.models import ProductUsageEvent, ReportJob, ReportSnapshot
 
         organization_id, account_id, _membership_id = self._member()
         other_organization_id, other_account_id, _other_membership_id = self._member(
@@ -607,6 +607,16 @@ class ReportAcceptanceIdempotencyTests(unittest.TestCase):
                     ),
                     {"actor": other_account_id, "job": accepted.job_id},
                 )
+        with self.assertRaises(DBAPIError):
+            with self.Session.begin() as session:
+                session.add(ReportSnapshot(
+                    organization_id=organization_id,
+                    report_id=accepted.report_id,
+                    status="draft",
+                    schema_version="schema-test",
+                    created_by_account_id=other_account_id,
+                ))
+                session.flush()
         with self.Session() as session:
             job = session.get(ReportJob, accepted.job_id)
         self.assertEqual(job.organization_id, organization_id)
