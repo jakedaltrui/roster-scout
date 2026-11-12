@@ -512,6 +512,7 @@ class Report(UUIDPrimaryKey, Timestamped, Base):
 
 class ReportSnapshot(UUIDPrimaryKey, Timestamped, Base):
     __tablename__ = "report_snapshots"
+    __mapper_args__ = {"eager_defaults": False}
     organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     report_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     predecessor_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
@@ -522,7 +523,10 @@ class ReportSnapshot(UUIDPrimaryKey, Timestamped, Base):
     created_by: Mapped[str | None] = mapped_column(String(200))
     created_by_account_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("accounts.id", name="fk_report_snapshots_creator_account"),
-        server_default=text("NULL"),
+        server_default=text(
+            "NULLIF('00000000-0000-0000-0000-000000000000'::uuid, "
+            "'00000000-0000-0000-0000-000000000000'::uuid)"
+        ),
     )
     __table_args__ = (
         UniqueConstraint("id", "organization_id", name="uq_report_snapshots_id_organization"),
@@ -800,12 +804,16 @@ class MetricValue(UUIDPrimaryKey, Base):
 
 class ReportJob(UUIDPrimaryKey, Timestamped, Base):
     __tablename__ = "report_jobs"
+    __mapper_args__ = {"eager_defaults": False}
     organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     report_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     result_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, unique=True)
     requested_by_account_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("accounts.id", name="fk_report_jobs_requester_account"),
-        server_default=text("NULL"),
+        server_default=text(
+            "NULLIF('00000000-0000-0000-0000-000000000000'::uuid, "
+            "'00000000-0000-0000-0000-000000000000'::uuid)"
+        ),
     )
     idempotency_key: Mapped[str] = mapped_column(String(200), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued", server_default="queued")

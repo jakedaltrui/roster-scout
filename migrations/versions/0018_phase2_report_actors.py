@@ -20,7 +20,10 @@ def upgrade():
         sa.Column(
             "created_by_account_id",
             sa.Uuid(),
-            server_default=sa.text("NULL"),
+            server_default=sa.text(
+                "NULLIF('00000000-0000-0000-0000-000000000000'::uuid, "
+                "'00000000-0000-0000-0000-000000000000'::uuid)"
+            ),
             nullable=True,
         ),
     )
@@ -44,7 +47,10 @@ def upgrade():
         sa.Column(
             "requested_by_account_id",
             sa.Uuid(),
-            server_default=sa.text("NULL"),
+            server_default=sa.text(
+                "NULLIF('00000000-0000-0000-0000-000000000000'::uuid, "
+                "'00000000-0000-0000-0000-000000000000'::uuid)"
+            ),
             nullable=True,
         ),
     )
