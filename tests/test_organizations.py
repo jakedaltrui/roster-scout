@@ -39,7 +39,7 @@ class _PostgreSQLOrganizationCase(unittest.TestCase):
 
     def setUp(self):
         clean_database(self.database_url)
-        self.now = datetime(2026, 11, 11, 19, 0, tzinfo=UTC)
+        self.now = datetime.now(UTC).replace(microsecond=0)
 
     def _account(self, email: str):
         from roster_scout.models import Account
