@@ -321,6 +321,162 @@ class SharedLibraryTests(unittest.TestCase):
         self.assertIn(b'<ul class="member-cards"', response.data)
 
 
+class SnapshotHistoryTests(unittest.TestCase):
+    """Detail and status reads keep saved data visible and tenant scoped."""
+
+    setUpClass = SharedLibraryTests.__dict__["setUpClass"]
+    tearDownClass = SharedLibraryTests.__dict__["tearDownClass"]
+    setUp = SharedLibraryTests.setUp
+    tearDown = SharedLibraryTests.tearDown
+    _organization = SharedLibraryTests._organization
+    _client = SharedLibraryTests._client
+    _report = SharedLibraryTests._report
+    _snapshot = SharedLibraryTests._snapshot
+    _job = SharedLibraryTests._job
+
+    def _snapshot_with_sections(self, organization_id, report_id, *sections):
+        from roster_scout.models import ReportSection, ReportSnapshot
+
+        published_at = self.now - timedelta(hours=3)
+        with self.Session.begin() as session:
+            snapshot = ReportSnapshot(
+                organization_id=organization_id,
+                report_id=report_id,
+                status="draft",
+                schema_version="2026.1",
+                source_collected_at=published_at - timedelta(minutes=5),
+                created_by="test",
+            )
+            session.add(snapshot)
+            session.flush()
+            for name, status in sections:
+                session.add(ReportSection(
+                    organization_id=organization_id,
+                    snapshot_id=snapshot.id,
+                    section=name,
+                    critical=name in {"batting", "pitching"},
+                    status=status,
+                    row_count=2 if status == "complete" else 0,
+                    verified_empty=False,
+                    collected_at=self.now if status == "complete" else None,
+                    failure_category=(
+                        "source_unavailable"
+                        if status in {"unavailable", "failed"}
+                        else None
+                    ),
+                ))
+            session.flush()
+            snapshot.status = "ready"
+            snapshot.published_at = published_at
+            return snapshot.id
+
+    def test_detail_keeps_latest_snapshot_dominant_while_build_is_active(self):
+        organization_id, accounts = self._organization(
+            "History University", ("coach@example.edu", "admin")
+        )
+        report_id = self._report(organization_id, "History Hawks", 501)
+        snapshot_id = self._snapshot_with_sections(
+            organization_id,
+            report_id,
+            ("batting", "complete"),
+            ("pitching", "complete"),
+        )
+        self._job(organization_id, report_id, "running", self.now)
+
+        client = self._client(accounts[0], organization_id)
+        response = client.get(f"/reports/{report_id}")
+
+        self.assertEqual(response.status_code, 200)
+        for value in (
+            b"History Hawks",
+            b"Latest snapshot",
+            b"Ready",
+            b"Active build",
+            b"Collecting",
+            b"remains available while this refresh runs",
+            b"Snapshot history",
+            b"Batting",
+            b"Pitching",
+        ):
+            self.assertIn(value, response.data)
+        self.assertLess(
+            response.data.index(b"Latest snapshot"),
+            response.data.index(b"Active build"),
+        )
+        self.assertIn(b'data-report-status-url=', response.data)
+        self.assertIn(b'aria-live="polite"', response.data)
+        self.assertNotIn(str(organization_id).encode(), response.data)
+
+        from roster_scout.models import SecurityAuditEvent
+
+        with self.Session() as session:
+            audit = session.scalar(select(SecurityAuditEvent).where(
+                SecurityAuditEvent.action == "snapshot.access"
+            ))
+        self.assertIsNotNone(audit)
+        self.assertEqual(audit.target_id, snapshot_id)
+
+    def test_status_is_complete_safe_view_model_and_terminal_states_are_fixed(self):
+        organization_id, accounts = self._organization(
+            "Status University", ("coach@example.edu", "member")
+        )
+        report_id = self._report(organization_id, "Status Bears", 502)
+        self._snapshot(organization_id, report_id, "ready", self.now)
+        job_id = self._job(organization_id, report_id, "queued", self.now)
+        client = self._client(accounts[0], organization_id)
+
+        queued = client.get(f"/reports/{report_id}/status")
+        self.assertEqual(queued.status_code, 200)
+        self.assertEqual(
+            set(queued.get_json()),
+            {"state", "heading", "message", "updated_at", "terminal", "sections"},
+        )
+        self.assertEqual(queued.get_json()["state"], "queued")
+        self.assertFalse(queued.get_json()["terminal"])
+
+        from roster_scout.models import ReportJob
+
+        with self.Session.begin() as session:
+            job = session.get(ReportJob, job_id)
+            job.status = "failed"
+            job.failure_category = "source_unavailable"
+            job.failure_message = "secret upstream exception detail"
+            job.finished_at = self.now
+
+        failed = client.get(f"/reports/{report_id}/status")
+        payload = failed.get_json()
+        self.assertEqual(payload["state"], "failed")
+        self.assertTrue(payload["terminal"])
+        serialized = failed.get_data(as_text=True)
+        for forbidden in (
+            str(organization_id),
+            str(accounts[0]),
+            str(job_id),
+            "secret upstream exception detail",
+        ):
+            self.assertNotIn(forbidden, serialized)
+        self.assertIn("NCAA source unavailable", serialized)
+
+    def test_absent_and_foreign_detail_and_status_share_one_404_contract(self):
+        first_id, first_accounts = self._organization(
+            "First History Org", ("first@example.edu", "admin")
+        )
+        second_id, _ = self._organization(
+            "Second History Org", ("second@example.edu", "admin")
+        )
+        foreign_report_id = self._report(second_id, "Private Panthers", 503)
+        missing_report_id = uuid.uuid4()
+        client = self._client(first_accounts[0], first_id)
+
+        for suffix in ("", "/status"):
+            foreign = client.get(f"/reports/{foreign_report_id}{suffix}")
+            absent = client.get(f"/reports/{missing_report_id}{suffix}")
+            self.assertEqual(foreign.status_code, 404)
+            self.assertEqual(absent.status_code, 404)
+            self.assertEqual(foreign.content_type, absent.content_type)
+            self.assertEqual(foreign.get_data(), absent.get_data())
+
+
 class ReportAcceptanceIdempotencyTests(unittest.TestCase):
     """Authorized acceptance is actor-bound, atomic, and duplicate safe."""
 
