@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 from threading import Barrier
 
 from alembic import command
-from sqlalchemy import inspect, select, text
+from sqlalchemy import func, inspect, select, text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from tests.db_support import (
@@ -525,6 +525,303 @@ class RoleAuthorizationTests(_PostgreSQLOrganizationCase):
                     now=self.now,
                 )
         self.assertEqual(denied.exception.category, "forbidden")
+
+    def test_member_administration_capabilities_deny_by_default(self):
+        from roster_scout.models import Account, OrganizationMembership
+        from roster_scout.organizations import (
+            OrganizationFailure,
+            change_membership_role,
+            remove_membership,
+        )
+
+        organization_id, admin_id, _ = self._organization_with_membership(
+            "admin@example.edu", "admin"
+        )
+        with self.Session.begin() as session:
+            member = Account(
+                normalized_email="member@example.edu",
+                email_verified_at=self.now,
+                status="active",
+            )
+            target = Account(
+                normalized_email="target@example.edu",
+                email_verified_at=self.now,
+                status="active",
+            )
+            session.add_all((member, target))
+            session.flush()
+            member_membership = OrganizationMembership(
+                organization_id=organization_id,
+                account_id=member.id,
+                role="member",
+                status="active",
+            )
+            target_membership = OrganizationMembership(
+                organization_id=organization_id,
+                account_id=target.id,
+                role="member",
+                status="active",
+            )
+            session.add_all((member_membership, target_membership))
+            session.flush()
+            member_id = member.id
+            target_membership_id = target_membership.id
+
+        for operation in ("role", "remove"):
+            with self.subTest(operation=operation):
+                with self.Session.begin() as session:
+                    with self.assertRaises(OrganizationFailure) as denied:
+                        if operation == "role":
+                            change_membership_role(
+                                session,
+                                organization_id=organization_id,
+                                actor_account_id=member_id,
+                                membership_id=target_membership_id,
+                                role="admin",
+                                now=self.now,
+                            )
+                        else:
+                            remove_membership(
+                                session,
+                                organization_id=organization_id,
+                                actor_account_id=member_id,
+                                membership_id=target_membership_id,
+                                now=self.now,
+                            )
+                self.assertEqual(denied.exception.category, "forbidden")
+
+        with self.Session.begin() as session:
+            changed = change_membership_role(
+                session,
+                organization_id=organization_id,
+                actor_account_id=admin_id,
+                membership_id=target_membership_id,
+                role="admin",
+                now=self.now,
+            )
+            self.assertEqual(changed.role, "admin")
+
+
+class MembershipAdministrationTests(_PostgreSQLOrganizationCase):
+    def setUp(self):
+        super().setUp()
+        import app as app_module
+
+        self.app_module = app_module
+        self.original_config = dict(app_module.app.config)
+        self.original_factory = app_module.app.extensions.get(
+            "roster_scout_auth_session_factory"
+        )
+        app_module.app.config.update(
+            TESTING=True,
+            ROSTER_SCOUT_TEST_AUTH_ENFORCEMENT=True,
+            WTF_CSRF_ENABLED=True,
+            WTF_CSRF_SSL_STRICT=False,
+        )
+        app_module.app.extensions["roster_scout_auth_session_factory"] = self.Session
+        self.client = app_module.app.test_client()
+
+    def tearDown(self):
+        self.app_module.app.config.clear()
+        self.app_module.app.config.update(self.original_config)
+        self.app_module.app.extensions["roster_scout_auth_session_factory"] = (
+            self.original_factory
+        )
+        super().tearDown()
+
+    def _csrf_token(self, credential):
+        from itsdangerous import URLSafeTimedSerializer
+
+        return URLSafeTimedSerializer(
+            self.app_module.app.secret_key,
+            salt="wtf-csrf-token",
+        ).dumps(credential.csrf_secret)
+
+    def _multi_organization_session(self):
+        from roster_scout.models import Account, Organization, OrganizationMembership
+        from roster_scout.sessions import create_account_session
+
+        with self.Session.begin() as session:
+            account = Account(
+                normalized_email="coach@example.edu",
+                email_verified_at=self.now,
+                status="active",
+            )
+            first = Organization(name="Friday Opponent Prep")
+            second = Organization(name="Saturday Opponent Prep")
+            session.add_all((account, first, second))
+            session.flush()
+            first_membership = OrganizationMembership(
+                organization_id=first.id,
+                account_id=account.id,
+                role="admin",
+                status="active",
+            )
+            second_membership = OrganizationMembership(
+                organization_id=second.id,
+                account_id=account.id,
+                role="member",
+                status="active",
+            )
+            session.add_all((first_membership, second_membership))
+            session.flush()
+            credential = create_account_session(
+                session,
+                account_id=account.id,
+                active_organization_id=first.id,
+                sealed_provider_state="sealed-multi-org-session",
+                now=self.now,
+            )
+            return (
+                credential,
+                account.id,
+                first.id,
+                second.id,
+                second_membership.id,
+            )
+
+    def test_selection_lists_only_current_memberships_and_switch_rotates(self):
+        from roster_scout.models import AccountSession
+        from roster_scout.sessions import SESSION_COOKIE_NAME
+
+        credential, _, first_id, second_id, second_membership_id = (
+            self._multi_organization_session()
+        )
+        self.client.set_cookie(SESSION_COOKIE_NAME, credential.cookie_value)
+        chooser = self.client.get("/organizations/select")
+        chooser_body = chooser.get_data(as_text=True)
+        self.assertEqual(chooser.status_code, 200)
+        self.assertIn("Friday Opponent Prep", chooser_body)
+        self.assertIn("Saturday Opponent Prep", chooser_body)
+        self.assertNotIn(str(first_id), chooser_body)
+        self.assertNotIn(str(second_id), chooser_body)
+
+        response = self.client.post(
+            "/organizations/switch",
+            data={
+                "csrf_token": self._csrf_token(credential),
+                "membership_id": str(second_membership_id),
+                "organization_id": str(first_id),
+                "role": "admin",
+                "report_id": str(uuid.uuid4()),
+                "next": "/organization/members",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/reports")
+        self.assertIn(f"{SESSION_COOKIE_NAME}=", response.headers["Set-Cookie"])
+        with self.Session.begin() as session:
+            rows = list(session.scalars(
+                select(AccountSession).order_by(AccountSession.created_at)
+            ))
+            self.assertEqual(len(rows), 2)
+            self.assertIsNotNone(rows[0].revoked_at)
+            self.assertEqual(rows[1].active_organization_id, second_id)
+
+    def test_removed_active_membership_is_cleared_before_next_context(self):
+        from roster_scout.authorization import AuthorizationFailure, require_context
+        from roster_scout.models import AccountSession, OrganizationMembership
+        from roster_scout.organizations import remove_membership
+
+        credential, account_id, first_id, _, _ = self._multi_organization_session()
+        with self.Session.begin() as session:
+            membership = session.scalar(select(OrganizationMembership).where(
+                OrganizationMembership.organization_id == first_id,
+                OrganizationMembership.account_id == account_id,
+            ))
+            remove_membership(
+                session,
+                organization_id=first_id,
+                actor_account_id=account_id,
+                membership_id=membership.id,
+                now=self.now,
+            )
+        with self.Session.begin() as session:
+            stored = session.scalar(select(AccountSession))
+            self.assertIsNone(stored.active_organization_id)
+            with self.assertRaises(AuthorizationFailure) as denied:
+                require_context(
+                    session,
+                    cookie_value=credential.cookie_value,
+                    now=self.now + timedelta(seconds=1),
+                )
+        self.assertEqual(denied.exception.category, "membership_required")
+
+    def test_concurrent_admin_mutations_preserve_one_active_admin(self):
+        from roster_scout.database import create_session_factory, get_engine
+        from roster_scout.models import Account, OrganizationMembership
+        from roster_scout.organizations import (
+            OrganizationFailure,
+            change_membership_role,
+            remove_membership,
+        )
+
+        organization_id, first_account_id, first_membership_id = (
+            self._organization_with_membership("first-admin@example.edu", "admin")
+        )
+        with self.Session.begin() as session:
+            second = Account(
+                normalized_email="second-admin@example.edu",
+                email_verified_at=self.now,
+                status="active",
+            )
+            session.add(second)
+            session.flush()
+            second_membership = OrganizationMembership(
+                organization_id=organization_id,
+                account_id=second.id,
+                role="admin",
+                status="active",
+            )
+            session.add(second_membership)
+            session.flush()
+            second_account_id = second.id
+            second_membership_id = second_membership.id
+
+        ready = Barrier(2)
+
+        def mutate(kind):
+            engine = get_engine(self.database_url)
+            Session = create_session_factory(engine)
+            try:
+                ready.wait(timeout=5)
+                with Session.begin() as session:
+                    if kind == "demote":
+                        change_membership_role(
+                            session,
+                            organization_id=organization_id,
+                            actor_account_id=second_account_id,
+                            membership_id=first_membership_id,
+                            role="member",
+                            now=self.now,
+                        )
+                    else:
+                        remove_membership(
+                            session,
+                            organization_id=organization_id,
+                            actor_account_id=first_account_id,
+                            membership_id=second_membership_id,
+                            now=self.now,
+                        )
+                return "succeeded"
+            except OrganizationFailure as exc:
+                return exc.category
+            finally:
+                engine.dispose()
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            outcomes = list(pool.map(mutate, ("demote", "remove")))
+        self.assertEqual(outcomes.count("succeeded"), 1)
+        self.assertTrue(set(outcomes).issubset({"succeeded", "forbidden", "last_admin"}))
+        with self.Session.begin() as session:
+            active_admins = session.scalar(
+                select(func.count()).select_from(OrganizationMembership).where(
+                    OrganizationMembership.organization_id == organization_id,
+                    OrganizationMembership.status == "active",
+                    OrganizationMembership.role == "admin",
+                )
+            )
+        self.assertEqual(active_admins, 1)
 
 
 class NoDomainAutoJoinTests(_PostgreSQLOrganizationCase):
