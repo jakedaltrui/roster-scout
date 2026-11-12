@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-08-PLAN.md
-last_updated: "2026-11-12T16:31:53.072Z"
+stopped_at: Completed 02-09-PLAN.md
+last_updated: "2026-11-12T17:02:47.357Z"
 last_activity: 2026-11-12
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 57
-  completed_plans: 53
+  completed_plans: 54
   percent: 20
 ---
 
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-11-11)
 ## Current Position
 
 Phase: 02 (identity-organizations-and-report-library) — EXECUTING
-Plan: 13 of 16
+Plan: 14 of 16
 Status: Ready to execute
 Last activity: 2026-11-12
 
-Progress: [█████████░] 93%
+Progress: [██████████] 95%
 
 ## Performance Metrics
 
@@ -218,6 +218,10 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 02]: Explicit refresh serializes on the organization-scoped report row and converges every active click on one durable job, usage event, and audit event. — Prevents duplicate live work and duplicate adoption accounting under concurrent clicks.
 - [Phase 02]: A refresh uses a new accepted job identity after terminal work; same-job evidence remains reusable while older build evidence never is. — Preserves live freshness without weakening Phase 1 retry recovery.
 - [Phase 02]: Latest snapshot, active build, failed attempts, and requested history page remain independent projections. — Keeps published scouting data dominant and immutable throughout refresh.
+- [Phase 02]: Retry preserves the selected failed or blocked job and links its successor through retry:<failed-job-id>:<action-id> while report locking converges concurrent clicks.
+- [Phase 02]: Historical downloads require exact organization, report, snapshot, and artifact scope and stream only checksum-verified stored bytes.
+- [Phase 02]: Authenticated preparation proofs bind an opaque receipt to a digest of canonical actor and artifact scope without exposing raw scoped UUIDs.
+- [Phase 02]: Artifact preparation records audit evidence but successful-download usage remains deferred to browser acknowledgement in Plan 02-16.
 
 ### Pending Todos
 
@@ -269,9 +273,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 02 P15 | 28 min | 2 tasks | 5 files |
 | Phase 02 P07 | 11min | 2 tasks | 8 files |
 | Phase 02 P08 | 14min | 2 tasks | 6 files |
+| Phase 02 P09 | 18min | 2 tasks | 7 files |
 
 ## Session Continuity
 
-Last session: 2026-11-12T16:31:53.064Z
-Stopped at: Completed 02-08-PLAN.md
+Last session: 2026-11-12T17:02:47.167Z
+Stopped at: Completed 02-09-PLAN.md
 Resume file: None

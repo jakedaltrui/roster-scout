@@ -179,7 +179,7 @@ Plans:
 5. Cross-organization identifier substitution is denied across pages, APIs, jobs, refresh actions, and downloads, with auditable security events.
 6. After authentication and organization authorization, each accepted report/job request records one `authenticated_use` event keyed by the accepted ReportJob UUID with canonical account and organization IDs, with `actor_account_id` foreign-keyed to the Phase 2 account table; the operator report proves windowed `COUNT(DISTINCT actor_account_id)` without treating page views or anonymous identifiers as users.
 
-**Plans:** 12/16 plans executed
+**Plans:** 13/16 plans executed
 
 Plans:
 
@@ -233,7 +233,7 @@ Plans:
 
 **Wave 13** *(blocked on Wave 12 completion)*
 
-- [ ] 02-09-PLAN.md — Add safe retry, partial-state review, and authenticated exact-artifact preparation.
+- [x] 02-09-PLAN.md — Add safe retry, partial-state review, and authenticated exact-artifact preparation.
 
 **Wave 14** *(blocked on Wave 13 completion)*
 
@@ -325,7 +325,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |---|---:|---|---|
 | 1. Canonical Snapshot Foundation | 41/41 | Complete | 2026-11-11 |
-| 2. Identity, Organizations, and Report Library | 12/16 | In Progress|  |
+| 2. Identity, Organizations, and Report Library | 13/16 | In Progress|  |
 | 3. Detailed NCAA Intelligence | 0/4 | Not started | - |
 | 4. Detailed Excel Report | 0/3 | Not started | - |
 | 5. Embedded Opponent Dashboard | 0/4 | Not started | - |

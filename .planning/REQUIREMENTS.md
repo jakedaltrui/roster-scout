@@ -32,7 +32,7 @@
 - [x] **SNAP-05**: A user can explicitly refresh a report, producing a new linked snapshot without modifying prior snapshots.
 - [x] **SNAP-06**: A user can review all dated snapshots for a report and identify the newest complete or partial version.
 - [x] **SNAP-07**: Repeating an accepted report-build request with the same idempotency key does not create duplicate jobs or snapshots.
-- [ ] **SNAP-08**: A failed report build leaves no snapshot falsely marked ready and can be retried safely.
+- [x] **SNAP-08**: A failed report build leaves no snapshot falsely marked ready and can be retried safely.
 - [ ] **SNAP-09**: A Power BI refresh failure does not invalidate a completed snapshot or its Excel artifact.
 
 ### Provenance and Canonical Data
