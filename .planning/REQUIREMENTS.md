@@ -100,7 +100,7 @@
 
 ### Security and Operations
 
-- [ ] **SECU-01**: Cross-organization access is denied for report HTML, JSON APIs, refresh actions, workbook downloads, job status, and embed-token endpoints.
+- [x] **SECU-01**: Cross-organization access is denied for report HTML, JSON APIs, refresh actions, workbook downloads, job status, and embed-token endpoints.
 - [x] **SECU-02**: Authorization checks derive organization context from the authenticated membership, never from an untrusted request field alone.
 - [x] **SECU-03**: Passwordless, invitation, session, Power BI, and service-principal secrets or tokens never appear in application logs.
 - [x] **SECU-04**: Security-relevant membership, report, refresh, export, and embed-token events are auditable by actor, organization, target, and time without recording secret material.

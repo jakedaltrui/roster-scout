@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-04-PLAN.md
-last_updated: "2026-11-12T00:33:38.493Z"
+stopped_at: Completed 02-05-PLAN.md
+last_updated: "2026-11-12T00:47:55.061Z"
 last_activity: 2026-11-12
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 57
-  completed_plans: 48
+  completed_plans: 49
   percent: 20
 ---
 
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-11-11)
 ## Current Position
 
 Phase: 02 (identity-organizations-and-report-library) — EXECUTING
-Plan: 8 of 16
+Plan: 9 of 16
 Status: Ready to execute
 Last activity: 2026-11-12
 
-Progress: [████████░░] 84%
+Progress: [█████████░] 86%
 
 ## Performance Metrics
 
@@ -203,6 +203,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 02]: Organization switches rotate the verifier and CSRF secret while preserving the session family and original absolute expiration. — Switching tenants must not retain a bearer credential or extend the maximum login lifetime.
 - [Phase 02]: Rendered member controls use signed candidate tokens; every mutation reloads and scopes the canonical membership by server-derived account or organization context. — Browser fields are lookup candidates only and never become tenant or role authority.
 - [Phase 02]: Last-admin checks serialize on the organization row before validating actor and target, so concurrent demote/remove attempts cannot both succeed. — One stable lock order prevents zero-admin write skew.
+- [Phase 02]: Library queries accept only the server-derived active organization, with the same tenant predicate repeated on every child query.
+- [Phase 02]: Latest published snapshot and latest active or failed build are loaded independently so refresh never hides the last usable report.
+- [Phase 02]: Report-library persistence failures render a fixed retryable 503 instead of a false empty state.
 
 ### Pending Todos
 
@@ -249,9 +252,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 02 P03 | 16 min | 2 tasks | 6 files |
 | Phase 02 P14 | 19m | 2 tasks | 8 files |
 | Phase 02 P04 | 18m | 2 tasks | 8 files |
+| Phase 02 P05 | 11 min | 2 tasks | 8 files |
 
 ## Session Continuity
 
-Last session: 2026-11-12T00:33:38.485Z
-Stopped at: Completed 02-04-PLAN.md
+Last session: 2026-11-12T00:47:55.051Z
+Stopped at: Completed 02-05-PLAN.md
 Resume file: None
