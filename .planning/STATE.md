@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-06-PLAN.md
-last_updated: "2026-11-12T01:14:19.100Z"
+stopped_at: Completed 02-15-PLAN.md
+last_updated: "2026-11-12T07:36:13.488Z"
 last_activity: 2026-11-12
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 57
-  completed_plans: 50
+  completed_plans: 51
   percent: 20
 ---
 
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-11-11)
 ## Current Position
 
 Phase: 02 (identity-organizations-and-report-library) — EXECUTING
-Plan: 10 of 16
+Plan: 11 of 16
 Status: Ready to execute
 Last activity: 2026-11-12
 
-Progress: [█████████░] 88%
+Progress: [█████████░] 89%
 
 ## Performance Metrics
 
@@ -209,6 +209,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 02]: Authorized report acceptance reloads active membership and commits report, job, outbox, authenticated-use, and audit evidence in one caller-owned transaction.
 - [Phase 02]: An existing nonterminal organization report job wins across repeated or distinct browser action UUIDs.
 - [Phase 02]: Report job, snapshot creator, and usage actors are canonical accounts paired to the owning organization membership while legacy anonymous rows remain valid.
+- [Phase 02]: Browser selector authority is limited to exact catalog identity. — Account, organization, and role come only from revalidated server context.
+- [Phase 02]: NCAA identity is re-resolved against the current server catalog before atomic acceptance. — Typed-only, stale, and mismatched values write nothing.
+- [Phase 02]: Durable acceptance commits before job-scoped outbox dispatch. — Transient dispatch failure leaves recoverable queued intent.
 
 ### Pending Todos
 
@@ -257,9 +260,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 02 P04 | 18m | 2 tasks | 8 files |
 | Phase 02 P05 | 11 min | 2 tasks | 8 files |
 | Phase 02 P06 | 20 min | 2 tasks | 7 files |
+| Phase 02 P15 | 28 min | 2 tasks | 5 files |
 
 ## Session Continuity
 
-Last session: 2026-11-12T01:14:19.089Z
-Stopped at: Completed 02-06-PLAN.md
+Last session: 2026-11-12T07:36:13.480Z
+Stopped at: Completed 02-15-PLAN.md
 Resume file: None
