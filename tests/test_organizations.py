@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import io
 import importlib
-import os
 import unittest
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -688,7 +687,7 @@ class OrganizationInvitationRouteTests(_PostgreSQLOrganizationCase):
         ).dumps(credential.csrf_secret)
 
     def test_admin_members_page_and_invitation_forms_are_accessible(self):
-        credential, _, _ = self._credential(email="admin@example.edu")
+        credential, _, account_id = self._credential(email="admin@example.edu")
         self._set_cookie(credential)
         response = self.client.get("/organization/members")
         body = response.get_data(as_text=True)
@@ -701,7 +700,7 @@ class OrganizationInvitationRouteTests(_PostgreSQLOrganizationCase):
         self.assertIn("Pending invitations (0)", body)
         self.assertIn("<table", body)
         self.assertIn('class="member-cards"', body)
-        self.assertNotIn(str(credential.account_id), body)
+        self.assertNotIn(str(account_id), body)
 
     def test_member_direct_request_gets_fixed_permission_page_without_data(self):
         credential, organization_id, _ = self._credential(
@@ -746,6 +745,9 @@ class OrganizationInvitationRouteTests(_PostgreSQLOrganizationCase):
         self.assertEqual(created.status_code, 201)
         body = created.get_data(as_text=True)
         self.assertIn("Invitation sent to coach@example.edu", body)
+        self.assertIn("Invited by", body)
+        self.assertIn("Revoke the invitation to coach@example.edu?", body)
+        self.assertIn("Keep invitation", body)
         self.assertNotIn("provider-invite", body)
 
         from roster_scout.models import OrganizationInvitation
@@ -802,6 +804,23 @@ class OrganizationInvitationRouteTests(_PostgreSQLOrganizationCase):
             )
             invitation_id = invitation.id
 
+        wrong_credential, _, _ = self._credential(
+            email="other@example.edu",
+            organization_name="Other Baseball",
+        )
+        self._set_cookie(wrong_credential)
+        mismatch = self.client.post(
+            f"/invitations/{invitation_id}/accept",
+            data={"csrf_token": self._csrf_token(wrong_credential)},
+        )
+        mismatch_body = mismatch.get_data(as_text=True)
+        self.assertEqual(mismatch.status_code, 409)
+        self.assertIn("This invitation can’t be accepted", mismatch_body)
+        self.assertIn("exact email address", mismatch_body)
+        self.assertNotIn("coach@example.edu", mismatch_body)
+        self.assertNotIn("Example Baseball", mismatch_body)
+
+        self.client = self.app_module.app.test_client()
         self._set_cookie(invitee_credential)
         accepted = self.client.post(
             f"/invitations/{invitation_id}/accept",
@@ -818,10 +837,6 @@ class OrganizationInvitationRouteTests(_PostgreSQLOrganizationCase):
             )))
 
         self.client = self.app_module.app.test_client()
-        wrong_credential, _, _ = self._credential(
-            email="other@example.edu",
-            organization_name="Other Baseball",
-        )
         self._set_cookie(wrong_credential)
         unavailable = self.client.post(
             f"/invitations/{invitation_id}/accept",

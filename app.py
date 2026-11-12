@@ -48,6 +48,7 @@ from roster_scout.identity import (
     IdentityFailure,
     WorkOSIdentityProvider,
 )
+from roster_scout.organization_routes import register_organization_routes
 from roster_scout.sessions import SESSION_COOKIE_NAME, load_account_session
 from roster_scraper import (
     HITTER_HEADERS,
@@ -480,6 +481,7 @@ register_auth_routes(
     identity_provider=_IDENTITY_PROVIDER,
     session_factory=_auth_session_factory,
 )
+register_organization_routes(app)
 
 
 _PUBLIC_ENDPOINTS = frozenset({
@@ -496,6 +498,7 @@ _PUBLIC_ENDPOINTS = frozenset({
 _ACCOUNT_ONLY_ENDPOINTS = frozenset({
     "auth.no_membership",
     "auth.logout",
+    "organization.accept",
 })
 
 

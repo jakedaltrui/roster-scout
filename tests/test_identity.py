@@ -786,6 +786,10 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
                 ("/healthz", ("GET",)),
                 ("/login", ("GET",)),
                 ("/logout", ("POST",)),
+                ("/invitations/<uuid:invitation_id>/accept", ("POST",)),
+                ("/organization/invitations", ("POST",)),
+                ("/organization/invitations/<uuid:invitation_id>/revoke", ("POST",)),
+                ("/organization/members", ("GET",)),
                 ("/organizations/none", ("GET",)),
                 ("/readyz", ("GET",)),
                 ("/scrape", ("POST",)),
@@ -808,7 +812,11 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
         )
         self.assertEqual(
             self.app_module._ACCOUNT_ONLY_ENDPOINTS,
-            frozenset({"auth.no_membership", "auth.logout"}),
+            frozenset({
+                "auth.no_membership",
+                "auth.logout",
+                "organization.accept",
+            }),
         )
 
     def test_unauthenticated_product_and_legacy_routes_fail_before_view_execution(self):

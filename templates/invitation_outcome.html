@@ -1,0 +1,18 @@
+{% extends "product_base.html" %}
+{% block title %}Invitation · Roster Scout{% endblock %}
+{% block page_title %}{% if outcome == "accepted" %}You joined {{ organization_name }}{% elif outcome == "email_mismatch" %}This invitation can’t be accepted{% elif outcome == "not_found" %}Page not found{% else %}This invitation is no longer available{% endif %}{% endblock %}
+{% block content %}
+<section class="empty-state"{% if outcome != "accepted" %} role="alert"{% endif %}>
+  {% if outcome == "accepted" %}
+    <p>You can now review and create reports with your staff.</p>
+    <a class="button button--primary" href="/organizations/select">Open reports</a>
+  {% elif outcome == "email_mismatch" %}
+    <p>Sign out and use the exact email address that received the invitation, or ask an administrator to send a new one.</p>
+  {% elif outcome == "not_found" %}
+    <p>This page may not exist or may not be available in your current organization.</p>
+    <a class="button" href="/reports">Return to reports</a>
+  {% else %}
+    <p>Ask an organization administrator to send a new invitation.</p>
+  {% endif %}
+</section>
+{% endblock %}
