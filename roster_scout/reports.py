@@ -27,6 +27,7 @@ from .repositories import (
     count_reports_for_organization,
     count_reports_updated_since,
     ensure_report_dispatch,
+    get_report_detail_record,
     list_report_library_records,
 )
 from .usage import record_authenticated_report_request_accepted
@@ -422,3 +423,216 @@ def load_report_library(session, organization_id, *, page=1, now=None):
         previous_page=page - 1 if page > 1 else None,
         next_page=page + 1 if page < page_count else None,
     )
+
+
+@dataclass(frozen=True)
+class ReportSectionView:
+    name: str
+    state: str
+    explanation: str | None
+
+    def as_dict(self):
+        return {
+            "name": self.name,
+            "state": self.state,
+            "explanation": self.explanation,
+        }
+
+
+@dataclass(frozen=True)
+class ReportStatusView:
+    state: str
+    heading: str
+    message: str
+    updated_at: datetime
+    terminal: bool
+    sections: tuple[ReportSectionView, ...]
+
+    def as_dict(self):
+        return {
+            "state": self.state,
+            "heading": self.heading,
+            "message": self.message,
+            "updated_at": self.updated_at.isoformat(),
+            "terminal": self.terminal,
+            "sections": [section.as_dict() for section in self.sections],
+        }
+
+
+@dataclass(frozen=True)
+class SnapshotHistoryItem:
+    id: uuid.UUID
+    status: str
+    published_at: datetime
+    source_collected_at: datetime | None
+
+
+@dataclass(frozen=True)
+class ReportDetailView:
+    id: uuid.UUID
+    opponent_name: str
+    division: str
+    season_year: int
+    latest_snapshot: SnapshotHistoryItem | None
+    latest_sections: tuple[ReportSectionView, ...]
+    active_build: ReportStatusView | None
+    history: tuple[SnapshotHistoryItem, ...]
+
+
+_JOB_COPY = {
+    "queued": (
+        "queued",
+        "Queued",
+        "Waiting to collect live NCAA data.",
+        False,
+    ),
+    "running": (
+        "collecting",
+        "Collecting",
+        "Collecting live NCAA data.",
+        False,
+    ),
+    "retrying": (
+        "saving",
+        "Saving snapshot",
+        "Saving the collected report.",
+        False,
+    ),
+    "ready": (
+        "ready",
+        "Ready",
+        "The refreshed snapshot is ready.",
+        True,
+    ),
+    "partial": (
+        "partial",
+        "Partial",
+        "The refreshed snapshot is available with some sections unavailable.",
+        True,
+    ),
+}
+
+_SECTION_LABELS = {
+    "pending": "Waiting",
+    "complete": "Ready",
+    "unavailable": "Unavailable",
+    "failed": "Failed",
+}
+
+_SAFE_FAILURE_COPY = {
+    "source": "NCAA source unavailable",
+    "browser": "NCAA source unavailable",
+    "source_unavailable": "NCAA source unavailable",
+    "database": "Report service unavailable",
+    "queue": "Report service unavailable",
+    "report_service": "Report service unavailable",
+    "artifact": "Storage unavailable",
+    "storage": "Storage unavailable",
+}
+
+
+def _safe_failure_message(category):
+    return _SAFE_FAILURE_COPY.get(category, "Something went wrong")
+
+
+def _section_views(sections):
+    views = []
+    for section in sections:
+        state = _SECTION_LABELS.get(section.status, "Waiting")
+        explanation = None
+        if section.status in {"unavailable", "failed"}:
+            explanation = _safe_failure_message(section.failure_category)
+        views.append(ReportSectionView(
+            name=section.section.replace("_", " ").title(),
+            state=state,
+            explanation=explanation,
+        ))
+    return tuple(views)
+
+
+def _status_view(job, sections):
+    if job.status in {"failed", "blocked"}:
+        state, heading, terminal = "failed", "Failed", True
+        message = _safe_failure_message(job.failure_category)
+    else:
+        state, heading, message, terminal = _JOB_COPY.get(
+            job.status,
+            ("queued", "Queued", "Waiting to collect live NCAA data.", False),
+        )
+    updated_at = (
+        job.finished_at
+        or job.started_at
+        or job.created_at
+        or datetime.now(UTC)
+    )
+    return ReportStatusView(
+        state=state,
+        heading=heading,
+        message=message,
+        updated_at=updated_at,
+        terminal=terminal,
+        sections=_section_views(sections),
+    )
+
+
+def _detail_record(session, organization_id, report_id):
+    record = get_report_detail_record(session, organization_id, report_id)
+    if record is None:
+        raise ReportLibraryFailure("not_found")
+    return record
+
+
+def load_report_detail(session, organization_id, report_id):
+    """Build a saved-snapshot-first detail model for one active tenant."""
+    record = _detail_record(session, organization_id, report_id)
+    history = tuple(SnapshotHistoryItem(
+        id=snapshot.id,
+        status=snapshot.status,
+        published_at=snapshot.published_at,
+        source_collected_at=snapshot.source_collected_at,
+    ) for snapshot in record.snapshots)
+    active_build = None
+    if (
+        record.latest_job is not None
+        and record.latest_job.status not in TERMINAL_JOB_STATUSES
+    ):
+        active_build = _status_view(record.latest_job, record.job_sections)
+    return ReportDetailView(
+        id=record.report_id,
+        opponent_name=record.team_name or record.report_name,
+        division=record.division,
+        season_year=record.season_year,
+        latest_snapshot=history[0] if history else None,
+        latest_sections=_section_views(record.snapshot_sections),
+        active_build=active_build,
+        history=history,
+    )
+
+
+def load_report_status(session, organization_id, report_id):
+    """Return a complete, sanitized status model or the shared not-found error."""
+    record = _detail_record(session, organization_id, report_id)
+    if record.latest_job is None:
+        latest = record.snapshots[0] if record.snapshots else None
+        if latest is None:
+            return ReportStatusView(
+                state="queued",
+                heading="Queued",
+                message="Waiting to collect live NCAA data.",
+                updated_at=datetime.now(UTC),
+                terminal=False,
+                sections=(),
+            )
+        return ReportStatusView(
+            state=latest.status,
+            heading="Ready" if latest.status == "ready" else "Partial",
+            message=(
+                "The saved snapshot is ready."
+                if latest.status == "ready"
+                else "The saved snapshot has some unavailable sections."
+            ),
+            updated_at=latest.published_at,
+            terminal=True,
+            sections=_section_views(record.snapshot_sections),
+        )
+    return _status_view(record.latest_job, record.job_sections)

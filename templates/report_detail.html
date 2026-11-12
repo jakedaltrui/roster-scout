@@ -1,0 +1,135 @@
+{% extends "product_base.html" %}
+
+{% block title %}{% if report_detail %}{{ report_detail.opponent_name }}{% else %}Report{% endif %} · Roster Scout{% endblock %}
+{% block page_title %}{% if report_detail %}{{ report_detail.opponent_name }}{% else %}Opponent report{% endif %}{% endblock %}
+
+{% block breadcrumbs %}
+  <nav class="breadcrumbs" aria-label="Breadcrumb">
+    <a href="/reports">Opponent reports</a> <span aria-hidden="true">/</span>
+    <span aria-current="page">Report</span>
+  </nav>
+{% endblock %}
+
+{% block head %}
+  <style>
+    .report-heading { margin: -24px 0 28px; color: var(--muted); }
+    .report-grid { display: grid; gap: 24px; }
+    .report-panel { padding: 24px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
+    .report-panel h2, .report-panel h3, .report-panel p { margin-top: 0; }
+    .report-panel__heading { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
+    .snapshot-meta { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 16px 0; color: var(--muted); font-size: 14px; }
+    .section-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 0; list-style: none; }
+    .section-list li { padding: 12px; border: 1px solid var(--border); border-radius: 10px; }
+    .section-list strong, .section-list span { display: block; }
+    .section-list span { color: var(--muted); font-size: 14px; }
+    .status-note { min-height: 24px; color: var(--muted); }
+    .history-cards { display: none; }
+    @media (max-width: 767px) {
+      .section-list { grid-template-columns: 1fr; }
+      .history-table { display: none; }
+      .history-cards { display: grid; gap: 12px; padding: 0; list-style: none; }
+      .history-cards li { padding: 16px; border: 1px solid var(--border); border-radius: 10px; }
+    }
+  </style>
+  <script src="{{ url_for('static', filename='report_status.js') }}" defer></script>
+{% endblock %}
+
+{% block content %}
+  {% if load_error %}
+    <div class="banner banner--error" role="alert">
+      <h2>We couldn’t load this report</h2>
+      <p>The report service is temporarily unavailable. Your saved snapshots are still safe.</p>
+      <a class="button" href="{{ request.path }}">Try again</a>
+    </div>
+  {% else %}
+    <p class="report-heading">{{ report_detail.division }} · {{ report_detail.season_year }} season</p>
+    <div class="report-grid">
+      <section class="report-panel" aria-labelledby="latest-snapshot-heading">
+        <div class="report-panel__heading">
+          <div>
+            <h2 id="latest-snapshot-heading">Latest snapshot</h2>
+            {% if report_detail.latest_snapshot %}
+              <p>Your newest saved report remains available until you choose to refresh it.</p>
+            {% else %}
+              <p>No saved snapshot is available yet.</p>
+            {% endif %}
+          </div>
+          {% if report_detail.latest_snapshot %}
+            <span class="status-chip">{{ report_detail.latest_snapshot.status|title }}</span>
+          {% endif %}
+        </div>
+        {% if report_detail.latest_snapshot %}
+          <div class="snapshot-meta">
+            <span>Published <time datetime="{{ report_detail.latest_snapshot.published_at.isoformat() }}">{{ report_detail.latest_snapshot.published_at.strftime("%b %-d, %Y · %-I:%M %p") }}</time></span>
+            {% if report_detail.latest_snapshot.source_collected_at %}
+              <span>Source collected <time datetime="{{ report_detail.latest_snapshot.source_collected_at.isoformat() }}">{{ report_detail.latest_snapshot.source_collected_at.strftime("%b %-d · %-I:%M %p") }}</time></span>
+            {% endif %}
+          </div>
+          {% if report_detail.latest_snapshot.status == "partial" %}
+            <div class="banner" role="status">This snapshot is usable, but one or more sections were unavailable.</div>
+          {% endif %}
+          {% if report_detail.latest_sections %}
+            <ul class="section-list" aria-label="Latest snapshot sections">
+              {% for section in report_detail.latest_sections %}
+                <li><strong>{{ section.name }}</strong><span>{{ section.state }}{% if section.explanation %} · {{ section.explanation }}{% endif %}</span></li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+        {% endif %}
+      </section>
+
+      {% if report_detail.active_build %}
+        <section class="report-panel" aria-labelledby="active-build-heading"
+                 data-report-status-root
+                 data-report-status-url="{{ url_for('reports.detail_status', report_id=report_detail.id) }}">
+          <div class="report-panel__heading">
+            <div>
+              <h2 id="active-build-heading">Active build</h2>
+              <p data-status-message>{{ report_detail.active_build.message }}</p>
+            </div>
+            <span class="status-chip" data-status-heading>{{ report_detail.active_build.heading }}</span>
+          </div>
+          {% if report_detail.latest_snapshot %}
+            <p>Your {{ report_detail.latest_snapshot.published_at.strftime("%-I:%M %p") }} snapshot remains available while this refresh runs.</p>
+          {% endif %}
+          <ul class="section-list" data-status-sections aria-label="Refresh sections">
+            {% for section in report_detail.active_build.sections %}
+              <li><strong>{{ section.name }}</strong><span>{{ section.state }}{% if section.explanation %} · {{ section.explanation }}{% endif %}</span></li>
+            {% endfor %}
+          </ul>
+          <p class="status-note" data-status-note></p>
+          <button class="button" type="button" data-status-check hidden>Check status</button>
+          <p class="visually-hidden" aria-live="polite" aria-atomic="true" data-status-live></p>
+        </section>
+      {% endif %}
+
+      <section class="report-panel" aria-labelledby="snapshot-history-heading">
+        <h2 id="snapshot-history-heading">Snapshot history</h2>
+        {% if report_detail.history %}
+          <div class="desktop-table history-table">
+            <table>
+              <caption class="visually-hidden">Saved snapshots for {{ report_detail.opponent_name }}</caption>
+              <thead><tr><th scope="col">Saved</th><th scope="col">Status</th><th scope="col">Source collected</th></tr></thead>
+              <tbody>
+                {% for snapshot in report_detail.history %}
+                  <tr>
+                    <th scope="row"><time datetime="{{ snapshot.published_at.isoformat() }}">{{ snapshot.published_at.strftime("%b %-d, %Y · %-I:%M %p") }}</time></th>
+                    <td>{{ snapshot.status|title }}</td>
+                    <td>{% if snapshot.source_collected_at %}<time datetime="{{ snapshot.source_collected_at.isoformat() }}">{{ snapshot.source_collected_at.strftime("%b %-d, %Y · %-I:%M %p") }}</time>{% else %}Not recorded{% endif %}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <ul class="history-cards" aria-label="Saved snapshots">
+            {% for snapshot in report_detail.history %}
+              <li><strong>{{ snapshot.published_at.strftime("%b %-d, %Y · %-I:%M %p") }}</strong><br><span>{{ snapshot.status|title }}</span></li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p>No snapshots have been saved for this report yet.</p>
+        {% endif %}
+      </section>
+    </div>
+  {% endif %}
+{% endblock %}

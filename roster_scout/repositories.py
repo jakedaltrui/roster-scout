@@ -40,6 +40,21 @@ class ReportLibraryRecord:
     unavailable_section_count: int
 
 
+@dataclass(frozen=True)
+class ReportDetailRecord:
+    """One tenant-scoped report projection for detail and status views."""
+
+    report_id: uuid.UUID
+    report_name: str
+    team_name: str
+    division: str
+    season_year: int
+    snapshots: tuple[ReportSnapshot, ...]
+    latest_job: ReportJob | None
+    snapshot_sections: tuple[ReportSection, ...]
+    job_sections: tuple[ReportSection, ...]
+
+
 def get_report_for_organization(session, organization_id, report_id):
     """Return one report only when it belongs to the explicit organization."""
     return session.scalar(
@@ -71,6 +86,91 @@ def count_reports_updated_since(session, organization_id, since):
             )
         )
         or 0
+    )
+
+
+def get_report_detail_record(
+    session,
+    organization_id,
+    report_id,
+    *,
+    history_limit=REPORT_LIBRARY_PAGE_SIZE,
+):
+    """Load bounded detail data without allowing an unscoped child read."""
+    if history_limit < 1 or history_limit > REPORT_LIBRARY_PAGE_SIZE:
+        raise ValueError("report history bounds are invalid")
+
+    report_row = session.execute(
+        select(
+            Report.id,
+            Report.name,
+            Team.name,
+            TeamSeason.division,
+            Season.year,
+        )
+        .join(TeamSeason, TeamSeason.id == Report.team_season_id)
+        .join(Team, Team.id == TeamSeason.team_id)
+        .join(Season, Season.id == TeamSeason.season_id)
+        .where(
+            Report.id == report_id,
+            Report.organization_id == organization_id,
+        )
+    ).one_or_none()
+    if report_row is None:
+        return None
+
+    snapshots = tuple(session.scalars(
+        select(ReportSnapshot)
+        .where(
+            ReportSnapshot.organization_id == organization_id,
+            ReportSnapshot.report_id == report_id,
+            ReportSnapshot.status.in_(PUBLISHED_SNAPSHOT_STATUSES),
+        )
+        .order_by(
+            ReportSnapshot.published_at.desc(),
+            ReportSnapshot.id.desc(),
+        )
+        .limit(history_limit)
+    ))
+    latest_job = session.scalar(
+        select(ReportJob)
+        .where(
+            ReportJob.organization_id == organization_id,
+            ReportJob.report_id == report_id,
+        )
+        .order_by(ReportJob.created_at.desc(), ReportJob.id.desc())
+        .limit(1)
+    )
+    snapshot_sections = ()
+    if snapshots:
+        snapshot_sections = tuple(session.scalars(
+            select(ReportSection)
+            .where(
+                ReportSection.organization_id == organization_id,
+                ReportSection.snapshot_id == snapshots[0].id,
+            )
+            .order_by(ReportSection.section, ReportSection.id)
+        ))
+    job_sections = ()
+    if latest_job is not None:
+        job_sections = tuple(session.scalars(
+            select(ReportSection)
+            .where(
+                ReportSection.organization_id == organization_id,
+                ReportSection.job_id == latest_job.id,
+            )
+            .order_by(ReportSection.section, ReportSection.id)
+        ))
+    return ReportDetailRecord(
+        report_id=report_row[0],
+        report_name=report_row[1],
+        team_name=report_row[2],
+        division=report_row[3],
+        season_year=report_row[4],
+        snapshots=snapshots,
+        latest_job=latest_job,
+        snapshot_sections=snapshot_sections,
+        job_sections=job_sections,
     )
 
 

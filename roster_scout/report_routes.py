@@ -5,12 +5,13 @@ from __future__ import annotations
 import uuid
 from datetime import timedelta
 
-from flask import Blueprint, current_app, g, redirect, render_template, request
+from flask import Blueprint, current_app, g, jsonify, redirect, render_template, request
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from roster_scraper import NcaaError, list_ncaa_teams
 
+from .audit import append_security_audit_event
 from .jobs import drain_report_dispatch_outbox
 from .models import Account, Organization
 from .reports import (
@@ -18,7 +19,9 @@ from .reports import (
     ReportAcceptanceFailure,
     ReportLibraryFailure,
     accept_authorized_report_request,
+    load_report_detail,
     load_report_library,
+    load_report_status,
 )
 from .tasks import dispatch_report_job
 
@@ -174,6 +177,72 @@ def library():
         library_page=library_page,
         load_error=False,
     )
+
+
+@report_blueprint.get("/reports/<uuid:report_id>")
+def detail(report_id):
+    """Render one tenant-scoped report with the saved snapshot kept primary."""
+    context = g.authorization_context
+    try:
+        with _session_factory().begin() as session:
+            shell = _shell_context(session, context)
+            report_detail = load_report_detail(
+                session,
+                context.organization_id,
+                report_id,
+            )
+            if report_detail.latest_snapshot is not None:
+                append_security_audit_event(
+                    session,
+                    actor_account_id=context.account_id,
+                    organization_id=context.organization_id,
+                    target_type="snapshot",
+                    target_id=report_detail.latest_snapshot.id,
+                    action="snapshot.access",
+                    outcome="allowed",
+                    reason="snapshot_opened",
+                )
+    except ReportLibraryFailure:
+        return render_template(
+            "invitation_outcome.html",
+            outcome="not_found",
+            organization_name=None,
+            current_role=context.role,
+            account_email=None,
+        ), 404
+    except (SQLAlchemyError, RuntimeError, ValueError):
+        return render_template(
+            "report_detail.html",
+            organization_name=None,
+            current_role=context.role,
+            account_email=None,
+            report_detail=None,
+            load_error=True,
+        ), 503
+    return render_template(
+        "report_detail.html",
+        **shell,
+        report_detail=report_detail,
+        load_error=False,
+    )
+
+
+@report_blueprint.get("/reports/<uuid:report_id>/status")
+def detail_status(report_id):
+    """Return only a fixed, safe status view model for the active tenant."""
+    context = g.authorization_context
+    try:
+        with _session_factory().begin() as session:
+            status = load_report_status(
+                session,
+                context.organization_id,
+                report_id,
+            )
+    except ReportLibraryFailure:
+        return jsonify(error="not_found"), 404
+    except (SQLAlchemyError, RuntimeError, ValueError):
+        return jsonify(error="report_service_unavailable"), 503
+    return jsonify(status.as_dict())
 
 
 @report_blueprint.route("/reports/new", methods=("GET", "POST"))
