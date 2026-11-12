@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-05-PLAN.md
-last_updated: "2026-11-12T00:47:55.061Z"
+stopped_at: Completed 02-06-PLAN.md
+last_updated: "2026-11-12T01:14:19.100Z"
 last_activity: 2026-11-12
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 57
-  completed_plans: 49
+  completed_plans: 50
   percent: 20
 ---
 
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-11-11)
 ## Current Position
 
 Phase: 02 (identity-organizations-and-report-library) — EXECUTING
-Plan: 9 of 16
+Plan: 10 of 16
 Status: Ready to execute
 Last activity: 2026-11-12
 
-Progress: [█████████░] 86%
+Progress: [█████████░] 88%
 
 ## Performance Metrics
 
@@ -206,6 +206,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 02]: Library queries accept only the server-derived active organization, with the same tenant predicate repeated on every child query.
 - [Phase 02]: Latest published snapshot and latest active or failed build are loaded independently so refresh never hides the last usable report.
 - [Phase 02]: Report-library persistence failures render a fixed retryable 503 instead of a false empty state.
+- [Phase 02]: Authorized report acceptance reloads active membership and commits report, job, outbox, authenticated-use, and audit evidence in one caller-owned transaction.
+- [Phase 02]: An existing nonterminal organization report job wins across repeated or distinct browser action UUIDs.
+- [Phase 02]: Report job, snapshot creator, and usage actors are canonical accounts paired to the owning organization membership while legacy anonymous rows remain valid.
 
 ### Pending Todos
 
@@ -253,9 +256,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 02 P14 | 19m | 2 tasks | 8 files |
 | Phase 02 P04 | 18m | 2 tasks | 8 files |
 | Phase 02 P05 | 11 min | 2 tasks | 8 files |
+| Phase 02 P06 | 20 min | 2 tasks | 7 files |
 
 ## Session Continuity
 
-Last session: 2026-11-12T00:47:55.051Z
-Stopped at: Completed 02-05-PLAN.md
+Last session: 2026-11-12T01:14:19.089Z
+Stopped at: Completed 02-06-PLAN.md
 Resume file: None
