@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-15-PLAN.md
-last_updated: "2026-11-12T07:36:13.488Z"
+stopped_at: Completed 02-07-PLAN.md
+last_updated: "2026-11-12T16:14:39.341Z"
 last_activity: 2026-11-12
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 57
-  completed_plans: 51
+  completed_plans: 52
   percent: 20
 ---
 
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-11-11)
 ## Current Position
 
 Phase: 02 (identity-organizations-and-report-library) — EXECUTING
-Plan: 11 of 16
+Plan: 12 of 16
 Status: Ready to execute
 Last activity: 2026-11-12
 
-Progress: [█████████░] 89%
+Progress: [█████████░] 91%
 
 ## Performance Metrics
 
@@ -212,6 +212,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 02]: Browser selector authority is limited to exact catalog identity. — Account, organization, and role come only from revalidated server context.
 - [Phase 02]: NCAA identity is re-resolved against the current server catalog before atomic acceptance. — Typed-only, stale, and mismatched values write nothing.
 - [Phase 02]: Durable acceptance commits before job-scoped outbox dispatch. — Transient dispatch failure leaves recoverable queued intent.
+- [Phase 02]: The newest published snapshot remains dominant while an active refresh runs. — A refresh must never displace durable scouting data.
+- [Phase 02]: Report status JSON exposes only a complete allowlisted view model with fixed failure copy. — Tenant identifiers and raw worker failures cannot cross the route boundary.
+- [Phase 02]: Progressive polling pauses when hidden, backs off 3s/5s/10s, and stops at terminal state or 15 minutes. — Bounded polling protects the service while keeping state understandable.
 
 ### Pending Todos
 
@@ -261,9 +264,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 02 P05 | 11 min | 2 tasks | 8 files |
 | Phase 02 P06 | 20 min | 2 tasks | 7 files |
 | Phase 02 P15 | 28 min | 2 tasks | 5 files |
+| Phase 02 P07 | 11min | 2 tasks | 8 files |
 
 ## Session Continuity
 
-Last session: 2026-11-12T07:36:13.480Z
-Stopped at: Completed 02-15-PLAN.md
+Last session: 2026-11-12T16:14:39.330Z
+Stopped at: Completed 02-07-PLAN.md
 Resume file: None
