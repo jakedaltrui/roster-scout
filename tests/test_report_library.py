@@ -504,6 +504,384 @@ class SnapshotHistoryTests(unittest.TestCase):
         self.assertIn(b"Previous", second.data)
         self.assertIn(b"Showing 1\xe2\x80\x9325 of 27 snapshots", first.data)
 
+    def test_partial_snapshot_keeps_ready_sections_and_names_unavailable_sections(self):
+        from roster_scout.models import ReportSection, ReportSnapshot
+
+        organization_id, accounts = self._organization(
+            "Partial History University", ("coach@example.edu", "member")
+        )
+        report_id = self._report(
+            organization_id, "Partial Pelicans", 505
+        )
+        published_at = self.now - timedelta(hours=2)
+        with self.Session.begin() as session:
+            snapshot = ReportSnapshot(
+                organization_id=organization_id,
+                report_id=report_id,
+                status="draft",
+                schema_version="2026.1",
+                source_collected_at=published_at - timedelta(minutes=5),
+                created_by="test",
+            )
+            session.add(snapshot)
+            session.flush()
+            session.add_all((
+                ReportSection(
+                    organization_id=organization_id,
+                    snapshot_id=snapshot.id,
+                    section="batting",
+                    critical=True,
+                    status="complete",
+                    row_count=12,
+                    verified_empty=False,
+                    collected_at=published_at - timedelta(minutes=5),
+                ),
+                ReportSection(
+                    organization_id=organization_id,
+                    snapshot_id=snapshot.id,
+                    section="fielding",
+                    critical=False,
+                    status="unavailable",
+                    row_count=0,
+                    verified_empty=False,
+                    failure_category="source_unavailable",
+                ),
+            ))
+            session.flush()
+            snapshot.status = "partial"
+            snapshot.published_at = published_at
+
+        response = self._client(accounts[0], organization_id).get(
+            f"/reports/{report_id}"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            b"This snapshot is usable, but one or more sections were unavailable.",
+            response.data,
+        )
+        self.assertIn(b"Batting", response.data)
+        self.assertIn(b"Ready", response.data)
+        self.assertIn(b"Fielding", response.data)
+        self.assertIn(b"Unavailable \xc2\xb7 NCAA source unavailable", response.data)
+
+
+class FailedBuildRetryTests(unittest.TestCase):
+    """Failed attempts stay immutable while retry and artifacts remain scoped."""
+
+    setUpClass = SharedLibraryTests.__dict__["setUpClass"]
+    tearDownClass = SharedLibraryTests.__dict__["tearDownClass"]
+    _organization = SharedLibraryTests._organization
+    _report = SharedLibraryTests._report
+    _snapshot = SharedLibraryTests._snapshot
+
+    def setUp(self):
+        SharedLibraryTests.setUp(self)
+        self.original_artifact_reader = self.app_module.app.extensions.get(
+            "roster_scout_artifact_reader"
+        )
+
+    def tearDown(self):
+        if self.original_artifact_reader is None:
+            self.app_module.app.extensions.pop(
+                "roster_scout_artifact_reader", None
+            )
+        else:
+            self.app_module.app.extensions["roster_scout_artifact_reader"] = (
+                self.original_artifact_reader
+            )
+        SharedLibraryTests.tearDown(self)
+
+    def _client_with_credential(self, account_id, organization_id):
+        from roster_scout.sessions import SESSION_COOKIE_NAME, create_account_session
+
+        with self.Session.begin() as session:
+            credential = create_account_session(
+                session,
+                account_id=account_id,
+                active_organization_id=organization_id,
+                sealed_provider_state="sealed-retry-session",
+                now=self.now,
+            )
+        client = self.app_module.app.test_client()
+        client.set_cookie(SESSION_COOKIE_NAME, credential.cookie_value)
+        return client, credential
+
+    def _csrf_token(self, credential):
+        from itsdangerous import URLSafeTimedSerializer
+
+        return URLSafeTimedSerializer(
+            self.app_module.app.secret_key,
+            salt="wtf-csrf-token",
+        ).dumps(credential.csrf_secret)
+
+    def _failed_job(self, organization_id, report_id, account_id, category):
+        from roster_scout.models import ReportJob
+
+        with self.Session.begin() as session:
+            job = ReportJob(
+                organization_id=organization_id,
+                report_id=report_id,
+                requested_by_account_id=account_id,
+                idempotency_key=str(uuid.uuid4()),
+                status="failed",
+                failure_category=category,
+                failure_message="secret upstream exception and token",
+                finished_at=self.now,
+            )
+            session.add(job)
+            session.flush()
+            return job.id
+
+    def _artifact(self, organization_id, snapshot_id, object_key, payload):
+        from hashlib import sha256
+
+        from roster_scout.models import ReportArtifact
+
+        with self.Session.begin() as session:
+            artifact = ReportArtifact(
+                organization_id=organization_id,
+                snapshot_id=snapshot_id,
+                artifact_type="xlsx",
+                status="ready",
+                schema_version="2026.1",
+                sha256=sha256(payload).hexdigest(),
+                object_key=object_key,
+            )
+            session.add(artifact)
+            session.flush()
+            return artifact.id
+
+    def _retry(self, organization_id, account_id, report_id, failed_job_id):
+        from roster_scout.reports import accept_authorized_report_retry
+
+        with self.Session.begin() as session:
+            return accept_authorized_report_retry(
+                session,
+                actor_account_id=account_id,
+                organization_id=organization_id,
+                report_id=report_id,
+                failed_job_id=failed_job_id,
+                idempotency_key=str(uuid.uuid4()),
+            )
+
+    def test_retry_preserves_failed_attempt_snapshot_and_converges_duplicates(self):
+        from roster_scout.models import (
+            ProductUsageEvent,
+            ReportJob,
+            ReportJobDispatch,
+            ReportSnapshot,
+            SecurityAuditEvent,
+        )
+
+        organization_id, accounts = self._organization(
+            "Retry University", ("coach@example.edu", "member")
+        )
+        report_id = self._report(organization_id, "Retry Ravens", 506)
+        snapshot_id = self._snapshot(
+            organization_id, report_id, "ready", self.now - timedelta(hours=1)
+        )
+        failed_job_id = self._failed_job(
+            organization_id, report_id, accounts[0], "source_unavailable"
+        )
+        start = Barrier(2)
+
+        def retry_once(_index):
+            start.wait(timeout=10)
+            return self._retry(
+                organization_id, accounts[0], report_id, failed_job_id
+            )
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            accepted = list(pool.map(retry_once, range(2)))
+
+        self.assertEqual(accepted[0].job_id, accepted[1].job_id)
+        with self.Session() as session:
+            jobs = tuple(session.scalars(
+                select(ReportJob).order_by(ReportJob.created_at, ReportJob.id)
+            ))
+            snapshot = session.get(ReportSnapshot, snapshot_id)
+            usage_count = session.scalar(select(func.count(ProductUsageEvent.id)))
+            dispatch_count = session.scalar(select(func.count(ReportJobDispatch.id)))
+            audits = tuple(session.scalars(select(SecurityAuditEvent)))
+        self.assertEqual(len(jobs), 2)
+        self.assertEqual(jobs[0].id, failed_job_id)
+        self.assertEqual(jobs[0].status, "failed")
+        self.assertEqual(jobs[0].failure_message, "secret upstream exception and token")
+        self.assertEqual(jobs[1].status, "queued")
+        self.assertTrue(jobs[1].idempotency_key.startswith(f"retry:{failed_job_id}:"))
+        self.assertEqual(dispatch_count, 1)
+        self.assertEqual(usage_count, 1)
+        self.assertEqual(len(audits), 1)
+        self.assertEqual(audits[0].action, "report.retry")
+        self.assertEqual(audits[0].reason, "retry_accepted")
+        self.assertEqual(snapshot.status, "ready")
+        self.assertEqual(snapshot.published_at, self.now - timedelta(hours=1))
+
+    def test_retry_route_is_csrf_protected_and_failure_copy_is_fixed(self):
+        organization_id, accounts = self._organization(
+            "Failure University", ("coach@example.edu", "admin")
+        )
+        report_id = self._report(organization_id, "Failure Foxes", 507)
+        categories = ("source_unavailable", "database", "queue", "artifact")
+        failed_ids = [
+            self._failed_job(organization_id, report_id, accounts[0], category)
+            for category in categories
+        ]
+        client, credential = self._client_with_credential(
+            accounts[0], organization_id
+        )
+
+        detail = client.get(f"/reports/{report_id}")
+        self.assertEqual(detail.status_code, 200)
+        for safe_copy in (
+            b"NCAA source unavailable",
+            b"Report service unavailable",
+            b"Storage unavailable",
+        ):
+            self.assertIn(safe_copy, detail.data)
+        self.assertNotIn(b"secret upstream exception", detail.data)
+        self.assertIn(b"Retry build", detail.data)
+
+        rejected = client.post(
+            f"/reports/{report_id}/builds/{failed_ids[-1]}/retry",
+            data={"idempotency_key": str(uuid.uuid4())},
+        )
+        self.assertEqual(rejected.status_code, 400)
+        accepted = client.post(
+            f"/reports/{report_id}/builds/{failed_ids[-1]}/retry",
+            data={
+                "csrf_token": self._csrf_token(credential),
+                "idempotency_key": str(uuid.uuid4()),
+            },
+        )
+        self.assertEqual(accepted.status_code, 303)
+        self.assertEqual(
+            accepted.headers["Location"],
+            f"/reports/{report_id}?notice=retry_started",
+        )
+
+    def test_prepare_streams_only_exact_stored_artifact_without_usage_write(self):
+        from roster_scout.models import ProductUsageEvent, SecurityAuditEvent
+
+        organization_id, accounts = self._organization(
+            "Artifact University", ("coach@example.edu", "member")
+        )
+        report_id = self._report(organization_id, "Artifact Antelopes", 508)
+        first_snapshot_id = self._snapshot(
+            organization_id, report_id, "ready", self.now - timedelta(hours=2)
+        )
+        second_snapshot_id = self._snapshot(
+            organization_id, report_id, "ready", self.now - timedelta(hours=1)
+        )
+        first_payload = b"PK\x03\x04exact historical workbook"
+        second_payload = b"PK\x03\x04newer workbook"
+        first_artifact_id = self._artifact(
+            organization_id,
+            first_snapshot_id,
+            "immutable/first.xlsx",
+            first_payload,
+        )
+        second_artifact_id = self._artifact(
+            organization_id,
+            second_snapshot_id,
+            "immutable/second.xlsx",
+            second_payload,
+        )
+        stored = {
+            "immutable/first.xlsx": first_payload,
+            "immutable/second.xlsx": second_payload,
+        }
+        reader = Mock(side_effect=lambda object_key: stored[object_key])
+        self.app_module.app.extensions["roster_scout_artifact_reader"] = reader
+        client, credential = self._client_with_credential(
+            accounts[0], organization_id
+        )
+
+        response = client.post(
+            f"/reports/{report_id}/snapshots/{first_snapshot_id}"
+            f"/artifacts/{first_artifact_id}/download",
+            data={"csrf_token": self._csrf_token(credential)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, first_payload)
+        self.assertEqual(reader.call_args_list, [(("immutable/first.xlsx",), {})])
+        receipt = response.headers["X-Roster-Scout-Download-Event-ID"]
+        proof = response.headers["X-Roster-Scout-Download-Ack-Proof"]
+        self.assertEqual(str(uuid.UUID(receipt)), receipt)
+        self.assertLessEqual(len(proof), 512)
+        self.assertTrue(self.app_module._verify_download_ack_proof(proof, receipt))
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        self.assertNotIn("immutable/first.xlsx", str(response.headers))
+        self.assertNotIn("secret", response.get_data(as_text=True, errors="ignore"))
+        with self.Session() as session:
+            self.assertEqual(
+                session.scalar(select(func.count(ProductUsageEvent.id))), 0
+            )
+            audit = session.scalar(select(SecurityAuditEvent))
+        self.assertEqual(audit.action, "artifact.download")
+        self.assertEqual(audit.reason, "download_prepared")
+        self.assertEqual(audit.target_id, first_artifact_id)
+
+        substituted = client.post(
+            f"/reports/{report_id}/snapshots/{first_snapshot_id}"
+            f"/artifacts/{second_artifact_id}/download",
+            data={"csrf_token": self._csrf_token(credential)},
+        )
+        absent = client.post(
+            f"/reports/{report_id}/snapshots/{first_snapshot_id}"
+            f"/artifacts/{uuid.uuid4()}/download",
+            data={"csrf_token": self._csrf_token(credential)},
+        )
+        self.assertEqual(substituted.status_code, 404)
+        self.assertEqual(substituted.get_data(), absent.get_data())
+        self.assertEqual(reader.call_count, 1)
+
+    def test_foreign_or_missing_artifact_is_identical_and_never_read_or_rebuilt(self):
+        first_id, first_accounts = self._organization(
+            "First Artifact Org", ("first@example.edu", "admin")
+        )
+        second_id, _ = self._organization(
+            "Second Artifact Org", ("second@example.edu", "admin")
+        )
+        first_report_id = self._report(first_id, "First Falcons", 509)
+        first_snapshot_id = self._snapshot(first_id, first_report_id, "ready", self.now)
+        second_report_id = self._report(second_id, "Hidden Hawks", 510)
+        second_snapshot_id = self._snapshot(second_id, second_report_id, "ready", self.now)
+        foreign_artifact_id = self._artifact(
+            second_id,
+            second_snapshot_id,
+            "private/foreign.xlsx",
+            b"PK\x03\x04private",
+        )
+        reader = Mock(side_effect=AssertionError("foreign bytes must not be read"))
+        self.app_module.app.extensions["roster_scout_artifact_reader"] = reader
+        client, credential = self._client_with_credential(
+            first_accounts[0], first_id
+        )
+        csrf = self._csrf_token(credential)
+
+        foreign = client.post(
+            f"/reports/{first_report_id}/snapshots/{first_snapshot_id}"
+            f"/artifacts/{foreign_artifact_id}/download",
+            data={"csrf_token": csrf},
+        )
+        missing = client.post(
+            f"/reports/{first_report_id}/snapshots/{first_snapshot_id}"
+            f"/artifacts/{uuid.uuid4()}/download",
+            data={"csrf_token": csrf},
+        )
+        self.assertEqual(foreign.status_code, 404)
+        self.assertEqual(foreign.get_data(), missing.get_data())
+        reader.assert_not_called()
+        detail = client.get(f"/reports/{first_report_id}")
+        self.assertIn(b"Download unavailable", detail.data)
+        self.assertIn(
+            b"Roster Scout will not rebuild a historical snapshot with newer data.",
+            detail.data,
+        )
+
 
 class RefreshLineageTests(unittest.TestCase):
     """Explicit refreshes preserve published lineage and converge atomically."""
