@@ -10,6 +10,7 @@ from sqlalchemy.dialects.postgresql import distinct_on
 from .enums import PUBLISHED_SNAPSHOT_STATUSES
 from .models import (
     Report,
+    ReportArtifact,
     ReportJob,
     ReportJobDispatch,
     ReportSection,
@@ -49,20 +50,27 @@ class ReportDetailRecord:
     team_name: str
     division: str
     season_year: int
+    latest_snapshot: ReportSnapshot | None
     snapshots: tuple[ReportSnapshot, ...]
+    snapshot_predecessors: tuple[tuple[uuid.UUID, datetime], ...]
+    artifacts: tuple[ReportArtifact, ...]
     latest_job: ReportJob | None
+    failed_jobs: tuple[ReportJob, ...]
     snapshot_sections: tuple[ReportSection, ...]
     job_sections: tuple[ReportSection, ...]
 
 
-def get_report_for_organization(session, organization_id, report_id):
+def get_report_for_organization(
+    session, organization_id, report_id, *, for_update=False
+):
     """Return one report only when it belongs to the explicit organization."""
-    return session.scalar(
-        select(Report).where(
-            Report.id == report_id,
-            Report.organization_id == organization_id,
-        )
+    statement = select(Report).where(
+        Report.id == report_id,
+        Report.organization_id == organization_id,
     )
+    if for_update:
+        statement = statement.with_for_update()
+    return session.scalar(statement)
 
 
 def count_reports_for_organization(session, organization_id):
@@ -94,10 +102,15 @@ def get_report_detail_record(
     organization_id,
     report_id,
     *,
+    history_offset=0,
     history_limit=REPORT_LIBRARY_PAGE_SIZE,
 ):
     """Load bounded detail data without allowing an unscoped child read."""
-    if history_limit < 1 or history_limit > REPORT_LIBRARY_PAGE_SIZE:
+    if (
+        history_offset < 0
+        or history_limit < 1
+        or history_limit > REPORT_LIBRARY_PAGE_SIZE
+    ):
         raise ValueError("report history bounds are invalid")
 
     report_row = session.execute(
@@ -119,7 +132,7 @@ def get_report_detail_record(
     if report_row is None:
         return None
 
-    snapshots = tuple(session.scalars(
+    snapshot_scope = (
         select(ReportSnapshot)
         .where(
             ReportSnapshot.organization_id == organization_id,
@@ -130,8 +143,46 @@ def get_report_detail_record(
             ReportSnapshot.published_at.desc(),
             ReportSnapshot.id.desc(),
         )
+    )
+    latest_snapshot = session.scalar(snapshot_scope.limit(1))
+    snapshots = tuple(session.scalars(
+        snapshot_scope
+        .offset(history_offset)
         .limit(history_limit)
     ))
+    predecessor_ids = {
+        snapshot.predecessor_snapshot_id
+        for snapshot in snapshots
+        if snapshot.predecessor_snapshot_id is not None
+    }
+    if (
+        latest_snapshot is not None
+        and latest_snapshot.predecessor_snapshot_id is not None
+    ):
+        predecessor_ids.add(latest_snapshot.predecessor_snapshot_id)
+    snapshot_predecessors = ()
+    if predecessor_ids:
+        snapshot_predecessors = tuple(session.execute(
+            select(ReportSnapshot.id, ReportSnapshot.published_at).where(
+                ReportSnapshot.organization_id == organization_id,
+                ReportSnapshot.report_id == report_id,
+                ReportSnapshot.id.in_(predecessor_ids),
+                ReportSnapshot.status.in_(PUBLISHED_SNAPSHOT_STATUSES),
+            )
+        ))
+    artifact_snapshot_ids = {snapshot.id for snapshot in snapshots}
+    if latest_snapshot is not None:
+        artifact_snapshot_ids.add(latest_snapshot.id)
+    artifacts = ()
+    if artifact_snapshot_ids:
+        artifacts = tuple(session.scalars(
+            select(ReportArtifact).where(
+                ReportArtifact.organization_id == organization_id,
+                ReportArtifact.snapshot_id.in_(artifact_snapshot_ids),
+                ReportArtifact.artifact_type == "xlsx",
+                ReportArtifact.status == "ready",
+            )
+        ))
     latest_job = session.scalar(
         select(ReportJob)
         .where(
@@ -141,13 +192,23 @@ def get_report_detail_record(
         .order_by(ReportJob.created_at.desc(), ReportJob.id.desc())
         .limit(1)
     )
+    failed_jobs = tuple(session.scalars(
+        select(ReportJob)
+        .where(
+            ReportJob.organization_id == organization_id,
+            ReportJob.report_id == report_id,
+            ReportJob.status.in_(("failed", "blocked")),
+        )
+        .order_by(ReportJob.created_at.desc(), ReportJob.id.desc())
+        .limit(REPORT_LIBRARY_PAGE_SIZE)
+    ))
     snapshot_sections = ()
-    if snapshots:
+    if latest_snapshot is not None:
         snapshot_sections = tuple(session.scalars(
             select(ReportSection)
             .where(
                 ReportSection.organization_id == organization_id,
-                ReportSection.snapshot_id == snapshots[0].id,
+                ReportSection.snapshot_id == latest_snapshot.id,
             )
             .order_by(ReportSection.section, ReportSection.id)
         ))
@@ -167,10 +228,28 @@ def get_report_detail_record(
         team_name=report_row[2],
         division=report_row[3],
         season_year=report_row[4],
+        latest_snapshot=latest_snapshot,
         snapshots=snapshots,
+        snapshot_predecessors=snapshot_predecessors,
+        artifacts=artifacts,
         latest_job=latest_job,
+        failed_jobs=failed_jobs,
         snapshot_sections=snapshot_sections,
         job_sections=job_sections,
+    )
+
+
+def count_published_snapshots_for_report(session, organization_id, report_id):
+    """Count immutable published snapshots inside one tenant/report boundary."""
+    return int(
+        session.scalar(
+            select(func.count(ReportSnapshot.id)).where(
+                ReportSnapshot.organization_id == organization_id,
+                ReportSnapshot.report_id == report_id,
+                ReportSnapshot.status.in_(PUBLISHED_SNAPSHOT_STATUSES),
+            )
+        )
+        or 0
     )
 
 

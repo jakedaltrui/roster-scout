@@ -394,6 +394,7 @@ class SnapshotHistoryTests(unittest.TestCase):
             b"Active build",
             b"Collecting",
             b"remains available while this refresh runs",
+            b"View refresh status",
             b"Snapshot history",
             b"Batting",
             b"Pitching",
@@ -406,6 +407,7 @@ class SnapshotHistoryTests(unittest.TestCase):
         self.assertIn(b'data-report-status-url=', response.data)
         self.assertIn(b'aria-live="polite"', response.data)
         self.assertNotIn(str(organization_id).encode(), response.data)
+        self.assertNotIn(b">Refresh report<", response.data)
 
         from roster_scout.models import SecurityAuditEvent
 
@@ -588,7 +590,12 @@ class RefreshLineageTests(unittest.TestCase):
         self.assertEqual(accepted.headers["Location"], f"/reports/{report_id}?notice=refresh_started")
 
     def test_concurrent_refresh_clicks_create_one_live_job_usage_and_audit(self):
-        from roster_scout.models import ProductUsageEvent, ReportJob, SecurityAuditEvent
+        from roster_scout.models import (
+            ProductUsageEvent,
+            ReportJob,
+            ReportSnapshot,
+            SecurityAuditEvent,
+        )
 
         organization_id, accounts = self._organization(
             "Converged Refresh University", ("coach@example.edu", "member")
@@ -616,10 +623,7 @@ class RefreshLineageTests(unittest.TestCase):
             jobs = tuple(session.scalars(select(ReportJob)))
             usage_count = session.scalar(select(func.count(ProductUsageEvent.id)))
             audits = tuple(session.scalars(select(SecurityAuditEvent)))
-            preserved = session.get(
-                __import__("roster_scout.models", fromlist=["ReportSnapshot"]).ReportSnapshot,
-                snapshot_id,
-            )
+            preserved = session.get(ReportSnapshot, snapshot_id)
         self.assertEqual(len(jobs), 1)
         self.assertEqual(jobs[0].status, "queued")
         self.assertEqual(usage_count, 1)
@@ -627,6 +631,105 @@ class RefreshLineageTests(unittest.TestCase):
         self.assertEqual(audits[0].action, "report.refresh")
         self.assertEqual(preserved.status, "ready")
         self.assertEqual(preserved.published_at, self.now)
+
+    def test_new_build_links_predecessor_without_reusing_or_mutating_old_evidence(self):
+        from roster_scout.jobs import (
+            PARSER_VERSION,
+            SCHEMA_VERSION,
+            _load_cached_sections,
+            _new_or_existing_snapshot,
+        )
+        from roster_scout.models import (
+            ReportArtifact,
+            ReportJob,
+            ReportSection,
+            ReportSnapshot,
+        )
+
+        organization_id, accounts = self._organization(
+            "Lineage University", ("coach@example.edu", "member")
+        )
+        report_id = self._report(organization_id, "Lineage Lions", 604)
+        with self.Session.begin() as session:
+            predecessor = ReportSnapshot(
+                organization_id=organization_id,
+                report_id=report_id,
+                status="draft",
+                schema_version=SCHEMA_VERSION,
+                source_collected_at=self.now - timedelta(minutes=5),
+                created_by_account_id=accounts[0],
+            )
+            session.add(predecessor)
+            session.flush()
+            snapshot_id = predecessor.id
+            old_job = ReportJob(
+                organization_id=organization_id,
+                report_id=report_id,
+                idempotency_key=str(uuid.uuid4()),
+                status="ready",
+                result_snapshot_id=snapshot_id,
+                requested_by_account_id=accounts[0],
+            )
+            session.add(old_job)
+            session.flush()
+            session.add(ReportSection(
+                organization_id=organization_id,
+                snapshot_id=snapshot_id,
+                job_id=old_job.id,
+                section="batting",
+                critical=True,
+                status="complete",
+                row_count=1,
+                verified_empty=False,
+                collected_at=self.now,
+                source_url="https://stats.ncaa.org/old-build",
+                schema_version=SCHEMA_VERSION,
+                parser_version=PARSER_VERSION,
+            ))
+            session.add(ReportArtifact(
+                organization_id=organization_id,
+                snapshot_id=snapshot_id,
+                artifact_type="xlsx",
+                status="ready",
+                schema_version=SCHEMA_VERSION,
+                sha256="a" * 64,
+                object_key="immutable/old.xlsx",
+            ))
+            session.flush()
+            predecessor.status = "ready"
+            predecessor.published_at = self.now
+
+        accepted = self._refresh(
+            organization_id,
+            accounts[0],
+            report_id,
+            str(uuid.uuid4()),
+        )
+        with self.Session.begin() as session:
+            new_job = session.get(ReportJob, accepted.job_id)
+            successor = _new_or_existing_snapshot(session, new_job)
+            cached = _load_cached_sections(session, new_job, successor)
+            successor_id = successor.id
+
+        with self.Session() as session:
+            predecessor = session.get(ReportSnapshot, snapshot_id)
+            successor = session.get(ReportSnapshot, successor_id)
+            artifact = session.scalar(select(ReportArtifact).where(
+                ReportArtifact.snapshot_id == snapshot_id
+            ))
+            old_section = session.scalar(select(ReportSection).where(
+                ReportSection.snapshot_id == snapshot_id
+            ))
+        self.assertEqual(successor.predecessor_snapshot_id, snapshot_id)
+        self.assertEqual(successor.status, "draft")
+        self.assertIsNone(successor.source_collected_at)
+        self.assertEqual(cached, {})
+        self.assertEqual(predecessor.status, "ready")
+        self.assertEqual(predecessor.published_at, self.now)
+        self.assertEqual(artifact.sha256, "a" * 64)
+        self.assertEqual(artifact.object_key, "immutable/old.xlsx")
+        self.assertEqual(old_section.source_url, "https://stats.ncaa.org/old-build")
+        self.assertEqual(old_section.job_id, old_job.id)
 
     def test_foreign_refresh_matches_absent_without_writes(self):
         first_id, first_accounts = self._organization(

@@ -24,10 +24,12 @@ from .models import (
 
 from .repositories import (
     REPORT_LIBRARY_PAGE_SIZE,
+    count_published_snapshots_for_report,
     count_reports_for_organization,
     count_reports_updated_since,
     ensure_report_dispatch,
     get_report_detail_record,
+    get_report_for_organization,
     list_report_library_records,
 )
 from .usage import record_authenticated_report_request_accepted
@@ -123,6 +125,13 @@ class AcceptedReportRequest:
     report_id: uuid.UUID
     job_id: uuid.UUID
     created_report: bool
+
+
+@dataclass(frozen=True)
+class AcceptedReportRefresh:
+    report_id: uuid.UUID
+    job_id: uuid.UUID
+    created_job: bool
 
 
 def _upsert_team(session, request):
@@ -330,6 +339,103 @@ def accept_authorized_report_request(
     )
 
 
+def accept_authorized_report_refresh(
+    session,
+    *,
+    actor_account_id,
+    organization_id,
+    report_id,
+    idempotency_key,
+):
+    """Accept one explicit live successor inside the caller's transaction."""
+    actor_account_id = _canonical_uuid(
+        actor_account_id, field="actor_account_id"
+    )
+    organization_id = _canonical_uuid(
+        organization_id, field="organization_id"
+    )
+    report_id = _canonical_uuid(report_id, field="report_id")
+    idempotency_key = str(
+        _canonical_uuid(idempotency_key, field="idempotency_key")
+    )
+
+    membership = session.scalar(
+        select(OrganizationMembership)
+        .where(
+            OrganizationMembership.account_id == actor_account_id,
+            OrganizationMembership.organization_id == organization_id,
+            OrganizationMembership.status == "active",
+        )
+        .with_for_update()
+    )
+    if membership is None:
+        raise ReportAcceptanceFailure("membership_required")
+
+    report = get_report_for_organization(
+        session,
+        organization_id,
+        report_id,
+        for_update=True,
+    )
+    if report is None:
+        raise ReportLibraryFailure("not_found")
+
+    job = session.scalar(
+        select(ReportJob)
+        .where(
+            ReportJob.organization_id == organization_id,
+            ReportJob.report_id == report.id,
+            ReportJob.status.not_in(TERMINAL_JOB_STATUSES),
+        )
+        .order_by(ReportJob.created_at, ReportJob.id)
+        .limit(1)
+        .with_for_update()
+    )
+    created_job = job is None
+    if created_job:
+        job = create_or_get_job(
+            session,
+            organization_id,
+            report.id,
+            idempotency_key,
+            requested_by_account_id=actor_account_id,
+        )
+    else:
+        ensure_report_dispatch(session, job)
+
+    record_authenticated_report_request_accepted(
+        session,
+        event_key=str(job.id),
+        actor_account_id=actor_account_id,
+        organization_id=organization_id,
+    )
+    existing_audit = session.scalar(
+        select(SecurityAuditEvent.id).where(
+            SecurityAuditEvent.organization_id == organization_id,
+            SecurityAuditEvent.target_type == "job",
+            SecurityAuditEvent.target_id == job.id,
+            SecurityAuditEvent.action == "report.refresh",
+            SecurityAuditEvent.reason == "refresh_accepted",
+        )
+    )
+    if existing_audit is None:
+        append_security_audit_event(
+            session,
+            actor_account_id=actor_account_id,
+            organization_id=organization_id,
+            target_type="job",
+            target_id=job.id,
+            action="report.refresh",
+            outcome="pending",
+            reason="refresh_accepted",
+        )
+    return AcceptedReportRefresh(
+        report_id=report.id,
+        job_id=job.id,
+        created_job=created_job,
+    )
+
+
 @dataclass(frozen=True)
 class ReportLibraryItem:
     id: object
@@ -465,6 +571,8 @@ class SnapshotHistoryItem:
     status: str
     published_at: datetime
     source_collected_at: datetime | None
+    predecessor_published_at: datetime | None
+    artifact_available: bool
 
 
 @dataclass(frozen=True)
@@ -476,7 +584,13 @@ class ReportDetailView:
     latest_snapshot: SnapshotHistoryItem | None
     latest_sections: tuple[ReportSectionView, ...]
     active_build: ReportStatusView | None
+    failed_builds: tuple[ReportStatusView, ...]
     history: tuple[SnapshotHistoryItem, ...]
+    history_total_count: int
+    history_page: int
+    history_page_count: int
+    history_previous_page: int | None
+    history_next_page: int | None
 
 
 _JOB_COPY = {
@@ -575,22 +689,65 @@ def _status_view(job, sections):
     )
 
 
-def _detail_record(session, organization_id, report_id):
-    record = get_report_detail_record(session, organization_id, report_id)
+def _detail_record(
+    session, organization_id, report_id, *, history_offset=0
+):
+    record = get_report_detail_record(
+        session,
+        organization_id,
+        report_id,
+        history_offset=history_offset,
+    )
     if record is None:
         raise ReportLibraryFailure("not_found")
     return record
 
 
-def load_report_detail(session, organization_id, report_id):
+def load_report_detail(session, organization_id, report_id, *, history_page=1):
     """Build a saved-snapshot-first detail model for one active tenant."""
-    record = _detail_record(session, organization_id, report_id)
+    if not isinstance(history_page, int) or history_page < 1:
+        raise ReportLibraryFailure("not_found")
+    total_count = count_published_snapshots_for_report(
+        session, organization_id, report_id
+    )
+    page_count = max(1, ceil(total_count / REPORT_LIBRARY_PAGE_SIZE))
+    if total_count and history_page > page_count:
+        raise ReportLibraryFailure("not_found")
+    record = _detail_record(
+        session,
+        organization_id,
+        report_id,
+        history_offset=(history_page - 1) * REPORT_LIBRARY_PAGE_SIZE,
+    )
+    predecessors = dict(record.snapshot_predecessors)
+    artifact_snapshot_ids = {artifact.snapshot_id for artifact in record.artifacts}
     history = tuple(SnapshotHistoryItem(
         id=snapshot.id,
         status=snapshot.status,
         published_at=snapshot.published_at,
         source_collected_at=snapshot.source_collected_at,
+        predecessor_published_at=predecessors.get(
+            snapshot.predecessor_snapshot_id
+        ),
+        artifact_available=snapshot.id in artifact_snapshot_ids,
     ) for snapshot in record.snapshots)
+    latest_snapshot = None
+    if record.latest_snapshot is not None:
+        latest_predecessor = None
+        if record.latest_snapshot.predecessor_snapshot_id is not None:
+            latest_predecessor = predecessors.get(
+                record.latest_snapshot.predecessor_snapshot_id
+            )
+        latest_snapshot = SnapshotHistoryItem(
+            id=record.latest_snapshot.id,
+            status=record.latest_snapshot.status,
+            published_at=record.latest_snapshot.published_at,
+            source_collected_at=record.latest_snapshot.source_collected_at,
+            predecessor_published_at=latest_predecessor,
+            artifact_available=(
+                record.latest_snapshot.id in artifact_snapshot_ids
+            ),
+        )
     active_build = None
     if (
         record.latest_job is not None
@@ -602,10 +759,20 @@ def load_report_detail(session, organization_id, report_id):
         opponent_name=record.team_name or record.report_name,
         division=record.division,
         season_year=record.season_year,
-        latest_snapshot=history[0] if history else None,
+        latest_snapshot=latest_snapshot,
         latest_sections=_section_views(record.snapshot_sections),
         active_build=active_build,
+        failed_builds=tuple(
+            _status_view(job, ()) for job in record.failed_jobs
+        ),
         history=history,
+        history_total_count=total_count,
+        history_page=history_page,
+        history_page_count=page_count,
+        history_previous_page=history_page - 1 if history_page > 1 else None,
+        history_next_page=(
+            history_page + 1 if history_page < page_count else None
+        ),
     )
 
 
@@ -613,7 +780,7 @@ def load_report_status(session, organization_id, report_id):
     """Return a complete, sanitized status model or the shared not-found error."""
     record = _detail_record(session, organization_id, report_id)
     if record.latest_job is None:
-        latest = record.snapshots[0] if record.snapshots else None
+        latest = record.latest_snapshot
         if latest is None:
             return ReportStatusView(
                 state="queued",

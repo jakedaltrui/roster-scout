@@ -18,6 +18,7 @@ from .reports import (
     CanonicalReportRequest,
     ReportAcceptanceFailure,
     ReportLibraryFailure,
+    accept_authorized_report_refresh,
     accept_authorized_report_request,
     load_report_detail,
     load_report_library,
@@ -37,8 +38,8 @@ def _session_factory():
     return configured if hasattr(configured, "begin") else configured()
 
 
-def _page_number():
-    value = request.args.get("page", "1")
+def _page_number(parameter="page"):
+    value = request.args.get(parameter, "1")
     if not value.isascii() or not value.isdigit() or len(value) > 5:
         raise ReportLibraryFailure("not_found")
     page = int(value)
@@ -184,12 +185,14 @@ def detail(report_id):
     """Render one tenant-scoped report with the saved snapshot kept primary."""
     context = g.authorization_context
     try:
+        history_page = _page_number("history_page")
         with _session_factory().begin() as session:
             shell = _shell_context(session, context)
             report_detail = load_report_detail(
                 session,
                 context.organization_id,
                 report_id,
+                history_page=history_page,
             )
             if report_detail.latest_snapshot is not None:
                 append_security_audit_event(
@@ -225,6 +228,116 @@ def detail(report_id):
         report_detail=report_detail,
         load_error=False,
     )
+
+
+@report_blueprint.route(
+    "/reports/<uuid:report_id>/refresh", methods=("GET", "POST")
+)
+def refresh_report(report_id):
+    """Confirm and atomically accept one explicit tenant-scoped refresh."""
+    context = g.authorization_context
+    submitted_action_id = (request.form.get("idempotency_key") or "").strip()
+    try:
+        with _session_factory().begin() as session:
+            shell = _shell_context(session, context)
+            report_detail = load_report_detail(
+                session,
+                context.organization_id,
+                report_id,
+            )
+    except ReportLibraryFailure:
+        return render_template(
+            "invitation_outcome.html",
+            outcome="not_found",
+            organization_name=None,
+            current_role=context.role,
+            account_email=None,
+        ), 404
+    except (SQLAlchemyError, RuntimeError, ValueError):
+        return render_template(
+            "report_detail.html",
+            organization_name=None,
+            current_role=context.role,
+            account_email=None,
+            report_detail=None,
+            load_error=True,
+        ), 503
+
+    if report_detail.active_build is not None:
+        return redirect(f"/reports/{report_id}?notice=active", code=303)
+    if request.method == "GET":
+        return render_template(
+            "report_detail.html",
+            **shell,
+            report_detail=report_detail,
+            load_error=False,
+            refresh_confirmation=True,
+            refresh_action_id=str(uuid.uuid4()),
+        )
+
+    try:
+        action_id = _canonical_action_id(submitted_action_id)
+    except (ValueError, TypeError, AttributeError):
+        return render_template(
+            "report_detail.html",
+            **shell,
+            report_detail=report_detail,
+            load_error=False,
+            refresh_confirmation=True,
+            refresh_action_id=str(uuid.uuid4()),
+            refresh_error=_SERVICE_ERROR,
+        ), 400
+
+    try:
+        with _session_factory().begin() as session:
+            accepted = accept_authorized_report_refresh(
+                session,
+                actor_account_id=context.account_id,
+                organization_id=context.organization_id,
+                report_id=report_id,
+                idempotency_key=action_id,
+            )
+    except ReportLibraryFailure:
+        return render_template(
+            "invitation_outcome.html",
+            outcome="not_found",
+            organization_name=None,
+            current_role=context.role,
+            account_email=None,
+        ), 404
+    except ReportAcceptanceFailure:
+        return render_template(
+            "invitation_outcome.html",
+            outcome="not_found",
+            organization_name=None,
+            current_role=context.role,
+            account_email=None,
+        ), 404
+    except (SQLAlchemyError, RuntimeError, ValueError):
+        return render_template(
+            "report_detail.html",
+            **shell,
+            report_detail=report_detail,
+            load_error=False,
+            refresh_confirmation=True,
+            refresh_action_id=action_id,
+            refresh_error=_SERVICE_ERROR,
+        ), 503
+
+    try:
+        drain_report_dispatch_outbox(
+            _session_factory(),
+            dispatch=current_app.extensions["roster_scout_report_dispatch"],
+            limit=1,
+            failure_backoff=timedelta(0),
+            job_id=accepted.job_id,
+        )
+    except (SQLAlchemyError, RuntimeError):
+        current_app.logger.warning(
+            "Report dispatch remains queued after refresh acceptance."
+        )
+    notice = "refresh_started" if accepted.created_job else "active"
+    return redirect(f"/reports/{accepted.report_id}?notice={notice}", code=303)
 
 
 @report_blueprint.get("/reports/<uuid:report_id>/status")
