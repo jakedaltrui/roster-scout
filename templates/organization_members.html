@@ -1,4 +1,32 @@
 {% extends "product_base.html" %}
+{% macro member_actions(member) %}
+  <form class="stack-form" action="{{ url_for('organization.change_role') }}" method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="membership_id" value="{{ member.token }}">
+    <label>
+      <span class="visually-hidden">Role for {{ member.email }}</span>
+      <select name="role" aria-label="Role for {{ member.email }}">
+        <option value="member"{% if member.role == 'member' %} selected{% endif %}>Member</option>
+        <option value="admin"{% if member.role == 'admin' %} selected{% endif %}>Admin</option>
+      </select>
+    </label>
+    <button class="button" type="submit">Update role</button>
+  </form>
+  <details class="confirmation">
+    <summary class="button button--danger">Remove member</summary>
+    <div class="confirmation__body">
+      <p>Remove {{ member.email }} from {{ organization_name }}? They’ll immediately lose access to this organization’s reports.</p>
+      <div class="confirmation__actions">
+        <form action="{{ url_for('organization.remove_member') }}" method="post">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="membership_id" value="{{ member.token }}">
+          <button class="button button--danger" type="submit">Remove member</button>
+        </form>
+        <button class="button" type="button" onclick="this.closest('details').removeAttribute('open')">Keep member</button>
+      </div>
+    </div>
+  </details>
+{% endmacro %}
 {% block title %}Members · Roster Scout{% endblock %}
 {% block breadcrumbs %}<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/reports">Reports</a> / Members</nav>{% endblock %}
 {% block page_title %}Members{% endblock %}
@@ -44,17 +72,17 @@
     <div class="desktop-table">
       <table>
         <caption>Active members for {{ organization_name }}</caption>
-        <thead><tr><th scope="col">Account</th><th scope="col">Role</th><th scope="col">Joined</th><th scope="col">Status</th></tr></thead>
+        <thead><tr><th scope="col">Account</th><th scope="col">Role</th><th scope="col">Joined</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>
         <tbody>
           {% for member in members %}
-          <tr><td>{{ member.email }}{% if member.is_current %} <span class="status-chip">You</span>{% endif %}</td><td>{{ member.role|title }}</td><td><time datetime="{{ member.joined_at.isoformat() }}">{{ member.joined_at.strftime('%b %-d, %Y') }}</time></td><td>Active</td></tr>
+          <tr><td>{{ member.email }}{% if member.is_current %} <span class="status-chip">You</span>{% endif %}</td><td>{{ member.role|title }}</td><td><time datetime="{{ member.joined_at.isoformat() }}">{{ member.joined_at.strftime('%b %-d, %Y') }}</time></td><td>Active</td><td>{{ member_actions(member) }}</td></tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
     <ul class="member-cards" aria-label="Active members">
       {% for member in members %}
-      <li><strong>{{ member.email }}</strong>{% if member.is_current %} <span class="status-chip">You</span>{% endif %}<dl><div><dt>Role</dt><dd>{{ member.role|title }}</dd></div><div><dt>Status</dt><dd>Active</dd></div></dl></li>
+      <li><strong>{{ member.email }}</strong>{% if member.is_current %} <span class="status-chip">You</span>{% endif %}<dl><div><dt>Role</dt><dd>{{ member.role|title }}</dd></div><div><dt>Status</dt><dd>Active</dd></div></dl>{{ member_actions(member) }}</li>
       {% endfor %}
     </ul>
   </section>

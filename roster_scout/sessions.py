@@ -209,6 +209,81 @@ def create_account_session(
     )
 
 
+def rotate_account_session_organization(
+    session,
+    *,
+    cookie_value: str,
+    active_organization_id: uuid.UUID | str,
+    now: datetime | None = None,
+) -> SessionCredential:
+    """Rotate one current session while changing only its tenant context."""
+    current = now or _utc_now()
+    row = _session_row_for_cookie(session, cookie_value, lock=True)
+    if not _row_is_current(session, row, current):
+        raise ValueError("session is unavailable")
+
+    canonical_organization_id = uuid.UUID(str(active_organization_id))
+    row.revoked_at = current
+    row.rotated_at = current
+
+    lookup_id = uuid.uuid4()
+    verifier = secrets.token_urlsafe(32)
+    csrf_secret = secrets.token_urlsafe(32)
+    idle_expires_at = min(
+        current + SESSION_IDLE_LIFETIME,
+        row.absolute_expires_at,
+    )
+    rotated = AccountSession(
+        account_id=row.account_id,
+        lookup_id=lookup_id,
+        verifier_digest=_verifier_digest(verifier),
+        sealed_provider_state=row.sealed_provider_state,
+        csrf_secret=csrf_secret,
+        rotation_family=row.rotation_family,
+        active_organization_id=canonical_organization_id,
+        created_at=current,
+        last_seen_at=current,
+        idle_expires_at=idle_expires_at,
+        absolute_expires_at=row.absolute_expires_at,
+    )
+    session.add(rotated)
+    session.flush()
+    return SessionCredential(
+        cookie_value=f"{lookup_id}.{verifier}",
+        csrf_secret=csrf_secret,
+        idle_expires_at=idle_expires_at,
+        absolute_expires_at=row.absolute_expires_at,
+    )
+
+
+def clear_active_organization_sessions(
+    session,
+    *,
+    account_id: uuid.UUID | str,
+    organization_id: uuid.UUID | str,
+) -> int:
+    """Clear every live session context tied to a removed membership."""
+    canonical_account_id = uuid.UUID(str(account_id))
+    canonical_organization_id = uuid.UUID(str(organization_id))
+    rows = list(
+        session.scalars(
+            select(AccountSession)
+            .where(
+                AccountSession.account_id == canonical_account_id,
+                AccountSession.active_organization_id
+                == canonical_organization_id,
+                AccountSession.revoked_at.is_(None),
+            )
+            .with_for_update()
+        )
+    )
+    for row in rows:
+        row.active_organization_id = None
+    if rows:
+        session.flush()
+    return len(rows)
+
+
 def load_account_session(
     session,
     *,

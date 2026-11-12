@@ -1,0 +1,33 @@
+{% extends "product_base.html" %}
+{% block title %}Choose an organization · Roster Scout{% endblock %}
+{% block breadcrumbs %}<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/reports">Reports</a> / Organizations</nav>{% endblock %}
+{% block page_title %}Choose an organization{% endblock %}
+{% block content %}
+  <p>Select the organization whose shared reports you want to use.</p>
+  {% if error %}<div class="banner banner--error" role="alert">{{ error }}</div>{% endif %}
+  {% if organizations %}
+    <section class="content-section" aria-labelledby="organizations-heading">
+      <h2 id="organizations-heading">Your organizations</h2>
+      <ul class="member-cards" style="display: grid; gap: 12px" aria-label="Available organizations">
+        {% for organization in organizations %}
+          <li>
+            <strong>{{ organization.name }}</strong>
+            <p>{{ organization.role|title }}{% if organization.is_current %} <span class="status-chip">Current</span>{% endif %}</p>
+            <form action="{{ url_for('organization.switch_organization') }}" method="post">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="membership_id" value="{{ organization.token }}">
+              <button class="button{% if not organization.is_current %} button--primary{% endif %}" type="submit">
+                {% if organization.is_current %}Continue with {{ organization.name }}{% else %}Switch to {{ organization.name }}{% endif %}
+              </button>
+            </form>
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% else %}
+    <section class="empty-state" role="status">
+      <h2>No organization access</h2>
+      <p>Ask an organization admin to invite this email address.</p>
+    </section>
+  {% endif %}
+{% endblock %}

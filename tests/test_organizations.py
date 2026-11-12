@@ -720,11 +720,25 @@ class MembershipAdministrationTests(_PostgreSQLOrganizationCase):
 
     def test_removed_active_membership_is_cleared_before_next_context(self):
         from roster_scout.authorization import AuthorizationFailure, require_context
-        from roster_scout.models import AccountSession, OrganizationMembership
+        from roster_scout.models import Account, AccountSession, OrganizationMembership
         from roster_scout.organizations import remove_membership
 
         credential, account_id, first_id, _, _ = self._multi_organization_session()
         with self.Session.begin() as session:
+            remaining_admin = Account(
+                normalized_email="remaining-admin@example.edu",
+                email_verified_at=self.now,
+                status="active",
+            )
+            session.add(remaining_admin)
+            session.flush()
+            session.add(OrganizationMembership(
+                organization_id=first_id,
+                account_id=remaining_admin.id,
+                role="admin",
+                status="active",
+            ))
+            session.flush()
             membership = session.scalar(select(OrganizationMembership).where(
                 OrganizationMembership.organization_id == first_id,
                 OrganizationMembership.account_id == account_id,
@@ -732,7 +746,7 @@ class MembershipAdministrationTests(_PostgreSQLOrganizationCase):
             remove_membership(
                 session,
                 organization_id=first_id,
-                actor_account_id=account_id,
+                actor_account_id=remaining_admin.id,
                 membership_id=membership.id,
                 now=self.now,
             )
@@ -997,7 +1011,76 @@ class OrganizationInvitationRouteTests(_PostgreSQLOrganizationCase):
         self.assertIn("Pending invitations (0)", body)
         self.assertIn("<table", body)
         self.assertIn('class="member-cards"', body)
+        self.assertIn("Update role", body)
+        self.assertIn("Remove member", body)
+        self.assertIn(
+            "They’ll immediately lose access to this organization’s reports.",
+            body,
+        )
         self.assertNotIn(str(account_id), body)
+
+    def test_role_and_remove_routes_require_csrf_and_apply_scoped_changes(self):
+        from roster_scout.models import Account, OrganizationMembership
+
+        credential, organization_id, _ = self._credential(
+            email="admin@example.edu"
+        )
+        with self.Session.begin() as session:
+            target = Account(
+                normalized_email="target@example.edu",
+                email_verified_at=self.now,
+                status="active",
+            )
+            session.add(target)
+            session.flush()
+            membership = OrganizationMembership(
+                organization_id=organization_id,
+                account_id=target.id,
+                role="member",
+                status="active",
+            )
+            session.add(membership)
+            session.flush()
+            membership_id = membership.id
+
+        self._set_cookie(credential)
+        for path, data in (
+            (
+                "/organization/members/role",
+                {"membership_id": str(membership_id), "role": "admin"},
+            ),
+            (
+                "/organization/members/remove",
+                {"membership_id": str(membership_id)},
+            ),
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(self.client.post(path, data=data).status_code, 400)
+
+        changed = self.client.post(
+            "/organization/members/role",
+            data={
+                "csrf_token": self._csrf_token(credential),
+                "membership_id": str(membership_id),
+                "role": "admin",
+            },
+        )
+        self.assertEqual(changed.status_code, 200)
+        self.assertIn("Member role updated.", changed.get_data(as_text=True))
+
+        removed = self.client.post(
+            "/organization/members/remove",
+            data={
+                "csrf_token": self._csrf_token(credential),
+                "membership_id": str(membership_id),
+            },
+        )
+        self.assertEqual(removed.status_code, 200)
+        self.assertIn("Member removed.", removed.get_data(as_text=True))
+        with self.Session.begin() as session:
+            stored = session.get(OrganizationMembership, membership_id)
+            self.assertEqual(stored.status, "inactive")
+            self.assertIsNotNone(stored.deactivated_at)
 
     def test_member_direct_request_gets_fixed_permission_page_without_data(self):
         credential, organization_id, _ = self._credential(

@@ -790,7 +790,11 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
                 ("/organization/invitations", ("POST",)),
                 ("/organization/invitations/<uuid:invitation_id>/revoke", ("POST",)),
                 ("/organization/members", ("GET",)),
+                ("/organization/members/remove", ("POST",)),
+                ("/organization/members/role", ("POST",)),
                 ("/organizations/none", ("GET",)),
+                ("/organizations/select", ("GET",)),
+                ("/organizations/switch", ("POST",)),
                 ("/readyz", ("GET",)),
                 ("/scrape", ("POST",)),
                 ("/static/<path:filename>", ("GET",)),
@@ -816,6 +820,8 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
                 "auth.no_membership",
                 "auth.logout",
                 "organization.accept",
+                "organization.select_organization",
+                "organization.switch_organization",
             }),
         )
 

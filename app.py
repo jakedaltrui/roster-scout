@@ -499,6 +499,8 @@ _ACCOUNT_ONLY_ENDPOINTS = frozenset({
     "auth.no_membership",
     "auth.logout",
     "organization.accept",
+    "organization.select_organization",
+    "organization.switch_organization",
 })
 
 

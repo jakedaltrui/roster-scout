@@ -11,7 +11,7 @@ import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from .accounts import AccountLinkFailure, normalize_verified_email
 from .audit import append_security_audit_event
@@ -22,6 +22,7 @@ from .models import (
     OrganizationInvitation,
     OrganizationMembership,
 )
+from .sessions import clear_active_organization_sessions
 
 
 INVITATION_LIFETIME = timedelta(days=7)
@@ -89,6 +90,151 @@ def _active_admin(session, *, organization_id, account_id):
         or membership.role != "admin"
     ):
         raise OrganizationFailure("forbidden")
+    return membership
+
+
+def _locked_admin_scope(session, *, organization_id, actor_account_id):
+    organization = session.get(
+        Organization,
+        organization_id,
+        with_for_update=True,
+    )
+    if organization is None:
+        raise OrganizationFailure("not_found")
+    return _active_admin(
+        session,
+        organization_id=organization_id,
+        account_id=actor_account_id,
+    )
+
+
+def _locked_active_membership(session, *, organization_id, membership_id):
+    membership = session.scalar(
+        select(OrganizationMembership)
+        .where(
+            OrganizationMembership.id == membership_id,
+            OrganizationMembership.organization_id == organization_id,
+            OrganizationMembership.status == "active",
+        )
+        .with_for_update()
+    )
+    if membership is None:
+        raise OrganizationFailure("not_found")
+    return membership
+
+
+def _active_admin_count(session, *, organization_id):
+    return session.scalar(
+        select(func.count())
+        .select_from(OrganizationMembership)
+        .where(
+            OrganizationMembership.organization_id == organization_id,
+            OrganizationMembership.status == "active",
+            OrganizationMembership.role == "admin",
+        )
+    )
+
+
+def change_membership_role(
+    session,
+    *,
+    organization_id,
+    actor_account_id,
+    membership_id,
+    role,
+    now=None,
+):
+    """Change a scoped member role while serializing last-admin checks."""
+    organization_id = _canonical_uuid(organization_id)
+    actor_account_id = _canonical_uuid(actor_account_id)
+    membership_id = _canonical_uuid(membership_id)
+    role = _role(role)
+    now = _utc_datetime(now or datetime.now(UTC))
+
+    _locked_admin_scope(
+        session,
+        organization_id=organization_id,
+        actor_account_id=actor_account_id,
+    )
+    membership = _locked_active_membership(
+        session,
+        organization_id=organization_id,
+        membership_id=membership_id,
+    )
+    if membership.role == role:
+        return membership
+    if (
+        membership.role == "admin"
+        and role != "admin"
+        and _active_admin_count(session, organization_id=organization_id) <= 1
+    ):
+        raise OrganizationFailure("last_admin")
+
+    membership.role = role
+    session.flush()
+    append_security_audit_event(
+        session,
+        actor_account_id=actor_account_id,
+        organization_id=organization_id,
+        target_type="membership",
+        target_id=membership.id,
+        action="membership.role_change",
+        outcome="succeeded",
+        reason="role_changed",
+        occurred_at=now,
+    )
+    return membership
+
+
+def remove_membership(
+    session,
+    *,
+    organization_id,
+    actor_account_id,
+    membership_id,
+    now=None,
+):
+    """Deactivate one member and clear its active tenant sessions atomically."""
+    organization_id = _canonical_uuid(organization_id)
+    actor_account_id = _canonical_uuid(actor_account_id)
+    membership_id = _canonical_uuid(membership_id)
+    now = _utc_datetime(now or datetime.now(UTC))
+
+    _locked_admin_scope(
+        session,
+        organization_id=organization_id,
+        actor_account_id=actor_account_id,
+    )
+    membership = _locked_active_membership(
+        session,
+        organization_id=organization_id,
+        membership_id=membership_id,
+    )
+    if (
+        membership.role == "admin"
+        and _active_admin_count(session, organization_id=organization_id) <= 1
+    ):
+        raise OrganizationFailure("last_admin")
+
+    membership.status = "inactive"
+    membership.deactivated_at = now
+    clear_active_organization_sessions(
+        session,
+        account_id=membership.account_id,
+        organization_id=organization_id,
+    )
+    session.flush()
+    append_security_audit_event(
+        session,
+        actor_account_id=actor_account_id,
+        organization_id=organization_id,
+        target_type="membership",
+        target_id=membership.id,
+        action="membership.remove",
+        outcome="succeeded",
+        reason="membership_removed",
+        occurred_at=now,
+    )
     return membership
 
 
