@@ -476,6 +476,189 @@ class SnapshotHistoryTests(unittest.TestCase):
             self.assertEqual(foreign.content_type, absent.content_type)
             self.assertEqual(foreign.get_data(), absent.get_data())
 
+    def test_snapshot_history_is_newest_first_bounded_and_paged(self):
+        organization_id, accounts = self._organization(
+            "Paged History University", ("coach@example.edu", "admin")
+        )
+        report_id = self._report(organization_id, "Paged Panthers", 504)
+        for index in range(27):
+            self._snapshot(
+                organization_id,
+                report_id,
+                "ready",
+                self.now - timedelta(hours=index),
+            )
+
+        client = self._client(accounts[0], organization_id)
+        first = client.get(f"/reports/{report_id}")
+        second = client.get(f"/reports/{report_id}?history_page=2")
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(first.data.count(b'data-snapshot-row="desktop"'), 25)
+        self.assertEqual(first.data.count(b'data-snapshot-row="mobile"'), 25)
+        self.assertEqual(second.data.count(b'data-snapshot-row="desktop"'), 2)
+        self.assertIn(b"Next", first.data)
+        self.assertIn(b"Previous", second.data)
+        self.assertIn(b"Showing 1\xe2\x80\x9325 of 27 snapshots", first.data)
+
+
+class RefreshLineageTests(unittest.TestCase):
+    """Explicit refreshes preserve published lineage and converge atomically."""
+
+    setUpClass = SharedLibraryTests.__dict__["setUpClass"]
+    tearDownClass = SharedLibraryTests.__dict__["tearDownClass"]
+    setUp = SharedLibraryTests.setUp
+    tearDown = SharedLibraryTests.tearDown
+    _organization = SharedLibraryTests._organization
+    _client = SharedLibraryTests._client
+    _report = SharedLibraryTests._report
+    _snapshot = SharedLibraryTests._snapshot
+
+    def _csrf_token(self, credential):
+        from itsdangerous import URLSafeTimedSerializer
+
+        return URLSafeTimedSerializer(
+            self.app_module.app.secret_key,
+            salt="wtf-csrf-token",
+        ).dumps(credential.csrf_secret)
+
+    def _client_with_credential(self, account_id, organization_id):
+        from roster_scout.sessions import SESSION_COOKIE_NAME, create_account_session
+
+        with self.Session.begin() as session:
+            credential = create_account_session(
+                session,
+                account_id=account_id,
+                active_organization_id=organization_id,
+                sealed_provider_state="sealed-refresh-session",
+                now=self.now,
+            )
+        client = self.app_module.app.test_client()
+        client.set_cookie(SESSION_COOKIE_NAME, credential.cookie_value)
+        return client, credential
+
+    def _refresh(self, organization_id, account_id, report_id, action_id):
+        from roster_scout.reports import accept_authorized_report_refresh
+
+        with self.Session.begin() as session:
+            return accept_authorized_report_refresh(
+                session,
+                actor_account_id=account_id,
+                organization_id=organization_id,
+                report_id=report_id,
+                idempotency_key=action_id,
+            )
+
+    def test_refresh_confirmation_names_latest_snapshot_and_requires_post(self):
+        organization_id, accounts = self._organization(
+            "Refresh University", ("coach@example.edu", "admin")
+        )
+        report_id = self._report(organization_id, "Refresh Ravens", 601)
+        self._snapshot(organization_id, report_id, "ready", self.now)
+        client, credential = self._client_with_credential(
+            accounts[0], organization_id
+        )
+
+        confirmation = client.get(f"/reports/{report_id}/refresh")
+        self.assertEqual(confirmation.status_code, 200)
+        for value in (
+            b"Refresh Refresh Ravens?",
+            b"This collects live NCAA data and creates a new snapshot.",
+            b"will stay unchanged",
+            b"Start live refresh",
+            b"Keep current snapshot",
+        ):
+            self.assertIn(value, confirmation.data)
+
+        rejected = client.post(
+            f"/reports/{report_id}/refresh",
+            data={"idempotency_key": str(uuid.uuid4())},
+        )
+        self.assertEqual(rejected.status_code, 400)
+
+        accepted = client.post(
+            f"/reports/{report_id}/refresh",
+            data={
+                "csrf_token": self._csrf_token(credential),
+                "idempotency_key": str(uuid.uuid4()),
+            },
+        )
+        self.assertEqual(accepted.status_code, 303)
+        self.assertEqual(accepted.headers["Location"], f"/reports/{report_id}?notice=refresh_started")
+
+    def test_concurrent_refresh_clicks_create_one_live_job_usage_and_audit(self):
+        from roster_scout.models import ProductUsageEvent, ReportJob, SecurityAuditEvent
+
+        organization_id, accounts = self._organization(
+            "Converged Refresh University", ("coach@example.edu", "member")
+        )
+        report_id = self._report(organization_id, "Converged Cougars", 602)
+        snapshot_id = self._snapshot(
+            organization_id, report_id, "ready", self.now
+        )
+        start = Barrier(2)
+
+        def refresh_once(_index):
+            start.wait(timeout=10)
+            return self._refresh(
+                organization_id,
+                accounts[0],
+                report_id,
+                str(uuid.uuid4()),
+            )
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            accepted = list(pool.map(refresh_once, range(2)))
+
+        self.assertEqual(accepted[0].job_id, accepted[1].job_id)
+        with self.Session() as session:
+            jobs = tuple(session.scalars(select(ReportJob)))
+            usage_count = session.scalar(select(func.count(ProductUsageEvent.id)))
+            audits = tuple(session.scalars(select(SecurityAuditEvent)))
+            preserved = session.get(
+                __import__("roster_scout.models", fromlist=["ReportSnapshot"]).ReportSnapshot,
+                snapshot_id,
+            )
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(jobs[0].status, "queued")
+        self.assertEqual(usage_count, 1)
+        self.assertEqual(len(audits), 1)
+        self.assertEqual(audits[0].action, "report.refresh")
+        self.assertEqual(preserved.status, "ready")
+        self.assertEqual(preserved.published_at, self.now)
+
+    def test_foreign_refresh_matches_absent_without_writes(self):
+        first_id, first_accounts = self._organization(
+            "First Refresh Org", ("first@example.edu", "admin")
+        )
+        second_id, _ = self._organization(
+            "Second Refresh Org", ("second@example.edu", "admin")
+        )
+        foreign_report_id = self._report(second_id, "Private Pumas", 603)
+        client, credential = self._client_with_credential(first_accounts[0], first_id)
+        form = {
+            "csrf_token": self._csrf_token(credential),
+            "idempotency_key": str(uuid.uuid4()),
+        }
+
+        foreign_get = client.get(f"/reports/{foreign_report_id}/refresh")
+        absent_get = client.get(f"/reports/{uuid.uuid4()}/refresh")
+        foreign_post = client.post(f"/reports/{foreign_report_id}/refresh", data=form)
+        form["idempotency_key"] = str(uuid.uuid4())
+        absent_post = client.post(f"/reports/{uuid.uuid4()}/refresh", data=form)
+
+        self.assertEqual(foreign_get.status_code, 404)
+        self.assertEqual(foreign_get.get_data(), absent_get.get_data())
+        self.assertEqual(foreign_post.status_code, 404)
+        self.assertEqual(foreign_post.get_data(), absent_post.get_data())
+        from roster_scout.models import ProductUsageEvent, ReportJob
+        with self.Session() as session:
+            self.assertEqual(session.scalar(select(func.count(ReportJob.id))), 0)
+            self.assertEqual(
+                session.scalar(select(func.count(ProductUsageEvent.id))), 0
+            )
+
 
 class ReportAcceptanceIdempotencyTests(unittest.TestCase):
     """Authorized acceptance is actor-bound, atomic, and duplicate safe."""
