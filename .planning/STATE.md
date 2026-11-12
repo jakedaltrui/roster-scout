@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-03-PLAN.md
-last_updated: "2026-11-11T23:50:32.419Z"
-last_activity: 2026-11-11
+stopped_at: Completed 02-14-PLAN.md
+last_updated: "2026-11-12T00:09:47.818Z"
+last_activity: 2026-11-12
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 57
-  completed_plans: 46
+  completed_plans: 47
   percent: 20
 ---
 
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-11-11)
 ## Current Position
 
 Phase: 02 (identity-organizations-and-report-library) — EXECUTING
-Plan: 6 of 16
+Plan: 7 of 16
 Status: Ready to execute
-Last activity: 2026-11-11
+Last activity: 2026-11-12
 
-Progress: [████████░░] 81%
+Progress: [████████░░] 82%
 
 ## Performance Metrics
 
@@ -197,6 +197,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 02]: WorkOS organization and invitation IDs remain delivery and SSO routing metadata and never grant access.
 - [Phase 02]: Provider calls run outside database transactions while local invitation, membership, and audit writes stay atomic.
 - [Phase 02]: Security audit rows accept only canonical UUIDs and fixed allowlisted tokens and are database append-only.
+- [Phase 02]: Organization creation remains operator-only; the browser exposes no organization-create route. — Keeps organization authority behind a restricted operator boundary.
+- [Phase 02]: Invitation mutations reuse the Plan 02-03 service boundary, with provider delivery after the canonical local transaction commits. — Preserves canonical local durability through provider outages.
+- [Phase 02]: Invitation acceptance is account-only and compares the signed-in canonical account through the domain service; browser organization and role claims are never accepted. — Keeps local membership and verified email authoritative.
 
 ### Pending Todos
 
@@ -241,9 +244,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 02 P02 | 12 min | 2 tasks | 8 files |
 | Phase 02 P12 | 17 min | 2 tasks | 8 files |
 | Phase 02 P03 | 16 min | 2 tasks | 6 files |
+| Phase 02 P14 | 19m | 2 tasks | 8 files |
 
 ## Session Continuity
 
-Last session: 2026-11-11T23:50:32.411Z
-Stopped at: Completed 02-03-PLAN.md
+Last session: 2026-11-12T00:09:47.810Z
+Stopped at: Completed 02-14-PLAN.md
 Resume file: None
