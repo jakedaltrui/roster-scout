@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import uuid
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from threading import Barrier
+from unittest.mock import patch
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, func, select, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import sessionmaker
 
 from tests.db_support import clean_database, require_test_database_url, upgrade_database
@@ -315,6 +319,299 @@ class SharedLibraryTests(unittest.TestCase):
         self.assertIn(b"<table", response.data)
         self.assertIn(b"<time datetime=", response.data)
         self.assertIn(b'<ul class="member-cards"', response.data)
+
+
+class ReportAcceptanceIdempotencyTests(unittest.TestCase):
+    """Authorized acceptance is actor-bound, atomic, and duplicate safe."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.database_url = require_test_database_url()
+        upgrade_database(cls.database_url)
+        cls.engine = create_engine(cls.database_url)
+        cls.Session = sessionmaker(bind=cls.engine, expire_on_commit=False)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.engine.dispose()
+
+    def setUp(self):
+        clean_database(self.database_url)
+        self.now = datetime.now(UTC)
+
+    def _member(self, *, organization_name="Acceptance University"):
+        from roster_scout.models import (
+            Account,
+            Organization,
+            OrganizationMembership,
+        )
+
+        with self.Session.begin() as session:
+            organization = Organization(name=organization_name)
+            account = Account(
+                normalized_email=f"{uuid.uuid4()}@example.edu",
+                email_verified_at=self.now,
+                status="active",
+            )
+            session.add_all((organization, account))
+            session.flush()
+            membership = OrganizationMembership(
+                organization_id=organization.id,
+                account_id=account.id,
+                role="member",
+                status="active",
+            )
+            session.add(membership)
+            session.flush()
+            return organization.id, account.id, membership.id
+
+    @staticmethod
+    def _request(**overrides):
+        from roster_scout.reports import CanonicalReportRequest
+
+        values = {
+            "source_team_id": "12345",
+            "team_name": "State University",
+            "source_season_id": "2026",
+            "season_year": 2026,
+            "source_season_team_id": "67890",
+            "division": "d1",
+            "batting_stat_category_id": "111",
+            "pitching_stat_category_id": "222",
+        }
+        values.update(overrides)
+        return CanonicalReportRequest(**values)
+
+    def _accept(self, organization_id, account_id, request, action_id):
+        from roster_scout.reports import accept_authorized_report_request
+
+        with self.Session.begin() as session:
+            return accept_authorized_report_request(
+                session,
+                actor_account_id=account_id,
+                organization_id=organization_id,
+                request=request,
+                idempotency_key=action_id,
+            )
+
+    def _counts(self):
+        from roster_scout.models import (
+            ProductUsageEvent,
+            Report,
+            ReportJob,
+            ReportJobDispatch,
+            ReportSnapshot,
+            SecurityAuditEvent,
+        )
+
+        with self.Session() as session:
+            return {
+                "reports": session.scalar(select(func.count(Report.id))),
+                "jobs": session.scalar(select(func.count(ReportJob.id))),
+                "outbox": session.scalar(select(func.count(ReportJobDispatch.id))),
+                "snapshots": session.scalar(select(func.count(ReportSnapshot.id))),
+                "usage": session.scalar(select(func.count(ProductUsageEvent.id))),
+                "audit": session.scalar(select(func.count(SecurityAuditEvent.id))),
+            }
+
+    def test_valid_request_commits_one_actor_bound_acceptance_graph(self):
+        from roster_scout.models import ProductUsageEvent, ReportJob, SecurityAuditEvent
+        from roster_scout.usage import query_usage_metrics
+
+        organization_id, account_id, _membership_id = self._member()
+        accepted = self._accept(
+            organization_id,
+            account_id,
+            self._request(),
+            str(uuid.uuid4()),
+        )
+
+        self.assertEqual(
+            self._counts(),
+            {
+                "reports": 1,
+                "jobs": 1,
+                "outbox": 1,
+                "snapshots": 0,
+                "usage": 1,
+                "audit": 1,
+            },
+        )
+        with self.Session() as session:
+            job = session.get(ReportJob, accepted.job_id)
+            usage = session.scalar(select(ProductUsageEvent))
+            audit = session.scalar(select(SecurityAuditEvent))
+            metrics = query_usage_metrics(
+                session,
+                start=self.now - timedelta(minutes=1),
+                end=self.now + timedelta(minutes=1),
+            )
+        self.assertEqual(job.requested_by_account_id, account_id)
+        self.assertEqual(usage.actor_account_id, account_id)
+        self.assertEqual(usage.organization_id, organization_id)
+        self.assertEqual(usage.event_key, str(job.id))
+        self.assertEqual(audit.actor_account_id, account_id)
+        self.assertEqual(audit.organization_id, organization_id)
+        self.assertEqual(audit.target_id, job.id)
+        self.assertEqual(audit.action, "report.create")
+        self.assertEqual(metrics.unique_authenticated_users, 1)
+
+    def test_validation_membership_and_rollback_failures_record_no_usage(self):
+        from roster_scout.models import OrganizationMembership
+        from roster_scout.reports import (
+            CanonicalReportRequest,
+            ReportAcceptanceFailure,
+            accept_authorized_report_request,
+        )
+
+        organization_id, account_id, membership_id = self._member()
+        with self.assertRaises(ValueError):
+            CanonicalReportRequest(
+                source_team_id="not-an-id",
+                team_name="State University",
+                source_season_id="2026",
+                season_year=2026,
+                source_season_team_id="67890",
+                division="d1",
+            )
+        self.assertEqual(self._counts()["usage"], 0)
+
+        with self.Session.begin() as session:
+            membership = session.get(OrganizationMembership, membership_id)
+            membership.status = "inactive"
+            membership.deactivated_at = self.now
+        with self.assertRaises(ReportAcceptanceFailure) as rejected:
+            self._accept(
+                organization_id,
+                account_id,
+                self._request(),
+                str(uuid.uuid4()),
+            )
+        self.assertEqual(rejected.exception.category, "membership_required")
+        self.assertEqual(self._counts()["usage"], 0)
+
+        with self.Session.begin() as session:
+            membership = session.get(OrganizationMembership, membership_id)
+            membership.status = "active"
+            membership.deactivated_at = None
+        with self.assertRaises(RuntimeError):
+            with self.Session.begin() as session:
+                with patch(
+                    "roster_scout.reports.append_security_audit_event",
+                    side_effect=RuntimeError("forced rollback"),
+                ):
+                    accept_authorized_report_request(
+                        session,
+                        actor_account_id=account_id,
+                        organization_id=organization_id,
+                        request=self._request(),
+                        idempotency_key=str(uuid.uuid4()),
+                    )
+        self.assertEqual(
+            self._counts(),
+            {
+                "reports": 0,
+                "jobs": 0,
+                "outbox": 0,
+                "snapshots": 0,
+                "usage": 0,
+                "audit": 0,
+            },
+        )
+
+    def test_same_action_and_concurrent_double_clicks_converge(self):
+        organization_id, account_id, _membership_id = self._member()
+        request = self._request()
+        action_id = str(uuid.uuid4())
+        start = Barrier(2)
+
+        def accept_once(_index):
+            start.wait(timeout=10)
+            return self._accept(
+                organization_id,
+                account_id,
+                request,
+                action_id,
+            ).job_id
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            job_ids = list(pool.map(accept_once, range(2)))
+        self.assertEqual(job_ids[0], job_ids[1])
+        self.assertEqual(self._counts()["reports"], 1)
+        self.assertEqual(self._counts()["jobs"], 1)
+        self.assertEqual(self._counts()["outbox"], 1)
+        self.assertEqual(self._counts()["usage"], 1)
+        self.assertEqual(self._counts()["audit"], 1)
+
+    def test_active_job_converges_across_different_browser_action_ids(self):
+        organization_id, account_id, _membership_id = self._member()
+        request = self._request()
+        first = self._accept(
+            organization_id,
+            account_id,
+            request,
+            str(uuid.uuid4()),
+        )
+        second = self._accept(
+            organization_id,
+            account_id,
+            request,
+            str(uuid.uuid4()),
+        )
+
+        self.assertEqual(first.report_id, second.report_id)
+        self.assertEqual(first.job_id, second.job_id)
+        self.assertEqual(self._counts()["jobs"], 1)
+        self.assertEqual(self._counts()["outbox"], 1)
+        self.assertEqual(self._counts()["usage"], 1)
+        self.assertEqual(self._counts()["audit"], 1)
+
+    def test_database_rejects_unknown_and_cross_organization_actor_pairing(self):
+        from roster_scout.models import ProductUsageEvent, ReportJob
+
+        organization_id, account_id, _membership_id = self._member()
+        other_organization_id, other_account_id, _other_membership_id = self._member(
+            organization_name="Other University"
+        )
+        accepted = self._accept(
+            organization_id,
+            account_id,
+            self._request(),
+            str(uuid.uuid4()),
+        )
+
+        with self.assertRaises(DBAPIError):
+            with self.Session.begin() as session:
+                session.add(ProductUsageEvent(
+                    event_type="authenticated_use",
+                    event_key=str(uuid.uuid4()),
+                    actor_account_id=uuid.uuid4(),
+                    organization_id=organization_id,
+                ))
+                session.flush()
+        with self.assertRaises(DBAPIError):
+            with self.Session.begin() as session:
+                session.add(ProductUsageEvent(
+                    event_type="authenticated_use",
+                    event_key=str(uuid.uuid4()),
+                    actor_account_id=other_account_id,
+                    organization_id=organization_id,
+                ))
+                session.flush()
+        with self.assertRaises(DBAPIError):
+            with self.Session.begin() as session:
+                session.execute(
+                    text(
+                        "UPDATE report_jobs SET requested_by_account_id = :actor "
+                        "WHERE id = :job"
+                    ),
+                    {"actor": other_account_id, "job": accepted.job_id},
+                )
+        with self.Session() as session:
+            job = session.get(ReportJob, accepted.job_id)
+        self.assertEqual(job.organization_id, organization_id)
+        self.assertEqual(job.requested_by_account_id, account_id)
+        self.assertNotEqual(organization_id, other_organization_id)
 
 
 if __name__ == "__main__":
