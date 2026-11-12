@@ -49,6 +49,7 @@ from roster_scout.identity import (
     WorkOSIdentityProvider,
 )
 from roster_scout.organization_routes import register_organization_routes
+from roster_scout.report_routes import register_report_routes
 from roster_scout.sessions import SESSION_COOKIE_NAME, load_account_session
 from roster_scraper import (
     HITTER_HEADERS,
@@ -442,6 +443,8 @@ def request_too_large(_error):
 
 @app.route("/")
 def index():
+    if getattr(g, "authorization_context", None) is not None:
+        return redirect("/reports")
     return render_template("index.html")
 
 
@@ -476,12 +479,19 @@ def _auth_session_factory():
     return create_session_factory(get_engine())
 
 
+@lru_cache(maxsize=1)
+def _report_session_factory():
+    """Construct report persistence lazily for protected report pages."""
+    return create_session_factory(get_engine())
+
+
 register_auth_routes(
     app,
     identity_provider=_IDENTITY_PROVIDER,
     session_factory=_auth_session_factory,
 )
 register_organization_routes(app)
+register_report_routes(app, session_factory=_report_session_factory)
 
 
 _PUBLIC_ENDPOINTS = frozenset({

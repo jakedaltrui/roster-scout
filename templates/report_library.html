@@ -1,0 +1,118 @@
+{% extends "product_base.html" %}
+
+{% block title %}Opponent reports · Roster Scout{% endblock %}
+{% block page_title %}{{ organization_name or "Opponent reports" }}{% endblock %}
+
+{% block head %}
+  <style>
+    .library-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin: -20px 0 28px; }
+    .library-eyebrow { margin: 0 0 4px; color: var(--muted); font-size: 14px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+    .library-summary { margin: 0; color: var(--muted); }
+    .library-pagination { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-top: 24px; }
+    .library-pagination__position { margin: 0; color: var(--muted); font-size: 14px; }
+    .empty-state { display: grid; justify-items: start; gap: 8px; padding: 32px; }
+    .empty-state__mark { display: grid; place-items: center; width: 48px; height: 48px; border: 1px solid var(--border); border-radius: 14px; color: var(--muted); }
+    .empty-state h2, .empty-state p { margin: 0; }
+    .report-name { font-weight: 600; }
+    .report-meta, .report-detail { color: var(--muted); font-size: 14px; }
+    @media (max-width: 767px) {
+      .library-heading { align-items: start; margin-top: -16px; }
+      .library-heading .button { display: none; }
+      .library-pagination { align-items: stretch; flex-wrap: wrap; }
+      .library-pagination .button { flex: 1; }
+      .library-pagination__position { width: 100%; text-align: center; order: -1; }
+    }
+  </style>
+{% endblock %}
+
+{% block content %}
+  <section aria-labelledby="library-label">
+    <div class="library-heading">
+      <div>
+        <p class="library-eyebrow" id="library-label">Opponent reports</p>
+        {% if library_page %}
+          <p class="library-summary">{{ library_page.total_count }} reports · {{ library_page.updated_today_count }} updated today</p>
+        {% endif %}
+      </div>
+      <a class="button button--primary" href="/reports/new">Create report</a>
+    </div>
+
+    {% if load_error %}
+      <div class="banner banner--error" role="alert">
+        <h2>We couldn’t load reports</h2>
+        <p>The report library is temporarily unavailable. Your saved reports are still safe.</p>
+        <a class="button" href="/reports">Try again</a>
+      </div>
+    {% elif not library_page.items %}
+      <div class="empty-state">
+        <span class="empty-state__mark" aria-hidden="true">RS</span>
+        <h2>No opponent reports yet</h2>
+        <p class="empty-copy">Create your first report to start a shared scouting library for your organization.</p>
+        <a class="button button--primary" href="/reports/new">Create report</a>
+      </div>
+    {% else %}
+      <div class="desktop-table">
+        <table>
+          <caption class="visually-hidden">Opponent reports for {{ organization_name }}</caption>
+          <thead>
+            <tr>
+              <th scope="col">Opponent</th>
+              <th scope="col">Latest snapshot</th>
+              <th scope="col">Completeness</th>
+              <th scope="col">Build status</th>
+              <th scope="col">Snapshots</th>
+              <th scope="col"><span class="visually-hidden">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for report in library_page.items %}
+              <tr data-report-row="desktop">
+                <th scope="row">
+                  <span class="report-name">{{ report.opponent_name }}</span><br>
+                  <span class="report-meta">{{ report.division }} · {{ report.season_year }}</span>
+                </th>
+                <td>
+                  <span class="visually-hidden">Latest snapshot</span>
+                  {% if report.latest_snapshot_at %}
+                    <time datetime="{{ report.latest_snapshot_at.isoformat() }}">{{ report.latest_snapshot_at.strftime("%b %-d, %Y · %-I:%M %p") }}</time>
+                  {% else %}No snapshot yet{% endif %}
+                </td>
+                <td>
+                  {{ report.completeness }}
+                  {% if report.unavailable_count %}<span class="report-detail">{{ report.unavailable_count }} unavailable</span>{% endif %}
+                </td>
+                <td><span class="visually-hidden">Build status</span>{{ report.build_status }}</td>
+                <td><span class="visually-hidden">Snapshots</span>{{ report.snapshot_count }}</td>
+                <td><a href="/reports/{{ report.id }}">Open report<span class="visually-hidden"> for {{ report.opponent_name }}</span></a></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <ul class="member-cards" aria-label="Opponent reports">
+        {% for report in library_page.items %}
+          <li data-report-row="mobile">
+            <p class="report-name">{{ report.opponent_name }}</p>
+            <p class="report-meta">{{ report.division }} · {{ report.season_year }}</p>
+            <dl>
+              <div><dt>Latest snapshot</dt><dd>{% if report.latest_snapshot_at %}<time datetime="{{ report.latest_snapshot_at.isoformat() }}">{{ report.latest_snapshot_at.strftime("%b %-d, %Y") }}</time>{% else %}No snapshot yet{% endif %}</dd></div>
+              <div><dt>Completeness</dt><dd>{{ report.completeness }}{% if report.unavailable_count %} · {{ report.unavailable_count }} unavailable{% endif %}</dd></div>
+              <div><dt>Build status</dt><dd>{{ report.build_status }}</dd></div>
+              <div><dt>Snapshots</dt><dd>{{ report.snapshot_count }}</dd></div>
+            </dl>
+            <a class="button button--quiet" href="/reports/{{ report.id }}">Open report<span class="visually-hidden"> for {{ report.opponent_name }}</span></a>
+          </li>
+        {% endfor %}
+      </ul>
+
+      {% if library_page.page_count > 1 %}
+        <nav class="library-pagination" aria-label="Report library pages">
+          {% if library_page.previous_page %}<a class="button" href="/reports?page={{ library_page.previous_page }}" rel="prev">Previous</a>{% else %}<span></span>{% endif %}
+          <p class="library-pagination__position">Page {{ library_page.page }} of {{ library_page.page_count }}</p>
+          {% if library_page.next_page %}<a class="button" href="/reports?page={{ library_page.next_page }}" rel="next">Next</a>{% else %}<span></span>{% endif %}
+        </nav>
+      {% endif %}
+    {% endif %}
+  </section>
+{% endblock %}

@@ -21,7 +21,7 @@
         <span>roster scout</span>
       </a>
       <nav class="product-nav" aria-label="Primary navigation">
-        <a href="/reports">Reports</a>
+        <a href="/reports"{% if request.endpoint == "reports.library" %} aria-current="page"{% endif %}>Reports</a>
         {% if current_role == "admin" %}<a href="/organization/members">Members</a>{% endif %}
       </nav>
       <div class="product-actions">

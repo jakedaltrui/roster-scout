@@ -1,16 +1,220 @@
-"""Organization-scoped canonical snapshot and dispatch-outbox queries."""
+"""Organization-scoped canonical snapshot, report, and outbox queries."""
 
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
+from sqlalchemy.dialects.postgresql import distinct_on
 
 from .enums import PUBLISHED_SNAPSHOT_STATUSES
-from .models import ReportJob, ReportJobDispatch, ReportSnapshot
+from .models import (
+    Report,
+    ReportJob,
+    ReportJobDispatch,
+    ReportSection,
+    ReportSnapshot,
+    Season,
+    Team,
+    TeamSeason,
+)
 
 
 ACTIVE_DISPATCH_STATUSES = ("pending", "leased", "acknowledged")
+LIBRARY_BUILD_STATUSES = ("queued", "running", "retrying", "failed", "blocked")
+REPORT_LIBRARY_PAGE_SIZE = 25
+
+
+@dataclass(frozen=True)
+class ReportLibraryRecord:
+    report_id: uuid.UUID
+    report_name: str
+    team_name: str
+    source_team_id: str
+    division: str
+    season_year: int
+    created_at: datetime
+    latest_snapshot: ReportSnapshot | None
+    latest_build: ReportJob | None
+    snapshot_count: int
+    unavailable_section_count: int
+
+
+def get_report_for_organization(session, organization_id, report_id):
+    """Return one report only when it belongs to the explicit organization."""
+    return session.scalar(
+        select(Report).where(
+            Report.id == report_id,
+            Report.organization_id == organization_id,
+        )
+    )
+
+
+def count_reports_for_organization(session, organization_id):
+    return int(
+        session.scalar(
+            select(func.count(Report.id)).where(
+                Report.organization_id == organization_id
+            )
+        )
+        or 0
+    )
+
+
+def count_reports_updated_since(session, organization_id, since):
+    return int(
+        session.scalar(
+            select(func.count(func.distinct(ReportSnapshot.report_id))).where(
+                ReportSnapshot.organization_id == organization_id,
+                ReportSnapshot.status.in_(PUBLISHED_SNAPSHOT_STATUSES),
+                ReportSnapshot.published_at >= since,
+            )
+        )
+        or 0
+    )
+
+
+def list_report_library_records(
+    session,
+    organization_id,
+    *,
+    offset=0,
+    limit=REPORT_LIBRARY_PAGE_SIZE,
+):
+    """Return one bounded page with every child query scoped to the tenant."""
+    if offset < 0 or limit < 1 or limit > REPORT_LIBRARY_PAGE_SIZE:
+        raise ValueError("report library bounds are invalid")
+
+    latest_snapshot_activity = (
+        select(func.max(ReportSnapshot.published_at))
+        .where(
+            ReportSnapshot.organization_id == organization_id,
+            ReportSnapshot.report_id == Report.id,
+            ReportSnapshot.status.in_(PUBLISHED_SNAPSHOT_STATUSES),
+        )
+        .correlate(Report)
+        .scalar_subquery()
+    )
+    latest_build_activity = (
+        select(func.max(ReportJob.created_at))
+        .where(
+            ReportJob.organization_id == organization_id,
+            ReportJob.report_id == Report.id,
+            ReportJob.status.in_(LIBRARY_BUILD_STATUSES),
+        )
+        .correlate(Report)
+        .scalar_subquery()
+    )
+    activity = func.greatest(
+        Report.created_at,
+        func.coalesce(latest_snapshot_activity, Report.created_at),
+        func.coalesce(latest_build_activity, Report.created_at),
+    )
+    base_rows = list(
+        session.execute(
+            select(
+                Report.id,
+                Report.name,
+                Team.name,
+                Team.source_team_id,
+                TeamSeason.division,
+                Season.year,
+                Report.created_at,
+            )
+            .join(TeamSeason, TeamSeason.id == Report.team_season_id)
+            .join(Team, Team.id == TeamSeason.team_id)
+            .join(Season, Season.id == TeamSeason.season_id)
+            .where(Report.organization_id == organization_id)
+            .order_by(activity.desc(), Report.id.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+    )
+    report_ids = [row[0] for row in base_rows]
+    if not report_ids:
+        return []
+
+    latest_snapshots = {
+        snapshot.report_id: snapshot
+        for snapshot in session.scalars(
+            select(ReportSnapshot)
+            .where(
+                ReportSnapshot.organization_id == organization_id,
+                ReportSnapshot.report_id.in_(report_ids),
+                ReportSnapshot.status.in_(PUBLISHED_SNAPSHOT_STATUSES),
+            )
+            .ext(distinct_on(ReportSnapshot.report_id))
+            .order_by(
+                ReportSnapshot.report_id,
+                ReportSnapshot.published_at.desc(),
+                ReportSnapshot.id.desc(),
+            )
+        )
+    }
+    latest_builds = {
+        job.report_id: job
+        for job in session.scalars(
+            select(ReportJob)
+            .where(
+                ReportJob.organization_id == organization_id,
+                ReportJob.report_id.in_(report_ids),
+                ReportJob.status.in_(LIBRARY_BUILD_STATUSES),
+            )
+            .ext(distinct_on(ReportJob.report_id))
+            .order_by(
+                ReportJob.report_id,
+                ReportJob.created_at.desc(),
+                ReportJob.id.desc(),
+            )
+        )
+    }
+    snapshot_counts = {
+        report_id: int(count)
+        for report_id, count in session.execute(
+            select(ReportSnapshot.report_id, func.count(ReportSnapshot.id))
+            .where(
+                ReportSnapshot.organization_id == organization_id,
+                ReportSnapshot.report_id.in_(report_ids),
+                ReportSnapshot.status.in_(PUBLISHED_SNAPSHOT_STATUSES),
+            )
+            .group_by(ReportSnapshot.report_id)
+        )
+    }
+    latest_snapshot_ids = [snapshot.id for snapshot in latest_snapshots.values()]
+    unavailable_counts = {}
+    if latest_snapshot_ids:
+        unavailable_counts = {
+            snapshot_id: int(count)
+            for snapshot_id, count in session.execute(
+                select(ReportSection.snapshot_id, func.count(ReportSection.id))
+                .where(
+                    ReportSection.organization_id == organization_id,
+                    ReportSection.snapshot_id.in_(latest_snapshot_ids),
+                    ReportSection.status.in_(("unavailable", "failed")),
+                )
+                .group_by(ReportSection.snapshot_id)
+            )
+        }
+
+    records = []
+    for row in base_rows:
+        snapshot = latest_snapshots.get(row[0])
+        records.append(ReportLibraryRecord(
+            report_id=row[0],
+            report_name=row[1],
+            team_name=row[2],
+            source_team_id=row[3],
+            division=row[4],
+            season_year=row[5],
+            created_at=row[6],
+            latest_snapshot=snapshot,
+            latest_build=latest_builds.get(row[0]),
+            snapshot_count=snapshot_counts.get(row[0], 0),
+            unavailable_section_count=(
+                unavailable_counts.get(snapshot.id, 0) if snapshot else 0
+            ),
+        ))
+    return records
 
 
 @dataclass(frozen=True)

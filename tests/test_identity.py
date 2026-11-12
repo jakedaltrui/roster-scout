@@ -796,6 +796,7 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
                 ("/organizations/select", ("GET",)),
                 ("/organizations/switch", ("POST",)),
                 ("/readyz", ("GET",)),
+                ("/reports", ("GET",)),
                 ("/scrape", ("POST",)),
                 ("/static/<path:filename>", ("GET",)),
             },
