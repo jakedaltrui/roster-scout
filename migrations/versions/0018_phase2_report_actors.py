@@ -17,7 +17,12 @@ depends_on = None
 def upgrade():
     op.add_column(
         "report_snapshots",
-        sa.Column("created_by_account_id", sa.Uuid(), nullable=True),
+        sa.Column(
+            "created_by_account_id",
+            sa.Uuid(),
+            server_default=sa.text("NULL"),
+            nullable=True,
+        ),
     )
     op.create_foreign_key(
         "fk_report_snapshots_creator_account",
@@ -36,7 +41,12 @@ def upgrade():
 
     op.add_column(
         "report_jobs",
-        sa.Column("requested_by_account_id", sa.Uuid(), nullable=True),
+        sa.Column(
+            "requested_by_account_id",
+            sa.Uuid(),
+            server_default=sa.text("NULL"),
+            nullable=True,
+        ),
     )
     op.create_foreign_key(
         "fk_report_jobs_requester_account",

@@ -521,7 +521,8 @@ class ReportSnapshot(UUIDPrimaryKey, Timestamped, Base):
     published_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
     created_by: Mapped[str | None] = mapped_column(String(200))
     created_by_account_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("accounts.id", name="fk_report_snapshots_creator_account")
+        ForeignKey("accounts.id", name="fk_report_snapshots_creator_account"),
+        server_default=text("NULL"),
     )
     __table_args__ = (
         UniqueConstraint("id", "organization_id", name="uq_report_snapshots_id_organization"),
@@ -803,7 +804,8 @@ class ReportJob(UUIDPrimaryKey, Timestamped, Base):
     report_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     result_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, unique=True)
     requested_by_account_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("accounts.id", name="fk_report_jobs_requester_account")
+        ForeignKey("accounts.id", name="fk_report_jobs_requester_account"),
+        server_default=text("NULL"),
     )
     idempotency_key: Mapped[str] = mapped_column(String(200), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued", server_default="queued")
