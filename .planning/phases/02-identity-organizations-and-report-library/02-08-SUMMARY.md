@@ -105,14 +105,16 @@ Each task was committed atomically:
 
 ## Issues Encountered
 
-- Full discovery ran 513 tests with 11 unrelated identity/organization route failures. Those fixtures create sessions at the fixed time `2026-11-11T19:00:00Z`; on 2026-11-12 they exceed the app's 12-hour idle limit and correctly redirect to login. The focused 17-test Plan 02-08 contract is green, and the time-dependent fixture debt is recorded in `deferred-items.md`.
-- Running the report-job migration suite before identity route tests produces the same pre-existing expired-session redirects; all report-job behavior relevant to refresh, live recollection, same-job evidence reuse, and publication passed.
+- Full discovery initially exposed 11 calendar-dependent identity/organization route fixtures. Their shared test bases created browser sessions at `2026-11-11T19:00:00Z`, while Flask correctly authenticated against the real UTC clock, so those test credentials expired after 12 hours.
+- The fixture-only correction now captures one current UTC reference per test. Production expiry semantics are unchanged, the explicit idle/absolute boundary tests retain their relative-clock assertions, and the clean full suite passes.
 
 ## Verification
 
 - Plan 02-08 focused Python contract: **17 passed**.
-- Plan 02-08 plus Phase 1 report-job behavior: all refresh/job cases passed; one unrelated fixed-clock logout fixture failed when combined after migration tests.
-- Full Python discovery: **513 run, 502 passed, 11 unrelated fixed-clock identity/organization failures**.
+- Plan 02-08 plus Phase 1 report-job behavior: all refresh/job cases passed after the fixture correction.
+- Full Python discovery after fixture correction: **513 passed**.
+- Focused identity/organization regression: **57 passed**, including all 11 formerly calendar-dependent routes and the exact session-expiry boundaries.
+- Adjacent report-library regression: **22 passed**.
 - Node browser suites: **23 passed**.
 - Python compile checks: passed.
 - NCAA catalog validation: passed, 942 selectable teams.
@@ -126,7 +128,7 @@ None - no external service configuration required.
 
 - Plan 02-09 can bind exact historical artifact downloads to the new history rows without changing refresh or lineage authority.
 - Explicit refresh, immutable history, duplicate convergence, and tenant denial contracts are complete.
-- The time-dependent identity fixture issue is unrelated to this plan and recorded for a later test-maintenance pass.
+- The time-dependent identity fixture issue discovered during this plan is resolved and covered by the clean full-suite gate.
 
 ## Self-Check: PASSED
 
