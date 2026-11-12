@@ -811,10 +811,33 @@ class FailedBuildRetryTests(unittest.TestCase):
         proof = response.headers["X-Roster-Scout-Download-Ack-Proof"]
         self.assertEqual(str(uuid.UUID(receipt)), receipt)
         self.assertLessEqual(len(proof), 512)
-        self.assertTrue(self.app_module._verify_download_ack_proof(proof, receipt))
+        scope = {
+            "account_id": accounts[0],
+            "organization_id": organization_id,
+            "report_id": report_id,
+            "snapshot_id": first_snapshot_id,
+            "artifact_id": first_artifact_id,
+        }
+        self.assertTrue(
+            self.app_module._verify_authenticated_download_ack_proof(
+                proof, receipt, **scope
+            )
+        )
+        self.assertFalse(
+            self.app_module._verify_authenticated_download_ack_proof(
+                proof,
+                receipt,
+                **{**scope, "artifact_id": second_artifact_id},
+            )
+        )
+        decoded_proof = self.app_module._DOWNLOAD_ACK_SERIALIZER.loads(proof)
+        for identifier in scope.values():
+            self.assertNotIn(str(identifier), str(decoded_proof))
         self.assertEqual(response.headers["Cache-Control"], "no-store")
         self.assertNotIn("immutable/first.xlsx", str(response.headers))
-        self.assertNotIn("secret", response.get_data(as_text=True, errors="ignore"))
+        self.assertNotIn(
+            "secret", response.data.decode("utf-8", errors="ignore")
+        )
         with self.Session() as session:
             self.assertEqual(
                 session.scalar(select(func.count(ProductUsageEvent.id))), 0
@@ -881,6 +904,52 @@ class FailedBuildRetryTests(unittest.TestCase):
             b"Roster Scout will not rebuild a historical snapshot with newer data.",
             detail.data,
         )
+
+    def test_storage_failure_is_sanitized_and_issues_no_receipt_or_audit(self):
+        from roster_scout.models import ProductUsageEvent, SecurityAuditEvent
+
+        organization_id, accounts = self._organization(
+            "Storage Failure Org", ("coach@example.edu", "member")
+        )
+        report_id = self._report(organization_id, "Storage Stags", 511)
+        snapshot_id = self._snapshot(
+            organization_id, report_id, "ready", self.now
+        )
+        artifact_id = self._artifact(
+            organization_id,
+            snapshot_id,
+            "immutable/unavailable.xlsx",
+            b"PK\x03\x04expected",
+        )
+        self.app_module.app.extensions["roster_scout_artifact_reader"] = Mock(
+            side_effect=RuntimeError("secret storage token and exception")
+        )
+        client, credential = self._client_with_credential(
+            accounts[0], organization_id
+        )
+
+        response = client.post(
+            f"/reports/{report_id}/snapshots/{snapshot_id}"
+            f"/artifacts/{artifact_id}/download",
+            data={"csrf_token": self._csrf_token(credential)},
+        )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.get_json()["error"], "artifact_unavailable")
+        self.assertNotIn("secret", response.get_data(as_text=True))
+        self.assertNotIn(
+            "X-Roster-Scout-Download-Event-ID", response.headers
+        )
+        self.assertNotIn(
+            "X-Roster-Scout-Download-Ack-Proof", response.headers
+        )
+        with self.Session() as session:
+            self.assertEqual(
+                session.scalar(select(func.count(ProductUsageEvent.id))), 0
+            )
+            self.assertEqual(
+                session.scalar(select(func.count(SecurityAuditEvent.id))), 0
+            )
 
 
 class RefreshLineageTests(unittest.TestCase):

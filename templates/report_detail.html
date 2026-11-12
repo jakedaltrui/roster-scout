@@ -30,6 +30,8 @@
     .refresh-confirmation__actions, .history-pagination { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
     .history-pagination { justify-content: space-between; margin-top: 16px; }
     .history-pagination p { margin: 0; color: var(--muted); }
+    .inline-action { margin-top: 12px; }
+    .unavailable-copy { max-width: 38rem; color: var(--muted); font-size: 14px; }
     @media (max-width: 767px) {
       .report-actions { justify-content: stretch; margin: -12px 0 24px; }
       .report-actions .button { width: 100%; }
@@ -60,9 +62,12 @@
     </div>
     {% if request.args.get('notice') == 'refresh_started' %}
       <div class="banner" role="status">Live refresh started. Your saved snapshots remain unchanged.</div>
+    {% elif request.args.get('notice') == 'retry_started' %}
+      <div class="banner" role="status">Retry accepted. The failed attempt remains in build history.</div>
     {% elif request.args.get('notice') == 'active' %}
       <div class="banner" role="status">A refresh is already in progress.</div>
     {% endif %}
+    {% if retry_error %}<div class="banner banner--error" role="alert">{{ retry_error }}</div>{% endif %}
     {% if refresh_confirmation %}
       <dialog class="refresh-confirmation" open aria-labelledby="refresh-title" aria-describedby="refresh-description">
         <h2 id="refresh-title">Refresh {{ report_detail.opponent_name }}?</h2>
@@ -111,6 +116,14 @@
               {% endfor %}
             </ul>
           {% endif %}
+          {% if report_detail.latest_snapshot.artifact_id %}
+            <form class="inline-action" method="post" action="{{ url_for('reports.download_snapshot_artifact', report_id=report_detail.id, snapshot_id=report_detail.latest_snapshot.id, artifact_id=report_detail.latest_snapshot.artifact_id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="button" type="submit">Download snapshot</button>
+            </form>
+          {% else %}
+            <p class="unavailable-copy"><strong>Download unavailable.</strong> No workbook was saved for this snapshot. Roster Scout will not rebuild a historical snapshot with newer data.</p>
+          {% endif %}
         {% endif %}
       </section>
 
@@ -144,7 +157,17 @@
           <h2 id="build-attempts-heading">Build attempts</h2>
           <ul class="section-list">
             {% for build in report_detail.failed_builds %}
-              <li><strong>{{ build.heading }}</strong><span><time datetime="{{ build.updated_at.isoformat() }}">{{ build.updated_at.strftime("%b %-d, %Y · %-I:%M %p") }}</time> · {{ build.message }}</span></li>
+              <li>
+                <strong>{{ build.heading }}</strong>
+                <span><time datetime="{{ build.updated_at.isoformat() }}">{{ build.updated_at.strftime("%b %-d, %Y · %-I:%M %p") }}</time> · {{ build.message }}</span>
+                {% if not report_detail.active_build and retry_action_id %}
+                  <form class="inline-action" method="post" action="{{ url_for('reports.retry_report', report_id=report_detail.id, failed_job_id=build.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="idempotency_key" value="{{ retry_action_id }}">
+                    <button class="button button--secondary" type="submit">Retry build</button>
+                  </form>
+                {% endif %}
+              </li>
             {% endfor %}
           </ul>
         </section>
@@ -156,7 +179,7 @@
           <div class="desktop-table history-table">
             <table>
               <caption class="visually-hidden">Saved snapshots for {{ report_detail.opponent_name }}</caption>
-              <thead><tr><th scope="col">Saved</th><th scope="col">Status</th><th scope="col">Source freshness</th><th scope="col">Predecessor</th><th scope="col">Artifact</th></tr></thead>
+              <thead><tr><th scope="col">Saved</th><th scope="col">Status</th><th scope="col">Source freshness</th><th scope="col">Predecessor</th><th scope="col">Artifact</th><th scope="col">Action</th></tr></thead>
               <tbody>
                 {% for snapshot in report_detail.history %}
                   <tr data-snapshot-row="desktop">
@@ -164,7 +187,17 @@
                     <td>{{ snapshot.status|title }}</td>
                     <td>{% if snapshot.source_collected_at %}<time datetime="{{ snapshot.source_collected_at.isoformat() }}">{{ snapshot.source_collected_at.strftime("%b %-d, %Y · %-I:%M %p") }}</time>{% else %}Not recorded{% endif %}</td>
                     <td>{% if snapshot.predecessor_published_at %}Refresh of <time datetime="{{ snapshot.predecessor_published_at.isoformat() }}">{{ snapshot.predecessor_published_at.strftime("%b %-d, %Y · %-I:%M %p") }}</time>{% else %}Initial snapshot{% endif %}</td>
-                    <td>{% if snapshot.artifact_available %}Workbook ready{% else %}Download unavailable <span class="visually-hidden">because no workbook artifact is attached to this snapshot.</span>{% endif %}</td>
+                    <td>{% if snapshot.artifact_available %}Workbook ready{% else %}Download unavailable{% endif %}</td>
+                    <td>
+                      {% if snapshot.artifact_id %}
+                        <form method="post" action="{{ url_for('reports.download_snapshot_artifact', report_id=report_detail.id, snapshot_id=snapshot.id, artifact_id=snapshot.artifact_id) }}">
+                          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                          <button class="button button--secondary" type="submit">Download snapshot</button>
+                        </form>
+                      {% else %}
+                        <span class="unavailable-copy">No workbook was saved for this snapshot. Roster Scout will not rebuild a historical snapshot with newer data.</span>
+                      {% endif %}
+                    </td>
                   </tr>
                 {% endfor %}
               </tbody>
@@ -177,7 +210,15 @@
                 <p>Status: {{ snapshot.status|title }}</p>
                 <p>Source freshness: {% if snapshot.source_collected_at %}{{ snapshot.source_collected_at.strftime("%b %-d, %Y · %-I:%M %p") }}{% else %}Not recorded{% endif %}</p>
                 <p>Predecessor: {% if snapshot.predecessor_published_at %}Refresh of {{ snapshot.predecessor_published_at.strftime("%b %-d, %Y · %-I:%M %p") }}{% else %}Initial snapshot{% endif %}</p>
-                <p>Artifact: {% if snapshot.artifact_available %}Workbook ready{% else %}Download unavailable because no workbook artifact is attached to this snapshot.{% endif %}</p>
+                <p>Artifact: {% if snapshot.artifact_available %}Workbook ready{% else %}Download unavailable{% endif %}</p>
+                {% if snapshot.artifact_id %}
+                  <form method="post" action="{{ url_for('reports.download_snapshot_artifact', report_id=report_detail.id, snapshot_id=snapshot.id, artifact_id=snapshot.artifact_id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="button button--secondary" type="submit">Download snapshot</button>
+                  </form>
+                {% else %}
+                  <p class="unavailable-copy">No workbook was saved for this snapshot. Roster Scout will not rebuild a historical snapshot with newer data.</p>
+                {% endif %}
               </li>
             {% endfor %}
           </ul>

@@ -798,7 +798,17 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
                 ("/readyz", ("GET",)),
                 ("/reports", ("GET",)),
                 ("/reports/<uuid:report_id>", ("GET",)),
+                (
+                    "/reports/<uuid:report_id>/builds/"
+                    "<uuid:failed_job_id>/retry",
+                    ("POST",),
+                ),
                 ("/reports/<uuid:report_id>/refresh", ("GET", "POST")),
+                (
+                    "/reports/<uuid:report_id>/snapshots/<uuid:snapshot_id>/"
+                    "artifacts/<uuid:artifact_id>/download",
+                    ("POST",),
+                ),
                 ("/reports/<uuid:report_id>/status", ("GET",)),
                 ("/reports/new", ("GET", "POST")),
                 ("/scrape", ("POST",)),

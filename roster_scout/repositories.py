@@ -73,6 +73,40 @@ def get_report_for_organization(
     return session.scalar(statement)
 
 
+def get_ready_artifact_for_snapshot(
+    session,
+    organization_id,
+    report_id,
+    snapshot_id,
+    artifact_id,
+):
+    """Resolve one exact published snapshot artifact inside its full tenant scope."""
+    return session.scalar(
+        select(ReportArtifact)
+        .join(
+            ReportSnapshot,
+            (
+                ReportSnapshot.id == ReportArtifact.snapshot_id
+            ) & (
+                ReportSnapshot.organization_id == ReportArtifact.organization_id
+            ),
+        )
+        .where(
+            ReportArtifact.id == artifact_id,
+            ReportArtifact.organization_id == organization_id,
+            ReportArtifact.snapshot_id == snapshot_id,
+            ReportArtifact.artifact_type == "xlsx",
+            ReportArtifact.status == "ready",
+            ReportArtifact.object_key.is_not(None),
+            ReportArtifact.sha256.is_not(None),
+            ReportSnapshot.organization_id == organization_id,
+            ReportSnapshot.report_id == report_id,
+            ReportSnapshot.id == snapshot_id,
+            ReportSnapshot.status.in_(PUBLISHED_SNAPSHOT_STATUSES),
+        )
+    )
+
+
 def count_reports_for_organization(session, organization_id):
     return int(
         session.scalar(

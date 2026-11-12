@@ -30,6 +30,7 @@ from .repositories import (
     ensure_report_dispatch,
     get_report_detail_record,
     get_report_for_organization,
+    get_ready_artifact_for_snapshot,
     list_report_library_records,
 )
 from .usage import record_authenticated_report_request_accepted
@@ -132,6 +133,22 @@ class AcceptedReportRefresh:
     report_id: uuid.UUID
     job_id: uuid.UUID
     created_job: bool
+
+
+@dataclass(frozen=True)
+class AcceptedReportRetry:
+    report_id: uuid.UUID
+    job_id: uuid.UUID
+    failed_job_id: uuid.UUID
+    created_job: bool
+
+
+@dataclass(frozen=True)
+class AuthorizedArtifact:
+    id: uuid.UUID
+    snapshot_id: uuid.UUID
+    object_key: str
+    sha256: str
 
 
 def _upsert_team(session, request):
@@ -436,6 +453,158 @@ def accept_authorized_report_refresh(
     )
 
 
+def accept_authorized_report_retry(
+    session,
+    *,
+    actor_account_id,
+    organization_id,
+    report_id,
+    failed_job_id,
+    idempotency_key,
+):
+    """Accept one new durable attempt without mutating its terminal predecessor."""
+    actor_account_id = _canonical_uuid(
+        actor_account_id, field="actor_account_id"
+    )
+    organization_id = _canonical_uuid(
+        organization_id, field="organization_id"
+    )
+    report_id = _canonical_uuid(report_id, field="report_id")
+    failed_job_id = _canonical_uuid(failed_job_id, field="failed_job_id")
+    action_id = str(_canonical_uuid(idempotency_key, field="idempotency_key"))
+
+    membership = session.scalar(
+        select(OrganizationMembership)
+        .where(
+            OrganizationMembership.account_id == actor_account_id,
+            OrganizationMembership.organization_id == organization_id,
+            OrganizationMembership.status == "active",
+        )
+        .with_for_update()
+    )
+    if membership is None:
+        raise ReportAcceptanceFailure("membership_required")
+
+    report = get_report_for_organization(
+        session,
+        organization_id,
+        report_id,
+        for_update=True,
+    )
+    failed_job = session.scalar(
+        select(ReportJob)
+        .where(
+            ReportJob.id == failed_job_id,
+            ReportJob.organization_id == organization_id,
+            ReportJob.report_id == report_id,
+            ReportJob.status.in_(("failed", "blocked")),
+        )
+        .with_for_update()
+    )
+    if report is None or failed_job is None:
+        raise ReportLibraryFailure("not_found")
+
+    retry_key = f"retry:{failed_job.id}:{action_id}"
+    job = session.scalar(
+        select(ReportJob)
+        .where(
+            ReportJob.organization_id == organization_id,
+            ReportJob.report_id == report_id,
+            ReportJob.status.not_in(TERMINAL_JOB_STATUSES),
+        )
+        .order_by(ReportJob.created_at, ReportJob.id)
+        .limit(1)
+        .with_for_update()
+    )
+    created_job = job is None
+    if job is None:
+        job = session.scalar(
+            select(ReportJob)
+            .where(
+                ReportJob.organization_id == organization_id,
+                ReportJob.report_id == report_id,
+                ReportJob.idempotency_key == retry_key,
+            )
+            .with_for_update()
+        )
+        created_job = job is None
+    if job is None:
+        job = create_or_get_job(
+            session,
+            organization_id,
+            report_id,
+            retry_key,
+            requested_by_account_id=actor_account_id,
+        )
+    elif job.status not in TERMINAL_JOB_STATUSES:
+        ensure_report_dispatch(session, job)
+
+    record_authenticated_report_request_accepted(
+        session,
+        event_key=str(job.id),
+        actor_account_id=actor_account_id,
+        organization_id=organization_id,
+    )
+    existing_audit = session.scalar(
+        select(SecurityAuditEvent.id).where(
+            SecurityAuditEvent.organization_id == organization_id,
+            SecurityAuditEvent.target_type == "job",
+            SecurityAuditEvent.target_id == job.id,
+            SecurityAuditEvent.action == "report.retry",
+            SecurityAuditEvent.reason == "retry_accepted",
+        )
+    )
+    if existing_audit is None:
+        append_security_audit_event(
+            session,
+            actor_account_id=actor_account_id,
+            organization_id=organization_id,
+            target_type="job",
+            target_id=job.id,
+            action="report.retry",
+            outcome="pending",
+            reason="retry_accepted",
+        )
+    return AcceptedReportRetry(
+        report_id=report_id,
+        job_id=job.id,
+        failed_job_id=failed_job.id,
+        created_job=created_job,
+    )
+
+
+def resolve_authorized_artifact(
+    session,
+    *,
+    organization_id,
+    report_id,
+    snapshot_id,
+    artifact_id,
+):
+    """Return metadata for one exact stored historical artifact or fixed 404."""
+    organization_id = _canonical_uuid(
+        organization_id, field="organization_id"
+    )
+    report_id = _canonical_uuid(report_id, field="report_id")
+    snapshot_id = _canonical_uuid(snapshot_id, field="snapshot_id")
+    artifact_id = _canonical_uuid(artifact_id, field="artifact_id")
+    artifact = get_ready_artifact_for_snapshot(
+        session,
+        organization_id,
+        report_id,
+        snapshot_id,
+        artifact_id,
+    )
+    if artifact is None:
+        raise ReportLibraryFailure("not_found")
+    return AuthorizedArtifact(
+        id=artifact.id,
+        snapshot_id=artifact.snapshot_id,
+        object_key=artifact.object_key,
+        sha256=artifact.sha256,
+    )
+
+
 @dataclass(frozen=True)
 class ReportLibraryItem:
     id: object
@@ -547,6 +716,7 @@ class ReportSectionView:
 
 @dataclass(frozen=True)
 class ReportStatusView:
+    id: uuid.UUID | None
     state: str
     heading: str
     message: str
@@ -573,6 +743,7 @@ class SnapshotHistoryItem:
     source_collected_at: datetime | None
     predecessor_published_at: datetime | None
     artifact_available: bool
+    artifact_id: uuid.UUID | None
 
 
 @dataclass(frozen=True)
@@ -638,7 +809,7 @@ _SAFE_FAILURE_COPY = {
     "browser": "NCAA source unavailable",
     "source_unavailable": "NCAA source unavailable",
     "database": "Report service unavailable",
-    "queue": "Report service unavailable",
+    "queue": "Build service unavailable",
     "report_service": "Report service unavailable",
     "artifact": "Storage unavailable",
     "storage": "Storage unavailable",
@@ -680,6 +851,7 @@ def _status_view(job, sections):
         or datetime.now(UTC)
     )
     return ReportStatusView(
+        id=job.id,
         state=state,
         heading=heading,
         message=message,
@@ -720,7 +892,9 @@ def load_report_detail(session, organization_id, report_id, *, history_page=1):
         history_offset=(history_page - 1) * REPORT_LIBRARY_PAGE_SIZE,
     )
     predecessors = dict(record.snapshot_predecessors)
-    artifact_snapshot_ids = {artifact.snapshot_id for artifact in record.artifacts}
+    artifacts_by_snapshot = {
+        artifact.snapshot_id: artifact for artifact in record.artifacts
+    }
     history = tuple(SnapshotHistoryItem(
         id=snapshot.id,
         status=snapshot.status,
@@ -729,7 +903,12 @@ def load_report_detail(session, organization_id, report_id, *, history_page=1):
         predecessor_published_at=predecessors.get(
             snapshot.predecessor_snapshot_id
         ),
-        artifact_available=snapshot.id in artifact_snapshot_ids,
+        artifact_available=snapshot.id in artifacts_by_snapshot,
+        artifact_id=(
+            artifacts_by_snapshot[snapshot.id].id
+            if snapshot.id in artifacts_by_snapshot
+            else None
+        ),
     ) for snapshot in record.snapshots)
     latest_snapshot = None
     if record.latest_snapshot is not None:
@@ -745,7 +924,12 @@ def load_report_detail(session, organization_id, report_id, *, history_page=1):
             source_collected_at=record.latest_snapshot.source_collected_at,
             predecessor_published_at=latest_predecessor,
             artifact_available=(
-                record.latest_snapshot.id in artifact_snapshot_ids
+                record.latest_snapshot.id in artifacts_by_snapshot
+            ),
+            artifact_id=(
+                artifacts_by_snapshot[record.latest_snapshot.id].id
+                if record.latest_snapshot.id in artifacts_by_snapshot
+                else None
             ),
         )
     active_build = None
@@ -783,6 +967,7 @@ def load_report_status(session, organization_id, report_id):
         latest = record.latest_snapshot
         if latest is None:
             return ReportStatusView(
+                id=None,
                 state="queued",
                 heading="Queued",
                 message="Waiting to collect live NCAA data.",
@@ -791,6 +976,7 @@ def load_report_status(session, organization_id, report_id):
                 sections=(),
             )
         return ReportStatusView(
+            id=None,
             state=latest.status,
             heading="Ready" if latest.status == "ready" else "Partial",
             message=(

@@ -16,6 +16,7 @@ import secrets
 import uuid
 from datetime import date
 from functools import lru_cache
+from hashlib import sha256
 from urllib.parse import urlsplit
 
 import idna
@@ -153,6 +154,9 @@ _AUTH_VERIFICATION_STATUS = (
 app.secret_key = _SESSION_SIGNING_KEY
 
 _DOWNLOAD_ACK_PURPOSE = "roster-scout-workbook-download-v1"
+_AUTHENTICATED_DOWNLOAD_ACK_PURPOSE = (
+    "roster-scout-authenticated-snapshot-download-v1"
+)
 _DOWNLOAD_ACK_SALT = "roster-scout-download-ack-v1"
 _DOWNLOAD_ACK_MAX_AGE_SECONDS = 15 * 60
 
@@ -360,6 +364,66 @@ def _verify_download_ack_proof(proof: str, download_event_id: str) -> bool:
         return False
     return payload == _download_ack_payload(download_event_id)
 
+
+def _authenticated_download_binding(
+    *,
+    account_id,
+    organization_id,
+    report_id,
+    snapshot_id,
+    artifact_id,
+) -> str:
+    identifiers = (
+        account_id,
+        organization_id,
+        report_id,
+        snapshot_id,
+        artifact_id,
+    )
+    canonical = ":".join(str(uuid.UUID(str(value))) for value in identifiers)
+    return sha256(canonical.encode("ascii")).hexdigest()
+
+
+def _authenticated_download_ack_payload(
+    download_event_id: str,
+    **scope,
+) -> dict[str, str]:
+    return {
+        "purpose": _AUTHENTICATED_DOWNLOAD_ACK_PURPOSE,
+        "download_event_id": str(uuid.UUID(download_event_id)),
+        "scope_binding": _authenticated_download_binding(**scope),
+    }
+
+
+def _issue_authenticated_download_ack_proof(
+    download_event_id: str,
+    **scope,
+) -> str:
+    """Sign a recent opaque receipt bound to one authorized artifact scope."""
+    return _DOWNLOAD_ACK_SERIALIZER.dumps(
+        _authenticated_download_ack_payload(download_event_id, **scope)
+    )
+
+
+def _verify_authenticated_download_ack_proof(
+    proof: str,
+    download_event_id: str,
+    **scope,
+) -> bool:
+    """Verify a recent receipt without placing raw identity IDs in its payload."""
+    try:
+        payload = _DOWNLOAD_ACK_SERIALIZER.loads(
+            proof,
+            max_age=_DOWNLOAD_ACK_MAX_AGE_SECONDS,
+        )
+        expected = _authenticated_download_ack_payload(
+            download_event_id,
+            **scope,
+        )
+    except (BadSignature, TypeError, ValueError, AttributeError):
+        return False
+    return payload == expected
+
 _ALLOWED_DIVISIONS = {"", "d1", "d2", "d3", "juco"}
 _MAX_TEAM_LENGTH = 120
 
@@ -491,7 +555,11 @@ register_auth_routes(
     session_factory=_auth_session_factory,
 )
 register_organization_routes(app)
-register_report_routes(app, session_factory=_report_session_factory)
+register_report_routes(
+    app,
+    session_factory=_report_session_factory,
+    issue_download_ack_proof=_issue_authenticated_download_ack_proof,
+)
 
 
 _PUBLIC_ENDPOINTS = frozenset({
