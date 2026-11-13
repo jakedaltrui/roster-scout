@@ -7,7 +7,7 @@ Roster Scout v2.0 is delivered in five dependency-ordered slices. The roadmap fi
 ## Phases
 
 - [x] **Phase 1: Canonical Snapshot Foundation** - Persist provenance-rich immutable snapshots through durable report jobs. (completed 2026-11-11)
-- [ ] **Phase 2: Identity, Organizations, and Report Library** - Gate Roster Scout behind passwordless organization access and versioned report workflows.
+- [x] **Phase 2: Identity, Organizations, and Report Library** - Gate Roster Scout behind passwordless organization access and versioned report workflows. (completed 2026-11-13)
 - [ ] **Phase 3: Detailed NCAA Intelligence** - Add fielding, advanced metrics, situational splits, career history, and game logs.
 - [ ] **Phase 4: Detailed Excel Report** - Deliver the exact detailed snapshot as a branded ten-sheet workbook.
 - [ ] **Phase 5: Embedded Opponent Dashboard** - Securely embed the opponent-branded Power BI report and harden production delivery.
@@ -179,7 +179,7 @@ Plans:
 5. Cross-organization identifier substitution is denied across pages, APIs, jobs, refresh actions, and downloads, with auditable security events.
 6. After authentication and organization authorization, each accepted report/job request records one `authenticated_use` event keyed by the accepted ReportJob UUID with canonical account and organization IDs, with `actor_account_id` foreign-keyed to the Phase 2 account table; the operator report proves windowed `COUNT(DISTINCT actor_account_id)` without treating page views or anonymous identifiers as users.
 
-**Plans:** 15/16 plans executed
+**Plans:** 16/16 plans complete
 
 Plans:
 
@@ -245,7 +245,7 @@ Plans:
 
 **Wave 16** *(blocked on Wave 15 completion)*
 
-- [ ] 02-11-PLAN.md — Gate migrations, security, Node status, 429s, catalog, workbook compatibility, and the full Phase 2 story.
+- [x] 02-11-PLAN.md — Gate migrations, security, Node status, 429s, catalog, workbook compatibility, and the full Phase 2 story.
 
 ### Phase 3: Detailed NCAA Intelligence
 
@@ -325,7 +325,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |---|---:|---|---|
 | 1. Canonical Snapshot Foundation | 41/41 | Complete | 2026-11-11 |
-| 2. Identity, Organizations, and Report Library | 15/16 | In Progress|  |
+| 2. Identity, Organizations, and Report Library | 16/16 | Complete   | 2026-11-13 |
 | 3. Detailed NCAA Intelligence | 0/4 | Not started | - |
 | 4. Detailed Excel Report | 0/3 | Not started | - |
 | 5. Embedded Opponent Dashboard | 0/4 | Not started | - |
