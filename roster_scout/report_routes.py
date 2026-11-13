@@ -134,17 +134,15 @@ def _canonical_action_id(value):
     return value
 
 
-def _selected_catalog_team():
-    division = (request.form.get("division") or "").strip().lower()
-    season_team_id = (request.form.get("season_team_id") or "").strip()
-    submitted_name = (request.form.get("team_name") or "").strip()
+def _catalog_request(division, season_team_id, submitted_name=None):
     if (
         division not in _DIVISIONS
         or not season_team_id.isascii()
         or not season_team_id.isdigit()
         or len(season_team_id) > 100
-        or not submitted_name
-        or len(submitted_name) > 200
+        or (submitted_name is not None and (
+            not submitted_name or len(submitted_name) > 200
+        ))
     ):
         raise ValueError("invalid selector")
 
@@ -157,7 +155,9 @@ def _selected_catalog_team():
         raise ValueError("invalid selector")
     team = matches[0]
     canonical_name = str(team.get("display_name") or team.get("name") or "").strip()
-    if not canonical_name or submitted_name != canonical_name:
+    if not canonical_name or (
+        submitted_name is not None and submitted_name != canonical_name
+    ):
         raise ValueError("invalid selector")
 
     year = team.get("year")
@@ -178,6 +178,40 @@ def _selected_catalog_team():
     )
 
 
+def _selected_catalog_team():
+    fallback = (request.form.get("fallback_team") or "").strip()
+    if fallback:
+        parts = fallback.split(":", 1)
+        if len(parts) != 2:
+            raise ValueError("invalid selector")
+        return _catalog_request(parts[0].lower(), parts[1])
+    return _catalog_request(
+        (request.form.get("division") or "").strip().lower(),
+        (request.form.get("season_team_id") or "").strip(),
+        (request.form.get("team_name") or "").strip(),
+    )
+
+
+def _fallback_catalog():
+    teams = []
+    for division in ("d1", "d2", "d3"):
+        for team in list_ncaa_teams(division):
+            season_team_id = str(team.get("season_team_id") or "")
+            name = str(team.get("display_name") or team.get("name") or "").strip()
+            if (
+                team.get("division") == division
+                and season_team_id.isascii()
+                and season_team_id.isdigit()
+                and name
+            ):
+                teams.append({
+                    "value": f"{division}:{season_team_id}",
+                    "division": division.upper(),
+                    "name": name,
+                })
+    return tuple(sorted(teams, key=lambda item: (item["division"], item["name"])))
+
+
 def _render_create_report(
     *,
     shell,
@@ -187,7 +221,15 @@ def _render_create_report(
     team_name="",
     season_team_id="",
     idempotency_key=None,
+    fallback_mode=False,
 ):
+    fallback_teams = ()
+    fallback_error = False
+    if fallback_mode:
+        try:
+            fallback_teams = _fallback_catalog()
+        except (NcaaError, RuntimeError, ValueError, TypeError):
+            fallback_error = True
     return render_template(
         "report_new.html",
         **shell,
@@ -198,6 +240,9 @@ def _render_create_report(
         team_name=team_name[:200],
         season_team_id=season_team_id[:100],
         idempotency_key=idempotency_key or str(uuid.uuid4()),
+        fallback_mode=fallback_mode,
+        fallback_teams=fallback_teams,
+        fallback_error=fallback_error,
     ), status
 
 
@@ -619,8 +664,11 @@ def create_report():
             idempotency_key=str(uuid.uuid4()),
         ), 503
 
+    fallback_mode = request.args.get("nojs") == "1" or bool(
+        request.form.get("fallback_team")
+    )
     if request.method == "GET":
-        return _render_create_report(shell=shell)
+        return _render_create_report(shell=shell, fallback_mode=fallback_mode)
 
     try:
         action_id = _canonical_action_id(submitted_action_id)
@@ -638,6 +686,7 @@ def create_report():
             team_name=team_name,
             season_team_id="",
             idempotency_key=safe_action_id,
+            fallback_mode=fallback_mode,
         )
 
     try:
@@ -658,6 +707,7 @@ def create_report():
             team_name=team_name,
             season_team_id="",
             idempotency_key=action_id,
+            fallback_mode=fallback_mode,
         )
     except (SQLAlchemyError, RuntimeError, ValueError):
         return _render_create_report(
@@ -668,6 +718,7 @@ def create_report():
             team_name=team_name,
             season_team_id="",
             idempotency_key=action_id,
+            fallback_mode=fallback_mode,
         )
 
     try:

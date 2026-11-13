@@ -6,12 +6,12 @@
 {% block head %}
   <style>
     .library-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin: -20px 0 28px; }
-    .library-eyebrow { margin: 0 0 4px; color: var(--muted); font-size: 14px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+    .library-eyebrow { margin: 0 0 4px; color: var(--muted); font-size: 14px; font-weight: 600; }
     .library-summary { margin: 0; color: var(--muted); }
     .library-pagination { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-top: 24px; }
     .library-pagination__position { margin: 0; color: var(--muted); font-size: 14px; }
-    .empty-state { display: grid; justify-items: start; gap: 8px; padding: 32px; }
-    .empty-state__mark { display: grid; place-items: center; width: 48px; height: 48px; border: 1px solid var(--border); border-radius: 14px; color: var(--muted); }
+    .empty-state { display: grid; justify-items: start; gap: 8px; padding: 32px; border-radius: 22px; }
+    .empty-state__mark { width: 48px; height: 48px; object-fit: contain; filter: grayscale(1); opacity: .72; }
     .empty-state h2, .empty-state p { margin: 0; }
     .report-name { font-weight: 600; }
     .report-meta, .report-detail { color: var(--muted); font-size: 14px; }
@@ -44,9 +44,9 @@
       </div>
     {% elif not library_page.items %}
       <div class="empty-state">
-        <span class="empty-state__mark" aria-hidden="true">RS</span>
+        <img class="empty-state__mark" src="{{ url_for('static', filename='brand/roster-scout-dog-outlined.png') }}" alt="">
         <h2>No opponent reports yet</h2>
-        <p class="empty-copy">Create your first report to start a shared scouting library for your organization.</p>
+        <p class="empty-copy">Create your first report to save a dated opponent snapshot for your staff.</p>
         <a class="button button--primary" href="/reports/new">Create report</a>
       </div>
     {% else %}
@@ -73,14 +73,14 @@
                 <td>
                   <span class="visually-hidden">Latest snapshot</span>
                   {% if report.latest_snapshot_at %}
-                    <time datetime="{{ report.latest_snapshot_at.isoformat() }}">{{ report.latest_snapshot_at.strftime("%b %-d, %Y · %-I:%M %p") }}</time>
+                    <time datetime="{{ report.latest_snapshot_at.isoformat() }}">{{ report.latest_snapshot_at.strftime("%b %-d, %Y · %-I:%M %p") }} UTC</time>
                   {% else %}No snapshot yet{% endif %}
                 </td>
                 <td>
-                  {{ report.completeness }}
+                  {% if report.completeness != "—" %}<span class="status-chip" data-state="{{ report.completeness|lower }}">{{ report.completeness }}</span>{% else %}—{% endif %}
                   {% if report.unavailable_count %}<span class="report-detail">{{ report.unavailable_count }} unavailable</span>{% endif %}
                 </td>
-                <td><span class="visually-hidden">Build status</span>{{ report.build_status }}</td>
+                <td><span class="visually-hidden">Build status</span>{% if report.build_status != "No active build" %}<span class="status-chip" data-state="{{ report.build_status|lower }}">{{ report.build_status }}</span>{% else %}No active build{% endif %}</td>
                 <td><span class="visually-hidden">Snapshots</span>{{ report.snapshot_count }}</td>
                 <td><a href="/reports/{{ report.id }}">Open report<span class="visually-hidden"> for {{ report.opponent_name }}</span></a></td>
               </tr>
@@ -95,9 +95,9 @@
             <p class="report-name">{{ report.opponent_name }}</p>
             <p class="report-meta">{{ report.division }} · {{ report.season_year }}</p>
             <dl>
-              <div><dt>Latest snapshot</dt><dd>{% if report.latest_snapshot_at %}<time datetime="{{ report.latest_snapshot_at.isoformat() }}">{{ report.latest_snapshot_at.strftime("%b %-d, %Y") }}</time>{% else %}No snapshot yet{% endif %}</dd></div>
-              <div><dt>Completeness</dt><dd>{{ report.completeness }}{% if report.unavailable_count %} · {{ report.unavailable_count }} unavailable{% endif %}</dd></div>
-              <div><dt>Build status</dt><dd>{{ report.build_status }}</dd></div>
+              <div><dt>Latest snapshot</dt><dd>{% if report.latest_snapshot_at %}<time datetime="{{ report.latest_snapshot_at.isoformat() }}">{{ report.latest_snapshot_at.strftime("%b %-d, %Y · %-I:%M %p") }} UTC</time>{% else %}No snapshot yet{% endif %}</dd></div>
+              <div><dt>Completeness</dt><dd>{% if report.completeness != "—" %}<span class="status-chip" data-state="{{ report.completeness|lower }}">{{ report.completeness }}</span>{% else %}—{% endif %}{% if report.unavailable_count %} · {{ report.unavailable_count }} unavailable{% endif %}</dd></div>
+              <div><dt>Build status</dt><dd>{% if report.build_status != "No active build" %}<span class="status-chip" data-state="{{ report.build_status|lower }}">{{ report.build_status }}</span>{% else %}No active build{% endif %}</dd></div>
               <div><dt>Snapshots</dt><dd>{{ report.snapshot_count }}</dd></div>
             </dl>
             <a class="button button--quiet" href="/reports/{{ report.id }}">Open report<span class="visually-hidden"> for {{ report.opponent_name }}</span></a>

@@ -15,7 +15,9 @@
   <style>
     .report-heading { margin: -24px 0 28px; color: var(--muted); }
     .report-grid { display: grid; gap: 24px; }
-    .report-panel { padding: 24px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
+    .report-panel { padding: 24px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+    .report-panel--latest { border-width: 2px; box-shadow: 0 16px 32px rgb(32 33 31 / .06); }
+    .report-panel--active { padding: 16px 24px; }
     .report-panel h2, .report-panel h3, .report-panel p { margin-top: 0; }
     .report-panel__heading { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
     .snapshot-meta { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 16px 0; color: var(--muted); font-size: 14px; }
@@ -26,7 +28,7 @@
     .status-note { min-height: 24px; color: var(--muted); }
     .history-cards { display: none; }
     .report-actions { display: flex; justify-content: flex-end; margin: -62px 0 28px; }
-    .refresh-confirmation { padding: 24px; border: 1px solid var(--border); border-radius: 14px; color: var(--ink); background: var(--surface); max-width: 620px; }
+    .refresh-confirmation { width: min(calc(100% - 32px), 480px); max-height: calc(100vh - 32px); overflow: auto; padding: 24px; border: 1px solid var(--border); border-radius: 12px; color: var(--ink); background: var(--surface); }
     .refresh-confirmation::backdrop { background: rgb(0 0 0 / 0.35); }
     .refresh-confirmation__actions, .history-pagination { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
     .history-pagination { justify-content: space-between; margin-top: 16px; }
@@ -58,7 +60,7 @@
       {% if report_detail.active_build %}
         <a class="button button--secondary" href="#active-build-heading">View refresh status</a>
       {% else %}
-        <a class="button" href="{{ url_for('reports.refresh_report', report_id=report_detail.id) }}">Refresh report</a>
+        <a class="button button--primary" href="{{ url_for('reports.refresh_report', report_id=report_detail.id) }}">Refresh report</a>
       {% endif %}
     </div>
     {% if request.args.get('notice') == 'refresh_started' %}
@@ -70,22 +72,22 @@
     {% endif %}
     {% if retry_error %}<div class="banner banner--error" role="alert">{{ retry_error }}</div>{% endif %}
     {% if refresh_confirmation %}
-      <dialog class="refresh-confirmation" open aria-labelledby="refresh-title" aria-describedby="refresh-description">
+      <dialog class="refresh-confirmation" open data-modal data-auto-modal aria-labelledby="refresh-title" aria-describedby="refresh-description">
         <h2 id="refresh-title">Refresh {{ report_detail.opponent_name }}?</h2>
-        <p id="refresh-description">{% if report_detail.latest_snapshot %}This collects live NCAA data and creates a new snapshot. Your {{ report_detail.latest_snapshot.published_at.strftime("%b %-d, %Y · %-I:%M %p") }} snapshot will stay unchanged.{% else %}This starts a new live collection. Failed attempts will remain in the build history.{% endif %}</p>
+        <p id="refresh-description">{% if report_detail.latest_snapshot %}This collects live NCAA data and creates a new snapshot. Your {{ report_detail.latest_snapshot.published_at.strftime("%b %-d, %Y · %-I:%M %p") }} UTC snapshot will stay unchanged.{% else %}This starts a new live collection. Failed attempts will remain in the build history.{% endif %}</p>
         {% if refresh_error %}<div class="banner banner--error" role="alert">{{ refresh_error }}</div>{% endif %}
         <form method="post" action="{{ url_for('reports.refresh_report', report_id=report_detail.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="idempotency_key" value="{{ refresh_action_id }}">
           <div class="refresh-confirmation__actions">
-            <button class="button" type="submit">Start live refresh</button>
-            <a class="button button--secondary" href="{{ url_for('reports.detail', report_id=report_detail.id) }}" autofocus>Keep current snapshot</a>
+            <button class="button button--primary" type="submit" data-pending-label="Starting refresh…">Start live refresh</button>
+            <a class="button button--secondary" href="{{ url_for('reports.detail', report_id=report_detail.id) }}" data-dialog-close autofocus>Keep current snapshot</a>
           </div>
         </form>
       </dialog>
     {% endif %}
     <div class="report-grid">
-      <section class="report-panel" aria-labelledby="latest-snapshot-heading">
+      <section class="report-panel report-panel--latest" aria-labelledby="latest-snapshot-heading">
         <div class="report-panel__heading">
           <div>
             <h2 id="latest-snapshot-heading">Latest snapshot</h2>
@@ -96,19 +98,25 @@
             {% endif %}
           </div>
           {% if report_detail.latest_snapshot %}
-            <span class="status-chip">{{ report_detail.latest_snapshot.status|title }}</span>
+            <span class="status-chip" data-state="{{ report_detail.latest_snapshot.status }}">{{ report_detail.latest_snapshot.status|title }}</span>
           {% endif %}
         </div>
         {% if report_detail.latest_snapshot %}
           <div class="snapshot-meta">
-            <span>Published <time datetime="{{ report_detail.latest_snapshot.published_at.isoformat() }}">{{ report_detail.latest_snapshot.published_at.strftime("%b %-d, %Y · %-I:%M %p") }}</time></span>
+            <span>Published <time datetime="{{ report_detail.latest_snapshot.published_at.isoformat() }}">{{ report_detail.latest_snapshot.published_at.strftime("%b %-d, %Y · %-I:%M %p") }} UTC</time></span>
             {% if report_detail.latest_snapshot.source_collected_at %}
-              <span>Source collected <time datetime="{{ report_detail.latest_snapshot.source_collected_at.isoformat() }}">{{ report_detail.latest_snapshot.source_collected_at.strftime("%b %-d · %-I:%M %p") }}</time></span>
+              <span>Source collected <time datetime="{{ report_detail.latest_snapshot.source_collected_at.isoformat() }}">{{ report_detail.latest_snapshot.source_collected_at.strftime("%b %-d · %-I:%M %p") }} UTC</time></span>
             {% endif %}
-            <span>{% if report_detail.latest_snapshot.predecessor_published_at %}Refresh of <time datetime="{{ report_detail.latest_snapshot.predecessor_published_at.isoformat() }}">{{ report_detail.latest_snapshot.predecessor_published_at.strftime("%b %-d, %Y · %-I:%M %p") }}</time>{% else %}Initial snapshot{% endif %}</span>
+            <span>{% if report_detail.latest_snapshot.predecessor_published_at %}Refresh of <time datetime="{{ report_detail.latest_snapshot.predecessor_published_at.isoformat() }}">{{ report_detail.latest_snapshot.predecessor_published_at.strftime("%b %-d, %Y · %-I:%M %p") }} UTC</time>{% else %}Initial snapshot{% endif %}</span>
           </div>
           {% if report_detail.latest_snapshot.status == "partial" %}
-            <div class="banner" role="status">This snapshot is usable, but one or more sections were unavailable.</div>
+            <div class="banner banner--warning" role="status">
+              <strong>Some data is unavailable in this snapshot.</strong>
+              <p>You can still review the saved sections. Unavailable:
+                {% set unavailable = namespace(first=true) %}
+                {% for section in report_detail.latest_sections if section.state in ("Unavailable", "Failed") %}{% if not unavailable.first %}, {% endif %}{{ section.name }}{% set unavailable.first = false %}{% endfor %}.
+              </p>
+            </div>
           {% endif %}
           {% if report_detail.latest_sections %}
             <ul class="section-list" aria-label="Latest snapshot sections">
@@ -121,6 +129,7 @@
             <form class="inline-action" method="post" data-authenticated-snapshot-download action="{{ url_for('reports.download_snapshot_artifact', report_id=report_detail.id, snapshot_id=report_detail.latest_snapshot.id, artifact_id=report_detail.latest_snapshot.artifact_id) }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button class="button" type="submit">Download snapshot</button>
+              <p class="download-status" role="status" aria-live="polite" tabindex="-1" data-download-status></p>
             </form>
           {% else %}
             <p class="unavailable-copy"><strong>Download unavailable.</strong> No workbook was saved for this snapshot. Roster Scout will not rebuild a historical snapshot with newer data.</p>
@@ -129,7 +138,7 @@
       </section>
 
       {% if report_detail.active_build %}
-        <section class="report-panel" aria-labelledby="active-build-heading"
+        <section class="report-panel report-panel--active" aria-labelledby="active-build-heading"
                  data-report-status-root
                  data-report-status-url="{{ url_for('reports.detail_status', report_id=report_detail.id) }}">
           <div class="report-panel__heading">
@@ -137,10 +146,10 @@
               <h2 id="active-build-heading">Active build</h2>
               <p data-status-message>{{ report_detail.active_build.message }}</p>
             </div>
-            <span class="status-chip" data-status-heading>{{ report_detail.active_build.heading }}</span>
+            <span class="status-chip" data-state="{{ report_detail.active_build.state }}" data-status-heading>{{ report_detail.active_build.heading }}</span>
           </div>
           {% if report_detail.latest_snapshot %}
-            <p>Your {{ report_detail.latest_snapshot.published_at.strftime("%-I:%M %p") }} snapshot remains available while this refresh runs.</p>
+            <p>Your {{ report_detail.latest_snapshot.published_at.strftime("%-I:%M %p") }} UTC snapshot remains available while this refresh runs.</p>
           {% endif %}
           <ul class="section-list" data-status-sections aria-label="Refresh sections">
             {% for section in report_detail.active_build.sections %}
@@ -160,12 +169,12 @@
             {% for build in report_detail.failed_builds %}
               <li>
                 <strong>{{ build.heading }}</strong>
-                <span><time datetime="{{ build.updated_at.isoformat() }}">{{ build.updated_at.strftime("%b %-d, %Y · %-I:%M %p") }}</time> · {{ build.message }}</span>
+                <span><time datetime="{{ build.updated_at.isoformat() }}">{{ build.updated_at.strftime("%b %-d, %Y · %-I:%M %p") }} UTC</time> · {{ build.message }}</span>
                 {% if not report_detail.active_build and retry_action_id %}
                   <form class="inline-action" method="post" action="{{ url_for('reports.retry_report', report_id=report_detail.id, failed_job_id=build.id) }}">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="idempotency_key" value="{{ retry_action_id }}">
-                    <button class="button button--secondary" type="submit">Retry build</button>
+                    <button class="button button--primary" type="submit" data-pending-label="Accepting retry…">Retry build</button>
                   </form>
                 {% endif %}
               </li>
@@ -184,16 +193,17 @@
               <tbody>
                 {% for snapshot in report_detail.history %}
                   <tr data-snapshot-row="desktop">
-                    <th scope="row"><time datetime="{{ snapshot.published_at.isoformat() }}">{{ snapshot.published_at.strftime("%b %-d, %Y · %-I:%M %p") }}</time>{% if snapshot.id == report_detail.latest_snapshot.id %} <span class="status-chip">Latest</span>{% endif %}</th>
-                    <td>{{ snapshot.status|title }}</td>
-                    <td>{% if snapshot.source_collected_at %}<time datetime="{{ snapshot.source_collected_at.isoformat() }}">{{ snapshot.source_collected_at.strftime("%b %-d, %Y · %-I:%M %p") }}</time>{% else %}Not recorded{% endif %}</td>
-                    <td>{% if snapshot.predecessor_published_at %}Refresh of <time datetime="{{ snapshot.predecessor_published_at.isoformat() }}">{{ snapshot.predecessor_published_at.strftime("%b %-d, %Y · %-I:%M %p") }}</time>{% else %}Initial snapshot{% endif %}</td>
+                    <th scope="row"><time datetime="{{ snapshot.published_at.isoformat() }}">{{ snapshot.published_at.strftime("%b %-d, %Y · %-I:%M %p") }} UTC</time>{% if snapshot.id == report_detail.latest_snapshot.id %} <span class="status-chip status-chip--ready">Latest</span>{% endif %}</th>
+                    <td><span class="status-chip" data-state="{{ snapshot.status }}">{{ snapshot.status|title }}</span></td>
+                    <td>{% if snapshot.source_collected_at %}<time datetime="{{ snapshot.source_collected_at.isoformat() }}">{{ snapshot.source_collected_at.strftime("%b %-d, %Y · %-I:%M %p") }} UTC</time>{% else %}Not recorded{% endif %}</td>
+                    <td>{% if snapshot.predecessor_published_at %}Refresh of <time datetime="{{ snapshot.predecessor_published_at.isoformat() }}">{{ snapshot.predecessor_published_at.strftime("%b %-d, %Y · %-I:%M %p") }} UTC</time>{% else %}Initial snapshot{% endif %}</td>
                     <td>{% if snapshot.artifact_available %}Workbook ready{% else %}Download unavailable{% endif %}</td>
                     <td>
                       {% if snapshot.artifact_id %}
                         <form method="post" data-authenticated-snapshot-download action="{{ url_for('reports.download_snapshot_artifact', report_id=report_detail.id, snapshot_id=snapshot.id, artifact_id=snapshot.artifact_id) }}">
                           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                           <button class="button button--secondary" type="submit">Download snapshot</button>
+                          <p class="download-status" role="status" aria-live="polite" tabindex="-1" data-download-status></p>
                         </form>
                       {% else %}
                         <span class="unavailable-copy">No workbook was saved for this snapshot. Roster Scout will not rebuild a historical snapshot with newer data.</span>
@@ -207,15 +217,16 @@
           <ul class="history-cards" aria-label="Saved snapshots">
             {% for snapshot in report_detail.history %}
               <li data-snapshot-row="mobile">
-                <strong>{{ snapshot.published_at.strftime("%b %-d, %Y · %-I:%M %p") }}{% if snapshot.id == report_detail.latest_snapshot.id %} · Latest{% endif %}</strong>
+                <strong>{{ snapshot.published_at.strftime("%b %-d, %Y · %-I:%M %p") }} UTC{% if snapshot.id == report_detail.latest_snapshot.id %} · Latest{% endif %}</strong>
                 <p>Status: {{ snapshot.status|title }}</p>
-                <p>Source freshness: {% if snapshot.source_collected_at %}{{ snapshot.source_collected_at.strftime("%b %-d, %Y · %-I:%M %p") }}{% else %}Not recorded{% endif %}</p>
-                <p>Predecessor: {% if snapshot.predecessor_published_at %}Refresh of {{ snapshot.predecessor_published_at.strftime("%b %-d, %Y · %-I:%M %p") }}{% else %}Initial snapshot{% endif %}</p>
+                <p>Source freshness: {% if snapshot.source_collected_at %}{{ snapshot.source_collected_at.strftime("%b %-d, %Y · %-I:%M %p") }} UTC{% else %}Not recorded{% endif %}</p>
+                <p>Predecessor: {% if snapshot.predecessor_published_at %}Refresh of {{ snapshot.predecessor_published_at.strftime("%b %-d, %Y · %-I:%M %p") }} UTC{% else %}Initial snapshot{% endif %}</p>
                 <p>Artifact: {% if snapshot.artifact_available %}Workbook ready{% else %}Download unavailable{% endif %}</p>
                 {% if snapshot.artifact_id %}
                   <form method="post" data-authenticated-snapshot-download action="{{ url_for('reports.download_snapshot_artifact', report_id=report_detail.id, snapshot_id=snapshot.id, artifact_id=snapshot.artifact_id) }}">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button class="button button--secondary" type="submit">Download snapshot</button>
+                    <p class="download-status" role="status" aria-live="polite" tabindex="-1" data-download-status></p>
                   </form>
                 {% else %}
                   <p class="unavailable-copy">No workbook was saved for this snapshot. Roster Scout will not rebuild a historical snapshot with newer data.</p>

@@ -1,31 +1,63 @@
 {% extends "product_base.html" %}
-{% macro member_actions(member) %}
-  <form class="stack-form" action="{{ url_for('organization.change_role') }}" method="post">
+{% macro member_actions(member, instance) %}
+  {% set role_form_id = "role-form-" ~ instance %}
+  {% set role_dialog_id = "role-dialog-" ~ instance %}
+  {% set remove_dialog_id = "remove-dialog-" ~ instance %}
+  <form id="{{ role_form_id }}" class="member-action-form" action="{{ url_for('organization.change_role') }}" method="post" data-role-form data-original-role="{{ member.role }}"{% if member.role == 'admin' and not member.is_last_admin %} data-confirm-dialog="{{ role_dialog_id }}"{% endif %}>
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="membership_id" value="{{ member.token }}">
     <label>
       <span class="visually-hidden">Role for {{ member.email }}</span>
-      <select name="role" aria-label="Role for {{ member.email }}">
+      <select name="role" aria-label="Role for {{ member.email }}"{% if member.is_last_admin %} disabled aria-describedby="last-admin-help-{{ instance }}"{% endif %}>
         <option value="member"{% if member.role == 'member' %} selected{% endif %}>Member</option>
         <option value="admin"{% if member.role == 'admin' %} selected{% endif %}>Admin</option>
       </select>
     </label>
-    <button class="button" type="submit">Update role</button>
+    <button class="button" type="submit" data-pending-label="Saving role…"{% if member.is_last_admin %} disabled{% endif %}>Save role</button>
   </form>
-  <details class="confirmation">
-    <summary class="button button--danger">Remove member</summary>
-    <div class="confirmation__body">
-      <p>Remove {{ member.email }} from {{ organization_name }}? They’ll immediately lose access to this organization’s reports.</p>
-      <div class="confirmation__actions">
+  {% if member.is_last_admin %}
+    <p id="last-admin-help-{{ instance }}" class="action-help"><strong>Last admin.</strong> Add another admin before changing this role.</p>
+  {% elif member.role == 'admin' %}
+    <dialog id="{{ role_dialog_id }}" class="confirmation-dialog" data-modal aria-labelledby="{{ role_dialog_id }}-title" aria-describedby="{{ role_dialog_id }}-description">
+      <h2 id="{{ role_dialog_id }}-title">Change {{ member.email }} to Member?</h2>
+      <p id="{{ role_dialog_id }}-description">They’ll no longer manage invitations or members.</p>
+      <div class="confirmation-dialog__actions">
+        <button class="button" type="button" data-dialog-close autofocus>Keep admin</button>
+        <button class="button button--primary" type="button" data-confirm-submit="{{ role_form_id }}">Change to Member</button>
+      </div>
+    </dialog>
+  {% endif %}
+  <button class="button button--danger" type="button" data-dialog-trigger aria-controls="{{ remove_dialog_id }}"{% if member.is_last_admin %} disabled aria-describedby="last-admin-help-{{ instance }}"{% endif %}>Remove member</button>
+  {% if not member.is_last_admin %}
+    <dialog id="{{ remove_dialog_id }}" class="confirmation-dialog" data-modal aria-labelledby="{{ remove_dialog_id }}-title" aria-describedby="{{ remove_dialog_id }}-description">
+      <h2 id="{{ remove_dialog_id }}-title">Remove member?</h2>
+      <p id="{{ remove_dialog_id }}-description">Remove {{ member.email }} from {{ organization_name }}? They’ll immediately lose access to this organization’s reports.</p>
+      <div class="confirmation-dialog__actions">
+        <button class="button" type="button" data-dialog-close autofocus>Keep member</button>
         <form action="{{ url_for('organization.remove_member') }}" method="post">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="membership_id" value="{{ member.token }}">
-          <button class="button button--danger" type="submit">Remove member</button>
+          <button class="button button--danger" type="submit" data-pending-label="Removing member…">Remove member</button>
         </form>
-        <button class="button" type="button" onclick="this.closest('details').removeAttribute('open')">Keep member</button>
       </div>
+    </dialog>
+  {% endif %}
+{% endmacro %}
+
+{% macro invitation_action(invitation, instance) %}
+  {% set dialog_id = "revoke-dialog-" ~ instance %}
+  <button class="button button--danger" type="button" data-dialog-trigger aria-controls="{{ dialog_id }}">Revoke invitation</button>
+  <dialog id="{{ dialog_id }}" class="confirmation-dialog" data-modal aria-labelledby="{{ dialog_id }}-title" aria-describedby="{{ dialog_id }}-description">
+    <h2 id="{{ dialog_id }}-title">Revoke invitation?</h2>
+    <p id="{{ dialog_id }}-description">Revoke the invitation to {{ invitation.email }}? It can no longer be accepted.</p>
+    <div class="confirmation-dialog__actions">
+      <button class="button" type="button" data-dialog-close autofocus>Keep invitation</button>
+      <form action="{{ url_for('organization.revoke', invitation_id=invitation.id) }}" method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="button button--danger" type="submit" data-pending-label="Revoking invitation…">Revoke invitation</button>
+      </form>
     </div>
-  </details>
+  </dialog>
 {% endmacro %}
 {% block title %}Members · Roster Scout{% endblock %}
 {% block breadcrumbs %}<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/reports">Reports</a> / Members</nav>{% endblock %}
@@ -75,14 +107,14 @@
         <thead><tr><th scope="col">Account</th><th scope="col">Role</th><th scope="col">Joined</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>
         <tbody>
           {% for member in members %}
-          <tr><td>{{ member.email }}{% if member.is_current %} <span class="status-chip">You</span>{% endif %}</td><td>{{ member.role|title }}</td><td><time datetime="{{ member.joined_at.isoformat() }}">{{ member.joined_at.strftime('%b %-d, %Y') }}</time></td><td>Active</td><td>{{ member_actions(member) }}</td></tr>
+          <tr><td>{{ member.email }}{% if member.is_current %} <span class="status-chip">You</span>{% endif %}</td><td>{{ member.role|title }}{% if member.is_last_admin %} <span class="status-chip status-chip--warning">Last admin</span>{% endif %}</td><td><time datetime="{{ member.joined_at.isoformat() }}">{{ member.joined_at.strftime('%b %-d, %Y') }} UTC</time></td><td>Active</td><td>{{ member_actions(member, 'desktop-' ~ loop.index) }}</td></tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
     <ul class="member-cards" aria-label="Active members">
       {% for member in members %}
-      <li><strong>{{ member.email }}</strong>{% if member.is_current %} <span class="status-chip">You</span>{% endif %}<dl><div><dt>Role</dt><dd>{{ member.role|title }}</dd></div><div><dt>Status</dt><dd>Active</dd></div></dl>{{ member_actions(member) }}</li>
+      <li><strong>{{ member.email }}</strong>{% if member.is_current %} <span class="status-chip">You</span>{% endif %}<dl><div><dt>Role</dt><dd>{{ member.role|title }}{% if member.is_last_admin %} · Last admin{% endif %}</dd></div><div><dt>Joined</dt><dd><time datetime="{{ member.joined_at.isoformat() }}">{{ member.joined_at.strftime('%b %-d, %Y') }} UTC</time></dd></div><div><dt>Status</dt><dd>Active</dd></div></dl>{{ member_actions(member, 'mobile-' ~ loop.index) }}</li>
       {% endfor %}
     </ul>
   </section>
@@ -96,14 +128,14 @@
         <thead><tr><th scope="col">Email</th><th scope="col">Role</th><th scope="col">Invited by</th><th scope="col">Sent</th><th scope="col">Expires</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>
         <tbody>
           {% for invitation in invitations %}
-          <tr><td>{{ invitation.email }}</td><td>{{ invitation.role|title }}</td><td>{{ invitation.invited_by }}</td><td><time datetime="{{ invitation.created_at.isoformat() }}">{{ invitation.created_at.strftime('%b %-d, %Y') }}</time></td><td><time datetime="{{ invitation.expires_at.isoformat() }}">{{ invitation.expires_at.strftime('%b %-d, %Y') }}</time></td><td>Pending</td><td><details class="confirmation"><summary class="button button--danger">Revoke invitation</summary><div class="confirmation__body"><p>Revoke the invitation to {{ invitation.email }}? It can no longer be accepted.</p><div class="confirmation__actions"><form action="{{ url_for('organization.revoke', invitation_id=invitation.id) }}" method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button button--danger" type="submit">Revoke invitation</button></form><button class="button" type="button" onclick="this.closest('details').removeAttribute('open')">Keep invitation</button></div></div></details></td></tr>
+          <tr><td>{{ invitation.email }}</td><td>{{ invitation.role|title }}</td><td>{{ invitation.invited_by }}</td><td><time datetime="{{ invitation.created_at.isoformat() }}">{{ invitation.created_at.strftime('%b %-d, %Y') }} UTC</time></td><td><time datetime="{{ invitation.expires_at.isoformat() }}">{{ invitation.expires_at.strftime('%b %-d, %Y') }} UTC</time></td><td>Pending</td><td>{{ invitation_action(invitation, 'desktop-' ~ loop.index) }}</td></tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
     <ul class="member-cards" aria-label="Pending invitations">
       {% for invitation in invitations %}
-      <li><strong>{{ invitation.email }}</strong><dl><div><dt>Role</dt><dd>{{ invitation.role|title }}</dd></div><div><dt>Invited by</dt><dd>{{ invitation.invited_by }}</dd></div><div><dt>Sent</dt><dd><time datetime="{{ invitation.created_at.isoformat() }}">{{ invitation.created_at.strftime('%b %-d, %Y') }}</time></dd></div><div><dt>Expires</dt><dd><time datetime="{{ invitation.expires_at.isoformat() }}">{{ invitation.expires_at.strftime('%b %-d, %Y') }}</time></dd></div><div><dt>Status</dt><dd>Pending</dd></div></dl><details class="confirmation"><summary class="button button--danger">Revoke invitation</summary><div class="confirmation__body"><p>Revoke the invitation to {{ invitation.email }}? It can no longer be accepted.</p><div class="confirmation__actions"><form action="{{ url_for('organization.revoke', invitation_id=invitation.id) }}" method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button button--danger" type="submit">Revoke invitation</button></form><button class="button" type="button" onclick="this.closest('details').removeAttribute('open')">Keep invitation</button></div></div></details></li>
+      <li><strong>{{ invitation.email }}</strong><dl><div><dt>Role</dt><dd>{{ invitation.role|title }}</dd></div><div><dt>Invited by</dt><dd>{{ invitation.invited_by }}</dd></div><div><dt>Sent</dt><dd><time datetime="{{ invitation.created_at.isoformat() }}">{{ invitation.created_at.strftime('%b %-d, %Y') }} UTC</time></dd></div><div><dt>Expires</dt><dd><time datetime="{{ invitation.expires_at.isoformat() }}">{{ invitation.expires_at.strftime('%b %-d, %Y') }} UTC</time></dd></div><div><dt>Status</dt><dd>Pending</dd></div></dl>{{ invitation_action(invitation, 'mobile-' ~ loop.index) }}</li>
       {% endfor %}
     </ul>
     {% else %}<p class="empty-copy">There are no pending invitations.</p>{% endif %}

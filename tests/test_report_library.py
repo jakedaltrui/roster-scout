@@ -557,8 +557,9 @@ class SnapshotHistoryTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Some data is unavailable in this snapshot.", response.data)
         self.assertIn(
-            b"This snapshot is usable, but one or more sections were unavailable.",
+            b"You can still review the saved sections. Unavailable:",
             response.data,
         )
         self.assertIn(b"Batting", response.data)
@@ -1701,6 +1702,34 @@ class ReportAcceptanceIdempotencyTests(unittest.TestCase):
         self.assertEqual(self._counts()["reports"], 0)
         self.assertEqual(self._counts()["jobs"], 0)
         self.assertEqual(self._counts()["usage"], 0)
+
+    def test_no_javascript_team_list_accepts_one_exact_catalog_identity(self):
+        organization_id, account_id, _membership_id = self._member()
+        client, credential = self._route_client(organization_id, account_id)
+
+        with patch(
+            "roster_scout.report_routes.list_ncaa_teams",
+            return_value=self._catalog(),
+        ):
+            fallback = client.get("/reports/new?nojs=1")
+            accepted = client.post(
+                "/reports/new?nojs=1",
+                data={
+                    "csrf_token": self._csrf_token(credential),
+                    "division": "d1",
+                    "team_name": "",
+                    "season_team_id": "",
+                    "fallback_team": "d1:67890",
+                    "idempotency_key": str(uuid.uuid4()),
+                },
+            )
+
+        self.assertEqual(fallback.status_code, 200)
+        self.assertIn(b'name="fallback_team"', fallback.data)
+        self.assertIn(b"D1 \xc2\xb7 State University", fallback.data)
+        self.assertEqual(accepted.status_code, 303)
+        self.assertEqual(self._counts()["reports"], 1)
+        self.assertEqual(self._counts()["jobs"], 1)
 
     def test_valid_and_repeated_posts_use_server_context_and_converge(self):
         from roster_scout.models import ReportJob

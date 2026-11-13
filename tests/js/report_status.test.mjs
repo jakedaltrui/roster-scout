@@ -117,7 +117,7 @@ test("fifteen-minute timeout stops and manual check can resume", async () => {
   assert.deepEqual(fx.rendered.at(-1), {
     state: "still_working",
     heading: "Still working",
-    message: "Automatic updates paused. Check status to continue.",
+    message: "This is taking longer than expected. You can check again without starting another build.",
     terminal: true,
     sections: [],
   });

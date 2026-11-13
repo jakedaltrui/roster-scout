@@ -56,7 +56,7 @@
         render({
           state: "still_working",
           heading: "Still working",
-          message: "Automatic updates paused. Check status to continue.",
+          message: "This is taking longer than expected. You can check again without starting another build.",
           terminal: true,
           sections: [],
         });
@@ -165,7 +165,10 @@
         if (note) note.textContent = view.transient_error;
         return;
       }
-      if (heading) heading.textContent = view.heading;
+      if (heading) {
+        heading.textContent = view.heading;
+        if (view.state) heading.dataset.state = view.state;
+      }
       if (message) message.textContent = view.message;
       if (note) note.textContent = "";
       replaceSections(view.sections || []);

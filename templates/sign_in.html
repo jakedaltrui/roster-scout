@@ -9,37 +9,35 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600&display=swap" rel="stylesheet">
   <style>
-    :root { color-scheme:light dark; font-family:"DM Sans",system-ui,sans-serif; background:#f3f4ef; color:#20211f; }
+    :root { color-scheme:light dark; font-family:"DM Sans",system-ui,sans-serif; --canvas:#f6f6f3; --surface:#fff; --ink:#20211f; --muted:#6f726c; --border:#dedfd9; --accent:#214d3b; --accent-ink:#fff; }
     * { box-sizing:border-box; }
-    body { min-height:100vh; margin:0; display:grid; place-items:center; padding:24px; background:radial-gradient(circle at top,#fff 0,#f3f4ef 62%); }
+    body { min-height:100vh; margin:0; display:grid; place-items:center; padding:24px; background:var(--canvas); color:var(--ink); font-size:16px; line-height:1.5; }
     .skip { position:fixed; top:8px; left:8px; z-index:2; padding:12px 16px; border-radius:8px; background:#20211f; color:#fff; transform:translateY(-160%); }
-    .skip:focus { transform:none; outline:3px solid #4f6f52; outline-offset:3px; }
+    .skip:focus { transform:none; outline:3px solid var(--accent); outline-offset:3px; }
     main { width:min(100%,480px); }
     .brand { display:flex; align-items:center; gap:10px; margin:0 0 24px; font-weight:600; letter-spacing:-.03em; }
-    .mark { display:grid; place-items:center; width:36px; height:36px; border:1px solid #cdd0c7; border-radius:12px; }
-    .card { padding:32px; border:1px solid #d8dbd2; border-radius:20px; background:rgba(255,255,255,.92); box-shadow:0 24px 64px rgba(32,33,31,.08); }
-    h1 { margin:0; font-size:32px; line-height:1.1; letter-spacing:-.045em; }
-    p { margin:16px 0 0; color:#666a63; line-height:1.6; }
-    form { margin-top:28px; }
-    button { width:100%; min-height:48px; border:0; border-radius:12px; background:#20211f; color:#fff; font:600 15px/1 "DM Sans",sans-serif; cursor:pointer; }
-    button:hover { background:#343631; }
-    button:focus-visible { outline:3px solid #4f6f52; outline-offset:3px; }
-    .note { font-size:13px; }
-    .handoff { margin-top:12px; color:#4f6f52; font-size:13px; font-weight:600; }
+    .mark { display:grid; place-items:center; width:36px; height:36px; border:1px solid var(--border); border-radius:12px; }
+    .mark img { width:28px; height:28px; object-fit:contain; }
+    .card { padding:32px; border:1px solid var(--border); border-radius:22px; background:var(--surface); box-shadow:0 24px 64px rgba(32,33,31,.08); }
+    h1 { margin:0; font-size:28px; font-weight:600; line-height:1.2; }
+    p { margin:16px 0 0; color:var(--muted); }
+    form { margin-top:24px; }
+    button { width:100%; min-height:48px; border:0; border-radius:12px; background:var(--accent); color:var(--accent-ink); font:600 14px/1.4 "DM Sans",sans-serif; cursor:pointer; }
+    button:focus-visible { outline:3px solid var(--accent); outline-offset:3px; }
+    .note,.handoff { font-size:14px; }
+    .handoff { margin-top:8px; color:var(--muted); font-weight:600; }
     [hidden] { display:none !important; }
     @media (max-width:480px) { body { padding:16px; } .card { padding:24px 20px; } h1 { font-size:28px; } }
     @media (prefers-color-scheme:dark) {
-      :root { background:#111311; color:#f3f4ef; }
-      body { background:radial-gradient(circle at top,#252825 0,#111311 66%); }
-      .card { border-color:#353934; background:#1b1e1b; box-shadow:0 24px 64px rgba(0,0,0,.28); }
-      .mark { border-color:#444940; } p { color:#aeb3aa; } button { background:#edf0e9; color:#171917; } button:hover { background:#d7dcd3; }
+      :root { --canvas:#09090b; --surface:#171719; --ink:#f0f0ee; --muted:#a1a1a4; --border:#303034; --accent:#b3d1b7; --accent-ink:#171719; }
+      .card { box-shadow:0 24px 64px rgba(0,0,0,.28); }
     }
   </style>
 </head>
 <body>
   <a class="skip" href="#main-content">Skip to content</a>
   <main id="main-content">
-    <div class="brand"><span class="mark" aria-hidden="true">RS</span><span>roster scout</span></div>
+    <div class="brand"><span class="mark" aria-hidden="true"><img src="{{ url_for('static', filename='brand/roster-scout-dog-outlined.png') }}" alt=""></span><span>roster scout</span></div>
     <section class="card" aria-labelledby="sign-in-title">
       <h1 id="sign-in-title">Sign in to Roster Scout</h1>
       <p>Use your work email to access your organization’s opponent reports.</p>

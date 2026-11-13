@@ -106,6 +106,10 @@ def _members_view_model(context):
                 OrganizationInvitation.id,
             )
         ))
+        admin_count = sum(
+            1 for membership, _account in member_rows
+            if membership.role == "admin"
+        )
         members = [
             {
                 "token": _membership_token(membership.id),
@@ -113,6 +117,9 @@ def _members_view_model(context):
                 "role": membership.role,
                 "joined_at": membership.created_at,
                 "is_current": membership.account_id == context.account_id,
+                "is_last_admin": (
+                    membership.role == "admin" and admin_count == 1
+                ),
             }
             for membership, account in member_rows
         ]

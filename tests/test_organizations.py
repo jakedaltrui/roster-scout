@@ -1301,9 +1301,12 @@ class OrganizationInvitationRouteTests(_PostgreSQLOrganizationCase):
         self.assertIn("Pending invitations (0)", body)
         self.assertIn("<table", body)
         self.assertIn('class="member-cards"', body)
-        self.assertIn("Update role", body)
+        self.assertIn("Save role", body)
+        self.assertIn("Last admin", body)
+        self.assertIn("Add another admin before changing this role.", body)
+        self.assertIn("disabled", body)
         self.assertIn("Remove member", body)
-        self.assertIn(
+        self.assertNotIn(
             "They’ll immediately lose access to this organization’s reports.",
             body,
         )
@@ -1371,6 +1374,39 @@ class OrganizationInvitationRouteTests(_PostgreSQLOrganizationCase):
             stored = session.get(OrganizationMembership, membership_id)
             self.assertEqual(stored.status, "inactive")
             self.assertIsNotNone(stored.deactivated_at)
+
+    def test_member_actions_use_labelled_dialogs_and_safe_initial_focus(self):
+        from roster_scout.models import Account, OrganizationMembership
+
+        credential, organization_id, _ = self._credential(
+            email="admin@example.edu"
+        )
+        with self.Session.begin() as session:
+            second_admin = Account(
+                normalized_email="second-admin@example.edu",
+                email_verified_at=self.now,
+                status="active",
+            )
+            session.add(second_admin)
+            session.flush()
+            session.add(OrganizationMembership(
+                organization_id=organization_id,
+                account_id=second_admin.id,
+                role="admin",
+                status="active",
+            ))
+
+        self._set_cookie(credential)
+        body = self.client.get("/organization/members").get_data(as_text=True)
+
+        self.assertIn("data-modal", body)
+        self.assertIn('aria-labelledby="role-dialog-', body)
+        self.assertIn('aria-describedby="role-dialog-', body)
+        self.assertIn("Change to Member", body)
+        self.assertIn("Keep admin", body)
+        self.assertIn("Keep member", body)
+        self.assertIn("autofocus", body)
+        self.assertNotIn('<details class="confirmation">', body)
 
     def test_member_direct_request_gets_fixed_permission_page_without_data(self):
         credential, organization_id, _ = self._credential(

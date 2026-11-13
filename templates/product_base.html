@@ -18,12 +18,12 @@
   <header class="product-header">
     <div class="product-header__inner">
       <a class="product-brand" href="/reports" aria-label="Roster Scout reports">
-        <span class="product-brand__mark" aria-hidden="true">RS</span>
+        <span class="product-brand__mark" aria-hidden="true"><img src="{{ url_for('static', filename='brand/roster-scout-dog-outlined.png') }}" alt=""></span>
         <span>roster scout</span>
       </a>
       <nav class="product-nav" aria-label="Primary navigation">
         <a href="/reports"{% if request.endpoint == "reports.library" %} aria-current="page"{% endif %}>Reports</a>
-        {% if current_role == "admin" %}<a href="/organization/members">Members</a>{% endif %}
+        {% if current_role == "admin" %}<a href="/organization/members"{% if request.endpoint == "organization.members" %} aria-current="page"{% endif %}>Members</a>{% endif %}
       </nav>
       <div class="product-actions">
         {% if organization_name %}
@@ -36,9 +36,9 @@
           <summary aria-label="Open account menu">Account</summary>
           <div class="account-menu__panel">
             <nav class="mobile-account-nav" aria-label="Mobile navigation">
-              <a href="/reports">Reports</a>
-              {% if current_role == "admin" %}<a href="/organization/members">Members</a>{% endif %}
-              <a href="/reports/new">Create report</a>
+              <a href="/reports"{% if request.endpoint == "reports.library" %} aria-current="page"{% endif %}>Reports</a>
+              {% if current_role == "admin" %}<a href="/organization/members"{% if request.endpoint == "organization.members" %} aria-current="page"{% endif %}>Members</a>{% endif %}
+              <a href="/reports/new"{% if request.endpoint == "reports.create_report" %} aria-current="page"{% endif %}>Create report</a>
             </nav>
             {% if account_email %}<p class="account-email">{{ account_email }}</p>{% endif %}
             <button class="theme-control" type="button" data-theme-control>Switch to dark mode</button>

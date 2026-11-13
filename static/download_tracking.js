@@ -531,9 +531,15 @@
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
         const button = form.querySelector('button[type="submit"]');
-        if (button) button.disabled = true;
+        const status = form.querySelector("[data-download-status]");
+        const originalLabel = button ? button.textContent : "Download snapshot";
+        if (button) {
+          button.disabled = true;
+          button.textContent = "Preparing download…";
+        }
+        if (status) status.textContent = "Preparing your saved snapshot…";
         try {
-          await runAuthenticatedSnapshotDownload({
+          const result = await runAuthenticatedSnapshotDownload({
             tracker,
             retryPendingAcknowledgement: acknowledge,
             prepareSnapshot: () => windowObject.fetch(form.action, {
@@ -557,8 +563,23 @@
             },
             acknowledgeDownload: acknowledge,
           });
+          if (!result.downloadStarted) {
+            if (result.pendingAcknowledgement) {
+              throw new Error("A previous download is still being confirmed.");
+            }
+            throw new Error("The saved workbook could not be prepared.");
+          }
+          if (status) status.textContent = "Download started.";
+        } catch (_error) {
+          if (status) {
+            status.textContent = "Download couldn’t start. Try again. If it keeps happening, contact support.";
+            status.focus();
+          }
         } finally {
-          if (button) button.disabled = false;
+          if (button) {
+            button.disabled = false;
+            button.textContent = originalLabel;
+          }
         }
       });
     });
