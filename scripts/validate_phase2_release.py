@@ -27,6 +27,9 @@ MVP_STORY = (
     "access."
 )
 EXPECTED_MIGRATION_HEAD = "0021"
+EXPECTED_WORKOS_USER_INVITATION_URL = (
+    "https://roster-scout.fly.dev/auth/start"
+)
 
 PHASE2_FOCUSED_TESTS = (
     "tests.test_phase2_release.Phase2ReleaseStoryTests",
@@ -245,6 +248,7 @@ def production_auth_verified(env):
         "billing_verified",
         "secrets_installed",
         "dashboard_uris_verified",
+        "invitation_email_handoff_verified",
         "live_passwordless_email_verified",
         "google_verified",
         "microsoft_verified",
@@ -254,6 +258,8 @@ def production_auth_verified(env):
         record.get("production_auth_verified") is True
         and record.get("environment") == "production"
         and isinstance(record.get("recorded_at"), str)
+        and record.get("user_invitation_url")
+        == EXPECTED_WORKOS_USER_INVITATION_URL
         and all(record.get(name) is True for name in required_true)
     )
 

@@ -128,8 +128,13 @@ DATABASE_URL=postgresql+psycopg://roster_scout:roster_scout@127.0.0.1:5432/roste
 
 For a non-production staging runtime, inject the six settings above from the
 platform secret store, register that runtime's exact HTTPS `/auth/callback`
-URL in WorkOS, and run the same readiness and route tests before any live IdP
-smoke. Do not reuse production keys or cookie passwords in staging.
+URL as the OAuth redirect URI, and set the WorkOS **User Invitation URL** to
+that runtime's exact canonical HTTPS `/auth/start` URL. These are distinct
+dashboard settings: the callback URL cannot replace the User Invitation URL.
+WorkOS must append `invitation_token` to the `/auth/start` link so Roster Scout
+can resolve the token and issue one signed, one-time local state before the
+callback. Run the same readiness and route tests before any live IdP smoke. Do
+not reuse production keys or cookie passwords in staging.
 
 Phase 2 records two deliberately separate readiness states:
 
@@ -138,13 +143,18 @@ Phase 2 records two deliberately separate readiness states:
   migrations, and configuration tests passed. It creates no external service.
 - `production_auth_verified` is set only after an operator provisions the
   production WorkOS workspace, confirms billing, installs secrets, registers
-  the exact redirect URL, configures passwordless email plus Google and
-  Microsoft, and completes a real customer OIDC or SAML smoke test.
+  the exact OAuth redirect URL, sets the User Invitation URL to
+  `https://roster-scout.fly.dev/auth/start`, configures passwordless email plus
+  Google and Microsoft, and completes a real customer OIDC or SAML smoke test.
 
 Before recording `production_auth_verified`, also disable provider-side domain
 or JIT membership as an authorization source, verify outbound passwordless
-email, test local-first logout during a provider failure, and confirm a user
-without an explicit local invitation sees no organization reports. A green
+email, and perform the invitation smoke from the provider-sent
+`accept_invitation_url`. The first Roster Scout request must be
+`/auth/start?invitation_token=...`; it must then complete the stateful
+`/auth/callback` and accept only the exact-email local invitation. Test
+local-first logout during a provider failure and confirm a user without an
+explicit local invitation sees no organization reports. A green
 `code_verified` result never implies that these live checks passed.
 
 Run the complete deterministic Phase 2 gate from the repository root against
@@ -167,18 +177,24 @@ authentication evidence is complete.
 
 The separate live evidence requires an operator-owned WorkOS production workspace,
 confirmed billing, installed secrets, verified dashboard
-redirect/sign-out/initiate-login URIs, live passwordless email, Google,
+redirect/sign-out/initiate-login URIs, the exact User Invitation URL
+`https://roster-scout.fly.dev/auth/start`, live passwordless email, Google,
 Microsoft, and one real customer OIDC or SAML connection. It must also confirm
-provider domain/JIT membership is disabled as authorization and an uninvited
-account cannot open reports. No validator creates a workspace, sends real
-email, configures a customer IdP, deploys the app, or creates a billable
-resource.
+the provider-sent invitation traversed token-bearing `/auth/start`, signed
+local state issuance, and `/auth/callback` into the exact-email local
+membership; provider domain/JIT membership is disabled as authorization; and
+an uninvited account cannot open reports. No validator creates a workspace,
+sends real email, configures a customer IdP, deploys the app, or creates a
+billable resource.
 
 To perform the explicit launch check, point
 `ROSTER_SCOUT_PRODUCTION_AUTH_SMOKE_RECORD` at reviewed JSON evidence and set
 `PHASE2_PRODUCTION_LAUNCH_CHECK=1` when running the same command. A missing,
 malformed, non-production, or incomplete record fails closed; never add that
-record or any credential value to Git.
+record or any credential value to Git. The record must name
+`"user_invitation_url": "https://roster-scout.fly.dev/auth/start"` and set
+`"invitation_email_handoff_verified": true`; a callback-only smoke or a record
+that omits either field remains `production_auth_verified=false`.
 
 ```bash
 docker compose up --build

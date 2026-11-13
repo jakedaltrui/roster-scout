@@ -1875,6 +1875,60 @@ class Phase2ReleaseValidatorContractTests(unittest.TestCase):
         self.assertIn("code_verified=true", source)
         self.assertIn("production_auth_verified=false", source)
 
+    def test_production_auth_requires_exact_user_invitation_handoff(self):
+        validator = self._load_validator()
+        complete = {
+            "production_auth_verified": True,
+            "environment": "production",
+            "recorded_at": "2026-11-13T00:00:00Z",
+            "workspace_owned": True,
+            "billing_verified": True,
+            "secrets_installed": True,
+            "dashboard_uris_verified": True,
+            "invitation_email_handoff_verified": True,
+            "live_passwordless_email_verified": True,
+            "google_verified": True,
+            "microsoft_verified": True,
+            "customer_idp_verified": True,
+            "user_invitation_url": (
+                "https://roster-scout.fly.dev/auth/start"
+            ),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "production-auth-smoke.json"
+            path.write_text(json.dumps(complete), encoding="utf-8")
+            environment = {"ROSTER_SCOUT_PRODUCTION_AUTH_SMOKE_RECORD": str(path)}
+            self.assertTrue(validator.production_auth_verified(environment))
+
+            for field in (
+                "user_invitation_url",
+                "invitation_email_handoff_verified",
+            ):
+                with self.subTest(field=field):
+                    incomplete = dict(complete)
+                    incomplete.pop(field)
+                    path.write_text(json.dumps(incomplete), encoding="utf-8")
+                    self.assertFalse(
+                        validator.production_auth_verified(environment)
+                    )
+
+            wrong_entry = dict(complete)
+            wrong_entry["user_invitation_url"] = (
+                "https://roster-scout.fly.dev/auth/callback"
+            )
+            path.write_text(json.dumps(wrong_entry), encoding="utf-8")
+            self.assertFalse(validator.production_auth_verified(environment))
+
+    def test_runbook_separates_callback_and_user_invitation_urls(self):
+        validator = self._load_validator()
+        runbook = (PROJECT_ROOT / "DEPLOYMENT.md").read_text(encoding="utf-8")
+        self.assertIn("WorkOS **User Invitation URL**", runbook)
+        self.assertIn(validator.EXPECTED_WORKOS_USER_INVITATION_URL, runbook)
+        self.assertIn("/auth/start?invitation_token=...", runbook)
+        self.assertIn("signed, one-time local state", runbook)
+        self.assertIn("OAuth redirect URI", runbook)
+        self.assertIn("callback URL cannot replace the User Invitation URL", runbook)
+
     def test_destructive_lifecycle_rejects_remote_cloud_and_ambiguous_targets(self):
         validator = self._load_validator()
         common = {"PHASE2_DESTRUCTIVE_DATABASE": "local-disposable"}
