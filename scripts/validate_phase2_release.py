@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import ipaddress
 import os
 import subprocess
 import sys
@@ -24,7 +25,7 @@ MVP_STORY = (
     "so that my staff can reuse dated scouting reports without cross-organization "
     "access."
 )
-EXPECTED_MIGRATION_HEAD = "0018"
+EXPECTED_MIGRATION_HEAD = "0019"
 
 PHASE2_FOCUSED_TESTS = (
     "tests.test_phase2_release.Phase2ReleaseStoryTests",
@@ -159,6 +160,23 @@ def _validate_database_url(env):
         raise SystemExit("DATABASE_URL must use PostgreSQL")
     if not (url.database or "").endswith("_test"):
         raise SystemExit("DATABASE_URL must name a disposable database ending in '_test'")
+    if env.get("PHASE2_DESTRUCTIVE_DATABASE") != "local-disposable":
+        raise SystemExit(
+            "PHASE2_DESTRUCTIVE_DATABASE=local-disposable is required before destructive lifecycle checks"
+        )
+    host = (url.host or "").strip().lower()
+    local = host == "localhost"
+    if host:
+        try:
+            local = local or ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            pass
+    if not local:
+        raise SystemExit(
+            "destructive lifecycle checks require an explicit loopback PostgreSQL target"
+        )
+    redacted = url.render_as_string(hide_password=True)
+    print(f"==> Disposable database target: {redacted}", flush=True)
 
 
 def _python_sources():

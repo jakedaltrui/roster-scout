@@ -1790,6 +1790,17 @@ class Phase2IdentityDeploymentConfigTests(unittest.TestCase):
         self.assertIn("Microsoft", runbook)
         self.assertIn("OIDC", runbook)
         self.assertIn("SAML", runbook)
+        self.assertIn("fly secrets list", runbook)
+        self.assertIn("Avoid placing real secret values in shell history", runbook)
+        for name in (
+            "ROSTER_SCOUT_SESSION_SECRET",
+            "WORKOS_API_KEY",
+            "WORKOS_CLIENT_ID",
+            "WORKOS_REDIRECT_URI",
+            "WORKOS_COOKIE_PASSWORD",
+        ):
+            self.assertIn(name, runbook)
+            self.assertIn(f"| `{name}` |", runbook)
 
 
 class Phase2ReleaseValidatorContractTests(unittest.TestCase):
@@ -1807,7 +1818,7 @@ class Phase2ReleaseValidatorContractTests(unittest.TestCase):
 
     def test_manifest_names_phase2_security_download_429_and_node_gates(self):
         validator = self._load_validator()
-        self.assertEqual(validator.EXPECTED_MIGRATION_HEAD, "0018")
+        self.assertEqual(validator.EXPECTED_MIGRATION_HEAD, "0019")
         manifest = validator.release_command_manifest(
             sys.executable,
             diff_base="95776ed",
@@ -1863,6 +1874,33 @@ class Phase2ReleaseValidatorContractTests(unittest.TestCase):
         )
         self.assertIn("code_verified=true", source)
         self.assertIn("production_auth_verified=false", source)
+
+    def test_destructive_lifecycle_rejects_remote_cloud_and_ambiguous_targets(self):
+        validator = self._load_validator()
+        common = {"PHASE2_DESTRUCTIVE_DATABASE": "local-disposable"}
+        unsafe = (
+            "postgresql+psycopg://user:secret@db.example.com/customer_test",
+            "postgresql+psycopg://user:secret@/customer_test?host=/cloudsql/project:region:db",
+            "postgresql+psycopg://user:secret@postgres/customer_test",
+        )
+        for database_url in unsafe:
+            with self.subTest(database_url=database_url), self.assertRaises(SystemExit):
+                validator._validate_database_url({
+                    **common,
+                    "DATABASE_URL": database_url,
+                })
+        with self.assertRaisesRegex(SystemExit, "PHASE2_DESTRUCTIVE_DATABASE"):
+            validator._validate_database_url({
+                "DATABASE_URL": (
+                    "postgresql+psycopg://user:secret@127.0.0.1/customer_test"
+                )
+            })
+        validator._validate_database_url({
+            **common,
+            "DATABASE_URL": (
+                "postgresql+psycopg://user:secret@127.0.0.1/customer_test"
+            ),
+        })
 
     def test_fly_and_runbook_keep_topology_secret_free_and_manual_gates_explicit(self):
         with (PROJECT_ROOT / "fly.toml").open("rb") as handle:

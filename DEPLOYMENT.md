@@ -151,12 +151,13 @@ Run the complete deterministic Phase 2 gate from the repository root against
 the disposable PostgreSQL database:
 
 ```bash
-DATABASE_URL=postgresql+psycopg://roster_scout:roster_scout@127.0.0.1:5432/roster_scout_test \
+PHASE2_DESTRUCTIVE_DATABASE=local-disposable \
+  DATABASE_URL=postgresql+psycopg://roster_scout:roster_scout@127.0.0.1:5432/roster_scout_test \
   .venv/bin/python scripts/validate_phase2_release.py
 ```
 
 Only after every focused Phase 2 story/security/download/429 test, both Node
-state machines, the revision `0018` lifecycle, full Python and Node suites,
+state machines, the revision `0019` lifecycle, full Python and Node suites,
 catalog, workbook, configuration, compilation, template, and diff checks pass
 does the command emit `code_verified=true`. Without separate reviewed live
 evidence it also emits `production_auth_verified=false`, so production launch
@@ -306,7 +307,24 @@ fly scale count app=1 worker=1 scheduler=1 purge=1
 fly deploy
 ```
 
-Keep secrets out of command history when possible by using the Fly dashboard or a secure shell input method. The checked-in configuration deliberately keeps TLS verification enabled.
+Avoid placing real secret values in shell history. Use the Fly dashboard or a
+secure input method to install the identity-secret checklist:
+`ROSTER_SCOUT_SESSION_SECRET`, `WORKOS_API_KEY`, `WORKOS_CLIENT_ID`,
+`WORKOS_REDIRECT_URI`, and `WORKOS_COOKIE_PASSWORD`. The checked-in
+configuration deliberately keeps TLS verification enabled.
+
+Before deployment, verify required names without printing values:
+
+```bash
+fly secrets list | awk 'NR > 1 { print $1 }' | sort
+```
+
+The name-only output must include `BROWSERLESS_TOKEN`, `DATABASE_URL`,
+`CELERY_BROKER_URL`, `ROSTER_SCOUT_DOWNLOAD_ACK_SECRET`,
+`ROSTER_SCOUT_SESSION_SECRET`, `WORKOS_API_KEY`, `WORKOS_CLIENT_ID`,
+`WORKOS_REDIRECT_URI`, and `WORKOS_COOKIE_PASSWORD`. This is configuration
+readiness only; it does not change `production_auth_verified=false` without the
+separate live smoke record.
 
 Before making a deployment public:
 
@@ -452,6 +470,12 @@ production prerequisites remain independently blocked until verified.
 | `WEB_CONCURRENCY` | `1` | HTTP worker count; values greater than one require a shared acknowledgement secret |
 | `ROSTER_SCOUT_DOWNLOAD_ACK_SECRET` | local random fallback | URL-safe-base64 secret decoding to at least 32 bytes; required on Fly or with multiple workers |
 | `ROSTER_SCOUT_PUBLIC_ORIGIN` | direct request origin in local single-process mode | Exact canonical HTTP(S) browser origin; required with `FLY_APP_NAME` or multiple workers, and HTTPS-only on Fly |
+| `ROSTER_SCOUT_IDENTITY_MODE` | `fake` locally; `workos` hosted | Select the managed provider boundary; hosted runtimes must use `workos` |
+| `ROSTER_SCOUT_SESSION_SECRET` | required for hosted identity | Shared high-entropy Flask-WTF signing key stored only in the secret store |
+| `WORKOS_API_KEY` | required in `workos` mode | WorkOS API credential stored only in the secret store |
+| `WORKOS_CLIENT_ID` | required in `workos` mode | WorkOS AuthKit client identifier |
+| `WORKOS_REDIRECT_URI` | required in `workos` mode | Exact HTTPS callback URL ending in `/auth/callback` |
+| `WORKOS_COOKIE_PASSWORD` | required in `workos` mode | High-entropy key for sealed provider session state |
 | `NCAA_BROWSER_PROVIDER` | local browser | Set to `browserless` to use the hosted browser workflow |
 | `BROWSERLESS_TOKEN` | unset | Browserless API token |
 | `BROWSERLESS_CAPACITY_BACKEND` | `local` | `local` for single-machine development; hosted app and worker must use `postgresql` |
