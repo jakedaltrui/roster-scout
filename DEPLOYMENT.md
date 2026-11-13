@@ -167,7 +167,7 @@ PHASE2_DESTRUCTIVE_DATABASE=local-disposable \
 ```
 
 Only after every focused Phase 2 story/security/download/429 test, both Node
-state machines, the revision `0019` lifecycle, full Python and Node suites,
+state machines, the revision `0021` lifecycle, full Python and Node suites,
 catalog, workbook, configuration, compilation, template, and diff checks pass
 does the command emit `code_verified=true`. Without separate reviewed live
 evidence it also emits `production_auth_verified=false`, so production launch

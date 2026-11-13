@@ -1838,6 +1838,14 @@ class Phase2ReleaseValidatorContractTests(unittest.TestCase):
         ):
             self.assertIn(required, serialized)
 
+    def test_runbook_migration_head_matches_release_validator(self):
+        validator = self._load_validator()
+        runbook = (PROJECT_ROOT / "DEPLOYMENT.md").read_text(encoding="utf-8")
+        self.assertIn(
+            f"revision `{validator.EXPECTED_MIGRATION_HEAD}` lifecycle",
+            runbook,
+        )
+
     def test_focused_gates_precede_lifecycle_and_all_full_groups(self):
         validator = self._load_validator()
         labels = [
