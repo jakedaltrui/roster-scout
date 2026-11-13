@@ -96,6 +96,9 @@ class _UnavailableIdentityProvider:
     def resolve_invitation_token(self, *, invitation_token):
         self._raise()
 
+    def find_pending_invitation(self, **kwargs):
+        self._raise()
+
     def refresh(self, *, sealed_session):
         self._raise()
 

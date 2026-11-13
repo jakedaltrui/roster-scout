@@ -1458,6 +1458,51 @@ class EnterpriseSsoAuthorizationTests(_PostgreSQLIdentityCase):
         self.assertEqual(reference.provider_organization_id, "org_provider_1")
         self.assertEqual(client.user_management.resolved_token, "signed-provider-token")
 
+    def test_workos_invitation_send_is_idempotent_and_timeout_bounded(self):
+        from roster_scout.identity import (
+            PROVIDER_INVITATION_TIMEOUT_SECONDS,
+            WorkOSIdentityProvider,
+        )
+
+        class _UserManagement:
+            def send_invitation(self, **kwargs):
+                self.invitation_kwargs = kwargs
+                return SimpleNamespace(
+                    id="invitation_provider_2",
+                    expires_at=self_now + timedelta(days=7),
+                    created_at=self_now,
+                )
+
+        self_now = self.now
+        client = SimpleNamespace(user_management=_UserManagement())
+        provider = WorkOSIdentityProvider(
+            api_key="synthetic-api-key",
+            client_id="synthetic-client-id",
+            redirect_uri="https://app.example.test/auth/callback",
+            cookie_password=urlsafe_b64encode(b"0" * 32).decode("ascii"),
+            client=client,
+        )
+        delivered = provider.send_invitation(
+            email="invited@example.edu",
+            provider_organization_id="org_provider_2",
+            expires_in_days=7,
+            idempotency_key="roster-scout-invitation-local-uuid",
+        )
+
+        self.assertEqual(delivered.provider_invitation_id, "invitation_provider_2")
+        request_options = client.user_management.invitation_kwargs[
+            "request_options"
+        ]
+        self.assertEqual(
+            request_options["idempotency_key"],
+            "roster-scout-invitation-local-uuid",
+        )
+        self.assertEqual(
+            request_options["timeout"],
+            PROVIDER_INVITATION_TIMEOUT_SECONDS,
+        )
+        self.assertLess(PROVIDER_INVITATION_TIMEOUT_SECONDS, 120)
+
 
 class SecretRedactionTests(_PostgreSQLIdentityCase):
     def test_provider_exchange_and_refresh_failures_are_fixed_and_redacted(self):

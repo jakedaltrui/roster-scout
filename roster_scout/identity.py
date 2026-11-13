@@ -12,6 +12,7 @@ import secrets
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from threading import Lock
 from typing import Protocol, runtime_checkable
 from urllib.parse import urlencode
 
@@ -26,6 +27,7 @@ AUTH_TRANSACTION_RETENTION = timedelta(hours=1)
 AUTH_REQUEST_LIMIT_WINDOW = timedelta(minutes=10)
 AUTH_REQUEST_LIMIT_RETENTION = timedelta(days=1)
 AUTH_RETENTION_BATCH_SIZE = 100
+PROVIDER_INVITATION_TIMEOUT_SECONDS = 20.0
 
 
 class IdentityFailure(RuntimeError):
@@ -95,6 +97,7 @@ class ProviderOrganization:
 class ProviderInvitation:
     provider_invitation_id: str
     expires_at: datetime | None = None
+    created_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -137,7 +140,16 @@ class IdentityProvider(Protocol):
         email: str,
         provider_organization_id: str,
         expires_in_days: int,
+        idempotency_key: str,
     ) -> ProviderInvitation: ...
+
+    def find_pending_invitation(
+        self,
+        *,
+        email: str,
+        provider_organization_id: str,
+        created_after: datetime,
+    ) -> ProviderInvitation | None: ...
 
 
 class FakeIdentityProvider:
@@ -174,7 +186,13 @@ class FakeIdentityProvider:
         self.refresh_calls: list[str] = []
         self.logout_calls: list[str] = []
         self.organization_calls: list[tuple[str, str]] = []
-        self.invitation_calls: list[tuple[str, str, int]] = []
+        self.invitation_calls: list[tuple[str, str, int, str]] = []
+        self.invitation_reconciliation_calls: list[tuple[str, str, datetime]] = []
+        self.invitation_sends = 0
+        self._invitation_send_lock = Lock()
+        self._sent_invitations_by_key: dict[
+            str, tuple[ProviderInvitation, str, str]
+        ] = {}
         self.invitation_resolution_calls: list[str] = []
 
     def authorization_url(
@@ -229,15 +247,57 @@ class FakeIdentityProvider:
         email: str,
         provider_organization_id: str,
         expires_in_days: int,
+        idempotency_key: str,
     ) -> ProviderInvitation:
         self.invitation_calls.append(
-            (email, provider_organization_id, expires_in_days)
+            (email, provider_organization_id, expires_in_days, idempotency_key)
         )
         if self._invitation_failure is not None:
             raise self._invitation_failure
-        return ProviderInvitation(
-            provider_invitation_id=f"provider-invite-{uuid.uuid4()}"
+        with self._invitation_send_lock:
+            existing = self._sent_invitations_by_key.get(idempotency_key)
+            if existing is not None:
+                return existing[0]
+            created_at = datetime.now(UTC)
+            invitation = ProviderInvitation(
+                provider_invitation_id=f"provider-invite-{uuid.uuid4()}",
+                expires_at=created_at + timedelta(days=expires_in_days),
+                created_at=created_at,
+            )
+            self._sent_invitations_by_key[idempotency_key] = (
+                invitation,
+                email.strip().casefold(),
+                provider_organization_id,
+            )
+            self.invitation_sends += 1
+            return invitation
+
+    def find_pending_invitation(
+        self,
+        *,
+        email: str,
+        provider_organization_id: str,
+        created_after: datetime,
+    ) -> ProviderInvitation | None:
+        self.invitation_reconciliation_calls.append(
+            (email, provider_organization_id, created_after)
         )
+        matches = [
+            invitation
+            for invitation, stored_email, stored_organization_id
+            in self._sent_invitations_by_key.values()
+            if stored_email == email.strip().casefold()
+            and stored_organization_id == provider_organization_id
+            and invitation.created_at is not None
+            and invitation.created_at >= created_after
+            and (
+                invitation.expires_at is None
+                or invitation.expires_at > datetime.now(UTC)
+            )
+        ]
+        if len(matches) > 1:
+            raise IdentityFailure("invalid_identity_response")
+        return matches[0] if matches else None
 
 
 class WorkOSIdentityProvider:
@@ -404,18 +464,75 @@ class WorkOSIdentityProvider:
         email: str,
         provider_organization_id: str,
         expires_in_days: int,
+        idempotency_key: str,
     ) -> ProviderInvitation:
         try:
             invitation = self._client.user_management.send_invitation(
                 email=email,
                 organization_id=provider_organization_id,
                 expires_in_days=expires_in_days,
+                request_options={
+                    "idempotency_key": idempotency_key,
+                    "timeout": PROVIDER_INVITATION_TIMEOUT_SECONDS,
+                    "max_retries": 2,
+                },
             )
             expires_at = getattr(invitation, "expires_at", None)
+            created_at = getattr(invitation, "created_at", None)
             return ProviderInvitation(
                 provider_invitation_id=invitation.id,
                 expires_at=expires_at if isinstance(expires_at, datetime) else None,
+                created_at=created_at if isinstance(created_at, datetime) else None,
             )
+        except Exception as exc:
+            raise IdentityFailure(_provider_failure_category(exc)) from None
+
+    def find_pending_invitation(
+        self,
+        *,
+        email: str,
+        provider_organization_id: str,
+        created_after: datetime,
+    ) -> ProviderInvitation | None:
+        """Reconcile one indeterminate send without exposing provider tokens."""
+        try:
+            page = self._client.user_management.list_invitations(
+                limit=100,
+                organization_id=provider_organization_id,
+                email=email,
+                request_options={
+                    "timeout": PROVIDER_INVITATION_TIMEOUT_SECONDS,
+                    "max_retries": 2,
+                },
+            )
+            normalized_email = email.strip().casefold()
+            matches = []
+            for invitation in page.data:
+                state = getattr(invitation.state, "value", invitation.state)
+                if (
+                    state == "pending"
+                    and invitation.organization_id == provider_organization_id
+                    and invitation.email.strip().casefold() == normalized_email
+                    and isinstance(invitation.created_at, datetime)
+                    and invitation.created_at >= created_after
+                ):
+                    matches.append(invitation)
+            if len(matches) > 1:
+                raise ValueError("ambiguous invitation reconciliation")
+            if not matches:
+                return None
+            invitation = matches[0]
+            return ProviderInvitation(
+                provider_invitation_id=invitation.id,
+                expires_at=(
+                    invitation.expires_at
+                    if isinstance(invitation.expires_at, datetime)
+                    else None
+                ),
+                created_at=invitation.created_at,
+            )
+        except IdentityFailure:
+            raise
         except Exception as exc:
             raise IdentityFailure(_provider_failure_category(exc)) from None
 

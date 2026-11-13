@@ -1818,7 +1818,7 @@ class Phase2ReleaseValidatorContractTests(unittest.TestCase):
 
     def test_manifest_names_phase2_security_download_429_and_node_gates(self):
         validator = self._load_validator()
-        self.assertEqual(validator.EXPECTED_MIGRATION_HEAD, "0020")
+        self.assertEqual(validator.EXPECTED_MIGRATION_HEAD, "0021")
         manifest = validator.release_command_manifest(
             sys.executable,
             diff_base="95776ed",

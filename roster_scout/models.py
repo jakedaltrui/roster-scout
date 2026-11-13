@@ -223,6 +223,9 @@ class OrganizationInvitation(UUIDPrimaryKey, Timestamped, Base):
     delivery_claimed_until: Mapped[object | None] = mapped_column(
         DateTime(timezone=True)
     )
+    delivery_started_at: Mapped[object | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     accepted_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
     __table_args__ = (

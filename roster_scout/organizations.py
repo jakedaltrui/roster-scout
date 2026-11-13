@@ -743,6 +743,9 @@ def deliver_invitation(
         ):
             raise OrganizationFailure("invitation_delivery_in_progress")
         claim_token = uuid.uuid4()
+        reconcile_after = invitation.delivery_started_at
+        if invitation.delivery_started_at is None:
+            invitation.delivery_started_at = now
         invitation.delivery_claim_token = claim_token
         invitation.delivery_claimed_until = now + INVITATION_DELIVERY_LEASE
         organization_id = invitation.organization_id
@@ -771,11 +774,20 @@ def deliver_invitation(
         expires_in_days = max(
             1, min(7, (remaining.days + (remaining.seconds > 0)))
         )
-        delivered = provider.send_invitation(
-            email=normalized_email,
-            provider_organization_id=connection.provider_organization_id,
-            expires_in_days=expires_in_days,
-        )
+        delivered = None
+        if reconcile_after is not None:
+            delivered = provider.find_pending_invitation(
+                email=normalized_email,
+                provider_organization_id=connection.provider_organization_id,
+                created_after=reconcile_after - timedelta(minutes=1),
+            )
+        if delivered is None:
+            delivered = provider.send_invitation(
+                email=normalized_email,
+                provider_organization_id=connection.provider_organization_id,
+                expires_in_days=expires_in_days,
+                idempotency_key=f"roster-scout-invitation-{invitation_id}",
+            )
         provider_invitation_id = delivered.provider_invitation_id
         if (
             not isinstance(provider_invitation_id, str)
@@ -799,10 +811,12 @@ def deliver_invitation(
             .where(OrganizationInvitation.id == invitation_id)
             .with_for_update()
         )
+        if invitation is None or invitation.status != "pending":
+            raise OrganizationFailure("invitation_unavailable")
+        if invitation.provider_invitation_id == provider_invitation_id:
+            return invitation
         if (
-            invitation is None
-            or invitation.status != "pending"
-            or invitation.expires_at <= now
+            invitation.expires_at <= now
             or invitation.delivery_claim_token != claim_token
         ):
             raise OrganizationFailure("invitation_unavailable")

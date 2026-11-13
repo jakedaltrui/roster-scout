@@ -9,7 +9,8 @@ import unittest
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
-from threading import Barrier, Event
+from threading import Barrier, Event, Lock
+from unittest.mock import patch
 
 from alembic import command
 from sqlalchemy import func, inspect, select, text
@@ -465,6 +466,123 @@ class InvitationCreationTests(_PostgreSQLOrganizationCase):
             release.set()
             first.result(timeout=5)
         self.assertEqual(len(provider.invitation_calls), 1)
+
+    def test_expired_lease_uses_one_provider_idempotency_key(self):
+        from roster_scout.identity import FakeIdentityProvider
+        from roster_scout.organizations import create_invitation, deliver_invitation
+
+        started = Event()
+        release = Event()
+        call_lock = Lock()
+
+        class SlowFirstProvider(FakeIdentityProvider):
+            def __init__(self):
+                super().__init__()
+                self._call_number = 0
+
+            def send_invitation(self, **kwargs):
+                with call_lock:
+                    self._call_number += 1
+                    call_number = self._call_number
+                if call_number == 1:
+                    started.set()
+                    if not release.wait(timeout=5):
+                        raise RuntimeError("test delivery timeout")
+                return super().send_invitation(**kwargs)
+
+        organization_id, admin_id, _ = self._organization_with_membership(
+            "admin@example.edu"
+        )
+        with self.Session.begin() as session:
+            invitation = create_invitation(
+                session,
+                organization_id=organization_id,
+                actor_account_id=admin_id,
+                email="slow@example.edu",
+                role="member",
+                now=self.now,
+            )
+            invitation_id = invitation.id
+
+        provider = SlowFirstProvider()
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            first = pool.submit(
+                deliver_invitation,
+                self.Session,
+                provider=provider,
+                invitation_id=invitation_id,
+                now=self.now,
+            )
+            self.assertTrue(started.wait(timeout=5))
+            second = deliver_invitation(
+                self.Session,
+                provider=provider,
+                invitation_id=invitation_id,
+                now=self.now + timedelta(minutes=2, seconds=1),
+            )
+            release.set()
+            first_result = first.result(timeout=5)
+
+        self.assertEqual(
+            first_result.provider_invitation_id,
+            second.provider_invitation_id,
+        )
+        self.assertEqual(provider.invitation_sends, 1)
+        self.assertEqual(len(provider.invitation_calls), 2)
+        self.assertEqual(
+            len({call[3] for call in provider.invitation_calls}),
+            1,
+        )
+
+    def test_provider_success_before_local_failure_reconciles_without_resend(self):
+        import roster_scout.organizations as organizations_module
+        from roster_scout.identity import FakeIdentityProvider
+        from roster_scout.models import OrganizationInvitation
+        from roster_scout.organizations import create_invitation, deliver_invitation
+
+        organization_id, admin_id, _ = self._organization_with_membership(
+            "admin@example.edu"
+        )
+        with self.Session.begin() as session:
+            invitation = create_invitation(
+                session,
+                organization_id=organization_id,
+                actor_account_id=admin_id,
+                email="recovery@example.edu",
+                role="member",
+                now=self.now,
+            )
+            invitation_id = invitation.id
+
+        provider = FakeIdentityProvider()
+        with patch.object(
+            organizations_module,
+            "append_security_audit_event",
+            side_effect=RuntimeError("simulated local persistence failure"),
+        ):
+            with self.assertRaises(RuntimeError):
+                deliver_invitation(
+                    self.Session,
+                    provider=provider,
+                    invitation_id=invitation_id,
+                    now=self.now,
+                )
+
+        with self.Session() as session:
+            indeterminate = session.get(OrganizationInvitation, invitation_id)
+            self.assertIsNone(indeterminate.provider_invitation_id)
+            self.assertEqual(indeterminate.delivery_started_at, self.now)
+
+        recovered = deliver_invitation(
+            self.Session,
+            provider=provider,
+            invitation_id=invitation_id,
+            now=self.now + timedelta(minutes=2, seconds=1),
+        )
+        self.assertIsNotNone(recovered.provider_invitation_id)
+        self.assertEqual(provider.invitation_sends, 1)
+        self.assertEqual(len(provider.invitation_calls), 1)
+        self.assertEqual(len(provider.invitation_reconciliation_calls), 1)
 
 
 class InvitationAcceptanceTests(_PostgreSQLOrganizationCase):
