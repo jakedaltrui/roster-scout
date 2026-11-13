@@ -1,14 +1,16 @@
 ---
 phase: 02-identity-organizations-and-report-library
-reviewed: 2026-11-13T09:18:50Z
+reviewed: 2026-11-13T11:56:58Z
 depth: deep
-files_reviewed: 31
+files_reviewed: 33
 files_reviewed_list:
   - .env.example
   - DEPLOYMENT.md
   - app.py
   - fly.toml
   - migrations/versions/0019_phase2_review_safety.py
+  - migrations/versions/0020_auth_request_limits.py
+  - migrations/versions/0021_invitation_delivery_recovery.py
   - roster_scout/accounts.py
   - roster_scout/audit.py
   - roster_scout/auth_routes.py
@@ -36,8 +38,8 @@ files_reviewed_list:
   - tests/test_organizations.py
   - tests/test_report_library.py
 findings:
-  critical: 3
-  warning: 1
+  critical: 1
+  warning: 3
   info: 0
   total: 4
 status: issues_found
@@ -45,86 +47,77 @@ status: issues_found
 
 # Phase 02: Code Review Report
 
-**Reviewed:** 2026-11-13T09:18:50Z
+**Reviewed:** 2026-11-13T11:56:58Z
 **Depth:** deep
-**Files Reviewed:** 31
+**Files Reviewed:** 33
 **Status:** issues_found
 
 ## Summary
 
-The re-review traced commits `11c9731`, `cdf95b7`, `11fe14f`, and `d958b1d` against every original finding and the affected tests. Eleven original findings are resolved: canonical verified-email rotation, request-path provider refresh with split transactions, sign-in audit production wiring, mobile/logout/theme actions, terminal status synchronization, bootstrap serialization, artifact-I/O transaction splitting, authenticated legacy-download accounting, deployment secret documentation, no-store headers, and exact artifact download auditing all have coherent cross-file implementations. Original WR-03 is only partially resolved.
+The second fix pass closes the four reported code-level counterexamples: the provider token is resolved before authorization and bound to one exact local invitation UUID; ordinary provider organization context no longer grants membership; the destructive validator rejects query/service/socket/multi-host overrides and validates psycopg's effective target; shared PostgreSQL rate limits and bounded pruning constrain public auth writes; and invitation delivery uses a real WorkOS idempotency header, a sub-lease timeout, and reconciliation after indeterminate sends. The prior verified email, request refresh, tenant accounting, transaction split, cache, audit target, concurrency, and UI fixes remain intact.
 
-The phase is still not safe to ship. The invitation test still fabricates provider organization context instead of exercising the token-bearing email entry, so a real email-initiated flow cannot establish the database-backed callback state and ordinary organization-scoped sign-ins can accept an invitation without proving the user followed that invitation. The destructive validator also checks the URL authority host while psycopg honors a query-string `host` override, allowing a remote database through the local-only guard. In addition, public auth endpoints provide unthrottled durable write amplification, made worse by the new failure-audit insert, and the invitation delivery lease can expire while a provider send is still in flight and permit duplicate sends.
+The phase is not yet clean. The new invitation entry works only when WorkOS's User Invitation URL is configured to send token-bearing email links through `/auth/start`, but the deployment contract still instructs operators to register only `/auth/callback`. Following the documented setup can therefore bypass the state-issuing route and reproduce the production invitation failure. Three warnings remain: a valid state consumed with a missing/malformed code produces no sign-in failure audit, the rejected provider-organization auto-accept primitive remains as unused callable authorization code, and the release runbook still says migration `0019` even though the validated head is `0021`.
 
-The focused Node suite passed all 26 tests, Python compilation passed, the 10 focused deployment/validator unit tests passed, and `git diff --check` passed. A direct SQLAlchemy driver-contract probe proved that `postgresql+psycopg://...@127.0.0.1/..._test?host=db.example.invalid` passes `_validate_database_url()` while the driver resolves `host=db.example.invalid`. The current shell has no `DATABASE_URL`, so the database-backed re-run skipped 21 integration classes; the existing fix evidence reports that the complete 547-test release validator passed twice on local disposable PostgreSQL. Those passes do not exercise the counterexamples below.
+Verification evidence is strong but does not cover these counterexamples. The supplied full release evidence records 553 Python tests plus 26 Node tests passing twice with `code_verified=true`, `production_auth_verified=false`, and `production_launch_ready=false`. In this re-review, the 26 Node tests, Python compilation, 10 focused deployment/validator tests, effective-target probes, and `git diff --check` all passed. The installed WorkOS SDK was also inspected directly: `RequestOptions.idempotency_key` is converted to the `Idempotency-Key` request header, and the configured timeout/retry envelope remains shorter than the two-minute delivery lease.
 
-## Resolution of Original Findings
+## Resolution of Prior Findings
 
-| Original finding | Re-review verdict |
+| Prior finding | Final re-review verdict |
 |---|---|
-| CR-01 invitation handoff | **Unresolved** — callback fallback exists, but the token-bearing email entry/state binding still does not. |
-| CR-02 canonical email rotation | Resolved. |
-| CR-03 request-path provider refresh | Resolved. |
-| CR-04 destructive validator | **Unresolved** — authority host check is bypassed by the driver's query host override. |
-| CR-05 sign-in audit | Resolved functionally; CR-03 below captures the new unbounded public write surface. |
-| WR-01 mobile/logout/theme | Resolved. |
-| WR-02 terminal status UI | Resolved. |
-| WR-03 invitation retry/concurrency | **Partially resolved** — retry works, but the bounded lease does not prevent late/crash-window duplicates. |
-| WR-04 bootstrap concurrency | Resolved. |
-| WR-05 artifact I/O transaction | Resolved. |
-| WR-06 protected legacy accounting | Resolved. |
-| WR-07 deployment identity secrets | Resolved. |
-| WR-08 private no-store | Resolved. |
-| WR-09 exact artifact audit target | Resolved. |
+| CR-01 real invitation token/state handoff | **Partially resolved** — code path is correct; required WorkOS User Invitation URL configuration is absent from deployment instructions. |
+| CR-02 effective destructive DB target | Resolved. |
+| CR-03 auth throttling/pruning/audit | **Partially resolved** — writes are bounded, but a known transaction followed by malformed code is not audited. |
+| WR-01 slow/crashed invitation delivery | Resolved. |
+| Earlier 11 resolved findings | Remain resolved. |
 
 ## Narrative Findings (AI reviewer)
 
 ## Critical Issues
 
-### CR-01: Invitation email entry is still not bound to local state
+### CR-01: Deployment never routes WorkOS invitation emails through the state-issuing entry
 
 **Classification:** BLOCKER
 
-**File:** `roster_scout/auth_routes.py:147-205`, `roster_scout/identity.py:234-246`, `tests/test_identity.py:999-1041`
+**File:** `DEPLOYMENT.md:129-148`, `roster_scout/auth_routes.py:197-238`
 
-**Issue:** `/auth/start` accepts no invitation token and always creates an auth transaction with `invitation_id=None`, even though the provider adapter supports `invitation_token`. A token-bearing email entry therefore cannot create the database-backed state that `/auth/callback` requires. The new test avoids that production boundary: it starts an ordinary `/auth/start`, fabricates a `VerifiedIdentity.provider_organization_id`, and then calls the callback. Consequently it proves only that any ordinary organization-scoped sign-in can consume a matching local invitation. It does not prove that clicking the invitation email reaches the callback, and it loses the invitee-choice property that WorkOS invitations preserve. This contradicts the phase research's required token resolution -> local invitation UUID -> one-time transaction -> AuthKit token flow. See the [WorkOS invitation reference](https://workos.com/docs/reference/authkit/invitation) and [authorization URL contract](https://workos.com/docs/reference/authkit/authentication/get-authorization-url).
+**Issue:** The implementation now correctly expects a token-bearing request to `/auth/start`, resolves that token, stores the exact local invitation UUID in `AuthTransaction`, and then redirects to AuthKit. That path is reachable from a real email only if the WorkOS application's **User Invitation URL** is configured to the public `/auth/start` URL so WorkOS appends `invitation_token`. The runbook tells staging and production operators only to register `/auth/callback`; it never names or verifies the User Invitation URL. With WorkOS's hosted invitation entry, the provider can return to `/auth/callback` without a state that exists in Roster Scout's database, so `consume_auth_transaction()` rejects the email journey before the fixed handoff runs. This is a missing deployment dependency, not the intentional `production_auth_verified=false` checkpoint.
 
-**Fix:** Add a bounded public invitation-entry route matching the configured WorkOS user-invitation URL. Resolve the raw token through WorkOS without logging or persisting it, map the returned provider invitation/organization to exactly one pending local invitation, store only that local invitation UUID in `begin_auth_transaction(invitation_id=...)`, and pass the raw token only to `authorization_url(..., invitation_token=...)`. On callback, accept only `transaction.invitation_id`; do not auto-accept from bare `provider_organization_id`. Replace the synthetic test with an HTTP test that starts at `?invitation_token=...`, asserts the provider receives the token, follows the callback, and proves a normal organization-scoped sign-in cannot consume the pending invite.
-
-### CR-02: Query-string host override bypasses the destructive database guard
-
-**Classification:** BLOCKER
-
-**File:** `scripts/validate_phase2_release.py:154-179`, `tests/test_deployment_config.py:1878-1903`
-
-**Issue:** `_validate_database_url()` checks only `url.host`, which is the authority host. SQLAlchemy's psycopg dialect merges URL query parameters afterward, and a query `host` overrides the authority value. The validator therefore accepts `postgresql+psycopg://review:placeholder@127.0.0.1/customer_test?host=db.example.invalid` as loopback, while `create_connect_args()` resolves the actual driver host to `db.example.invalid`. The manifest then runs `alembic downgrade base` against that remote target. The added tests cover a remote authority and a query host with an empty authority, but not this precedence case.
-
-**Fix:** Reject PostgreSQL connection-routing query parameters (`host`, `hostaddr`, service/socket routing, and multi-host forms) for this destructive command, or validate the final dialect/driver connection arguments rather than `URL.host`. Require the final effective host to be exactly loopback and keep the explicit disposable marker/database suffix checks. Add counterexamples for loopback authority plus remote `host`, `hostaddr`, Unix/cloud socket, service file, and multi-host query values before any manifest command is constructed or run.
-
-### CR-03: Public auth endpoints allow unbounded durable write amplification
-
-**Classification:** BLOCKER
-
-**File:** `roster_scout/auth_routes.py:123-184`, `roster_scout/identity.py:407-426`, `app.py:702-712`
-
-**Issue:** `/auth/start` and `/auth/callback` are public and have no request throttle. Every `/auth/start` inserts an `auth_transactions` row, expired/consumed rows have no cleanup path, and every arbitrary invalid callback now inserts an append-only `security_audit_events` row through `_record_sign_in_failure()`. An unauthenticated client can grow both tables indefinitely without completing provider authentication, eventually exhausting storage or degrading the authentication database. This violates locked decision D-05's request-throttling requirement and turns the CR-05 audit fix into an additional denial-of-service write primitive.
-
-**Fix:** Apply a shared, deployment-safe limiter to auth start and callback attempts with a fixed sanitized 429 response, and add bounded deletion/retention for expired auth transactions. Preserve audit evidence for meaningful known-state replay/provider failures, but rate-limit or aggregate nonexistent-state noise so arbitrary bearer strings cannot force an append-only database write each time. Add route tests for start/callback limits and transaction retention.
+**Fix:** Add the exact environment-specific User Invitation URL (for example, `https://roster-scout.fly.dev/auth/start`) to the WorkOS dashboard setup, staging checklist, production-auth smoke record, and deployment tests. The live invitation smoke must begin from the provider-sent `accept_invitation_url`, prove it reaches `/auth/start?invitation_token=...`, and then complete the stateful callback into the exact-email local membership. Keep `/auth/callback` registered separately as the OAuth redirect URI.
 
 ## Warnings
 
-### WR-01: Invitation delivery lease still permits late and crash-window duplicates
+### WR-01: A consumed valid state with malformed code is missing its failure audit
 
 **Classification:** WARNING
 
-**File:** `roster_scout/organizations.py:683-769`, `tests/test_organizations.py:413-467`
+**File:** `roster_scout/auth_routes.py:259-271`, `roster_scout/identity.py:33-39`
 
-**Issue:** The delivery claim expires two minutes after the call's initial `now`. If the provider call is still in flight after that time, a second caller can replace the claim and send another provider invitation. The first provider call may already have succeeded, but its final transaction then sees the replaced token and cannot persist the provider invitation ID. A process crash after provider success and before the final transaction has the same retry-duplicates-send window. The concurrency test passes the identical frozen `now` to both calls, so it cannot exercise lease expiry and proves only the short-call case.
+**Issue:** The callback consumes a known transaction at line 264 and only afterward validates `code`. Missing, empty, oversized, or control-character code raises `IdentityFailure("invalid_callback")` with the default `audit_worthy=False`, so the exception path writes no `identity.sign_in` failure event. Unknown random states are correctly suppressed to prevent write amplification, but this case is different: the server has already proved and consumed a real local auth transaction. The security ledger therefore loses a bounded, meaningful callback failure and the one-time state cannot be retried.
 
-**Fix:** Make the provider side idempotent using a stable key derived from the local invitation UUID when supported, or reconcile existing provider invitations before resend. At minimum, enforce a provider timeout safely shorter than a renewable lease and persist/reconcile an indeterminate outcome rather than blindly resending after expiry. Add tests where the second caller advances beyond the lease while the first send is blocked and where provider success occurs immediately before local persistence failure.
+**Fix:** Track whether a local transaction was successfully consumed and mark subsequent callback-validation failures audit-worthy, while keeping nonexistent-state noise unaudited. Add a route test that starts authentication, calls back with that valid state and a missing/malformed code, asserts one sanitized failed `identity.sign_in` event, and proves arbitrary unknown states still create none.
+
+### WR-02: The rejected provider-organization auto-accept primitive remains callable
+
+**Classification:** WARNING
+
+**File:** `roster_scout/organizations.py:503-554`
+
+**Issue:** `accept_provider_invitation_handoff()` is no longer imported or called anywhere, but it still implements the exact behavior the final token fix rejected: a bare provider organization ID plus matching account email can consume a pending local invitation without a token-bound `AuthTransaction`. Keeping a dead authorization primitive beside the correct `resolve_provider_invitation_reference()` path creates two conflicting authority models and makes a future route refactor capable of silently reintroducing the original membership bug.
+
+**Fix:** Delete `accept_provider_invitation_handoff()` and keep token reference -> exact provider invitation ID/organization/email -> local invitation UUID as the only invitation handoff service. Add a static/import contract or focused service test that ensures provider organization context alone has no acceptance API.
+
+### WR-03: Release instructions still identify migration 0019 as the validated head
+
+**Classification:** WARNING
+
+**File:** `DEPLOYMENT.md:159-162`, `scripts/validate_phase2_release.py:28`
+
+**Issue:** The validator and migration chain correctly require head `0021`, and the supplied release runs validated that lifecycle twice. The runbook still says the deterministic gate validates revision `0019`. Although `alembic current --check-heads` still fails a stale database, the documented release contract now misstates what passed and can send operators troubleshooting migration readiness toward the wrong head; the two omitted revisions contain the auth limiter table and invitation recovery column.
+
+**Fix:** Update the runbook to `0021` and add a deployment-contract assertion that the documented revision equals `EXPECTED_MIGRATION_HEAD`, so future security migrations cannot drift silently.
 
 ---
 
-_Reviewed: 2026-11-13T09:18:50Z_
+_Reviewed: 2026-11-13T11:56:58Z_
 _Reviewer: the agent (gsd-code-reviewer)_
 _Depth: deep_
