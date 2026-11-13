@@ -1,8 +1,8 @@
 ---
 phase: 02
-fixed_at: 2026-11-13T11:48:59Z
+fixed_at: 2026-11-13T12:12:42Z
 review_path: .planning/phases/02-identity-organizations-and-report-library/02-REVIEW.md
-iteration: 2
+iteration: 3
 findings_in_scope: 4
 fixed: 4
 skipped: 0
@@ -11,49 +11,48 @@ status: all_fixed
 
 # Phase 02: Code Review Fix Report
 
-**Fixed at:** 2026-11-13T11:48:59Z
+**Fixed at:** 2026-11-13T12:12:42Z
 **Source review:** `.planning/phases/02-identity-organizations-and-report-library/02-REVIEW.md`
-**Iteration:** 2
+**Iteration:** 3
 
 **Summary:**
 
 - Findings in scope: 4
 - Fixed: 4
 - Skipped: 0
-- Verification: the complete Phase 2 deterministic release validator passed twice against an explicitly local disposable PostgreSQL database.
-- Release evidence: `code_verified=true`, `production_auth_verified=false`, `production_launch_ready=false`.
-- Review state: all reported fixes were applied, but `02-REVIEW.md` remains unchanged pending an independent reviewer re-check.
+- Verification: focused counterexample tests passed, followed by two complete successful runs of the deterministic Phase 2 release validator.
+- Release evidence per run: 117 focused Python tests, 558 full-discovery Python tests, 26 Node tests, the migration lifecycle through head `0021`, Alembic drift, catalog, Compose/deployment contracts, workbook, compilation, templates, and committed/working-tree diff checks passed.
+- Live-provider state remains intentionally unchanged: `code_verified=true`, `production_auth_verified=false`, and `production_launch_ready=false`.
 
 ## Fixed Issues
 
-### CR-01: Provider invitation acceptance still has no real token-to-local-state handoff
+### CR-01: Deployment never routes WorkOS invitation emails through the state-issuing entry
 
-**Files modified:** `app.py`, `roster_scout/auth_routes.py`, `roster_scout/identity.py`, `roster_scout/organizations.py`, `tests/test_identity.py`
-**Commit:** 53bf8a5
-**Applied fix:** Resolved the real provider invitation token before authorization, matched its sanitized provider identity to exactly one pending exact-email local invitation, persisted only that local invitation UUID in the signed authorization transaction, and removed provider organization context as callback authority. Counterexample tests exercise the production HTTP token path and prove ordinary provider-organization sign-in cannot consume an invitation.
+**Files modified:** `DEPLOYMENT.md`, `scripts/validate_phase2_release.py`, `tests/test_deployment_config.py`
+**Commit:** 15fe014
+**Applied fix:** Documented the WorkOS User Invitation URL as the environment's exact canonical `/auth/start` URL, explicitly separated it from the OAuth `/auth/callback` redirect URI, and required live invitation evidence to begin from the provider-sent token-bearing URL. The production launch record now fails closed unless it names `https://roster-scout.fly.dev/auth/start` and proves the invitation email handoff completed.
 
-### CR-02: The destructive database guard trusts the URL authority instead of the effective psycopg target
-
-**Files modified:** `scripts/validate_phase2_release.py`, `tests/test_deployment_config.py`
-**Commit:** f5f810e
-**Applied fix:** Resolved the effective SQLAlchemy/psycopg connection arguments, required the exact PostgreSQL psycopg driver plus an explicit loopback `_test` database, and rejected all query-parameter, socket, service-file, alternate-host, and multi-host target overrides before destructive commands run.
-
-### CR-03: Public authentication endpoints permit unbounded durable write amplification
+### WR-01: A consumed valid state with malformed code is missing its failure audit
 
 **Status:** fixed: requires human verification
-**Files modified:** `migrations/versions/0020_auth_request_limits.py`, `roster_scout/auth_routes.py`, `roster_scout/identity.py`, `roster_scout/models.py`, `scripts/validate_phase2_release.py`, `tests/test_deployment_config.py`, `tests/test_identity.py`
-**Commit:** d3014bd
-**Applied fix:** Added shared PostgreSQL-backed, privacy-preserving request limits for `/auth/start` and invalid callback attempts, fixed error responses with `Retry-After`, bounded stale transaction and limiter cleanup, and prevented unknown callback states from appending audit rows while retaining audit evidence for known replay and expiry failures.
+**Files modified:** `roster_scout/audit.py`, `roster_scout/auth_routes.py`, `tests/test_identity.py`
+**Commit:** 59d4813
+**Applied fix:** Tracked successful one-time state consumption and now records exactly one sanitized failed `identity.sign_in` event with reason `invalid_callback` when the subsequent provider code is missing, empty, oversized, or contains control characters. Unknown-state callback noise remains unaudited; focused tests cover both sides of the boundary.
 
-### WR-01: Invitation delivery lease expiry can resend after a slow or crashed provider call
+### WR-02: The rejected provider-organization auto-accept primitive remains callable
 
-**Status:** fixed: requires human verification
-**Files modified:** `app.py`, `migrations/versions/0021_invitation_delivery_recovery.py`, `roster_scout/identity.py`, `roster_scout/models.py`, `roster_scout/organizations.py`, `scripts/validate_phase2_release.py`, `tests/test_deployment_config.py`, `tests/test_identity.py`, `tests/test_organizations.py`
-**Commit:** 40a75b0
-**Applied fix:** Added a stable local-invitation-derived WorkOS idempotency key, a provider timeout shorter than the delivery lease, durable delivery start tracking, and reconciliation of pending provider invitations before retry. Counterexample tests cover a slow first send beyond the lease and provider success immediately before local persistence failure; both recover to one provider delivery.
+**Files modified:** `roster_scout/organizations.py`, `tests/test_organizations.py`
+**Commit:** b47cacf
+**Applied fix:** Deleted `accept_provider_invitation_handoff()` so provider organization context has no acceptance API. The token reference to exact provider invitation, organization, email, and local invitation UUID remains the only managed-provider handoff path, with focused absence and authority tests.
+
+### WR-03: Release instructions still identify migration 0019 as the validated head
+
+**Files modified:** `DEPLOYMENT.md`, `tests/test_deployment_config.py`
+**Commit:** 1a42655
+**Applied fix:** Updated the operational runbook to migration head `0021` and added a contract test that derives the documented revision from `EXPECTED_MIGRATION_HEAD`, preventing future runbook/validator drift.
 
 ---
 
-_Fixed: 2026-11-13T11:48:59Z_
+_Fixed: 2026-11-13T12:12:42Z_
 _Fixer: the agent (gsd-code-fixer)_
-_Iteration: 2_
+_Iteration: 3_
