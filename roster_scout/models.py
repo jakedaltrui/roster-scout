@@ -402,6 +402,36 @@ class AuthTransaction(UUIDPrimaryKey, Base):
     )
 
 
+class AuthRequestLimit(Base):
+    """Shared bounded auth-attempt window keyed by a private client digest."""
+
+    __tablename__ = "auth_request_limits"
+    scope: Mapped[str] = mapped_column(String(16), primary_key=True)
+    client_digest: Mapped[str] = mapped_column(String(64), primary_key=True)
+    window_started_at: Mapped[object] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_at: Mapped[object] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    __table_args__ = (
+        CheckConstraint(
+            _allowed("scope", ("start", "callback")),
+            name="ck_auth_request_limits_scope",
+        ),
+        CheckConstraint(
+            "char_length(client_digest) = 64",
+            name="ck_auth_request_limits_client_digest_length",
+        ),
+        CheckConstraint(
+            "attempt_count > 0",
+            name="ck_auth_request_limits_attempt_count",
+        ),
+        Index("ix_auth_request_limits_updated_at", "updated_at"),
+    )
+
+
 class AccountSession(UUIDPrimaryKey, Timestamped, Base):
     """Opaque local server session; the browser verifier is never persisted."""
 

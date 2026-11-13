@@ -106,6 +106,69 @@ class PasswordlessBoundaryTests(_PostgreSQLIdentityCase):
         self.assertIn("We couldn’t sign you in", unsafe_body)
         self.assertNotIn("attacker.example", unsafe_body)
 
+    def test_auth_start_and_unknown_callbacks_are_shared_and_bounded(self):
+        from roster_scout.identity import FakeIdentityProvider
+        from roster_scout.models import (
+            AuthRequestLimit,
+            AuthTransaction,
+            SecurityAuditEvent,
+        )
+
+        client = self._auth_client(FakeIdentityProvider())
+        for _ in range(10):
+            self.assertEqual(client.get("/auth/start").status_code, 302)
+        limited_start = client.get("/auth/start")
+        self.assertEqual(limited_start.status_code, 429)
+        self.assertGreater(int(limited_start.headers["Retry-After"]), 0)
+        self.assertIn("We couldn’t sign you in", limited_start.get_data(as_text=True))
+
+        for index in range(20):
+            response = client.get(
+                "/auth/callback",
+                query_string={"state": f"unknown-state-{index}", "code": "noise"},
+            )
+            self.assertEqual(response.status_code, 400)
+        limited_callback = client.get(
+            "/auth/callback",
+            query_string={"state": "unknown-state-limited", "code": "noise"},
+        )
+        self.assertEqual(limited_callback.status_code, 429)
+        self.assertGreater(int(limited_callback.headers["Retry-After"]), 0)
+
+        with self.Session() as session:
+            self.assertEqual(session.query(AuthTransaction).count(), 10)
+            self.assertEqual(session.query(AuthRequestLimit).count(), 2)
+            self.assertEqual(session.query(SecurityAuditEvent).count(), 0)
+
+    def test_auth_start_prunes_only_a_bounded_batch_of_stale_transactions(self):
+        from roster_scout.identity import FakeIdentityProvider
+        from roster_scout.models import AuthTransaction
+
+        stale_created = self.now - timedelta(hours=3)
+        stale_expires = self.now - timedelta(hours=2)
+        with self.Session.begin() as session:
+            session.add_all([
+                AuthTransaction(
+                    state_digest=hashlib.sha256(
+                        f"stale-state-{index}".encode("ascii")
+                    ).hexdigest(),
+                    return_path="/reports",
+                    created_at=stale_created,
+                    expires_at=stale_expires,
+                )
+                for index in range(105)
+            ])
+
+        client = self._auth_client(FakeIdentityProvider())
+        self.assertEqual(client.get("/auth/start").status_code, 302)
+        with self.Session() as session:
+            stale_count = session.query(AuthTransaction).filter(
+                AuthTransaction.expires_at == stale_expires
+            ).count()
+            total_count = session.query(AuthTransaction).count()
+        self.assertEqual(stale_count, 5)
+        self.assertEqual(total_count, 6)
+
     def test_callback_links_account_sets_secure_cookie_and_replay_is_fixed(self):
         from roster_scout.identity import FakeIdentityProvider
         from roster_scout.models import Account, AccountSession, AuthTransaction

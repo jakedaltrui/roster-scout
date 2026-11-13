@@ -15,19 +15,25 @@ from datetime import UTC, datetime, timedelta
 from typing import Protocol, runtime_checkable
 from urllib.parse import urlencode
 
-from sqlalchemy import select
+from sqlalchemy import and_, case, delete, or_, select, tuple_
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 
-from .models import AuthTransaction
+from .models import AuthRequestLimit, AuthTransaction
 
 
 AUTH_TRANSACTION_LIFETIME = timedelta(minutes=10)
+AUTH_TRANSACTION_RETENTION = timedelta(hours=1)
+AUTH_REQUEST_LIMIT_WINDOW = timedelta(minutes=10)
+AUTH_REQUEST_LIMIT_RETENTION = timedelta(days=1)
+AUTH_RETENTION_BATCH_SIZE = 100
 
 
 class IdentityFailure(RuntimeError):
     """One fixed, customer-safe identity failure category."""
 
-    def __init__(self, category: str):
+    def __init__(self, category: str, *, audit_worthy: bool = False):
         self.category = category
+        self.audit_worthy = audit_worthy
         super().__init__(category)
 
 
@@ -488,6 +494,116 @@ def begin_auth_transaction(
     )
 
 
+def _bounded_delete(session, model, *, predicate, order_by, limit):
+    identifiers = (
+        select(model.id)
+        .where(predicate)
+        .order_by(order_by)
+        .limit(limit)
+    )
+    return session.execute(
+        delete(model).where(model.id.in_(identifiers))
+    ).rowcount
+
+
+def prune_auth_records(session, *, now=None, limit=AUTH_RETENTION_BATCH_SIZE):
+    """Delete a bounded batch of stale callback and limiter state."""
+    current = now or _utc_now()
+    if not isinstance(limit, int) or not 1 <= limit <= 1000:
+        raise ValueError("invalid auth retention batch size")
+    transaction_cutoff = current - AUTH_TRANSACTION_RETENTION
+    removed_transactions = _bounded_delete(
+        session,
+        AuthTransaction,
+        predicate=or_(
+            AuthTransaction.expires_at <= transaction_cutoff,
+            and_(
+                AuthTransaction.consumed_at.is_not(None),
+                AuthTransaction.consumed_at <= transaction_cutoff,
+            ),
+        ),
+        order_by=AuthTransaction.expires_at,
+        limit=limit,
+    )
+    limiter_cutoff = current - AUTH_REQUEST_LIMIT_RETENTION
+    limiter_keys = (
+        select(AuthRequestLimit.scope, AuthRequestLimit.client_digest)
+        .where(AuthRequestLimit.updated_at <= limiter_cutoff)
+        .order_by(AuthRequestLimit.updated_at)
+        .limit(limit)
+    )
+    removed_limits = session.execute(
+        delete(AuthRequestLimit).where(
+            tuple_(
+                AuthRequestLimit.scope,
+                AuthRequestLimit.client_digest,
+            ).in_(
+                limiter_keys
+            )
+        )
+    ).rowcount
+    return removed_transactions, removed_limits
+
+
+def check_auth_request_limit(
+    session,
+    *,
+    scope: str,
+    client_digest: str,
+    limit: int,
+    now=None,
+):
+    """Advance one shared auth window and return retry seconds, or zero."""
+    if scope not in {"start", "callback"}:
+        raise ValueError("invalid auth limit scope")
+    if (
+        not isinstance(client_digest, str)
+        or len(client_digest) != 64
+        or any(character not in "0123456789abcdef" for character in client_digest)
+    ):
+        raise ValueError("invalid auth client digest")
+    if not isinstance(limit, int) or not 1 <= limit <= 1000:
+        raise ValueError("invalid auth request limit")
+    current = now or _utc_now()
+    prune_auth_records(session, now=current)
+    cutoff = current - AUTH_REQUEST_LIMIT_WINDOW
+    insert = postgresql_insert(AuthRequestLimit).values(
+        scope=scope,
+        client_digest=client_digest,
+        window_started_at=current,
+        attempt_count=1,
+        updated_at=current,
+    )
+    window_expired = AuthRequestLimit.window_started_at <= cutoff
+    statement = insert.on_conflict_do_update(
+        index_elements=[
+            AuthRequestLimit.scope,
+            AuthRequestLimit.client_digest,
+        ],
+        set_={
+            "window_started_at": case(
+                (window_expired, current),
+                else_=AuthRequestLimit.window_started_at,
+            ),
+            "attempt_count": case(
+                (window_expired, 1),
+                else_=AuthRequestLimit.attempt_count + 1,
+            ),
+            "updated_at": current,
+        },
+    ).returning(
+        AuthRequestLimit.window_started_at,
+        AuthRequestLimit.attempt_count,
+    )
+    row = session.execute(statement).one()
+    if row.attempt_count <= limit:
+        return 0
+    remaining = (
+        row.window_started_at + AUTH_REQUEST_LIMIT_WINDOW - current
+    ).total_seconds()
+    return max(1, int(remaining + 0.999))
+
+
 def consume_auth_transaction(
     session,
     *,
@@ -505,8 +621,10 @@ def consume_auth_transaction(
         .where(AuthTransaction.state_digest == digest)
         .with_for_update()
     )
-    if row is None or row.consumed_at is not None or current >= row.expires_at:
+    if row is None:
         raise IdentityFailure("invalid_auth_state")
+    if row.consumed_at is not None or current >= row.expires_at:
+        raise IdentityFailure("invalid_auth_state", audit_worthy=True)
     row.consumed_at = current
     session.flush()
     return ConsumedAuthTransaction(

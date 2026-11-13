@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import os
+
 from flask import Blueprint, current_app, redirect, render_template, request
 from flask.sessions import SessionInterface, SessionMixin
 from werkzeug.datastructures import CallbackDict
@@ -13,6 +17,7 @@ from .identity import (
     FakeIdentityProvider,
     IdentityFailure,
     begin_auth_transaction,
+    check_auth_request_limit,
     consume_auth_transaction,
     exchange_authorization_code,
     resolve_provider_invitation_token,
@@ -42,6 +47,8 @@ _ALLOWED_RETURN_PATHS = frozenset({
 })
 _MAX_CALLBACK_VALUE_LENGTH = 512
 _MAX_INVITATION_TOKEN_LENGTH = 2048
+_AUTH_START_REQUEST_LIMIT = 10
+_AUTH_CALLBACK_REQUEST_LIMIT = 20
 
 
 class RosterScoutBrowserSession(CallbackDict, SessionMixin):
@@ -133,6 +140,36 @@ def _auth_failure(*, status: int):
     return render_template("auth_error.html", state="failure"), status
 
 
+def _auth_throttled(*, retry_after: int):
+    response = current_app.make_response(
+        (render_template("auth_error.html", state="failure"), 429)
+    )
+    response.headers["Retry-After"] = str(retry_after)
+    return response
+
+
+def _auth_client_digest() -> str:
+    client = request.remote_addr or "unknown"
+    if os.environ.get("TRUST_FLY_CLIENT_IP") == "1":
+        client = request.headers.get("Fly-Client-IP", client)
+    secret = current_app.secret_key
+    if isinstance(secret, str):
+        secret = secret.encode("utf-8")
+    if not isinstance(secret, bytes) or not secret:
+        raise RuntimeError("auth limiter secret unavailable")
+    return hmac.new(secret, client.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def _auth_retry_after(*, scope: str, limit: int) -> int:
+    with _session_factory().begin() as session:
+        return check_auth_request_limit(
+            session,
+            scope=scope,
+            client_digest=_auth_client_digest(),
+            limit=limit,
+        )
+
+
 def _record_sign_in_failure(reason: str) -> None:
     """Best-effort sanitized failure evidence when persistence is available."""
     try:
@@ -159,6 +196,16 @@ def login():
 
 @auth_blueprint.get("/auth/start")
 def start():
+    try:
+        retry_after = _auth_retry_after(
+            scope="start",
+            limit=_AUTH_START_REQUEST_LIMIT,
+        )
+    except Exception:
+        current_app.logger.warning("identity_start_limit_failed")
+        return _auth_failure(status=503)
+    if retry_after:
+        return _auth_throttled(retry_after=retry_after)
     try:
         return_path = _return_path(request.args.get("return_to"))
         raw_invitation_token = request.args.get("invitation_token")
@@ -200,6 +247,16 @@ def start():
 @auth_blueprint.get("/auth/callback")
 def callback():
     try:
+        retry_after = _auth_retry_after(
+            scope="callback",
+            limit=_AUTH_CALLBACK_REQUEST_LIMIT,
+        )
+    except Exception:
+        current_app.logger.warning("identity_callback_limit_failed")
+        return _auth_failure(status=503)
+    if retry_after:
+        return _auth_throttled(retry_after=retry_after)
+    try:
         state = _bounded_callback_value(request.args.get("state"))
         # Commit consumption before any provider exchange so failed exchanges and
         # retries cannot replay a bearer callback state.
@@ -207,9 +264,10 @@ def callback():
             transaction = consume_auth_transaction(session, state=state)
         return_path = _return_path(transaction.return_path)
         code = _bounded_callback_value(request.args.get("code"))
-    except IdentityFailure:
+    except IdentityFailure as exc:
         current_app.logger.warning("identity_callback_failed")
-        _record_sign_in_failure("invalid_auth_state")
+        if exc.audit_worthy:
+            _record_sign_in_failure("invalid_auth_state")
         return _auth_failure(status=400)
     except Exception:
         current_app.logger.warning("identity_callback_failed")

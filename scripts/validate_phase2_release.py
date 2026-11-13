@@ -26,7 +26,7 @@ MVP_STORY = (
     "so that my staff can reuse dated scouting reports without cross-organization "
     "access."
 )
-EXPECTED_MIGRATION_HEAD = "0019"
+EXPECTED_MIGRATION_HEAD = "0020"
 
 PHASE2_FOCUSED_TESTS = (
     "tests.test_phase2_release.Phase2ReleaseStoryTests",
