@@ -15,7 +15,7 @@ from sqlalchemy.engine import make_url
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 AUDITED_RELEASE_DIFF_BASE = "95776ed"
 MVP_STORY = (
-    "As an authenticated Roster Scout customer, I want to collaborate inside "
+    "As a signed-in Roster Scout customer, I want to collaborate inside "
     "explicit organizations and manage persistent, refreshable opponent reports, "
     "so that my staff can reuse dated scouting reports without cross-organization "
     "access."
