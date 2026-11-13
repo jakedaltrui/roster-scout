@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-16-PLAN.md
-last_updated: "2026-11-13T06:32:24.784Z"
+stopped_at: Completed 02-10-PLAN.md
+last_updated: "2026-11-13T06:46:02.240Z"
 last_activity: 2026-11-13
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 57
-  completed_plans: 55
+  completed_plans: 56
   percent: 20
 ---
 
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-11-11)
 ## Current Position
 
 Phase: 02 (identity-organizations-and-report-library) — EXECUTING
-Plan: 15 of 16
+Plan: 16 of 16
 Status: Ready to execute
 Last activity: 2026-11-13
 
-Progress: [██████████] 96%
+Progress: [██████████] 98%
 
 ## Performance Metrics
 
@@ -226,6 +226,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 02]: Receipt UUID is the canonical acknowledgement retry and event key — Ambiguous retries converge without another blob read, anchor initiation, usage row, or success audit.
 - [Phase 02]: Authenticated retry state is isolated from anonymous download tracking — Only opaque receipt, proof, and timestamps persist for acknowledgement-only recovery.
 - [Phase 02]: Download measurement stops at blob read, anchor initiation, and acknowledgement — Browser APIs cannot prove that a workbook was saved to the filesystem.
+- [Phase 02]: Authorization denial evidence uses one fixed authorization.deny/denied/not_found tuple derived only from the revalidated active membership.
+- [Phase 02]: Denial-audit persistence failure never changes the non-enumerating customer response and logs only a fixed safe category.
+- [Phase 02]: Authenticated acknowledgement audits foreign scope only after current membership and signed principal binding validation.
 
 ### Pending Todos
 
@@ -279,9 +282,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 02 P08 | 14min | 2 tasks | 6 files |
 | Phase 02 P09 | 18min | 2 tasks | 7 files |
 | Phase 02 P16 | 30min | 2 tasks | 7 files |
+| Phase 02 P10 | 11 min | 2 tasks | 5 files |
 
 ## Session Continuity
 
-Last session: 2026-11-13T06:32:24.775Z
-Stopped at: Completed 02-16-PLAN.md
+Last session: 2026-11-13T06:46:02.231Z
+Stopped at: Completed 02-10-PLAN.md
 Resume file: None
