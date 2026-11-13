@@ -147,6 +147,38 @@ email, test local-first logout during a provider failure, and confirm a user
 without an explicit local invitation sees no organization reports. A green
 `code_verified` result never implies that these live checks passed.
 
+Run the complete deterministic Phase 2 gate from the repository root against
+the disposable PostgreSQL database:
+
+```bash
+DATABASE_URL=postgresql+psycopg://roster_scout:roster_scout@127.0.0.1:5432/roster_scout_test \
+  .venv/bin/python scripts/validate_phase2_release.py
+```
+
+Only after every focused Phase 2 story/security/download/429 test, both Node
+state machines, the revision `0018` lifecycle, full Python and Node suites,
+catalog, workbook, configuration, compilation, template, and diff checks pass
+does the command emit `code_verified=true`. Without separate reviewed live
+evidence it also emits `production_auth_verified=false`, so production launch
+remains blocked even though deterministic Phase 2 code completion succeeds.
+In other words, production launch remains blocked until the separate live
+authentication evidence is complete.
+
+The separate live evidence requires an operator-owned WorkOS production workspace,
+confirmed billing, installed secrets, verified dashboard
+redirect/sign-out/initiate-login URIs, live passwordless email, Google,
+Microsoft, and one real customer OIDC or SAML connection. It must also confirm
+provider domain/JIT membership is disabled as authorization and an uninvited
+account cannot open reports. No validator creates a workspace, sends real
+email, configures a customer IdP, deploys the app, or creates a billable
+resource.
+
+To perform the explicit launch check, point
+`ROSTER_SCOUT_PRODUCTION_AUTH_SMOKE_RECORD` at reviewed JSON evidence and set
+`PHASE2_PRODUCTION_LAUNCH_CHECK=1` when running the same command. A missing,
+malformed, non-production, or incomplete record fails closed; never add that
+record or any credential value to Git.
+
 ```bash
 docker compose up --build
 docker compose --profile worker up --build

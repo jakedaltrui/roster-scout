@@ -15,6 +15,7 @@ primary_region = "ord"
 
 [env]
   PORT = "5000"
+  ROSTER_SCOUT_IDENTITY_MODE = "workos"
   ROSTER_SCOUT_PUBLIC_ORIGIN = "https://roster-scout.fly.dev"
   ROSTER_SCOUT_CACHE_DIR = "/data"
   BROWSERLESS_CAPACITY_BACKEND = "postgresql"
