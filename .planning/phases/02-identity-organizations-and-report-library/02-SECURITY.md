@@ -158,7 +158,7 @@ None. The Phase 02 summaries contain no `## Threat Flags` entries. Their securit
 - [x] No unregistered summary threat flags.
 - [x] Implementation files were not modified.
 
-**Threats closed:** 83/83  
-**Threats open:** 0/83  
-**ASVS level:** 1 (configuration default)  
+**Threats closed:** 83/83
+**Threats open:** 0/83
+**ASVS level:** 1 (configuration default)
 **Blocking policy:** open threats
