@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 import unittest
+import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from threading import Barrier
@@ -921,7 +922,22 @@ class FailedBuildRetryTests(unittest.TestCase):
             data={"csrf_token": csrf},
         )
         self.assertEqual(foreign.status_code, 404)
-        self.assertEqual(foreign.get_data(), missing.get_data())
+        def without_csrf_nonce(body):
+            body = re.sub(
+                rb'(<meta name="csrf-token" content=")[^"]+("[^>]*>)',
+                rb'\1<csrf>\2',
+                body,
+            )
+            return re.sub(
+                rb'(name="csrf_token" value=")[^"]+("[^>]*>)',
+                rb'\1<csrf>\2',
+                body,
+            )
+
+        self.assertEqual(
+            without_csrf_nonce(foreign.get_data()),
+            without_csrf_nonce(missing.get_data()),
+        )
         reader.assert_not_called()
         detail = client.get(f"/reports/{first_report_id}")
         self.assertIn(b"Download unavailable", detail.data)
