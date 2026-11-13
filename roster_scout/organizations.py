@@ -554,6 +554,51 @@ def accept_provider_invitation_handoff(
     )
 
 
+def resolve_provider_invitation_reference(session, *, reference, now=None):
+    """Map sanitized provider invitation metadata to one pending local invite."""
+    now = _utc_datetime(now or datetime.now(UTC))
+    try:
+        provider_invitation_id = reference.provider_invitation_id
+        provider_organization_id = reference.provider_organization_id
+        normalized_email = _normalized_email(reference.email)
+        provider_expires_at = _utc_datetime(reference.expires_at)
+        provider_state = reference.state
+    except (AttributeError, OrganizationFailure):
+        raise OrganizationFailure("invitation_unavailable") from None
+    if (
+        not isinstance(provider_invitation_id, str)
+        or not provider_invitation_id
+        or len(provider_invitation_id) > 255
+        or not isinstance(provider_organization_id, str)
+        or not provider_organization_id
+        or len(provider_organization_id) > 255
+        or provider_state != "pending"
+        or provider_expires_at <= now
+    ):
+        raise OrganizationFailure("invitation_unavailable")
+    invitations = list(session.scalars(
+        select(OrganizationInvitation)
+        .join(
+            OrganizationIdentityConnection,
+            OrganizationIdentityConnection.organization_id
+            == OrganizationInvitation.organization_id,
+        )
+        .where(
+            OrganizationInvitation.provider_invitation_id
+            == provider_invitation_id,
+            OrganizationInvitation.normalized_email == normalized_email,
+            OrganizationInvitation.status == "pending",
+            OrganizationInvitation.expires_at > now,
+            OrganizationIdentityConnection.provider_organization_id
+            == provider_organization_id,
+        )
+        .with_for_update()
+    ))
+    if len(invitations) != 1:
+        raise OrganizationFailure("invitation_unavailable")
+    return invitations[0]
+
+
 def revoke_invitation(
     session,
     *,

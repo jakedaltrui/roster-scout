@@ -91,6 +91,17 @@ class ProviderInvitation:
     expires_at: datetime | None = None
 
 
+@dataclass(frozen=True)
+class ProviderInvitationReference:
+    """Sanitized provider invitation metadata resolved from a bearer token."""
+
+    provider_invitation_id: str
+    provider_organization_id: str
+    email: str = field(repr=False)
+    state: str
+    expires_at: datetime
+
+
 @runtime_checkable
 class IdentityProvider(Protocol):
     def authorization_url(
@@ -101,6 +112,10 @@ class IdentityProvider(Protocol):
     ) -> str: ...
 
     def exchange_code(self, *, code: str) -> VerifiedIdentity: ...
+
+    def resolve_invitation_token(
+        self, *, invitation_token: str
+    ) -> ProviderInvitationReference: ...
 
     def refresh(self, *, sealed_session: str) -> RefreshResult: ...
 
@@ -134,6 +149,10 @@ class FakeIdentityProvider:
         logout_failure: Exception | None = None,
         organization_failure: Exception | None = None,
         invitation_failure: Exception | None = None,
+        invitation_references: (
+            dict[str, ProviderInvitationReference] | None
+        ) = None,
+        invitation_resolution_failure: Exception | None = None,
     ):
         self._identities = dict(identities or {})
         self._authorization_base_url = authorization_base_url
@@ -144,10 +163,13 @@ class FakeIdentityProvider:
         self._logout_failure = logout_failure
         self._organization_failure = organization_failure
         self._invitation_failure = invitation_failure
+        self._invitation_references = dict(invitation_references or {})
+        self._invitation_resolution_failure = invitation_resolution_failure
         self.refresh_calls: list[str] = []
         self.logout_calls: list[str] = []
         self.organization_calls: list[tuple[str, str]] = []
         self.invitation_calls: list[tuple[str, str, int]] = []
+        self.invitation_resolution_calls: list[str] = []
 
     def authorization_url(
         self,
@@ -164,6 +186,14 @@ class FakeIdentityProvider:
         if self._failure is not None:
             raise self._failure
         return self._identities[code]
+
+    def resolve_invitation_token(
+        self, *, invitation_token: str
+    ) -> ProviderInvitationReference:
+        self.invitation_resolution_calls.append(invitation_token)
+        if self._invitation_resolution_failure is not None:
+            raise self._invitation_resolution_failure
+        return self._invitation_references[invitation_token]
 
     def refresh(self, *, sealed_session: str) -> RefreshResult:
         self.refresh_calls.append(sealed_session)
@@ -280,6 +310,33 @@ class WorkOSIdentityProvider:
             )
         except IdentityFailure:
             raise
+        except Exception as exc:
+            raise IdentityFailure(_provider_failure_category(exc)) from None
+
+    def resolve_invitation_token(
+        self, *, invitation_token: str
+    ) -> ProviderInvitationReference:
+        """Resolve one WorkOS bearer token without retaining the token."""
+        try:
+            invitation = self._client.user_management.find_invitation_by_token(
+                invitation_token
+            )
+            state = getattr(invitation.state, "value", invitation.state)
+            organization_id = invitation.organization_id
+            expires_at = invitation.expires_at
+            if (
+                not isinstance(organization_id, str)
+                or not organization_id
+                or not isinstance(expires_at, datetime)
+            ):
+                raise ValueError("invalid invitation reference")
+            return ProviderInvitationReference(
+                provider_invitation_id=invitation.id,
+                provider_organization_id=organization_id,
+                email=invitation.email,
+                state=str(state),
+                expires_at=expires_at,
+            )
         except Exception as exc:
             raise IdentityFailure(_provider_failure_category(exc)) from None
 
@@ -474,4 +531,21 @@ def exchange_authorization_code(
         (logger or logging.getLogger(__name__)).warning(
             "identity_provider_exchange_failed"
         )
+        raise IdentityFailure("identity_unavailable") from None
+
+
+def resolve_provider_invitation_token(
+    provider: IdentityProvider,
+    *,
+    invitation_token: str,
+    logger: logging.Logger | None = None,
+) -> ProviderInvitationReference:
+    """Resolve a provider bearer token while keeping failures and token private."""
+    try:
+        return provider.resolve_invitation_token(
+            invitation_token=invitation_token
+        )
+    except Exception:
+        if logger is not None:
+            logger.warning("identity_provider_invitation_resolution_failed")
         raise IdentityFailure("identity_unavailable") from None

@@ -996,38 +996,87 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
                         membership_count == 1,
                     )
 
-    def test_provider_context_accepts_exact_local_invitation_without_uuid_handoff(self):
-        from roster_scout.identity import FakeIdentityProvider
-        from roster_scout.models import OrganizationMembership
-        from roster_scout.organizations import bootstrap_organization, mirror_organization
+    def test_invitation_token_entry_binds_local_invite_before_callback(self):
+        from roster_scout.identity import (
+            FakeIdentityProvider,
+            ProviderInvitationReference,
+        )
+        from roster_scout.models import (
+            AuthTransaction,
+            OrganizationIdentityConnection,
+            OrganizationInvitation,
+            OrganizationMembership,
+        )
+        from roster_scout.organizations import (
+            bootstrap_organization,
+            deliver_invitation,
+            mirror_organization,
+        )
 
-        provider = FakeIdentityProvider()
+        delivery_provider = FakeIdentityProvider()
         with self.Session.begin() as session:
-            organization, _invitation = bootstrap_organization(
+            organization, invitation = bootstrap_organization(
                 session,
                 name="Invited Baseball",
                 admin_email="invited@example.edu",
                 now=self.now,
             )
             organization_id = organization.id
+            invitation_id = invitation.id
         connection = mirror_organization(
             self.Session,
-            provider=provider,
+            provider=delivery_provider,
             organization_id=organization_id,
             now=self.now,
         )
-        identity = self._verified_identity("invited@example.edu")
-        identity = type(identity)(
-            **{
-                **identity.__dict__,
-                "provider_organization_id": connection.provider_organization_id,
-            }
+        deliver_invitation(
+            self.Session,
+            provider=delivery_provider,
+            invitation_id=invitation_id,
+            now=self.now,
         )
-        self.app_module.app.extensions["roster_scout_identity_provider"] = (
-            FakeIdentityProvider(identities={"invite-code": identity})
+        with self.Session() as session:
+            invitation = session.get(OrganizationInvitation, invitation_id)
+            provider_invitation_id = invitation.provider_invitation_id
+            local_expires_at = invitation.expires_at
+
+        invitation_token = "signed-provider-invitation-token"
+        provider = FakeIdentityProvider(
+            identities={
+                "invite-code": self._verified_identity("invited@example.edu")
+            },
+            invitation_references={
+                invitation_token: ProviderInvitationReference(
+                    provider_invitation_id=provider_invitation_id,
+                    provider_organization_id=connection.provider_organization_id,
+                    email="invited@example.edu",
+                    state="pending",
+                    expires_at=local_expires_at,
+                )
+            },
         )
-        started = self.client.get("/auth/start")
-        state = parse_qs(urlsplit(started.headers["Location"]).query)["state"][0]
+        self.app_module.app.extensions["roster_scout_identity_provider"] = provider
+        started = self.client.get(
+            "/auth/start",
+            query_string={"invitation_token": invitation_token},
+        )
+        authorization_query = parse_qs(
+            urlsplit(started.headers["Location"]).query
+        )
+        self.assertEqual(
+            authorization_query["invitation_token"],
+            [invitation_token],
+        )
+        self.assertEqual(provider.invitation_resolution_calls, [invitation_token])
+        state = authorization_query["state"][0]
+        with self.Session() as session:
+            transaction = session.scalar(select(AuthTransaction))
+            self.assertEqual(transaction.invitation_id, invitation_id)
+            self.assertFalse(hasattr(transaction, "invitation_token"))
+            self.assertEqual(
+                session.scalar(select(OrganizationIdentityConnection)).id,
+                connection.id,
+            )
         response = self.client.get(
             "/auth/callback",
             query_string={"state": state, "code": "invite-code"},
@@ -1039,6 +1088,53 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
             ))
         self.assertIsNotNone(membership)
         self.assertEqual(membership.role, "admin")
+
+    def test_ordinary_provider_org_sign_in_cannot_consume_pending_invite(self):
+        from roster_scout.identity import FakeIdentityProvider
+        from roster_scout.models import OrganizationInvitation, OrganizationMembership
+        from roster_scout.organizations import bootstrap_organization, mirror_organization
+
+        mirror_provider = FakeIdentityProvider()
+        with self.Session.begin() as session:
+            organization, invitation = bootstrap_organization(
+                session,
+                name="Pending Invitation Baseball",
+                admin_email="pending@example.edu",
+                now=self.now,
+            )
+            organization_id = organization.id
+            invitation_id = invitation.id
+        connection = mirror_organization(
+            self.Session,
+            provider=mirror_provider,
+            organization_id=organization_id,
+            now=self.now,
+        )
+        identity = self._verified_identity("pending@example.edu")
+        identity = type(identity)(
+            **{
+                **identity.__dict__,
+                "provider_organization_id": connection.provider_organization_id,
+            }
+        )
+        self.app_module.app.extensions["roster_scout_identity_provider"] = (
+            FakeIdentityProvider(identities={"ordinary-code": identity})
+        )
+        started = self.client.get("/auth/start")
+        state = parse_qs(urlsplit(started.headers["Location"]).query)["state"][0]
+        response = self.client.get(
+            "/auth/callback",
+            query_string={"state": state, "code": "ordinary-code"},
+        )
+        self.assertEqual(
+            urlsplit(response.headers["Location"]).path,
+            "/organizations/none",
+        )
+        with self.Session() as session:
+            invitation = session.get(OrganizationInvitation, invitation_id)
+            memberships = list(session.scalars(select(OrganizationMembership)))
+        self.assertEqual(invitation.status, "pending")
+        self.assertEqual(memberships, [])
 
     def test_request_authorization_refreshes_provider_and_audits_sign_in_outcomes(self):
         from roster_scout.identity import FakeIdentityProvider, RefreshResult
@@ -1268,6 +1364,16 @@ class EnterpriseSsoAuthorizationTests(_PostgreSQLIdentityCase):
                 self.authorization_kwargs = kwargs
                 return "https://identity.example.test/authorize"
 
+            def find_invitation_by_token(self, token):
+                self.resolved_token = token
+                return SimpleNamespace(
+                    id="invitation_provider_1",
+                    organization_id="org_provider_1",
+                    email="invited@example.edu",
+                    state=SimpleNamespace(value="pending"),
+                    expires_at=self_now + timedelta(days=1),
+                )
+
         client = SimpleNamespace(user_management=_UserManagement())
         provider = WorkOSIdentityProvider(
             api_key="synthetic-api-key",
@@ -1277,10 +1383,17 @@ class EnterpriseSsoAuthorizationTests(_PostgreSQLIdentityCase):
             client=client,
         )
         identity = provider.exchange_code(code="synthetic-code")
+        self_now = self.now
+        reference = provider.resolve_invitation_token(
+            invitation_token="signed-provider-token"
+        )
 
         self.assertEqual(identity.provider_user_id, "user_synthetic_sso")
         self.assertFalse(hasattr(identity, "organization_id"))
         self.assertEqual(identity.provider_organization_id, "org_provider_claim_only")
+        self.assertEqual(reference.provider_invitation_id, "invitation_provider_1")
+        self.assertEqual(reference.provider_organization_id, "org_provider_1")
+        self.assertEqual(client.user_management.resolved_token, "signed-provider-token")
 
 
 class SecretRedactionTests(_PostgreSQLIdentityCase):

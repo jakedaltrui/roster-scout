@@ -15,6 +15,7 @@ from .identity import (
     begin_auth_transaction,
     consume_auth_transaction,
     exchange_authorization_code,
+    resolve_provider_invitation_token,
 )
 from .sessions import (
     SESSION_COOKIE_NAME,
@@ -27,7 +28,7 @@ from .sessions import (
 from .organizations import (
     OrganizationFailure,
     accept_invitation,
-    accept_provider_invitation_handoff,
+    resolve_provider_invitation_reference,
 )
 
 
@@ -40,6 +41,7 @@ _ALLOWED_RETURN_PATHS = frozenset({
     "/reports",
 })
 _MAX_CALLBACK_VALUE_LENGTH = 512
+_MAX_INVITATION_TOKEN_LENGTH = 2048
 
 
 class RosterScoutBrowserSession(CallbackDict, SessionMixin):
@@ -116,6 +118,17 @@ def _bounded_callback_value(value: str | None) -> str:
     return value
 
 
+def _bounded_invitation_token(value: str | None) -> str:
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value) > _MAX_INVITATION_TOKEN_LENGTH
+        or any(ord(character) < 33 or ord(character) > 126 for character in value)
+    ):
+        raise IdentityFailure("invalid_invitation")
+    return value
+
+
 def _auth_failure(*, status: int):
     return render_template("auth_error.html", state="failure"), status
 
@@ -148,15 +161,35 @@ def login():
 def start():
     try:
         return_path = _return_path(request.args.get("return_to"))
+        raw_invitation_token = request.args.get("invitation_token")
+        invitation_token = None
+        invitation_reference = None
+        if raw_invitation_token is not None:
+            invitation_token = _bounded_invitation_token(raw_invitation_token)
+            invitation_reference = resolve_provider_invitation_token(
+                _identity_provider(),
+                invitation_token=invitation_token,
+                logger=current_app.logger,
+            )
         with _session_factory().begin() as session:
+            invitation = (
+                resolve_provider_invitation_reference(
+                    session,
+                    reference=invitation_reference,
+                )
+                if invitation_reference is not None
+                else None
+            )
             transaction = begin_auth_transaction(
                 session,
+                invitation_id=(invitation.id if invitation is not None else None),
                 return_path=return_path,
             )
         destination = _identity_provider().authorization_url(
-            state=transaction.state
+            state=transaction.state,
+            invitation_token=invitation_token,
         )
-    except IdentityFailure:
+    except (IdentityFailure, OrganizationFailure):
         return _auth_failure(status=400)
     except Exception:
         current_app.logger.warning("identity_start_failed")
@@ -195,12 +228,6 @@ def callback():
                 accept_invitation(
                     session,
                     invitation_id=transaction.invitation_id,
-                    account_id=account.id,
-                )
-            elif identity.provider_organization_id:
-                accept_provider_invitation_handoff(
-                    session,
-                    provider_organization_id=identity.provider_organization_id,
                     account_id=account.id,
                 )
             memberships = list_active_memberships(
