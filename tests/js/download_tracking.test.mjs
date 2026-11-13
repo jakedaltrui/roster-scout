@@ -449,8 +449,8 @@ test("authenticated snapshot preparation reads blob then initiates anchor then a
 
   const result = await runAuthenticatedSnapshotDownload({
     tracker,
-    prepareSnapshot: async (downloadEventId) => {
-      calls.push(`prepare:${downloadEventId}`);
+    prepareSnapshot: async () => {
+      calls.push("prepare");
       return response;
     },
     initiateDownload: async (blob) => {
@@ -465,7 +465,7 @@ test("authenticated snapshot preparation reads blob then initiates anchor then a
     },
   });
 
-  assert.deepEqual(calls, [`prepare:${FIRST_ID}`, "blob", "anchor", "ack"]);
+  assert.deepEqual(calls, ["prepare", "blob", "anchor", "ack"]);
   assert.equal(result.downloadStarted, true);
   assert.equal(result.acknowledged, true);
   assert.equal(tracker.pendingAcknowledgement(), null);

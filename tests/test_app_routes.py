@@ -1086,6 +1086,17 @@ class AuthenticatedSnapshotDownloadAcknowledgementTests(unittest.TestCase):
             self.assertNotIn(secret, serialized)
         self.assertEqual(self._events(), [])
 
+    def test_report_detail_wires_progressive_authenticated_download_tracking(self):
+        template = os.path.join(
+            os.path.dirname(__file__), "..", "templates", "report_detail.html"
+        )
+        with open(template, encoding="utf-8") as handle:
+            source = handle.read()
+        self.assertIn("download_tracking.js", source)
+        self.assertEqual(source.count("data-authenticated-snapshot-download"), 3)
+        self.assertNotIn("Download saved", source)
+        self.assertNotIn("Snapshot saved to your device", source)
+
 
 class NativeWorkbookDatabaseOptionalTests(unittest.TestCase):
     def setUp(self):

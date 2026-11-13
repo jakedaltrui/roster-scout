@@ -32,6 +32,12 @@ class UsageMetrics:
     successful_workbook_downloads: int
 
 
+@dataclass(frozen=True)
+class UsageEventResult:
+    event: ProductUsageEvent
+    inserted: bool
+
+
 def _canonical_uuid(value, *, field, required=False):
     if value is None:
         if required:
@@ -63,7 +69,7 @@ def _utc_datetime(value, *, field):
     return value.astimezone(UTC)
 
 
-def record_usage_event(
+def _record_usage_event(
     session,
     *,
     event_type,
@@ -130,7 +136,27 @@ def record_usage_event(
         raise RuntimeError("usage event insert did not produce a durable row")
     if inserted_id is not None and event.id != inserted_id:
         raise RuntimeError("usage event identity changed during insertion")
-    return event
+    return UsageEventResult(event=event, inserted=inserted_id is not None)
+
+
+def record_usage_event(
+    session,
+    *,
+    event_type,
+    event_key,
+    occurred_at=None,
+    actor_account_id=None,
+    organization_id=None,
+):
+    """Insert or reselect one allowlisted event without committing."""
+    return _record_usage_event(
+        session,
+        event_type=event_type,
+        event_key=event_key,
+        occurred_at=occurred_at,
+        actor_account_id=actor_account_id,
+        organization_id=organization_id,
+    ).event
 
 
 def record_workbook_download_served(
@@ -143,6 +169,25 @@ def record_workbook_download_served(
 ):
     """Record one workbook response successfully served to the browser."""
     return record_usage_event(
+        session,
+        event_type=WORKBOOK_DOWNLOAD_SERVED,
+        event_key=event_key,
+        occurred_at=occurred_at,
+        actor_account_id=actor_account_id,
+        organization_id=organization_id,
+    )
+
+
+def record_authenticated_workbook_download_served(
+    session,
+    *,
+    event_key,
+    actor_account_id,
+    organization_id,
+    occurred_at=None,
+):
+    """Record one canonical snapshot download and expose insert disposition."""
+    return _record_usage_event(
         session,
         event_type=WORKBOOK_DOWNLOAD_SERVED,
         event_key=event_key,

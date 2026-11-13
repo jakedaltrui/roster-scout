@@ -32,6 +32,7 @@ from xlsxwriter.utility import xl_pixel_width
 from usage_limits import BrowserCapacityError, check_request_limit
 
 from roster_scout.auth_routes import register_auth_routes
+from roster_scout.audit import append_security_audit_event
 from roster_scout.authorization import (
     AuthorizationFailure,
     list_active_memberships,
@@ -43,7 +44,10 @@ from roster_scout.evidence import (
     get_evidence_purge_readiness,
     get_failure_evidence_retention,
 )
-from roster_scout.usage import record_workbook_download_served
+from roster_scout.usage import (
+    record_authenticated_workbook_download_served,
+    record_workbook_download_served,
+)
 from roster_scout.identity import (
     FakeIdentityProvider,
     IdentityFailure,
@@ -384,6 +388,18 @@ def _authenticated_download_binding(
     return sha256(canonical.encode("ascii")).hexdigest()
 
 
+def _authenticated_download_principal_binding(
+    *,
+    account_id,
+    organization_id,
+) -> str:
+    canonical = ":".join((
+        str(uuid.UUID(str(account_id))),
+        str(uuid.UUID(str(organization_id))),
+    ))
+    return sha256(canonical.encode("ascii")).hexdigest()
+
+
 def _authenticated_download_ack_payload(
     download_event_id: str,
     **scope,
@@ -391,6 +407,10 @@ def _authenticated_download_ack_payload(
     return {
         "purpose": _AUTHENTICATED_DOWNLOAD_ACK_PURPOSE,
         "download_event_id": str(uuid.UUID(download_event_id)),
+        "principal_binding": _authenticated_download_principal_binding(
+            account_id=scope["account_id"],
+            organization_id=scope["organization_id"],
+        ),
         "scope_binding": _authenticated_download_binding(**scope),
     }
 
@@ -423,6 +443,53 @@ def _verify_authenticated_download_ack_proof(
     except (BadSignature, TypeError, ValueError, AttributeError):
         return False
     return payload == expected
+
+
+def _authenticated_download_ack_status(
+    proof: str,
+    download_event_id: str,
+    *,
+    account_id,
+    organization_id,
+) -> str:
+    """Classify one authenticated proof without exposing its signed scope."""
+    try:
+        payload = _DOWNLOAD_ACK_SERIALIZER.loads(
+            proof,
+            max_age=_DOWNLOAD_ACK_MAX_AGE_SECONDS,
+        )
+    except BadSignature:
+        return "invalid"
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != {
+            "purpose",
+            "download_event_id",
+            "principal_binding",
+            "scope_binding",
+        }
+        or payload.get("purpose") != _AUTHENTICATED_DOWNLOAD_ACK_PURPOSE
+        or payload.get("download_event_id") != download_event_id
+        or not isinstance(payload.get("principal_binding"), str)
+        or re.fullmatch(r"[0-9a-f]{64}", payload["principal_binding"]) is None
+        or not isinstance(payload.get("scope_binding"), str)
+        or re.fullmatch(r"[0-9a-f]{64}", payload["scope_binding"]) is None
+    ):
+        return "invalid"
+    try:
+        expected_principal = _authenticated_download_principal_binding(
+            account_id=account_id,
+            organization_id=organization_id,
+        )
+    except (TypeError, ValueError, AttributeError):
+        return "invalid"
+    return (
+        "valid"
+        if secrets.compare_digest(
+            payload.get("principal_binding", ""), expected_principal
+        )
+        else "foreign"
+    )
 
 _ALLOWED_DIVISIONS = {"", "d1", "d2", "d3", "juco"}
 _MAX_TEAM_LENGTH = 120
@@ -778,14 +845,54 @@ def acknowledge_workbook_download():
         or any(ord(character) < 32 for character in proof)
     ):
         return _json_error("Acknowledgement proof is invalid.", 400)
-    if not _verify_download_ack_proof(proof, download_event_id):
-        return _json_error("Acknowledgement proof is invalid.", 400)
+    if _verify_download_ack_proof(proof, download_event_id):
+        persisted = _record_workbook_download(download_event_id) == "recorded"
+        return jsonify({
+            "acknowledged": True,
+            "persisted": persisted,
+        }), 200 if persisted else 202
 
-    persisted = _record_workbook_download(download_event_id) == "recorded"
-    return jsonify({
-        "acknowledged": True,
-        "persisted": persisted,
-    }), 200 if persisted else 202
+    _CSRF.protect()
+    cookie_value = request.cookies.get(SESSION_COOKIE_NAME, "")
+    try:
+        with _auth_session_factory().begin() as session:
+            context = require_context(session, cookie_value=cookie_value)
+            proof_status = _authenticated_download_ack_status(
+                proof,
+                download_event_id,
+                account_id=context.account_id,
+                organization_id=context.organization_id,
+            )
+            if proof_status == "foreign":
+                return jsonify({"error": "not_found"}), 404
+            if proof_status != "valid":
+                return _json_error("Acknowledgement proof is invalid.", 400)
+
+            result = record_authenticated_workbook_download_served(
+                session,
+                event_key=download_event_id,
+                actor_account_id=context.account_id,
+                organization_id=context.organization_id,
+            )
+            if result.inserted:
+                append_security_audit_event(
+                    session,
+                    actor_account_id=context.account_id,
+                    organization_id=context.organization_id,
+                    target_type="artifact",
+                    target_id=None,
+                    action="artifact.download",
+                    outcome="succeeded",
+                    reason="download_acknowledged",
+                )
+    except AuthorizationFailure:
+        return jsonify({"error": "not_found"}), 404
+    except Exception:
+        app.logger.warning(
+            "authenticated_download_ack_failed reason=database_unavailable"
+        )
+        return jsonify({"error": "report_service_unavailable"}), 503
+    return jsonify({"acknowledged": True, "persisted": True}), 200
 
 
 @lru_cache(maxsize=1024)

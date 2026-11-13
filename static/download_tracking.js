@@ -4,11 +4,20 @@
     module.exports = api;
   } else {
     root.RosterScoutDownloadTracking = api;
+    if (root.document) {
+      root.document.addEventListener("DOMContentLoaded", () => {
+        api.attachAuthenticatedSnapshotDownloads({
+          document: root.document,
+          window: root,
+        });
+      });
+    }
   }
 })(typeof globalThis === "object" ? globalThis : this, function buildApi() {
   "use strict";
 
   const STORAGE_KEY = "roster-scout.download-attempt.v1";
+  const AUTHENTICATED_STORAGE_KEY = "roster-scout.authenticated-download-attempt.v1";
   const PROOF_TTL_MS = 15 * 60 * 1000;
   const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -105,22 +114,30 @@
     return { outcome: "retryable" };
   }
 
-  function createDownloadTracker({ storage, uuidFactory, now = Date.now } = {}) {
+  function createDownloadTracker({
+    storage,
+    uuidFactory,
+    now = Date.now,
+    storageKey = STORAGE_KEY,
+  } = {}) {
     if (typeof uuidFactory !== "function" || typeof now !== "function") {
       throw new TypeError("UUID and time providers are required.");
+    }
+    if (typeof storageKey !== "string" || storageKey.length === 0) {
+      throw new TypeError("A storage key is required.");
     }
     const safeStorage = createSafeStorage(storage);
 
     function discard() {
-      safeStorage.removeItem(STORAGE_KEY);
+      safeStorage.removeItem(storageKey);
     }
 
     function save(record) {
-      safeStorage.setItem(STORAGE_KEY, JSON.stringify(record));
+      safeStorage.setItem(storageKey, JSON.stringify(record));
     }
 
     function load() {
-      const serialized = safeStorage.getItem(STORAGE_KEY);
+      const serialized = safeStorage.getItem(storageKey);
       if (serialized === null) return null;
 
       let record;
@@ -225,6 +242,29 @@
       return publicRecord(record);
     }
 
+    function markPreparedDownloadInitiated(
+      downloadEventId,
+      acknowledgementProof,
+      serverReceiptAtMs = now(),
+    ) {
+      if (
+        !isUuid(downloadEventId)
+        || !isProof(acknowledgementProof)
+        || !isTimestamp(serverReceiptAtMs)
+      ) {
+        throw new TypeError("Download acknowledgement state is invalid.");
+      }
+      const record = {
+        download_event_id: downloadEventId,
+        state: "needs_ack",
+        acknowledgement_proof: acknowledgementProof,
+        server_receipt_at_ms: serverReceiptAtMs,
+        updated_at_ms: now(),
+      };
+      save(record);
+      return publicRecord(record);
+    }
+
     function pendingAcknowledgement() {
       const current = load();
       return current && current.state === "needs_ack"
@@ -261,6 +301,7 @@
       beginOrReuse,
       markDefinitiveFailure,
       markDownloadInitiated,
+      markPreparedDownloadInitiated,
       pendingAcknowledgement,
     };
   }
@@ -340,12 +381,204 @@
     return { downloadStarted: true, acknowledged: false, response };
   }
 
+  async function retryPendingDownloadAcknowledgement({
+    tracker,
+    acknowledgeDownload,
+  }) {
+    const pending = tracker.pendingAcknowledgement();
+    if (!pending) return { pendingAcknowledgement: false };
+    try {
+      const result = await acknowledgeDownload(pending);
+      if (result && result.outcome === "acknowledged") {
+        tracker.acknowledgeSuccess(pending.downloadEventId);
+        return { pendingAcknowledgement: false, acknowledged: true };
+      }
+      if (result && result.outcome === "definitive") {
+        tracker.abandonPendingAcknowledgement(pending.downloadEventId);
+        return {
+          pendingAcknowledgement: false,
+          definitiveAcknowledgementFailure: true,
+        };
+      }
+    } catch (_error) {
+      // Preserve the receipt and proof for another acknowledgement-only retry.
+    }
+    return { pendingAcknowledgement: true };
+  }
+
+  async function runAuthenticatedSnapshotDownload({
+    tracker,
+    retryPendingAcknowledgement,
+    prepareSnapshot,
+    initiateDownload,
+    acknowledgeDownload,
+  }) {
+    if (typeof prepareSnapshot !== "function") {
+      throw new TypeError("An authenticated snapshot preparation function is required.");
+    }
+    const pending = tracker.pendingAcknowledgement();
+    if (pending) {
+      if (typeof retryPendingAcknowledgement !== "function") {
+        return { downloadStarted: false, pendingAcknowledgement: true };
+      }
+      try {
+        const retryResult = await retryPendingAcknowledgement(pending);
+        if (retryResult && retryResult.outcome === "acknowledged") {
+          tracker.acknowledgeSuccess(pending.downloadEventId);
+          return { downloadStarted: false, acknowledgementRetried: true };
+        }
+        if (retryResult && retryResult.outcome === "definitive") {
+          tracker.abandonPendingAcknowledgement(pending.downloadEventId);
+          return {
+            downloadStarted: false,
+            definitiveAcknowledgementFailure: true,
+          };
+        }
+      } catch (_error) {
+        // Keep the exact receipt/proof and never prepare or initiate again.
+      }
+      return { downloadStarted: false, pendingAcknowledgement: true };
+    }
+
+    const response = await prepareSnapshot();
+    if (!response.ok) {
+      return { downloadStarted: false, definitiveFailure: true, response };
+    }
+    const receipt = response.headers.get("X-Roster-Scout-Download-Event-ID");
+    const proof = response.headers.get("X-Roster-Scout-Download-Ack-Proof");
+    if (!isUuid(receipt) || !isProof(proof)) {
+      throw new TypeError("The workbook receipt is invalid.");
+    }
+    const workbook = await response.blob();
+    await initiateDownload(workbook, response);
+    const acknowledgement = tracker.markPreparedDownloadInitiated(receipt, proof);
+    try {
+      const result = await acknowledgeDownload(acknowledgement);
+      if (result && result.outcome === "acknowledged") {
+        tracker.acknowledgeSuccess(receipt);
+        return { downloadStarted: true, acknowledged: true, response };
+      }
+      if (result && result.outcome === "definitive") {
+        tracker.abandonPendingAcknowledgement(receipt);
+        return {
+          downloadStarted: true,
+          acknowledged: false,
+          definitiveAcknowledgementFailure: true,
+          response,
+        };
+      }
+    } catch (_error) {
+      // Anchor initiation already happened. Retry only the acknowledgement.
+    }
+    return { downloadStarted: true, acknowledged: false, response };
+  }
+
+  function attachAuthenticatedSnapshotDownloads({
+    document: documentObject,
+    window: windowObject,
+  } = {}) {
+    if (!documentObject || !windowObject) return false;
+    const forms = Array.from(
+      documentObject.querySelectorAll("form[data-authenticated-snapshot-download]")
+    );
+    if (forms.length === 0
+        || typeof windowObject.fetch !== "function"
+        || typeof windowObject.FormData !== "function"
+        || !windowObject.URL
+        || typeof windowObject.URL.createObjectURL !== "function") {
+      return false;
+    }
+    let storageCandidate = null;
+    try {
+      storageCandidate = windowObject.sessionStorage;
+    } catch (_error) {
+      storageCandidate = null;
+    }
+    const tracker = createDownloadTracker({
+      storage: storageCandidate,
+      storageKey: AUTHENTICATED_STORAGE_KEY,
+      now: () => Date.now(),
+      uuidFactory: () => windowObject.crypto.randomUUID(),
+    });
+    const csrf = documentObject.querySelector('meta[name="csrf-token"]')?.content || "";
+
+    async function acknowledge(pending) {
+      const response = await windowObject.fetch("/api/downloads/ack", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": csrf,
+        },
+        body: JSON.stringify({
+          download_event_id: pending.downloadEventId,
+          acknowledgement_proof: pending.acknowledgementProof,
+        }),
+      });
+      let body = null;
+      try {
+        body = await response.json();
+      } catch (_error) {
+        body = null;
+      }
+      return classifyAcknowledgementResponse(
+        response.status,
+        body && body.acknowledged,
+      );
+    }
+
+    forms.forEach((form) => {
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const button = form.querySelector('button[type="submit"]');
+        if (button) button.disabled = true;
+        try {
+          await runAuthenticatedSnapshotDownload({
+            tracker,
+            retryPendingAcknowledgement: acknowledge,
+            prepareSnapshot: () => windowObject.fetch(form.action, {
+              method: "POST",
+              credentials: "same-origin",
+              body: new windowObject.FormData(form),
+            }),
+            initiateDownload: (blob) => {
+              const objectUrl = windowObject.URL.createObjectURL(blob);
+              const anchor = documentObject.createElement("a");
+              anchor.href = objectUrl;
+              anchor.download = "roster-scout-snapshot.xlsx";
+              anchor.hidden = true;
+              documentObject.body.appendChild(anchor);
+              anchor.click();
+              anchor.remove();
+              windowObject.setTimeout(
+                () => windowObject.URL.revokeObjectURL(objectUrl),
+                60_000,
+              );
+            },
+            acknowledgeDownload: acknowledge,
+          });
+        } finally {
+          if (button) button.disabled = false;
+        }
+      });
+    });
+    void retryPendingDownloadAcknowledgement({
+      tracker,
+      acknowledgeDownload: acknowledge,
+    });
+    return true;
+  }
+
   return {
+    AUTHENTICATED_STORAGE_KEY,
     PROOF_TTL_MS,
     STORAGE_KEY,
+    attachAuthenticatedSnapshotDownloads,
     classifyAcknowledgementResponse,
     createSafeStorage,
     createDownloadTracker,
+    retryPendingDownloadAcknowledgement,
+    runAuthenticatedSnapshotDownload,
     runDownloadSubmission,
   };
 });

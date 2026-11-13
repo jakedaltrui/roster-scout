@@ -11,6 +11,7 @@
 {% endblock %}
 
 {% block head %}
+  <script defer src="{{ url_for('static', filename='download_tracking.js') }}"></script>
   <style>
     .report-heading { margin: -24px 0 28px; color: var(--muted); }
     .report-grid { display: grid; gap: 24px; }
@@ -117,7 +118,7 @@
             </ul>
           {% endif %}
           {% if report_detail.latest_snapshot.artifact_id %}
-            <form class="inline-action" method="post" action="{{ url_for('reports.download_snapshot_artifact', report_id=report_detail.id, snapshot_id=report_detail.latest_snapshot.id, artifact_id=report_detail.latest_snapshot.artifact_id) }}">
+            <form class="inline-action" method="post" data-authenticated-snapshot-download action="{{ url_for('reports.download_snapshot_artifact', report_id=report_detail.id, snapshot_id=report_detail.latest_snapshot.id, artifact_id=report_detail.latest_snapshot.artifact_id) }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button class="button" type="submit">Download snapshot</button>
             </form>
@@ -190,7 +191,7 @@
                     <td>{% if snapshot.artifact_available %}Workbook ready{% else %}Download unavailable{% endif %}</td>
                     <td>
                       {% if snapshot.artifact_id %}
-                        <form method="post" action="{{ url_for('reports.download_snapshot_artifact', report_id=report_detail.id, snapshot_id=snapshot.id, artifact_id=snapshot.artifact_id) }}">
+                        <form method="post" data-authenticated-snapshot-download action="{{ url_for('reports.download_snapshot_artifact', report_id=report_detail.id, snapshot_id=snapshot.id, artifact_id=snapshot.artifact_id) }}">
                           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                           <button class="button button--secondary" type="submit">Download snapshot</button>
                         </form>
@@ -212,7 +213,7 @@
                 <p>Predecessor: {% if snapshot.predecessor_published_at %}Refresh of {{ snapshot.predecessor_published_at.strftime("%b %-d, %Y · %-I:%M %p") }}{% else %}Initial snapshot{% endif %}</p>
                 <p>Artifact: {% if snapshot.artifact_available %}Workbook ready{% else %}Download unavailable{% endif %}</p>
                 {% if snapshot.artifact_id %}
-                  <form method="post" action="{{ url_for('reports.download_snapshot_artifact', report_id=report_detail.id, snapshot_id=snapshot.id, artifact_id=snapshot.artifact_id) }}">
+                  <form method="post" data-authenticated-snapshot-download action="{{ url_for('reports.download_snapshot_artifact', report_id=report_detail.id, snapshot_id=snapshot.id, artifact_id=snapshot.artifact_id) }}">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button class="button button--secondary" type="submit">Download snapshot</button>
                   </form>
