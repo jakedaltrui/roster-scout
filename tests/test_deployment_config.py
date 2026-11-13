@@ -1882,6 +1882,34 @@ class Phase2ReleaseValidatorContractTests(unittest.TestCase):
             "postgresql+psycopg://user:secret@db.example.com/customer_test",
             "postgresql+psycopg://user:secret@/customer_test?host=/cloudsql/project:region:db",
             "postgresql+psycopg://user:secret@postgres/customer_test",
+            (
+                "postgresql+psycopg://user:secret@127.0.0.1/customer_test"
+                "?host=db.example.invalid"
+            ),
+            (
+                "postgresql+psycopg://user:secret@127.0.0.1/customer_test"
+                "?hostaddr=203.0.113.25"
+            ),
+            (
+                "postgresql+psycopg://user:secret@127.0.0.1/customer_test"
+                "?host=/cloudsql/project:region:db"
+            ),
+            (
+                "postgresql+psycopg://user:secret@127.0.0.1/customer_test"
+                "?service=production"
+            ),
+            (
+                "postgresql+psycopg://user:secret@127.0.0.1/customer_test"
+                "?servicefile=/tmp/pg_service.conf"
+            ),
+            (
+                "postgresql+psycopg://user:secret@127.0.0.1/customer_test"
+                "?host=127.0.0.1,db.example.invalid"
+            ),
+            (
+                "postgresql+psycopg://user:secret@127.0.0.1/customer_test"
+                "?dbname=customer_production"
+            ),
         )
         for database_url in unsafe:
             with self.subTest(database_url=database_url), self.assertRaises(SystemExit):

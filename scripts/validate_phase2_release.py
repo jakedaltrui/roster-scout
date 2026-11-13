@@ -10,6 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from sqlalchemy.exc import ArgumentError
 from sqlalchemy.engine import make_url
 
 
@@ -155,22 +156,42 @@ def _validate_database_url(env):
     raw_url = env.get("DATABASE_URL", "").strip()
     if not raw_url:
         raise SystemExit("DATABASE_URL is required for the Phase 2 release gate")
-    url = make_url(raw_url)
-    if url.get_backend_name() != "postgresql":
-        raise SystemExit("DATABASE_URL must use PostgreSQL")
-    if not (url.database or "").endswith("_test"):
-        raise SystemExit("DATABASE_URL must name a disposable database ending in '_test'")
+    try:
+        url = make_url(raw_url)
+    except (ArgumentError, TypeError, ValueError):
+        raise SystemExit("DATABASE_URL is invalid") from None
+    if url.drivername != "postgresql+psycopg":
+        raise SystemExit("DATABASE_URL must use PostgreSQL with psycopg")
     if env.get("PHASE2_DESTRUCTIVE_DATABASE") != "local-disposable":
         raise SystemExit(
             "PHASE2_DESTRUCTIVE_DATABASE=local-disposable is required before destructive lifecycle checks"
         )
-    host = (url.host or "").strip().lower()
+    if url.query:
+        raise SystemExit(
+            "destructive lifecycle checks reject PostgreSQL URL query parameters"
+        )
+    try:
+        positional, effective = url.get_dialect()().create_connect_args(url)
+    except Exception:
+        raise SystemExit("DATABASE_URL is invalid") from None
+    if positional:
+        raise SystemExit(
+            "destructive lifecycle checks require explicit keyword connection targets"
+        )
+    database = effective.get("dbname")
+    if not isinstance(database, str) or not database.endswith("_test"):
+        raise SystemExit("DATABASE_URL must name a disposable database ending in '_test'")
+    host_value = effective.get("host")
+    if not isinstance(host_value, str) or not host_value:
+        raise SystemExit(
+            "destructive lifecycle checks require an explicit loopback PostgreSQL target"
+        )
+    host = host_value.strip().lower()
     local = host == "localhost"
-    if host:
-        try:
-            local = local or ipaddress.ip_address(host).is_loopback
-        except ValueError:
-            pass
+    try:
+        local = local or ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        pass
     if not local:
         raise SystemExit(
             "destructive lifecycle checks require an explicit loopback PostgreSQL target"
