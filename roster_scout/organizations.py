@@ -500,60 +500,6 @@ def accept_invitation(
     return membership
 
 
-def accept_provider_invitation_handoff(
-    session,
-    *,
-    provider_organization_id,
-    account_id,
-    now=None,
-):
-    """Resolve one provider-routed sign-in to an exact local invitation.
-
-    Provider organization membership is routing context only. The canonical
-    account's current verified email and the pending local invitation remain
-    the sole membership authority.
-    """
-    if (
-        not isinstance(provider_organization_id, str)
-        or not provider_organization_id
-        or len(provider_organization_id) > 255
-    ):
-        raise OrganizationFailure("invitation_unavailable")
-    account_id = _canonical_uuid(account_id)
-    now = _utc_datetime(now or datetime.now(UTC))
-    account = session.get(Account, account_id, with_for_update=True)
-    if account is None or account.status != "active":
-        raise OrganizationFailure("account_unavailable")
-
-    invitations = list(session.scalars(
-        select(OrganizationInvitation)
-        .join(
-            OrganizationIdentityConnection,
-            OrganizationIdentityConnection.organization_id
-            == OrganizationInvitation.organization_id,
-        )
-        .where(
-            OrganizationIdentityConnection.provider_organization_id
-            == provider_organization_id,
-            OrganizationInvitation.normalized_email
-            == account.normalized_email,
-            OrganizationInvitation.status == "pending",
-            OrganizationInvitation.expires_at > now,
-        )
-        .with_for_update()
-    ))
-    if not invitations:
-        return None
-    if len(invitations) != 1:
-        raise OrganizationFailure("invitation_unavailable")
-    return accept_invitation(
-        session,
-        invitation_id=invitations[0].id,
-        account_id=account_id,
-        now=now,
-    )
-
-
 def resolve_provider_invitation_reference(session, *, reference, now=None):
     """Map sanitized provider invitation metadata to one pending local invite."""
     now = _utc_datetime(now or datetime.now(UTC))

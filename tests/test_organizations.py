@@ -1122,6 +1122,13 @@ class MembershipAdministrationTests(_PostgreSQLOrganizationCase):
 
 
 class NoDomainAutoJoinTests(_PostgreSQLOrganizationCase):
+    def test_provider_organization_context_has_no_acceptance_api(self):
+        from roster_scout import organizations
+
+        self.assertFalse(
+            hasattr(organizations, "accept_provider_invitation_handoff")
+        )
+
     def test_provider_domain_and_organization_claims_create_no_membership(self):
         from roster_scout.accounts import link_verified_identity
         from roster_scout.identity import VerifiedIdentity
