@@ -152,7 +152,7 @@
 | Requirement group | Phase | Status |
 |---|---:|---|
 | SNAP-01–04, DATA-01–10, OPS-01–02, OPS-04–05 | Phase 1 | Complete |
-| AUTH-01–05, ORG-01–07, SNAP-05–08, SECU-01–05 | Phase 2 | Pending |
+| AUTH-01–05, ORG-01–07, SNAP-05–08, SECU-01–05 | Phase 2 | Complete |
 | STAT-01–08, SPLT-01–05, HIST-01–06, OPS-03 | Phase 3 | Pending |
 | XLSX-01–06 | Phase 4 | Pending |
 | SNAP-09, PBI-01–10, SECU-06 | Phase 5 | Pending |
