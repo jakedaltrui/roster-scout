@@ -130,3 +130,24 @@ def append_security_audit_event(
     session.add(event)
     session.flush()
     return event
+
+
+def append_authorization_denial(
+    session,
+    *,
+    actor_account_id,
+    organization_id,
+    target_type,
+    target_id=None,
+):
+    """Append the one fixed, non-enumerating scoped-resource denial event."""
+    return append_security_audit_event(
+        session,
+        actor_account_id=actor_account_id,
+        organization_id=organization_id,
+        target_type=target_type,
+        target_id=target_id,
+        action="authorization.deny",
+        outcome="denied",
+        reason="not_found",
+    )

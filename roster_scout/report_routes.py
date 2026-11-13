@@ -24,6 +24,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from roster_scraper import NcaaError, list_ncaa_teams
 
 from .audit import append_security_audit_event
+from .authorization import record_scoped_not_found
 from .jobs import drain_report_dispatch_outbox
 from .models import Account, Organization
 from .reports import (
@@ -56,6 +57,44 @@ def _unconfigured_artifact_reader(_object_key):
 def _session_factory():
     configured = current_app.extensions["roster_scout_report_session_factory"]
     return configured if hasattr(configured, "begin") else configured()
+
+
+def _record_not_found(context, *, target_type, target_id=None):
+    """Best-effort append of one fixed denial without changing its response."""
+    try:
+        with _session_factory().begin() as session:
+            record_scoped_not_found(
+                session,
+                context=context,
+                target_type=target_type,
+                target_id=target_id,
+            )
+    except (SQLAlchemyError, RuntimeError, ValueError):
+        current_app.logger.warning("authorization_denial_audit_failed")
+
+
+def _html_not_found(context, *, target_type, target_id=None):
+    _record_not_found(
+        context,
+        target_type=target_type,
+        target_id=target_id,
+    )
+    return render_template(
+        "invitation_outcome.html",
+        outcome="not_found",
+        organization_name=None,
+        current_role=context.role,
+        account_email=None,
+    ), 404
+
+
+def _json_not_found(context, *, target_type, target_id=None):
+    _record_not_found(
+        context,
+        target_type=target_type,
+        target_id=target_id,
+    )
+    return jsonify(error="not_found"), 404
 
 
 def _page_number(parameter="page"):
@@ -226,13 +265,11 @@ def detail(report_id):
                     reason="snapshot_opened",
                 )
     except ReportLibraryFailure:
-        return render_template(
-            "invitation_outcome.html",
-            outcome="not_found",
-            organization_name=None,
-            current_role=context.role,
-            account_email=None,
-        ), 404
+        return _html_not_found(
+            context,
+            target_type="report",
+            target_id=report_id,
+        )
     except (SQLAlchemyError, RuntimeError, ValueError):
         return render_template(
             "report_detail.html",
@@ -267,13 +304,11 @@ def refresh_report(report_id):
                 report_id,
             )
     except ReportLibraryFailure:
-        return render_template(
-            "invitation_outcome.html",
-            outcome="not_found",
-            organization_name=None,
-            current_role=context.role,
-            account_email=None,
-        ), 404
+        return _html_not_found(
+            context,
+            target_type="report",
+            target_id=report_id,
+        )
     except (SQLAlchemyError, RuntimeError, ValueError):
         return render_template(
             "report_detail.html",
@@ -319,21 +354,17 @@ def refresh_report(report_id):
                 idempotency_key=action_id,
             )
     except ReportLibraryFailure:
-        return render_template(
-            "invitation_outcome.html",
-            outcome="not_found",
-            organization_name=None,
-            current_role=context.role,
-            account_email=None,
-        ), 404
+        return _html_not_found(
+            context,
+            target_type="report",
+            target_id=report_id,
+        )
     except ReportAcceptanceFailure:
-        return render_template(
-            "invitation_outcome.html",
-            outcome="not_found",
-            organization_name=None,
-            current_role=context.role,
-            account_email=None,
-        ), 404
+        return _html_not_found(
+            context,
+            target_type="report",
+            target_id=report_id,
+        )
     except (SQLAlchemyError, RuntimeError, ValueError):
         return render_template(
             "report_detail.html",
@@ -377,13 +408,11 @@ def retry_report(report_id, failed_job_id):
                 report_id,
             )
     except ReportLibraryFailure:
-        return render_template(
-            "invitation_outcome.html",
-            outcome="not_found",
-            organization_name=None,
-            current_role=context.role,
-            account_email=None,
-        ), 404
+        return _html_not_found(
+            context,
+            target_type="report",
+            target_id=report_id,
+        )
     except (SQLAlchemyError, RuntimeError, ValueError):
         return render_template(
             "report_detail.html",
@@ -417,13 +446,11 @@ def retry_report(report_id, failed_job_id):
                 idempotency_key=action_id,
             )
     except (ReportLibraryFailure, ReportAcceptanceFailure):
-        return render_template(
-            "invitation_outcome.html",
-            outcome="not_found",
-            organization_name=None,
-            current_role=context.role,
-            account_email=None,
-        ), 404
+        return _html_not_found(
+            context,
+            target_type="job",
+            target_id=failed_job_id,
+        )
     except (SQLAlchemyError, RuntimeError, ValueError):
         return render_template(
             "report_detail.html",
@@ -505,13 +532,11 @@ def download_snapshot_artifact(report_id, snapshot_id, artifact_id):
                 reason="download_prepared",
             )
     except ReportLibraryFailure:
-        return render_template(
-            "invitation_outcome.html",
-            outcome="not_found",
-            organization_name=None,
-            current_role=context.role,
-            account_email=None,
-        ), 404
+        return _html_not_found(
+            context,
+            target_type="artifact",
+            target_id=artifact_id,
+        )
     except Exception:
         current_app.logger.warning(
             "artifact_download_unavailable reason=storage_or_report_service"
@@ -545,7 +570,11 @@ def detail_status(report_id):
                 report_id,
             )
     except ReportLibraryFailure:
-        return jsonify(error="not_found"), 404
+        return _json_not_found(
+            context,
+            target_type="report",
+            target_id=report_id,
+        )
     except (SQLAlchemyError, RuntimeError, ValueError):
         return jsonify(error="report_service_unavailable"), 503
     return jsonify(status.as_dict())

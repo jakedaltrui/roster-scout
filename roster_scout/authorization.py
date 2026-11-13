@@ -8,6 +8,7 @@ from datetime import datetime
 
 from sqlalchemy import select
 
+from .audit import append_authorization_denial
 from .models import AccountSession, OrganizationMembership
 from .sessions import load_account_session
 
@@ -102,3 +103,20 @@ def require_admin(context: AuthorizationContext) -> AuthorizationContext:
     if context.role != "admin":
         raise AuthorizationFailure("forbidden")
     return context
+
+
+def record_scoped_not_found(
+    session,
+    *,
+    context: AuthorizationContext,
+    target_type: str,
+    target_id=None,
+):
+    """Record a denial using only the revalidated membership context."""
+    return append_authorization_denial(
+        session,
+        actor_account_id=context.account_id,
+        organization_id=context.organization_id,
+        target_type=target_type,
+        target_id=target_id,
+    )

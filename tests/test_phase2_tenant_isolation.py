@@ -359,6 +359,50 @@ class UntrustedScopeInputTests(_TenantIsolationCase):
             "X-Email-Domain": "foreign.example.edu",
         }
 
+    def test_protected_and_legacy_route_methods_are_explicitly_in_scope(self):
+        route_methods = {
+            (rule.endpoint, tuple(sorted(rule.methods - {"HEAD", "OPTIONS"})))
+            for rule in self.app_module.app.url_map.iter_rules()
+        }
+        expected = {
+            ("index", ("GET",)),
+            ("teams", ("GET",)),
+            ("team_logo", ("GET",)),
+            ("scrape", ("POST",)),
+            ("acknowledge_workbook_download", ("POST",)),
+            ("auth.no_membership", ("GET",)),
+            ("auth.logout", ("POST",)),
+            ("organization.accept", ("POST",)),
+            ("organization.select_organization", ("GET",)),
+            ("organization.switch_organization", ("POST",)),
+            ("organization.members", ("GET",)),
+            ("organization.change_role", ("POST",)),
+            ("organization.remove_member", ("POST",)),
+            ("organization.invite", ("POST",)),
+            ("organization.revoke", ("POST",)),
+            ("reports.library", ("GET",)),
+            ("reports.detail", ("GET",)),
+            ("reports.detail_status", ("GET",)),
+            ("reports.refresh_report", ("GET", "POST")),
+            ("reports.retry_report", ("POST",)),
+            ("reports.download_snapshot_artifact", ("POST",)),
+            ("reports.create_report", ("GET", "POST")),
+        }
+        public_outside_matrix = {
+            "static",
+            "healthz",
+            "readyz",
+            "demo",
+            "auth.login",
+            "auth.start",
+            "auth.callback",
+            "auth.error",
+        }
+        actual = {
+            item for item in route_methods if item[0] not in public_outside_matrix
+        }
+        self.assertEqual(actual, expected)
+
     def test_query_form_json_and_headers_never_replace_membership_scope(self):
         from roster_scout.models import ProductUsageEvent, Report, ReportJob
 

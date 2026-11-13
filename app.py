@@ -36,6 +36,7 @@ from roster_scout.audit import append_security_audit_event
 from roster_scout.authorization import (
     AuthorizationFailure,
     list_active_memberships,
+    record_scoped_not_found,
     require_context,
 )
 from roster_scout.database import create_session_factory, get_engine
@@ -864,6 +865,11 @@ def acknowledge_workbook_download():
                 organization_id=context.organization_id,
             )
             if proof_status == "foreign":
+                record_scoped_not_found(
+                    session,
+                    context=context,
+                    target_type="artifact",
+                )
                 return jsonify({"error": "not_found"}), 404
             if proof_status != "valid":
                 return _json_error("Acknowledgement proof is invalid.", 400)
