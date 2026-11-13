@@ -258,6 +258,38 @@ class PasswordlessBoundaryTests(_PostgreSQLIdentityCase):
         )
         self.assertEqual(replay.status_code, 400)
 
+    def test_consumed_state_with_invalid_code_is_audited_without_unknown_state_spam(self):
+        from roster_scout.identity import FakeIdentityProvider
+        from roster_scout.models import SecurityAuditEvent
+
+        invalid_codes = (None, "", "x" * 513, "control\ncharacter")
+        for invalid_code in invalid_codes:
+            with self.subTest(invalid_code=invalid_code):
+                clean_database(self.database_url)
+                client = self._auth_client(FakeIdentityProvider())
+                started = client.get("/auth/start")
+                state = parse_qs(
+                    urlsplit(started.headers["Location"]).query
+                )["state"][0]
+                query = {"state": state}
+                if invalid_code is not None:
+                    query["code"] = invalid_code
+
+                response = client.get("/auth/callback", query_string=query)
+                self.assertEqual(response.status_code, 400)
+
+                unknown = client.get(
+                    "/auth/callback",
+                    query_string={"state": "unknown-state", "code": "noise"},
+                )
+                self.assertEqual(unknown.status_code, 400)
+                with self.Session() as session:
+                    audits = list(session.scalars(select(SecurityAuditEvent)))
+                self.assertEqual(len(audits), 1)
+                self.assertEqual(audits[0].action, "identity.sign_in")
+                self.assertEqual(audits[0].outcome, "failed")
+                self.assertEqual(audits[0].reason, "invalid_callback")
+
     def test_authorization_state_is_hashed_bounded_and_consumed_once(self):
         from roster_scout.identity import (
             IdentityFailure,

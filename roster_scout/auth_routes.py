@@ -256,17 +256,21 @@ def callback():
         return _auth_failure(status=503)
     if retry_after:
         return _auth_throttled(retry_after=retry_after)
+    transaction_consumed = False
     try:
         state = _bounded_callback_value(request.args.get("state"))
         # Commit consumption before any provider exchange so failed exchanges and
         # retries cannot replay a bearer callback state.
         with _session_factory().begin() as session:
             transaction = consume_auth_transaction(session, state=state)
+        transaction_consumed = True
         return_path = _return_path(transaction.return_path)
         code = _bounded_callback_value(request.args.get("code"))
     except IdentityFailure as exc:
         current_app.logger.warning("identity_callback_failed")
-        if exc.audit_worthy:
+        if transaction_consumed:
+            _record_sign_in_failure("invalid_callback")
+        elif exc.audit_worthy:
             _record_sign_in_failure("invalid_auth_state")
         return _auth_failure(status=400)
     except Exception:

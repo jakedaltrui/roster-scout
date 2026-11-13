@@ -69,6 +69,7 @@ AUDIT_REASONS = frozenset(
         "download_prepared",
         "download_acknowledged",
         "invalid_auth_state",
+        "invalid_callback",
         "identity_not_verified",
         "identity_conflict",
         "identity_unavailable",
