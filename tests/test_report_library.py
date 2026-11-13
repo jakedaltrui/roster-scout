@@ -847,15 +847,16 @@ class FailedBuildRetryTests(unittest.TestCase):
         self.assertEqual(audit.reason, "download_prepared")
         self.assertEqual(audit.target_id, first_artifact_id)
 
+        csrf = self._csrf_token(credential)
         substituted = client.post(
             f"/reports/{report_id}/snapshots/{first_snapshot_id}"
             f"/artifacts/{second_artifact_id}/download",
-            data={"csrf_token": self._csrf_token(credential)},
+            data={"csrf_token": csrf},
         )
         absent = client.post(
             f"/reports/{report_id}/snapshots/{first_snapshot_id}"
             f"/artifacts/{uuid.uuid4()}/download",
-            data={"csrf_token": self._csrf_token(credential)},
+            data={"csrf_token": csrf},
         )
         self.assertEqual(substituted.status_code, 404)
         self.assertEqual(substituted.get_data(), absent.get_data())
