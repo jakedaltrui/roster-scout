@@ -14,7 +14,12 @@ from sqlalchemy import create_engine, func, select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import sessionmaker
 
-from tests.db_support import clean_database, require_test_database_url, upgrade_database
+from tests.db_support import (
+    clean_database,
+    require_test_database_url,
+    upgrade_database,
+    without_csrf_tokens,
+)
 
 
 class SharedLibraryTests(unittest.TestCase):
@@ -477,7 +482,10 @@ class SnapshotHistoryTests(unittest.TestCase):
             self.assertEqual(foreign.status_code, 404)
             self.assertEqual(absent.status_code, 404)
             self.assertEqual(foreign.content_type, absent.content_type)
-            self.assertEqual(foreign.get_data(), absent.get_data())
+            self.assertEqual(
+                without_csrf_tokens(foreign.get_data()),
+                without_csrf_tokens(absent.get_data()),
+            )
 
     def test_snapshot_history_is_newest_first_bounded_and_paged(self):
         organization_id, accounts = self._organization(
@@ -885,7 +893,10 @@ class FailedBuildRetryTests(unittest.TestCase):
             data={"csrf_token": csrf},
         )
         self.assertEqual(substituted.status_code, 404)
-        self.assertEqual(substituted.get_data(), absent.get_data())
+        self.assertEqual(
+            without_csrf_tokens(substituted.get_data()),
+            without_csrf_tokens(absent.get_data()),
+        )
         self.assertEqual(reader.call_count, 1)
 
     def test_foreign_or_missing_artifact_is_identical_and_never_read_or_rebuilt(self):
@@ -1241,9 +1252,15 @@ class RefreshLineageTests(unittest.TestCase):
         absent_post = client.post(f"/reports/{uuid.uuid4()}/refresh", data=form)
 
         self.assertEqual(foreign_get.status_code, 404)
-        self.assertEqual(foreign_get.get_data(), absent_get.get_data())
+        self.assertEqual(
+            without_csrf_tokens(foreign_get.get_data()),
+            without_csrf_tokens(absent_get.get_data()),
+        )
         self.assertEqual(foreign_post.status_code, 404)
-        self.assertEqual(foreign_post.get_data(), absent_post.get_data())
+        self.assertEqual(
+            without_csrf_tokens(foreign_post.get_data()),
+            without_csrf_tokens(absent_post.get_data()),
+        )
         from roster_scout.models import ProductUsageEvent, ReportJob
         with self.Session() as session:
             self.assertEqual(session.scalar(select(func.count(ReportJob.id))), 0)

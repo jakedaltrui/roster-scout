@@ -13,7 +13,12 @@ from sqlalchemy import create_engine, func, select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import sessionmaker
 
-from tests.db_support import clean_database, require_test_database_url, upgrade_database
+from tests.db_support import (
+    clean_database,
+    require_test_database_url,
+    upgrade_database,
+    without_csrf_tokens,
+)
 
 
 class _TenantIsolationCase(unittest.TestCase):
@@ -226,7 +231,10 @@ class _TenantIsolationCase(unittest.TestCase):
     def _assert_same_denial(self, foreign, absent):
         self.assertEqual(foreign.status_code, 404)
         self.assertEqual(absent.status_code, 404)
-        self.assertEqual(foreign.get_data(), absent.get_data())
+        self.assertEqual(
+            without_csrf_tokens(foreign.get_data()),
+            without_csrf_tokens(absent.get_data()),
+        )
         self.assertEqual(foreign.content_type, absent.content_type)
 
 

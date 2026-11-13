@@ -1,6 +1,7 @@
 """PostgreSQL-only integration-test support for the canonical data model."""
 
 import os
+import re
 from pathlib import Path
 
 from alembic import command
@@ -10,6 +11,20 @@ from sqlalchemy.engine import make_url
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def without_csrf_tokens(body):
+    """Normalize per-response signed CSRF values before byte-contract checks."""
+    body = re.sub(
+        rb'(<meta name="csrf-token" content=")[^"]+("[^>]*>)',
+        rb'\1<csrf>\2',
+        body,
+    )
+    return re.sub(
+        rb'(name="csrf_token" value=")[^"]+("[^>]*>)',
+        rb'\1<csrf>\2',
+        body,
+    )
 
 
 def require_test_database_url():

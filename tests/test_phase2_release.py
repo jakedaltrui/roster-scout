@@ -12,7 +12,12 @@ from unittest.mock import Mock, patch
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 
-from tests.db_support import clean_database, require_test_database_url, upgrade_database
+from tests.db_support import (
+    clean_database,
+    require_test_database_url,
+    upgrade_database,
+    without_csrf_tokens,
+)
 
 
 class _Phase2ReleaseCase(unittest.TestCase):
@@ -321,7 +326,10 @@ class Phase2ReleaseStoryTests(_Phase2ReleaseCase):
         foreign = foreign_client.get(f"/reports/{accepted.report_id}")
         absent = foreign_client.get(f"/reports/{uuid.uuid4()}")
         self.assertEqual(foreign.status_code, 404)
-        self.assertEqual(foreign.get_data(), absent.get_data())
+        self.assertEqual(
+            without_csrf_tokens(foreign.get_data()),
+            without_csrf_tokens(absent.get_data()),
+        )
 
         payload = b"PK\x03\x04phase-two-release-workbook"
         snapshot_id, artifact_id = self._publish_partial_snapshot(
