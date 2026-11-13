@@ -7,6 +7,7 @@ const {
   classifyAcknowledgementResponse,
   createSafeStorage,
   createDownloadTracker,
+  runAuthenticatedSnapshotDownload,
   runDownloadSubmission,
 } = require("../../static/download_tracking.js");
 
@@ -429,4 +430,135 @@ test("definitive acknowledgement after download clears pending without undoing s
   assert.equal(result.definitiveAcknowledgementFailure, true);
   assert.equal(tracker.pendingAcknowledgement(), null);
   assert.equal(tracker.beginOrReuse().downloadEventId, SECOND_ID);
+});
+
+test("authenticated snapshot preparation reads blob then initiates anchor then acknowledges", async () => {
+  const { tracker } = trackerFixture();
+  const calls = [];
+  const response = {
+    ok: true,
+    headers: new Map([
+      ["X-Roster-Scout-Download-Event-ID", FIRST_ID],
+      ["X-Roster-Scout-Download-Ack-Proof", PROOF],
+    ]),
+    async blob() {
+      calls.push("blob");
+      return { exactStoredArtifact: true };
+    },
+  };
+
+  const result = await runAuthenticatedSnapshotDownload({
+    tracker,
+    prepareSnapshot: async (downloadEventId) => {
+      calls.push(`prepare:${downloadEventId}`);
+      return response;
+    },
+    initiateDownload: async (blob) => {
+      assert.equal(blob.exactStoredArtifact, true);
+      calls.push("anchor");
+    },
+    acknowledgeDownload: async (pending) => {
+      assert.equal(pending.downloadEventId, FIRST_ID);
+      assert.equal(pending.acknowledgementProof, PROOF);
+      calls.push("ack");
+      return { outcome: "acknowledged" };
+    },
+  });
+
+  assert.deepEqual(calls, [`prepare:${FIRST_ID}`, "blob", "anchor", "ack"]);
+  assert.equal(result.downloadStarted, true);
+  assert.equal(result.acknowledged, true);
+  assert.equal(tracker.pendingAcknowledgement(), null);
+});
+
+test("authenticated rejected missing-proof and foreign preparations never initiate or acknowledge", async () => {
+  for (const [label, response] of [
+    ["rejected", { ok: false, status: 403, headers: new Map() }],
+    ["foreign", { ok: false, status: 404, headers: new Map() }],
+    ["unprepared", { ok: false, status: 409, headers: new Map() }],
+  ]) {
+    const { tracker } = trackerFixture();
+    let anchors = 0;
+    let acknowledgements = 0;
+    const result = await runAuthenticatedSnapshotDownload({
+      tracker,
+      prepareSnapshot: async () => response,
+      initiateDownload: async () => { anchors += 1; },
+      acknowledgeDownload: async () => {
+        acknowledgements += 1;
+        return { outcome: "acknowledged" };
+      },
+    });
+    assert.equal(result.definitiveFailure, true, label);
+    assert.equal(anchors, 0, label);
+    assert.equal(acknowledgements, 0, label);
+  }
+
+  const { tracker } = trackerFixture();
+  await assert.rejects(
+    runAuthenticatedSnapshotDownload({
+      tracker,
+      prepareSnapshot: async () => ({
+        ok: true,
+        headers: new Map([["X-Roster-Scout-Download-Event-ID", FIRST_ID]]),
+        async blob() { throw new Error("must not read without proof"); },
+      }),
+      initiateDownload: async () => { throw new Error("must not initiate"); },
+      acknowledgeDownload: async () => { throw new Error("must not acknowledge"); },
+    }),
+    /receipt is invalid/,
+  );
+});
+
+test("authenticated ambiguous acknowledgement survives reload and retries ack only", async () => {
+  const storage = new FakeStorage();
+  const firstTracker = createDownloadTracker({
+    storage,
+    now: () => START,
+    uuidFactory: () => FIRST_ID,
+  });
+  let blobReads = 0;
+  let anchors = 0;
+  const first = await runAuthenticatedSnapshotDownload({
+    tracker: firstTracker,
+    prepareSnapshot: async () => ({
+      ok: true,
+      headers: new Map([
+        ["X-Roster-Scout-Download-Event-ID", FIRST_ID],
+        ["X-Roster-Scout-Download-Ack-Proof", PROOF],
+      ]),
+      async blob() { blobReads += 1; return { workbook: true }; },
+    }),
+    initiateDownload: async () => { anchors += 1; },
+    acknowledgeDownload: async () => { throw new TypeError("response lost"); },
+  });
+  assert.equal(first.downloadStarted, true);
+  assert.equal(first.acknowledged, false);
+
+  const reloadedTracker = createDownloadTracker({
+    storage,
+    now: () => START,
+    uuidFactory: () => SECOND_ID,
+  });
+  let preparations = 0;
+  const retry = await runAuthenticatedSnapshotDownload({
+    tracker: reloadedTracker,
+    retryPendingAcknowledgement: async (pending) => {
+      assert.equal(pending.downloadEventId, FIRST_ID);
+      assert.equal(pending.acknowledgementProof, PROOF);
+      return { outcome: "retryable" };
+    },
+    prepareSnapshot: async () => { preparations += 1; },
+    initiateDownload: async () => { anchors += 1; },
+    acknowledgeDownload: async () => ({ outcome: "acknowledged" }),
+  });
+
+  assert.deepEqual(retry, {
+    downloadStarted: false,
+    pendingAcknowledgement: true,
+  });
+  assert.equal(preparations, 0);
+  assert.equal(blobReads, 1);
+  assert.equal(anchors, 1);
+  assert.equal(reloadedTracker.pendingAcknowledgement().downloadEventId, FIRST_ID);
 });

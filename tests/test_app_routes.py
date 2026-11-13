@@ -9,6 +9,7 @@ import unittest
 import uuid
 import zipfile
 import xml.etree.ElementTree as ET
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 from PIL import Image
 from sqlalchemy import select
@@ -827,6 +828,263 @@ print(json.dumps(response.get_json(), sort_keys=True))
         )
         for sensitive_value in ("postgresql", "Traceback", "ACK_PROOF"):
             self.assertNotIn(sensitive_value, completed.stderr)
+
+
+class AuthenticatedSnapshotDownloadAcknowledgementTests(unittest.TestCase):
+    """Authenticated snapshot receipts count once for their current tenant."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.database_url = require_test_database_url()
+        upgrade_database(cls.database_url)
+        from roster_scout.database import create_session_factory, get_engine
+
+        cls.engine = get_engine(cls.database_url)
+        cls.Session = create_session_factory(cls.engine)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.engine.dispose()
+
+    def setUp(self):
+        clean_database(self.database_url)
+        self.original_config = dict(app_module.app.config)
+        self.original_auth_factory = app_module.app.extensions.get(
+            "roster_scout_auth_session_factory"
+        )
+        app_module.app.config.update(
+            TESTING=True,
+            ROSTER_SCOUT_TEST_AUTH_ENFORCEMENT=True,
+            WTF_CSRF_ENABLED=True,
+            WTF_CSRF_SSL_STRICT=False,
+        )
+        app_module.app.extensions["roster_scout_auth_session_factory"] = self.Session
+
+    def tearDown(self):
+        app_module.app.config.clear()
+        app_module.app.config.update(self.original_config)
+        app_module.app.extensions["roster_scout_auth_session_factory"] = (
+            self.original_auth_factory
+        )
+
+    def _identity(self, label):
+        from roster_scout.models import Account, Organization, OrganizationMembership
+        from roster_scout.sessions import create_account_session
+
+        with self.Session.begin() as session:
+            organization = Organization(name=f"{label} Organization")
+            account = Account(
+                normalized_email=f"{label.lower()}@example.edu",
+                email_verified_at=datetime.now(UTC),
+                status="active",
+            )
+            session.add_all((organization, account))
+            session.flush()
+            session.add(OrganizationMembership(
+                organization_id=organization.id,
+                account_id=account.id,
+                role="member",
+                status="active",
+            ))
+            session.flush()
+            credential = create_account_session(
+                session,
+                account_id=account.id,
+                active_organization_id=organization.id,
+                sealed_provider_state="sealed-test-session",
+            )
+            return account.id, organization.id, credential
+
+    def _csrf_token(self, credential):
+        from itsdangerous import URLSafeTimedSerializer
+
+        return URLSafeTimedSerializer(
+            app_module.app.secret_key,
+            salt="wtf-csrf-token",
+        ).dumps(credential.csrf_secret)
+
+    def _client(self, credential):
+        from roster_scout.sessions import SESSION_COOKIE_NAME
+
+        client = app_module.app.test_client()
+        client.set_cookie(SESSION_COOKIE_NAME, credential.cookie_value)
+        return client
+
+    @staticmethod
+    def _scope(account_id, organization_id):
+        return {
+            "account_id": account_id,
+            "organization_id": organization_id,
+            "report_id": uuid.uuid4(),
+            "snapshot_id": uuid.uuid4(),
+            "artifact_id": uuid.uuid4(),
+        }
+
+    def _proof(self, event_id, scope, *, issued_at=None):
+        if issued_at is None:
+            return app_module._issue_authenticated_download_ack_proof(
+                event_id, **scope
+            )
+        with patch("itsdangerous.timed.time.time", return_value=issued_at):
+            return app_module._issue_authenticated_download_ack_proof(
+                event_id, **scope
+            )
+
+    def _ack(self, client, credential, event_id, proof, **kwargs):
+        headers = {
+            "Origin": "http://localhost",
+            "Sec-Fetch-Site": "same-origin",
+            "X-CSRFToken": self._csrf_token(credential),
+            **kwargs.pop("headers", {}),
+        }
+        return client.post(
+            "/api/downloads/ack",
+            json={
+                "download_event_id": event_id,
+                "acknowledgement_proof": proof,
+            },
+            headers=headers,
+            **kwargs,
+        )
+
+    def _events(self):
+        from roster_scout.models import ProductUsageEvent
+
+        with self.Session() as session:
+            return list(session.scalars(select(ProductUsageEvent)))
+
+    def test_valid_recent_proof_and_ambiguous_retry_record_one_canonical_event(self):
+        from roster_scout.models import SecurityAuditEvent
+
+        account_id, organization_id, credential = self._identity("Valid")
+        client = self._client(credential)
+        event_id = str(uuid.uuid4())
+        proof = self._proof(event_id, self._scope(account_id, organization_id))
+
+        first = self._ack(client, credential, event_id, proof)
+        retry = self._ack(client, credential, event_id, proof)
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.get_json(), {"acknowledged": True, "persisted": True})
+        self.assertEqual(retry.get_json(), first.get_json())
+        events = self._events()
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].event_type, "workbook_download_served")
+        self.assertEqual(events[0].event_key, event_id)
+        self.assertEqual(events[0].actor_account_id, account_id)
+        self.assertEqual(events[0].organization_id, organization_id)
+        with self.Session() as session:
+            audits = list(session.scalars(select(SecurityAuditEvent)))
+        acknowledged = [
+            audit for audit in audits if audit.reason == "download_acknowledged"
+        ]
+        self.assertEqual(len(acknowledged), 1)
+        self.assertEqual(acknowledged[0].actor_account_id, account_id)
+        self.assertEqual(acknowledged[0].organization_id, organization_id)
+
+    def test_missing_csrf_origin_proof_and_unprepared_receipts_record_zero(self):
+        account_id, organization_id, credential = self._identity("Rejected")
+        client = self._client(credential)
+        event_id = str(uuid.uuid4())
+        scope = self._scope(account_id, organization_id)
+        proof = self._proof(event_id, scope)
+        valid_headers = {
+            "Origin": "http://localhost",
+            "Sec-Fetch-Site": "same-origin",
+            "X-CSRFToken": self._csrf_token(credential),
+        }
+        cases = (
+            ("missing csrf", {"Origin": "http://localhost"}, proof),
+            ("cross origin", {**valid_headers, "Origin": "https://evil.test"}, proof),
+            ("missing proof", valid_headers, ""),
+            (
+                "unprepared authenticated proof",
+                valid_headers,
+                app_module._DOWNLOAD_ACK_SERIALIZER.dumps({
+                    "purpose": app_module._AUTHENTICATED_DOWNLOAD_ACK_PURPOSE,
+                    "download_event_id": event_id,
+                }),
+            ),
+            ("tampered proof", valid_headers, proof + "x"),
+        )
+        for label, headers, candidate in cases:
+            with self.subTest(label=label):
+                response = client.post(
+                    "/api/downloads/ack",
+                    json={
+                        "download_event_id": event_id,
+                        "acknowledgement_proof": candidate,
+                    },
+                    headers=headers,
+                )
+                self.assertIn(response.status_code, (400, 403))
+        self.assertEqual(self._events(), [])
+
+    def test_expired_foreign_and_removed_membership_proofs_record_zero(self):
+        first_account, first_org, first_credential = self._identity("First")
+        _, _, foreign_credential = self._identity("Foreign")
+        event_id = str(uuid.uuid4())
+        issued_at = 2_000_000_000
+        proof = self._proof(
+            event_id,
+            self._scope(first_account, first_org),
+            issued_at=issued_at,
+        )
+
+        with patch(
+            "itsdangerous.timed.time.time", return_value=issued_at + 901
+        ):
+            expired = self._ack(
+                self._client(first_credential),
+                first_credential,
+                event_id,
+                proof,
+            )
+        foreign = self._ack(
+            self._client(foreign_credential),
+            foreign_credential,
+            event_id,
+            self._proof(event_id, self._scope(first_account, first_org)),
+        )
+
+        from roster_scout.models import OrganizationMembership
+
+        with self.Session.begin() as session:
+            membership = session.scalar(select(OrganizationMembership).where(
+                OrganizationMembership.account_id == first_account,
+                OrganizationMembership.organization_id == first_org,
+            ))
+            membership.status = "inactive"
+            membership.deactivated_at = datetime.now(UTC)
+        removed = self._ack(
+            self._client(first_credential),
+            first_credential,
+            event_id,
+            self._proof(event_id, self._scope(first_account, first_org)),
+        )
+
+        self.assertEqual(expired.status_code, 400)
+        self.assertEqual(foreign.status_code, 404)
+        self.assertEqual(removed.status_code, 404)
+        self.assertEqual(foreign.get_json(), removed.get_json())
+        self.assertEqual(self._events(), [])
+
+    def test_rejections_and_logs_do_not_echo_receipt_proof_or_identity_tuple(self):
+        account_id, organization_id, credential = self._identity("Secret")
+        client = self._client(credential)
+        event_id = str(uuid.uuid4())
+        proof = self._proof(event_id, self._scope(account_id, organization_id))
+        with patch.object(app_module.app.logger, "warning") as warning:
+            response = self._ack(
+                client,
+                credential,
+                event_id,
+                proof + "tampered",
+            )
+        serialized = response.get_data(as_text=True) + str(warning.call_args_list)
+        for secret in (event_id, proof, str(account_id), str(organization_id)):
+            self.assertNotIn(secret, serialized)
+        self.assertEqual(self._events(), [])
 
 
 class NativeWorkbookDatabaseOptionalTests(unittest.TestCase):
