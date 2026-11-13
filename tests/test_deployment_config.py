@@ -1792,6 +1792,110 @@ class Phase2IdentityDeploymentConfigTests(unittest.TestCase):
         self.assertIn("SAML", runbook)
 
 
+class Phase2ReleaseValidatorContractTests(unittest.TestCase):
+    @staticmethod
+    def _load_validator():
+        import importlib.util
+
+        path = PROJECT_ROOT / "scripts" / "validate_phase2_release.py"
+        spec = importlib.util.spec_from_file_location(
+            "validate_phase2_release_contract", path
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_manifest_names_phase2_security_download_429_and_node_gates(self):
+        validator = self._load_validator()
+        self.assertEqual(validator.EXPECTED_MIGRATION_HEAD, "0018")
+        manifest = validator.release_command_manifest(
+            sys.executable,
+            diff_base="95776ed",
+        )
+        serialized = repr(manifest)
+        for required in (
+            "tests.test_phase2_release.Phase2ReleaseStoryTests",
+            "tests.test_phase2_release.ExternalFailureStateTests",
+            "tests.test_phase2_tenant_isolation.CrossOrganizationDenialTests",
+            "tests.test_app_routes.AuthenticatedSnapshotDownloadAcknowledgementTests",
+            "test_rate_limit_is_per_client_and_returns_retry_header",
+            "test_browser_capacity_returns_503",
+            "test_upstream_429_becomes_capacity_error_without_retry",
+            "tests/js/report_status.test.mjs",
+            "tests/js/download_tracking.test.mjs",
+            "scripts/validate_ncaa_catalog.py",
+        ):
+            self.assertIn(required, serialized)
+
+    def test_focused_gates_precede_lifecycle_and_all_full_groups(self):
+        validator = self._load_validator()
+        labels = [
+            label
+            for label, _command in validator.release_command_manifest(
+                sys.executable,
+                diff_base="95776ed",
+            )
+        ]
+        focused_python = labels.index(validator.PHASE2_FOCUSED_PYTHON_LABEL)
+        focused_node = labels.index(validator.PHASE2_FOCUSED_NODE_LABEL)
+        lifecycle = labels.index(validator.FULL_MIGRATION_START_LABEL)
+        discovery = labels.index(validator.FULL_DISCOVERY_LABEL)
+        full_node = labels.index(validator.FULL_NODE_LABEL)
+        catalog = labels.index(validator.CATALOG_LABEL)
+        committed = labels.index(validator.COMMITTED_DIFF_LABEL)
+        working = labels.index(validator.WORKING_TREE_DIFF_LABEL)
+        self.assertLess(focused_python, focused_node)
+        self.assertLess(focused_node, lifecycle)
+        self.assertLess(lifecycle, discovery)
+        self.assertLess(discovery, full_node)
+        self.assertLess(full_node, catalog)
+        self.assertLess(catalog, committed)
+        self.assertLess(committed, working)
+
+    def test_release_evidence_and_production_launch_fail_closed(self):
+        validator = self._load_validator()
+        self.assertFalse(validator.production_auth_verified({}))
+        with self.assertRaises(SystemExit) as blocked:
+            validator.require_production_launch_ready({})
+        self.assertIn("production_auth_verified=false", str(blocked.exception))
+        source = (PROJECT_ROOT / "scripts" / "validate_phase2_release.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("code_verified=true", source)
+        self.assertIn("production_auth_verified=false", source)
+
+    def test_fly_and_runbook_keep_topology_secret_free_and_manual_gates_explicit(self):
+        with (PROJECT_ROOT / "fly.toml").open("rb") as handle:
+            fly = tomllib.load(handle)
+        self.assertEqual(fly["deploy"]["release_command"], "alembic upgrade head")
+        self.assertEqual(fly["http_service"]["processes"], ["app"])
+        self.assertEqual(
+            set(fly["processes"]), {"app", "worker", "scheduler", "purge"}
+        )
+        self.assertEqual(fly["env"]["ROSTER_SCOUT_IDENTITY_MODE"], "workos")
+        for secret in (
+            "ROSTER_SCOUT_SESSION_SECRET",
+            "WORKOS_API_KEY",
+            "WORKOS_CLIENT_ID",
+            "WORKOS_COOKIE_PASSWORD",
+        ):
+            self.assertNotIn(secret, fly["env"])
+
+        runbook = (PROJECT_ROOT / "DEPLOYMENT.md").read_text(encoding="utf-8")
+        for required in (
+            "validate_phase2_release.py",
+            "production_auth_verified=false",
+            "production launch remains blocked",
+            "WorkOS production workspace",
+            "billing",
+            "live passwordless email",
+            "Google",
+            "Microsoft",
+            "customer OIDC or SAML",
+        ):
+            self.assertIn(required, runbook)
+
+
 @dataclass(frozen=True)
 class _DrainResult:
     claimed: int = 0
