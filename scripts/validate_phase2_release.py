@@ -13,7 +13,11 @@ from sqlalchemy.engine import make_url
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-AUDITED_RELEASE_DIFF_BASE = "95776ed"
+# The parent of the first Phase 2 implementation commit. Earlier Phase 1 and
+# Phase 2 planning documents intentionally contain Markdown hard-break spaces,
+# so extending this range backward would turn unrelated planning style into a
+# false release failure while auditing no additional Phase 2 code.
+AUDITED_RELEASE_DIFF_BASE = "fa18b73"
 MVP_STORY = (
     "As a signed-in Roster Scout customer, I want to collaborate inside "
     "explicit organizations and manage persistent, refreshable opponent reports, "

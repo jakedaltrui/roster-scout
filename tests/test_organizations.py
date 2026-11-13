@@ -1259,4 +1259,3 @@ class OrganizationInvitationRouteTests(_PostgreSQLOrganizationCase):
         routes = {rule.rule for rule in self.app_module.app.url_map.iter_rules()}
         self.assertNotIn("/organizations", routes)
         self.assertNotIn("/organization/create", routes)
-
