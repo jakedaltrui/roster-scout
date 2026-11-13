@@ -147,6 +147,7 @@ a { color: inherit; }
 
 .account-email { margin: 0 0 8px; overflow-wrap: anywhere; color: var(--muted); font-size: 14px; }
 .theme-control { width: 100%; justify-content: flex-start; margin-bottom: 8px; }
+.mobile-account-nav { display: none; }
 
 .product-main {
   width: min(calc(100% - 32px), 1200px);
@@ -193,6 +194,9 @@ th, td { padding: 12px; border-bottom: 1px solid var(--border); text-align: left
   .product-brand > span:last-child, .product-nav { display: none; }
   .organization-switcher { max-width: 18ch; }
   .product-actions > .button--primary { display: none; }
+  .account-menu__panel { width: min(280px, calc(100vw - 32px)); }
+  .mobile-account-nav { display: grid; gap: 4px; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+  .mobile-account-nav a { min-height: 44px; display: flex; align-items: center; padding: 0 8px; border-radius: 8px; }
   .product-main { padding-top: 32px; }
   .stack-form { grid-template-columns: 1fr; }
   .stack-form .button { width: 100%; }
@@ -200,8 +204,22 @@ th, td { padding: 12px; border-bottom: 1px solid var(--border); text-align: left
   .member-cards { display: grid; gap: 12px; }
 }
 
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: #09090b;
+  --surface: #171719;
+  --ink: #f0f0ee;
+  --muted: #a1a1a4;
+  --border: #303034;
+  --accent: #b3d1b7;
+  --accent-ink: #171719;
+  --danger: #e9a9a4;
+}
+
+:root[data-theme="light"] { color-scheme: light; }
+
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --canvas: #09090b;
     --surface: #171719;
     --ink: #f0f0ee;

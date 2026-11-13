@@ -22,6 +22,7 @@
     const isHidden = options.isHidden || (() => false);
     const render = options.render || (() => {});
     const announce = options.announce || (() => {});
+    const terminalReached = options.terminalReached || (() => {});
     let startedAt = null;
     let timer = null;
     let stopped = false;
@@ -71,7 +72,10 @@
         }
         terminal = Boolean(view.terminal) || TERMINAL_STATES.has(view.state);
         stopped = terminal;
-        if (terminal) clearTimer();
+        if (terminal) {
+          clearTimer();
+          terminalReached(view);
+        }
         else queueNext();
         return view;
       } catch (_error) {
@@ -183,6 +187,12 @@
       render,
       announce(copy) {
         if (live) live.textContent = copy;
+      },
+      terminalReached() {
+        // Terminal responses change the saved snapshot, history, download, and
+        // retry panels together. Reload the same scoped detail URL so the
+        // server-rendered view replaces those regions atomically.
+        window.location.reload();
       },
     });
     document.addEventListener("visibilitychange", () => {

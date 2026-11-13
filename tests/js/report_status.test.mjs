@@ -14,6 +14,7 @@ function fixture({ hidden = false } = {}) {
   const scheduled = [];
   const rendered = [];
   const announced = [];
+  const terminalViews = [];
   const responses = [];
   const fetchStatus = async () => {
     const response = responses.shift();
@@ -31,6 +32,7 @@ function fixture({ hidden = false } = {}) {
     isHidden: () => isHidden,
     render: (view) => rendered.push(view),
     announce: (copy) => announced.push(copy),
+    terminalReached: (view) => terminalViews.push(view),
   });
   return {
     poller,
@@ -38,6 +40,7 @@ function fixture({ hidden = false } = {}) {
     scheduled,
     rendered,
     announced,
+    terminalViews,
     setNow(value) { now = value; },
     setHidden(value) { isHidden = value; },
   };
@@ -87,6 +90,7 @@ test("ready partial and failed are terminal and stop scheduling", async () => {
     assert.equal(fx.rendered.at(-1).state, state);
     assert.equal(fx.scheduled.length, 0);
     assert.equal(fx.poller.isStopped(), true);
+    assert.equal(fx.terminalViews.at(-1).state, state);
   }
 });
 

@@ -18,8 +18,9 @@
     .eyebrow { margin:0 0 16px; color:#6f756b; font-size:12px; font-weight:600; letter-spacing:.12em; text-transform:uppercase; }
     h1 { margin:0; font-size:30px; line-height:1.15; letter-spacing:-.04em; }
     p { margin:16px 0 0; color:#666a63; line-height:1.6; }
-    a { display:inline-flex; align-items:center; justify-content:center; min-height:48px; margin-top:28px; padding:0 20px; border-radius:12px; background:#20211f; color:#fff; font-weight:600; text-decoration:none; }
-    a:focus-visible { outline:3px solid #4f6f52; outline-offset:3px; }
+    a,button { display:inline-flex; align-items:center; justify-content:center; min-height:48px; margin-top:28px; padding:0 20px; border:0; border-radius:12px; background:#20211f; color:#fff; font:inherit; font-weight:600; text-decoration:none; cursor:pointer; }
+    a:focus-visible,button:focus-visible { outline:3px solid #4f6f52; outline-offset:3px; }
+    form { display:inline; }
     @media (prefers-color-scheme:dark) { :root,body { background:#111311; color:#f3f4ef; } main { border-color:#353934; background:#1b1e1b; box-shadow:0 24px 64px rgba(0,0,0,.28); } p { color:#aeb3aa; } a { background:#edf0e9; color:#171917; } }
   </style>
 </head>
@@ -30,11 +31,15 @@
     {% if state == "no_membership" %}
       <h1>Your account isn’t connected to an organization</h1>
       <p>Ask your organization administrator for an invitation, or sign out and use the invited account.</p>
+      <form action="{{ url_for('auth.logout') }}" method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit">Sign out</button>
+      </form>
     {% else %}
       <h1>We couldn’t sign you in</h1>
       <p>Return to sign in and try again. If the problem continues, contact support.</p>
     {% endif %}
-    <a href="{{ url_for('auth.login') }}">Return to sign in</a>
+    {% if state != "no_membership" %}<a href="{{ url_for('auth.login') }}">Return to sign in</a>{% endif %}
   </main>
 </body>
 </html>
