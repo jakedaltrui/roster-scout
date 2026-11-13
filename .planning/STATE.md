@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-09-PLAN.md
-last_updated: "2026-11-12T17:02:47.357Z"
-last_activity: 2026-11-12
+stopped_at: Completed 02-16-PLAN.md
+last_updated: "2026-11-13T06:32:24.784Z"
+last_activity: 2026-11-13
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 57
-  completed_plans: 54
+  completed_plans: 55
   percent: 20
 ---
 
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-11-11)
 ## Current Position
 
 Phase: 02 (identity-organizations-and-report-library) — EXECUTING
-Plan: 14 of 16
+Plan: 15 of 16
 Status: Ready to execute
-Last activity: 2026-11-12
+Last activity: 2026-11-13
 
-Progress: [██████████] 95%
+Progress: [██████████] 96%
 
 ## Performance Metrics
 
@@ -222,6 +222,10 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 02]: Historical downloads require exact organization, report, snapshot, and artifact scope and stream only checksum-verified stored bytes.
 - [Phase 02]: Authenticated preparation proofs bind an opaque receipt to a digest of canonical actor and artifact scope without exposing raw scoped UUIDs.
 - [Phase 02]: Artifact preparation records audit evidence but successful-download usage remains deferred to browser acknowledgement in Plan 02-16.
+- [Phase 02]: Prepared download proofs include a hashed principal binding — Current account and organization can be validated statelessly without exposing raw identifiers.
+- [Phase 02]: Receipt UUID is the canonical acknowledgement retry and event key — Ambiguous retries converge without another blob read, anchor initiation, usage row, or success audit.
+- [Phase 02]: Authenticated retry state is isolated from anonymous download tracking — Only opaque receipt, proof, and timestamps persist for acknowledgement-only recovery.
+- [Phase 02]: Download measurement stops at blob read, anchor initiation, and acknowledgement — Browser APIs cannot prove that a workbook was saved to the filesystem.
 
 ### Pending Todos
 
@@ -274,9 +278,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 02 P07 | 11min | 2 tasks | 8 files |
 | Phase 02 P08 | 14min | 2 tasks | 6 files |
 | Phase 02 P09 | 18min | 2 tasks | 7 files |
+| Phase 02 P16 | 30min | 2 tasks | 7 files |
 
 ## Session Continuity
 
-Last session: 2026-11-12T17:02:47.167Z
-Stopped at: Completed 02-09-PLAN.md
+Last session: 2026-11-13T06:32:24.775Z
+Stopped at: Completed 02-16-PLAN.md
 Resume file: None
