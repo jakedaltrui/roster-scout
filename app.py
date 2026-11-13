@@ -56,7 +56,11 @@ from roster_scout.identity import (
 )
 from roster_scout.organization_routes import register_organization_routes
 from roster_scout.report_routes import register_report_routes
-from roster_scout.sessions import SESSION_COOKIE_NAME, load_account_session
+from roster_scout.sessions import (
+    SESSION_COOKIE_NAME,
+    load_account_session,
+    refresh_account_session_for_request,
+)
 from roster_scraper import (
     HITTER_HEADERS,
     PITCHER_HEADERS,
@@ -161,6 +165,9 @@ app.secret_key = _SESSION_SIGNING_KEY
 _DOWNLOAD_ACK_PURPOSE = "roster-scout-workbook-download-v1"
 _AUTHENTICATED_DOWNLOAD_ACK_PURPOSE = (
     "roster-scout-authenticated-snapshot-download-v1"
+)
+_AUTHENTICATED_LEGACY_DOWNLOAD_ACK_PURPOSE = (
+    "roster-scout-authenticated-legacy-workbook-v1"
 )
 _DOWNLOAD_ACK_SALT = "roster-scout-download-ack-v1"
 _DOWNLOAD_ACK_MAX_AGE_SECONDS = 15 * 60
@@ -413,6 +420,7 @@ def _authenticated_download_ack_payload(
             organization_id=scope["organization_id"],
         ),
         "scope_binding": _authenticated_download_binding(**scope),
+        "artifact_id": str(uuid.UUID(str(scope["artifact_id"]))),
     }
 
 
@@ -461,20 +469,43 @@ def _authenticated_download_ack_status(
         )
     except BadSignature:
         return "invalid"
-    if (
-        not isinstance(payload, dict)
-        or set(payload) != {
+    if not isinstance(payload, dict):
+        return "invalid"
+    purpose = payload.get("purpose")
+    historical = purpose == _AUTHENTICATED_DOWNLOAD_ACK_PURPOSE
+    legacy = purpose == _AUTHENTICATED_LEGACY_DOWNLOAD_ACK_PURPOSE
+    artifact_id = None
+    if historical:
+        try:
+            artifact_id = str(uuid.UUID(str(payload.get("artifact_id"))))
+        except (TypeError, ValueError, AttributeError):
+            return "invalid"
+    expected_keys = (
+        {
             "purpose",
             "download_event_id",
             "principal_binding",
             "scope_binding",
+            "artifact_id",
         }
-        or payload.get("purpose") != _AUTHENTICATED_DOWNLOAD_ACK_PURPOSE
+        if historical
+        else {"purpose", "download_event_id", "principal_binding"}
+    )
+    if (
+        not (historical or legacy)
+        or set(payload) != expected_keys
         or payload.get("download_event_id") != download_event_id
         or not isinstance(payload.get("principal_binding"), str)
         or re.fullmatch(r"[0-9a-f]{64}", payload["principal_binding"]) is None
-        or not isinstance(payload.get("scope_binding"), str)
-        or re.fullmatch(r"[0-9a-f]{64}", payload["scope_binding"]) is None
+        or (
+            historical
+            and (
+                not isinstance(payload.get("scope_binding"), str)
+                or re.fullmatch(r"[0-9a-f]{64}", payload["scope_binding"])
+                is None
+                or artifact_id != payload.get("artifact_id")
+            )
+        )
     ):
         return "invalid"
     try:
@@ -491,6 +522,35 @@ def _authenticated_download_ack_status(
         )
         else "foreign"
     )
+
+
+def _issue_authenticated_legacy_download_ack_proof(
+    download_event_id: str,
+    *,
+    account_id,
+    organization_id,
+) -> str:
+    return _DOWNLOAD_ACK_SERIALIZER.dumps({
+        "purpose": _AUTHENTICATED_LEGACY_DOWNLOAD_ACK_PURPOSE,
+        "download_event_id": str(uuid.UUID(download_event_id)),
+        "principal_binding": _authenticated_download_principal_binding(
+            account_id=account_id,
+            organization_id=organization_id,
+        ),
+    })
+
+
+def _authenticated_download_artifact_id(proof: str):
+    try:
+        payload = _DOWNLOAD_ACK_SERIALIZER.loads(
+            proof,
+            max_age=_DOWNLOAD_ACK_MAX_AGE_SECONDS,
+        )
+        if payload.get("purpose") != _AUTHENTICATED_DOWNLOAD_ACK_PURPOSE:
+            return None
+        return uuid.UUID(str(payload["artifact_id"]))
+    except (BadSignature, KeyError, TypeError, ValueError, AttributeError):
+        return None
 
 _ALLOWED_DIVISIONS = {"", "d1", "d2", "d3", "juco"}
 _MAX_TEAM_LENGTH = 120
@@ -565,6 +625,15 @@ def add_security_headers(response):
         "script-src 'self' 'unsafe-inline'; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     )
+    if request.endpoint not in {
+        "static",
+        "demo",
+        "healthz",
+        "readyz",
+        "team_logo",
+    }:
+        response.headers.setdefault("Cache-Control", "private, no-store")
+        response.headers.setdefault("Pragma", "no-cache")
     return response
 
 
@@ -683,6 +752,14 @@ def require_authenticated_organization():
 
     cookie_value = request.cookies.get(SESSION_COOKIE_NAME, "")
     try:
+        refresh_outcome = refresh_account_session_for_request(
+            _auth_session_factory(),
+            provider=app.extensions["roster_scout_identity_provider"],
+            cookie_value=cookie_value,
+            logger=app.logger,
+        )
+        if refresh_outcome.session is None:
+            raise AuthorizationFailure("authentication_required")
         if request.endpoint in _ACCOUNT_ONLY_ENDPOINTS:
             loaded, memberships = _load_account_only_context(cookie_value)
             if loaded is None:
@@ -881,12 +958,13 @@ def acknowledge_workbook_download():
                 organization_id=context.organization_id,
             )
             if result.inserted:
+                artifact_id = _authenticated_download_artifact_id(proof)
                 append_security_audit_event(
                     session,
                     actor_account_id=context.account_id,
                     organization_id=context.organization_id,
                     target_type="artifact",
-                    target_id=None,
+                    target_id=artifact_id,
                     action="artifact.download",
                     outcome="succeeded",
                     reason="download_acknowledged",
@@ -1031,8 +1109,15 @@ def scrape():
         response.headers["X-Roster-Scout-Hitters"] = str(len(hitters))
         response.headers["X-Roster-Scout-Pitchers"] = str(len(pitchers))
         response.headers["X-Roster-Scout-Download-Event-ID"] = download_event_id
+        context = getattr(g, "authorization_context", None)
         response.headers["X-Roster-Scout-Download-Ack-Proof"] = (
-            _issue_download_ack_proof(download_event_id)
+            _issue_authenticated_legacy_download_ack_proof(
+                download_event_id,
+                account_id=context.account_id,
+                organization_id=context.organization_id,
+            )
+            if context is not None
+            else _issue_download_ack_proof(download_event_id)
         )
         response.headers["Cache-Control"] = "no-store"
         return response

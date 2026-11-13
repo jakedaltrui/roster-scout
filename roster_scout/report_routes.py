@@ -493,34 +493,48 @@ def download_snapshot_artifact(report_id, snapshot_id, artifact_id):
                 snapshot_id=snapshot_id,
                 artifact_id=artifact_id,
             )
-            payload = current_app.extensions[
-                "roster_scout_artifact_reader"
-            ](artifact.object_key)
-            if (
-                not isinstance(payload, bytes)
-                or not payload
-                or len(payload) > _MAX_ARTIFACT_BYTES
-                or not compare_digest(sha256(payload).hexdigest(), artifact.sha256)
-            ):
-                raise RuntimeError("stored artifact failed integrity validation")
-            download_event_id = str(uuid.uuid4())
-            proof = current_app.extensions[
-                "roster_scout_download_ack_proof_issuer"
-            ](
-                download_event_id,
-                account_id=context.account_id,
+
+        # Object storage and hashing are deliberately outside a database
+        # transaction so a slow reader cannot occupy a pooled connection.
+        payload = current_app.extensions[
+            "roster_scout_artifact_reader"
+        ](artifact.object_key)
+        if (
+            not isinstance(payload, bytes)
+            or not payload
+            or len(payload) > _MAX_ARTIFACT_BYTES
+            or not compare_digest(sha256(payload).hexdigest(), artifact.sha256)
+        ):
+            raise RuntimeError("stored artifact failed integrity validation")
+        download_event_id = str(uuid.uuid4())
+        proof = current_app.extensions[
+            "roster_scout_download_ack_proof_issuer"
+        ](
+            download_event_id,
+            account_id=context.account_id,
+            organization_id=context.organization_id,
+            report_id=report_id,
+            snapshot_id=snapshot_id,
+            artifact_id=artifact.id,
+        )
+        if (
+            not isinstance(proof, str)
+            or not proof
+            or len(proof) > 512
+            or any(ord(character) < 32 for character in proof)
+        ):
+            raise RuntimeError("download acknowledgement proof is invalid")
+
+        with _session_factory().begin() as session:
+            current = resolve_authorized_artifact(
+                session,
                 organization_id=context.organization_id,
                 report_id=report_id,
                 snapshot_id=snapshot_id,
-                artifact_id=artifact.id,
+                artifact_id=artifact_id,
             )
-            if (
-                not isinstance(proof, str)
-                or not proof
-                or len(proof) > 512
-                or any(ord(character) < 32 for character in proof)
-            ):
-                raise RuntimeError("download acknowledgement proof is invalid")
+            if current != artifact:
+                raise ReportLibraryFailure("not_found")
             append_security_audit_event(
                 session,
                 actor_account_id=context.account_id,

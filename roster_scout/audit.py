@@ -68,6 +68,10 @@ AUDIT_REASONS = frozenset(
         "snapshot_opened",
         "download_prepared",
         "download_acknowledged",
+        "invalid_auth_state",
+        "identity_not_verified",
+        "identity_conflict",
+        "identity_unavailable",
     }
 )
 

@@ -9,7 +9,7 @@ import unittest
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
-from threading import Barrier
+from threading import Barrier, Event
 
 from alembic import command
 from sqlalchemy import func, inspect, select, text
@@ -217,6 +217,37 @@ class InvitationCreationTests(_PostgreSQLOrganizationCase):
             ["invitation.create", "organization.bootstrap"],
         )
 
+    def test_concurrent_bootstrap_serializes_the_absent_organization_row(self):
+        from roster_scout.database import create_session_factory, get_engine
+        from roster_scout.models import Organization, OrganizationInvitation
+        from roster_scout.organizations import bootstrap_organization
+
+        ready = Barrier(2)
+
+        def bootstrap(_index):
+            engine = get_engine(self.database_url)
+            factory = create_session_factory(engine)
+            try:
+                ready.wait(timeout=5)
+                with factory.begin() as session:
+                    organization, invitation = bootstrap_organization(
+                        session,
+                        name="Concurrent Baseball",
+                        admin_email="admin@concurrent.example",
+                        now=self.now,
+                    )
+                    return organization.id, invitation.id
+            finally:
+                engine.dispose()
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(bootstrap, range(2)))
+        self.assertEqual(len({result[0] for result in results}), 1)
+        self.assertEqual(len({result[1] for result in results}), 1)
+        with self.Session() as session:
+            self.assertEqual(session.query(Organization).count(), 1)
+            self.assertEqual(session.query(OrganizationInvitation).count(), 1)
+
     def test_admin_can_invite_any_valid_address_and_member_cannot(self):
         from roster_scout.organizations import OrganizationFailure, create_invitation
 
@@ -379,6 +410,62 @@ class InvitationCreationTests(_PostgreSQLOrganizationCase):
             stored = session.get(OrganizationInvitation, invitation_id)
             self.assertEqual(stored.provider_expires_at, stored.expires_at)
 
+    def test_delivery_claim_prevents_two_callers_sending_duplicates(self):
+        from roster_scout.identity import FakeIdentityProvider
+        from roster_scout.organizations import (
+            OrganizationFailure,
+            create_invitation,
+            deliver_invitation,
+        )
+
+        started = Event()
+        release = Event()
+
+        class BlockingProvider(FakeIdentityProvider):
+            def send_invitation(self, **kwargs):
+                started.set()
+                if not release.wait(timeout=5):
+                    raise RuntimeError("test delivery timeout")
+                return super().send_invitation(**kwargs)
+
+        organization_id, admin_id, _ = self._organization_with_membership(
+            "admin@example.edu"
+        )
+        with self.Session.begin() as session:
+            invitation = create_invitation(
+                session,
+                organization_id=organization_id,
+                actor_account_id=admin_id,
+                email="race@example.edu",
+                role="member",
+                now=self.now,
+            )
+            invitation_id = invitation.id
+        provider = BlockingProvider()
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            first = pool.submit(
+                deliver_invitation,
+                self.Session,
+                provider=provider,
+                invitation_id=invitation_id,
+                now=self.now,
+            )
+            self.assertTrue(started.wait(timeout=5))
+            with self.assertRaises(OrganizationFailure) as concurrent:
+                deliver_invitation(
+                    self.Session,
+                    provider=provider,
+                    invitation_id=invitation_id,
+                    now=self.now,
+                )
+            self.assertEqual(
+                concurrent.exception.category,
+                "invitation_delivery_in_progress",
+            )
+            release.set()
+            first.result(timeout=5)
+        self.assertEqual(len(provider.invitation_calls), 1)
+
 
 class InvitationAcceptanceTests(_PostgreSQLOrganizationCase):
     def _pending_invitation(self, email="coach@example.edu", role="member"):
@@ -497,6 +584,67 @@ class InvitationAcceptanceTests(_PostgreSQLOrganizationCase):
                     now=self.now + timedelta(days=8),
                 )
         self.assertEqual(expired.exception.category, "invitation_unavailable")
+
+    def test_provider_email_change_rejects_old_invite_and_accepts_current_email(self):
+        from roster_scout.models import OrganizationMembership
+
+        from roster_scout.accounts import link_verified_identity
+        from roster_scout.identity import VerifiedIdentity
+        from roster_scout.organizations import (
+            OrganizationFailure,
+            accept_invitation,
+            create_invitation,
+        )
+
+        organization_id, admin_id, _ = self._organization_with_membership(
+            "admin@example.edu"
+        )
+        identity = VerifiedIdentity(
+            issuer="https://identity.example.test",
+            subject="moving-subject",
+            provider_user_id="moving-user",
+            email="old@example.edu",
+            email_verified=True,
+            linking_approved=False,
+            sealed_session="sealed-moving",
+        )
+        with self.Session.begin() as session:
+            account = link_verified_identity(session, identity, now=self.now)
+            account_id = account.id
+            old_invite = create_invitation(
+                session,
+                organization_id=organization_id,
+                actor_account_id=admin_id,
+                email="old@example.edu",
+                role="member",
+                now=self.now,
+            )
+            new_invite = create_invitation(
+                session,
+                organization_id=organization_id,
+                actor_account_id=admin_id,
+                email="new@example.edu",
+                role="member",
+                now=self.now,
+            )
+            old_id, new_id = old_invite.id, new_invite.id
+        with self.Session.begin() as session:
+            link_verified_identity(
+                session,
+                VerifiedIdentity(
+                    **{**identity.__dict__, "email": "new@example.edu"}
+                ),
+                now=self.now + timedelta(minutes=1),
+            )
+        with self.Session.begin() as session:
+            with self.assertRaises(OrganizationFailure) as old:
+                accept_invitation(
+                    session,
+                    invitation_id=old_id,
+                    account_id=account_id,
+                    now=self.now + timedelta(minutes=2),
+                )
+        self.assertEqual(old.exception.category, "invitation_email_mismatch")
         with self.Session.begin() as session:
             self.assertIsNone(
                 session.scalar(
@@ -504,6 +652,23 @@ class InvitationAcceptanceTests(_PostgreSQLOrganizationCase):
                         OrganizationMembership.account_id == account_id
                     )
                 )
+            )
+        with self.Session.begin() as session:
+            membership = accept_invitation(
+                session,
+                invitation_id=new_id,
+                account_id=account_id,
+                now=self.now + timedelta(minutes=2),
+            )
+        self.assertEqual(membership.organization_id, organization_id)
+        with self.Session.begin() as session:
+            self.assertEqual(
+                session.scalar(
+                    select(func.count(OrganizationMembership.id)).where(
+                        OrganizationMembership.account_id == account_id
+                    )
+                ),
+                1,
             )
 
 
@@ -1254,6 +1419,23 @@ class OrganizationInvitationRouteTests(_PostgreSQLOrganizationCase):
             invitation = session.scalar(select(OrganizationInvitation))
             self.assertEqual(invitation.status, "pending")
             self.assertIsNone(invitation.provider_invitation_id)
+
+        provider = FakeIdentityProvider()
+        self.app_module.app.extensions["roster_scout_identity_provider"] = provider
+        retry = self.client.post(
+            "/organization/invitations",
+            data={
+                "csrf_token": self._csrf_token(credential),
+                "email": "coach@example.edu",
+                "role": "member",
+            },
+        )
+        self.assertEqual(retry.status_code, 201)
+        self.assertEqual(len(provider.invitation_calls), 1)
+        with self.Session() as session:
+            invitations = list(session.scalars(select(OrganizationInvitation)))
+        self.assertEqual(len(invitations), 1)
+        self.assertIsNotNone(invitations[0].provider_invitation_id)
 
     def test_no_public_organization_create_route_exists(self):
         routes = {rule.rule for rule in self.app_module.app.url_map.iter_rules()}

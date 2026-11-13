@@ -414,6 +414,41 @@ class ExternalIdentityLinkingTests(_PostgreSQLIdentityCase):
             resolved = link_verified_identity(session, self._identity(), now=self.now)
             self.assertEqual(resolved.id, original_id)
 
+    def test_established_subject_moves_canonical_verified_email_atomically(self):
+        from roster_scout.accounts import AccountLinkFailure, link_verified_identity
+        from roster_scout.models import Account, ExternalIdentity
+
+        with self.Session.begin() as session:
+            original = link_verified_identity(session, self._identity(), now=self.now)
+            account_id = original.id
+        changed_at = self.now + timedelta(minutes=1)
+        with self.Session.begin() as session:
+            changed = link_verified_identity(
+                session,
+                self._identity(email="new-coach@example.edu"),
+                now=changed_at,
+            )
+            self.assertEqual(changed.id, account_id)
+            self.assertEqual(changed.normalized_email, "new-coach@example.edu")
+            self.assertEqual(changed.email_verified_at, changed_at)
+            external = session.scalar(select(ExternalIdentity))
+            self.assertEqual(external.last_verified_email, "new-coach@example.edu")
+
+        with self.Session.begin() as session:
+            session.add(Account(
+                normalized_email="collision@example.edu",
+                email_verified_at=self.now,
+                status="active",
+            ))
+        with self.Session.begin() as session:
+            with self.assertRaises(AccountLinkFailure) as collision:
+                link_verified_identity(
+                    session,
+                    self._identity(email="collision@example.edu"),
+                    now=changed_at + timedelta(minutes=1),
+                )
+        self.assertEqual(collision.exception.category, "identity_link_required")
+
 
 class ServerSessionLifecycleTests(_PostgreSQLIdentityCase):
     def _account_id(self):
@@ -659,6 +694,58 @@ class ServerSessionLifecycleTests(_PostgreSQLIdentityCase):
             "https://identity.example.test/logout",
         )
         self.assertEqual(provider.logout_calls, ["sealed-logout-secret"])
+
+    def test_request_refresh_uses_two_transactions_and_terminal_transient_semantics(self):
+        from roster_scout.identity import FakeIdentityProvider, RefreshResult
+        from roster_scout.models import AccountSession
+        from roster_scout.sessions import (
+            create_account_session,
+            refresh_account_session_for_request,
+        )
+
+        account_id = self._account_id()
+        with self.Session.begin() as session:
+            preserved_credential = create_account_session(
+                session,
+                account_id=account_id,
+                sealed_provider_state="sealed-preserved",
+                now=self.now,
+            )
+        transient = FakeIdentityProvider(
+            refresh_result=RefreshResult.retryable_failure()
+        )
+        preserved = refresh_account_session_for_request(
+            self.Session,
+            provider=transient,
+            cookie_value=preserved_credential.cookie_value,
+            now=self.now + timedelta(minutes=6),
+        )
+        self.assertEqual(preserved.status, "preserved")
+        self.assertIsNotNone(preserved.session)
+
+        with self.Session.begin() as session:
+            terminal_credential = create_account_session(
+                session,
+                account_id=account_id,
+                sealed_provider_state="sealed-terminal",
+                now=self.now,
+            )
+        terminal = refresh_account_session_for_request(
+            self.Session,
+            provider=FakeIdentityProvider(
+                refresh_result=RefreshResult.terminal_failure()
+            ),
+            cookie_value=terminal_credential.cookie_value,
+            now=self.now + timedelta(minutes=6),
+        )
+        self.assertEqual(terminal.status, "revoked")
+        self.assertIsNone(terminal.session)
+        with self.Session() as session:
+            row = session.scalar(select(AccountSession).where(
+                AccountSession.lookup_id
+                == uuid.UUID(terminal_credential.cookie_value.split(".", 1)[0])
+            ))
+            self.assertIsNotNone(row.revoked_at)
 
 
 class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
@@ -909,6 +996,95 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
                         membership_count == 1,
                     )
 
+    def test_provider_context_accepts_exact_local_invitation_without_uuid_handoff(self):
+        from roster_scout.identity import FakeIdentityProvider
+        from roster_scout.models import OrganizationMembership
+        from roster_scout.organizations import bootstrap_organization, mirror_organization
+
+        provider = FakeIdentityProvider()
+        with self.Session.begin() as session:
+            organization, _invitation = bootstrap_organization(
+                session,
+                name="Invited Baseball",
+                admin_email="invited@example.edu",
+                now=self.now,
+            )
+            organization_id = organization.id
+        connection = mirror_organization(
+            self.Session,
+            provider=provider,
+            organization_id=organization_id,
+            now=self.now,
+        )
+        identity = self._verified_identity("invited@example.edu")
+        identity = type(identity)(
+            **{
+                **identity.__dict__,
+                "provider_organization_id": connection.provider_organization_id,
+            }
+        )
+        self.app_module.app.extensions["roster_scout_identity_provider"] = (
+            FakeIdentityProvider(identities={"invite-code": identity})
+        )
+        started = self.client.get("/auth/start")
+        state = parse_qs(urlsplit(started.headers["Location"]).query)["state"][0]
+        response = self.client.get(
+            "/auth/callback",
+            query_string={"state": state, "code": "invite-code"},
+        )
+        self.assertEqual(urlsplit(response.headers["Location"]).path, "/reports")
+        with self.Session() as session:
+            membership = session.scalar(select(OrganizationMembership).where(
+                OrganizationMembership.organization_id == organization_id
+            ))
+        self.assertIsNotNone(membership)
+        self.assertEqual(membership.role, "admin")
+
+    def test_request_authorization_refreshes_provider_and_audits_sign_in_outcomes(self):
+        from roster_scout.identity import FakeIdentityProvider, RefreshResult
+        from roster_scout.models import AccountSession, SecurityAuditEvent
+
+        credential = self._credential()
+        with self.Session.begin() as session:
+            row = session.scalar(select(AccountSession))
+            row.provider_refreshed_at = self.now - timedelta(minutes=10)
+        self._set_cookie(credential)
+        self.app_module.app.extensions["roster_scout_identity_provider"] = (
+            FakeIdentityProvider(refresh_result=RefreshResult.retryable_failure())
+        )
+        self.assertEqual(self.client.get("/organizations/select").status_code, 200)
+
+        with self.Session.begin() as session:
+            row = session.scalar(select(AccountSession))
+            row.provider_refreshed_at = self.now - timedelta(minutes=10)
+        self.app_module.app.extensions["roster_scout_identity_provider"] = (
+            FakeIdentityProvider(refresh_result=RefreshResult.terminal_failure())
+        )
+        ended = self.client.get("/organizations/select")
+        self.assertEqual(urlsplit(ended.headers["Location"]).path, "/login")
+
+        client = self.app_module.app.test_client()
+        provider = FakeIdentityProvider(
+            identities={"audit-code": self._verified_identity("audit@example.edu")}
+        )
+        self.app_module.app.extensions["roster_scout_identity_provider"] = provider
+        started = client.get("/auth/start")
+        state = parse_qs(urlsplit(started.headers["Location"]).query)["state"][0]
+        self.assertEqual(client.get(
+            "/auth/callback",
+            query_string={"state": state, "code": "audit-code"},
+        ).status_code, 302)
+        self.assertEqual(client.get(
+            "/auth/callback",
+            query_string={"state": state, "code": "audit-code"},
+        ).status_code, 400)
+        with self.Session() as session:
+            audits = list(session.scalars(select(SecurityAuditEvent).where(
+                SecurityAuditEvent.action == "identity.sign_in"
+            )))
+        self.assertEqual([event.outcome for event in audits], ["succeeded", "failed"])
+        self.assertEqual(audits[-1].reason, "invalid_auth_state")
+
     def test_logout_requires_csrf_and_revokes_locally_when_provider_fails(self):
         from roster_scout.identity import FakeIdentityProvider
         from roster_scout.models import AccountSession
@@ -959,6 +1135,29 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
         self.assertNotIn('type="password"', template)
         self.assertNotIn('type="email"', template)
         self.assertIn("static', filename='product.css'", template)
+        self.assertIn("mobile-account-nav", template)
+        self.assertIn("Create report", template)
+        self.assertIn("data-theme-control", template)
+        self.assertIn("static', filename='product_shell.js'", template)
+
+        auth_error = os.path.join(
+            os.path.dirname(__file__), "..", "templates", "auth_error.html"
+        )
+        with open(auth_error, encoding="utf-8") as handle:
+            error_template = handle.read()
+        self.assertIn('action="{{ url_for(\'auth.logout\') }}"', error_template)
+        self.assertIn("csrf_token()", error_template)
+
+    def test_sensitive_pages_and_auth_transitions_are_private_no_store(self):
+        credential = self._credential()
+        self._set_cookie(credential)
+        for path in ("/organizations/select", "/organizations/none"):
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertEqual(response.headers["Cache-Control"], "private, no-store")
+                self.assertEqual(response.headers["Pragma"], "no-cache")
+        login = self.app_module.app.test_client().get("/login")
+        self.assertEqual(login.headers["Cache-Control"], "private, no-store")
 
 
 class EnterpriseSsoAuthorizationTests(_PostgreSQLIdentityCase):
@@ -1081,7 +1280,7 @@ class EnterpriseSsoAuthorizationTests(_PostgreSQLIdentityCase):
 
         self.assertEqual(identity.provider_user_id, "user_synthetic_sso")
         self.assertFalse(hasattr(identity, "organization_id"))
-        self.assertNotIn("org_provider_claim_only", repr(identity))
+        self.assertEqual(identity.provider_organization_id, "org_provider_claim_only")
 
 
 class SecretRedactionTests(_PostgreSQLIdentityCase):

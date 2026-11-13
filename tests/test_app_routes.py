@@ -959,7 +959,8 @@ class AuthenticatedSnapshotDownloadAcknowledgementTests(unittest.TestCase):
         account_id, organization_id, credential = self._identity("Valid")
         client = self._client(credential)
         event_id = str(uuid.uuid4())
-        proof = self._proof(event_id, self._scope(account_id, organization_id))
+        scope = self._scope(account_id, organization_id)
+        proof = self._proof(event_id, scope)
 
         first = self._ack(client, credential, event_id, proof)
         retry = self._ack(client, credential, event_id, proof)
@@ -981,6 +982,30 @@ class AuthenticatedSnapshotDownloadAcknowledgementTests(unittest.TestCase):
         self.assertEqual(len(acknowledged), 1)
         self.assertEqual(acknowledged[0].actor_account_id, account_id)
         self.assertEqual(acknowledged[0].organization_id, organization_id)
+        self.assertEqual(acknowledged[0].target_id, scope["artifact_id"])
+
+    def test_protected_legacy_workbook_acknowledgement_is_tenant_attributed(self):
+        import inspect
+
+        account_id, organization_id, credential = self._identity("Legacy")
+        event_id = str(uuid.uuid4())
+        proof = app_module._issue_authenticated_legacy_download_ack_proof(
+            event_id,
+            account_id=account_id,
+            organization_id=organization_id,
+        )
+        response = self._ack(
+            self._client(credential), credential, event_id, proof
+        )
+        self.assertEqual(response.status_code, 200)
+        events = self._events()
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].actor_account_id, account_id)
+        self.assertEqual(events[0].organization_id, organization_id)
+        self.assertIn(
+            "_issue_authenticated_legacy_download_ack_proof",
+            inspect.getsource(app_module.scrape),
+        )
 
     def test_missing_csrf_origin_proof_and_unprepared_receipts_record_zero(self):
         account_id, organization_id, credential = self._identity("Rejected")
@@ -1505,7 +1530,7 @@ class AppRouteTests(unittest.TestCase):
         ) as scrape:
             response = self.client.post("/scrape", json={
                 "team": "Tampa", "division": "d2", "season_team_id": "615087",
-            })
+            }, environ_base={"REMOTE_ADDR": "198.51.100.73"})
         self.assert_excel_download(response, "Tampa")
         scrape.assert_called_once_with("615087", division="d2")
 

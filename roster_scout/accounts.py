@@ -66,9 +66,26 @@ def link_verified_identity(
     if existing is not None:
         if existing.provider_user_id != provider_user_id:
             raise AccountLinkFailure("identity_conflict")
-        account = session.get(Account, existing.account_id)
+        account = session.scalar(
+            select(Account)
+            .where(Account.id == existing.account_id)
+            .with_for_update()
+        )
         if account is None or account.status != "active":
             raise AccountLinkFailure("account_unavailable")
+        if account.normalized_email != normalized_email:
+            conflicting_account = session.scalar(
+                select(Account)
+                .where(Account.normalized_email == normalized_email)
+                .with_for_update()
+            )
+            if (
+                conflicting_account is not None
+                and conflicting_account.id != account.id
+            ):
+                raise AccountLinkFailure("identity_link_required")
+            account.normalized_email = normalized_email
+            account.email_verified_at = verified_at
         existing.last_verified_email = normalized_email
         existing.verified_at = verified_at
         session.flush()

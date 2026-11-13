@@ -402,6 +402,7 @@ def invite():
                 actor_account_id=context.account_id,
                 email=request.form.get("email", ""),
                 role=request.form.get("role", ""),
+                resume_undelivered=True,
             )
             invitation_id = invitation.id
             normalized_email = invitation.normalized_email

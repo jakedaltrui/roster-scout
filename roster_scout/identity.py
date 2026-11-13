@@ -40,6 +40,7 @@ class VerifiedIdentity:
     email_verified: bool
     linking_approved: bool
     sealed_session: str = field(repr=False)
+    provider_organization_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -271,6 +272,11 @@ class WorkOSIdentityProvider:
                 email_verified=bool(user.email_verified),
                 linking_approved=False,
                 sealed_session=sealed_session,
+                provider_organization_id=(
+                    str(response.organization_id)
+                    if getattr(response, "organization_id", None)
+                    else None
+                ),
             )
         except IdentityFailure:
             raise

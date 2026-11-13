@@ -762,6 +762,7 @@ class FailedBuildRetryTests(unittest.TestCase):
         )
 
     def test_prepare_streams_only_exact_stored_artifact_without_usage_write(self):
+        from contextlib import contextmanager
         from roster_scout.models import ProductUsageEvent, SecurityAuditEvent
 
         organization_id, accounts = self._organization(
@@ -792,7 +793,27 @@ class FailedBuildRetryTests(unittest.TestCase):
             "immutable/first.xlsx": first_payload,
             "immutable/second.xlsx": second_payload,
         }
-        reader = Mock(side_effect=lambda object_key: stored[object_key])
+        active_transactions = [0]
+        session_factory = self.Session
+
+        class TrackingFactory:
+            @contextmanager
+            def begin(self):
+                with session_factory.begin() as session:
+                    active_transactions[0] += 1
+                    try:
+                        yield session
+                    finally:
+                        active_transactions[0] -= 1
+
+        def read_artifact(object_key):
+            self.assertEqual(active_transactions[0], 0)
+            return stored[object_key]
+
+        reader = Mock(side_effect=read_artifact)
+        self.app_module.app.extensions[
+            "roster_scout_report_session_factory"
+        ] = TrackingFactory()
         self.app_module.app.extensions["roster_scout_artifact_reader"] = reader
         client, credential = self._client_with_credential(
             accounts[0], organization_id
@@ -831,7 +852,10 @@ class FailedBuildRetryTests(unittest.TestCase):
             )
         )
         decoded_proof = self.app_module._DOWNLOAD_ACK_SERIALIZER.loads(proof)
-        for identifier in scope.values():
+        self.assertEqual(decoded_proof["artifact_id"], str(first_artifact_id))
+        for name, identifier in scope.items():
+            if name == "artifact_id":
+                continue
             self.assertNotIn(str(identifier), str(decoded_proof))
         self.assertEqual(response.headers["Cache-Control"], "no-store")
         self.assertNotIn("immutable/first.xlsx", str(response.headers))

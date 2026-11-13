@@ -219,6 +219,10 @@ class OrganizationInvitation(UUIDPrimaryKey, Timestamped, Base):
     expires_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=False)
     provider_expires_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
     delivered_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
+    delivery_claim_token: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    delivery_claimed_until: Mapped[object | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     accepted_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
     __table_args__ = (
@@ -261,6 +265,11 @@ class OrganizationInvitation(UUIDPrimaryKey, Timestamped, Base):
             "(status IN ('pending', 'expired') AND accepted_account_id IS NULL "
             "AND accepted_at IS NULL AND revoked_at IS NULL)",
             name="ck_organization_invitations_lifecycle",
+        ),
+        CheckConstraint(
+            "(delivery_claim_token IS NULL AND delivery_claimed_until IS NULL) OR "
+            "(delivery_claim_token IS NOT NULL AND delivery_claimed_until IS NOT NULL)",
+            name="ck_organization_invitations_delivery_claim",
         ),
         Index(
             "uq_organization_invitations_active_email",
@@ -410,6 +419,9 @@ class AccountSession(UUIDPrimaryKey, Timestamped, Base):
         Uuid
     )
     last_seen_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=False)
+    provider_refreshed_at: Mapped[object] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
     idle_expires_at: Mapped[object] = mapped_column(
         DateTime(timezone=True), nullable=False
     )

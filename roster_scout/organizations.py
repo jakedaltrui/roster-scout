@@ -26,6 +26,7 @@ from .sessions import clear_active_organization_sessions
 
 
 INVITATION_LIFETIME = timedelta(days=7)
+INVITATION_DELIVERY_LEASE = timedelta(minutes=2)
 ORGANIZATION_ROLES = frozenset({"admin", "member"})
 _LOGGER = logging.getLogger(__name__)
 
@@ -246,6 +247,7 @@ def _create_invitation(
     normalized_email,
     role,
     now,
+    resume_undelivered=False,
 ):
     current = session.scalar(
         select(OrganizationInvitation)
@@ -257,6 +259,12 @@ def _create_invitation(
         .with_for_update()
     )
     if current is not None and current.expires_at > now:
+        if (
+            resume_undelivered
+            and current.provider_invitation_id is None
+            and current.role == role
+        ):
+            return current
         raise OrganizationFailure("invitation_exists")
     if current is not None:
         current.status = "expired"
@@ -294,6 +302,7 @@ def create_invitation(
     email,
     role,
     now=None,
+    resume_undelivered=False,
 ):
     """Create one exact-address local invitation as an active local admin."""
     organization_id = _canonical_uuid(organization_id)
@@ -319,6 +328,7 @@ def create_invitation(
         normalized_email=normalized_email,
         role=role,
         now=now,
+        resume_undelivered=resume_undelivered,
     )
 
 
@@ -337,6 +347,13 @@ def bootstrap_organization(
     name = _organization_name(name)
     admin_email = _normalized_email(admin_email)
     now = _utc_datetime(now or datetime.now(UTC))
+
+    # A transaction-scoped advisory lock serializes the absent-row bootstrap
+    # boundary for one canonical display name without imposing global name
+    # uniqueness on organizations created through other workflows.
+    session.execute(
+        select(func.pg_advisory_xact_lock(func.hashtext(name)))
+    )
 
     organizations = list(
         session.scalars(
@@ -483,6 +500,60 @@ def accept_invitation(
     return membership
 
 
+def accept_provider_invitation_handoff(
+    session,
+    *,
+    provider_organization_id,
+    account_id,
+    now=None,
+):
+    """Resolve one provider-routed sign-in to an exact local invitation.
+
+    Provider organization membership is routing context only. The canonical
+    account's current verified email and the pending local invitation remain
+    the sole membership authority.
+    """
+    if (
+        not isinstance(provider_organization_id, str)
+        or not provider_organization_id
+        or len(provider_organization_id) > 255
+    ):
+        raise OrganizationFailure("invitation_unavailable")
+    account_id = _canonical_uuid(account_id)
+    now = _utc_datetime(now or datetime.now(UTC))
+    account = session.get(Account, account_id, with_for_update=True)
+    if account is None or account.status != "active":
+        raise OrganizationFailure("account_unavailable")
+
+    invitations = list(session.scalars(
+        select(OrganizationInvitation)
+        .join(
+            OrganizationIdentityConnection,
+            OrganizationIdentityConnection.organization_id
+            == OrganizationInvitation.organization_id,
+        )
+        .where(
+            OrganizationIdentityConnection.provider_organization_id
+            == provider_organization_id,
+            OrganizationInvitation.normalized_email
+            == account.normalized_email,
+            OrganizationInvitation.status == "pending",
+            OrganizationInvitation.expires_at > now,
+        )
+        .with_for_update()
+    ))
+    if not invitations:
+        return None
+    if len(invitations) != 1:
+        raise OrganizationFailure("invitation_unavailable")
+    return accept_invitation(
+        session,
+        invitation_id=invitations[0].id,
+        account_id=account_id,
+        now=now,
+    )
+
+
 def revoke_invitation(
     session,
     *,
@@ -610,7 +681,9 @@ def deliver_invitation(
     now = _utc_datetime(now or datetime.now(UTC))
     logger = logger or _LOGGER
     with session_factory.begin() as session:
-        invitation = session.get(OrganizationInvitation, invitation_id)
+        invitation = session.get(
+            OrganizationInvitation, invitation_id, with_for_update=True
+        )
         if (
             invitation is None
             or invitation.status != "pending"
@@ -619,20 +692,40 @@ def deliver_invitation(
             raise OrganizationFailure("invitation_unavailable")
         if invitation.provider_invitation_id is not None:
             return invitation
+        if (
+            invitation.delivery_claimed_until is not None
+            and invitation.delivery_claimed_until > now
+        ):
+            raise OrganizationFailure("invitation_delivery_in_progress")
+        claim_token = uuid.uuid4()
+        invitation.delivery_claim_token = claim_token
+        invitation.delivery_claimed_until = now + INVITATION_DELIVERY_LEASE
         organization_id = invitation.organization_id
         normalized_email = invitation.normalized_email
         local_expires_at = invitation.expires_at
 
-    connection = mirror_organization(
-        session_factory,
-        provider=provider,
-        organization_id=organization_id,
-        now=now,
-        logger=logger,
-    )
-    remaining = local_expires_at - now
-    expires_in_days = max(1, min(7, (remaining.days + (remaining.seconds > 0))))
+    def release_claim():
+        with session_factory.begin() as session:
+            claimed = session.get(
+                OrganizationInvitation, invitation_id, with_for_update=True
+            )
+            if claimed is not None and claimed.delivery_claim_token == claim_token:
+                claimed.delivery_claim_token = None
+                claimed.delivery_claimed_until = None
+                session.flush()
+
     try:
+        connection = mirror_organization(
+            session_factory,
+            provider=provider,
+            organization_id=organization_id,
+            now=now,
+            logger=logger,
+        )
+        remaining = local_expires_at - now
+        expires_in_days = max(
+            1, min(7, (remaining.days + (remaining.seconds > 0)))
+        )
         delivered = provider.send_invitation(
             email=normalized_email,
             provider_organization_id=connection.provider_organization_id,
@@ -649,8 +742,10 @@ def deliver_invitation(
         provider_expires_at = _utc_datetime(provider_expires_at)
         provider_expires_at = min(provider_expires_at, local_expires_at)
     except OrganizationFailure:
+        release_claim()
         raise
     except Exception:
+        release_claim()
         raise _provider_failure(logger, "invitation_delivery") from None
 
     with session_factory.begin() as session:
@@ -663,12 +758,15 @@ def deliver_invitation(
             invitation is None
             or invitation.status != "pending"
             or invitation.expires_at <= now
+            or invitation.delivery_claim_token != claim_token
         ):
             raise OrganizationFailure("invitation_unavailable")
         if invitation.provider_invitation_id is None:
             invitation.provider_invitation_id = provider_invitation_id
             invitation.provider_expires_at = provider_expires_at
             invitation.delivered_at = now
+            invitation.delivery_claim_token = None
+            invitation.delivery_claimed_until = None
             session.flush()
             append_security_audit_event(
                 session,

@@ -19,6 +19,7 @@ from .models import Account, AccountSession
 SESSION_COOKIE_NAME = "__Host-rs_session"
 SESSION_IDLE_LIFETIME = timedelta(hours=12)
 SESSION_ABSOLUTE_LIFETIME = timedelta(days=7)
+SESSION_PROVIDER_REVALIDATION_INTERVAL = timedelta(minutes=5)
 
 
 @dataclass(frozen=True)
@@ -196,6 +197,7 @@ def create_account_session(
         ),
         created_at=current,
         last_seen_at=current,
+        provider_refreshed_at=current,
         idle_expires_at=idle_expires_at,
         absolute_expires_at=absolute_expires_at,
     )
@@ -243,6 +245,7 @@ def rotate_account_session_organization(
         active_organization_id=canonical_organization_id,
         created_at=current,
         last_seen_at=current,
+        provider_refreshed_at=current,
         idle_expires_at=idle_expires_at,
         absolute_expires_at=row.absolute_expires_at,
     )
@@ -334,6 +337,7 @@ def refresh_account_session(
             session.flush()
             return SessionRefreshOutcome(status="revoked")
         row.sealed_provider_state = result.sealed_session
+        row.provider_refreshed_at = current
         _touch_row(row, current)
         session.flush()
         return SessionRefreshOutcome(
@@ -341,6 +345,7 @@ def refresh_account_session(
             session=_loaded_from_row(row),
         )
     if result.retryable:
+        row.provider_refreshed_at = current
         _touch_row(row, current)
         session.flush()
         return SessionRefreshOutcome(
@@ -350,6 +355,87 @@ def refresh_account_session(
     row.revoked_at = current
     session.flush()
     return SessionRefreshOutcome(status="revoked")
+
+
+def refresh_account_session_for_request(
+    session_factory,
+    *,
+    provider: IdentityProvider,
+    cookie_value: str,
+    now: datetime | None = None,
+    refresh_interval: timedelta = SESSION_PROVIDER_REVALIDATION_INTERVAL,
+    logger: logging.Logger | None = None,
+) -> SessionRefreshOutcome:
+    """Bound provider revalidation without holding a database transaction.
+
+    The first transaction snapshots one current session. Provider I/O happens
+    after that transaction closes. A second transaction locks the same bearer
+    session and applies the result only if neither its provider state nor its
+    validation timestamp changed in the meantime.
+    """
+    current = now or _utc_now()
+    if refresh_interval < timedelta(0):
+        raise ValueError("refresh_interval cannot be negative")
+
+    with session_factory.begin() as session:
+        row = _session_row_for_cookie(session, cookie_value, lock=False)
+        if not _row_is_current(session, row, current):
+            return SessionRefreshOutcome(status="revoked")
+        if current - row.provider_refreshed_at < refresh_interval:
+            _touch_row(row, current)
+            session.flush()
+            return SessionRefreshOutcome(
+                status="current",
+                session=_loaded_from_row(row),
+            )
+        session_id = row.id
+        sealed_provider_state = row.sealed_provider_state
+        provider_refreshed_at = row.provider_refreshed_at
+
+    try:
+        result = provider.refresh(sealed_session=sealed_provider_state)
+    except Exception:
+        (logger or logging.getLogger(__name__)).warning(
+            "identity_provider_refresh_failed"
+        )
+        result = None
+
+    with session_factory.begin() as session:
+        row = _session_row_for_cookie(session, cookie_value, lock=True)
+        if (
+            not _row_is_current(session, row, current)
+            or row.id != session_id
+        ):
+            return SessionRefreshOutcome(status="revoked")
+        if (
+            row.sealed_provider_state != sealed_provider_state
+            or row.provider_refreshed_at != provider_refreshed_at
+        ):
+            return SessionRefreshOutcome(
+                status="current",
+                session=_loaded_from_row(row),
+            )
+
+        row.provider_refreshed_at = current
+        if result is None or result.retryable:
+            _touch_row(row, current)
+            session.flush()
+            return SessionRefreshOutcome(
+                status="preserved",
+                session=_loaded_from_row(row),
+            )
+        if not result.authenticated or not result.sealed_session:
+            row.revoked_at = current
+            session.flush()
+            return SessionRefreshOutcome(status="revoked")
+
+        row.sealed_provider_state = result.sealed_session
+        _touch_row(row, current)
+        session.flush()
+        return SessionRefreshOutcome(
+            status="refreshed",
+            session=_loaded_from_row(row),
+        )
 
 
 def prepare_account_session_logout(

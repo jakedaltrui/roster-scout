@@ -7,6 +7,7 @@ from flask.sessions import SessionInterface, SessionMixin
 from werkzeug.datastructures import CallbackDict
 
 from .accounts import AccountLinkFailure, link_verified_identity
+from .audit import append_security_audit_event
 from .authorization import list_active_memberships
 from .identity import (
     FakeIdentityProvider,
@@ -22,6 +23,11 @@ from .sessions import (
     load_account_session,
     prepare_account_session_logout,
     session_cookie_options,
+)
+from .organizations import (
+    OrganizationFailure,
+    accept_invitation,
+    accept_provider_invitation_handoff,
 )
 
 
@@ -114,6 +120,21 @@ def _auth_failure(*, status: int):
     return render_template("auth_error.html", state="failure"), status
 
 
+def _record_sign_in_failure(reason: str) -> None:
+    """Best-effort sanitized failure evidence when persistence is available."""
+    try:
+        with _session_factory().begin() as session:
+            append_security_audit_event(
+                session,
+                target_type="session",
+                action="identity.sign_in",
+                outcome="failed",
+                reason=reason,
+            )
+    except Exception:
+        current_app.logger.warning("identity_sign_in_audit_failed")
+
+
 @auth_blueprint.get("/login")
 def login():
     try:
@@ -155,9 +176,11 @@ def callback():
         code = _bounded_callback_value(request.args.get("code"))
     except IdentityFailure:
         current_app.logger.warning("identity_callback_failed")
+        _record_sign_in_failure("invalid_auth_state")
         return _auth_failure(status=400)
     except Exception:
         current_app.logger.warning("identity_callback_failed")
+        _record_sign_in_failure("identity_unavailable")
         return _auth_failure(status=503)
 
     try:
@@ -168,6 +191,18 @@ def callback():
         )
         with _session_factory().begin() as session:
             account = link_verified_identity(session, identity)
+            if transaction.invitation_id is not None:
+                accept_invitation(
+                    session,
+                    invitation_id=transaction.invitation_id,
+                    account_id=account.id,
+                )
+            elif identity.provider_organization_id:
+                accept_provider_invitation_handoff(
+                    session,
+                    provider_organization_id=identity.provider_organization_id,
+                    account_id=account.id,
+                )
             memberships = list_active_memberships(
                 session,
                 account_id=account.id,
@@ -184,14 +219,36 @@ def callback():
                 sealed_provider_state=identity.sealed_session,
                 rotate_cookie_value=request.cookies.get(SESSION_COOKIE_NAME),
             )
+            append_security_audit_event(
+                session,
+                actor_account_id=account.id,
+                organization_id=active_organization_id,
+                target_type="account",
+                target_id=account.id,
+                action="identity.sign_in",
+                outcome="succeeded",
+                reason="authorized",
+            )
     except IdentityFailure:
         current_app.logger.warning("identity_callback_failed")
+        _record_sign_in_failure("identity_unavailable")
         return _auth_failure(status=503)
-    except AccountLinkFailure:
+    except AccountLinkFailure as exc:
         current_app.logger.warning("identity_callback_failed")
+        reason = (
+            exc.category
+            if exc.category in {"identity_not_verified", "identity_conflict"}
+            else "identity_conflict"
+        )
+        _record_sign_in_failure(reason)
+        return _auth_failure(status=400)
+    except OrganizationFailure:
+        current_app.logger.warning("identity_callback_failed")
+        _record_sign_in_failure("identity_conflict")
         return _auth_failure(status=400)
     except Exception:
         current_app.logger.warning("identity_callback_failed")
+        _record_sign_in_failure("identity_unavailable")
         return _auth_failure(status=503)
 
     if not memberships:
