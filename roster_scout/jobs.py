@@ -1236,6 +1236,9 @@ def run_report_job(session_factory, job_id, generation=None, *, collector):
                 snapshot = session.get(ReportSnapshot, job.result_snapshot_id)
                 _persist_canonical(session, job, snapshot, sections)
                 published = publish_snapshot(session, snapshot.id)
+                from .artifacts import ensure_snapshot_workbook_artifact
+
+                ensure_snapshot_workbook_artifact(session, published)
                 job.status = published.status
                 job.finished_at = _utcnow()
                 close_report_dispatches(session, job.id)

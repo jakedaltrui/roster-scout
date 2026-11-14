@@ -10,7 +10,8 @@ This is a minimal ICM system map. The repository is small enough that this file 
 4. `app.py` revalidates the exact team catalog selection and durably accepts or reuses the organization-owned report/job before any external collection. It dispatches the durable job best-effort, then runs the compatibility workbook workflow so the original immediate `.xlsx` download remains available. The response includes the saved-report URL for the minimal report portal.
 5. The NCAA workflow resolves baseballr-maintained team/season IDs and checks its successful-result cache under a per-team file lock. Concurrent workbook requests sharing the same machine/cache reuse the first successful collection. The hosted deployment opens batting and pitching in one Browserless sticky residential browser, accepts NCAA's terms in that browser, and requires `#stat_grid` before parsing. Cleanup explicitly sends CDP `Browser.close` before releasing capacity; upstream Browserless 429s return the retryable busy response. The Site Unblocker HTTP workflow and a dedicated local Patchright profile remain fallback options for other deployments. NCAA failures are returned consistently for D1, D2, and D3; there is no D1-only external stats fallback.
 6. `roster_scraper.py` normalizes player rows and splits hitters from pitchers. `app.py` creates the in-memory Hitters/Pitchers workbook and returns it as a browser download; the acknowledgement endpoint records a successful download exactly once.
-7. Authenticated users can open the minimal saved-report portal for organization-shared reports, immutable snapshot history, explicit refresh, and exact historical downloads. Primary navigation is limited to New report, Saved reports, and Account; organization administration remains available only through protected direct routes.
+7. Publishing a durable `ready` or `partial` snapshot creates one pending XLSX artifact in the same PostgreSQL transaction. The worker renders deterministic bytes from that exact snapshot's source records into private immutable storage; the scheduler discovers missing rows, reclaims stale builds, and retries bounded failures. Historical downloads authorize the exact organization/report/snapshot/artifact tuple, verify the stored SHA-256, and never rebuild from current NCAA data.
+8. Authenticated users can open the minimal saved-report portal for organization-shared reports, immutable snapshot history, explicit refresh, and exact historical downloads. Primary navigation is limited to New report, Saved reports, and Account; organization administration remains available only through protected direct routes.
 
 ## Universes
 
@@ -34,6 +35,7 @@ This is a minimal ICM system map. The repository is small enough that this file 
 | Player keys or output columns | Scraper normalization, `split_roster()`, and workbook headers | Team discovery |
 | Workbook layout or number types | `_create_workbook()` and `_write_worksheet()` | Browser progress animation |
 | Download filename or response headers | `/scrape` in `app.py` and the browser download handler | Scraper source adapters |
+| Historical workbook bytes or storage | `roster_scout/artifacts.py`, `roster_scout/tasks.py`, `roster_scout/report_routes.py`, and artifact migrations | Legacy immediate `/scrape` workbook formatting |
 | Python imports or entry point | `requirements.txt`, `Procfile`, and import sites | Cached NCAA data |
 | Fly sizing, health checks, or persistent cache | `fly.toml`, `Dockerfile`, `/healthz`, and `DEPLOYMENT.md` | Local native runner |
 
@@ -48,7 +50,8 @@ Run from the repository root:
 5. Run `python3 scripts/validate_ncaa_catalog.py` to validate every current-season D1/D2/D3 selector record in one pass.
 6. Confirm `git diff --check` passes. The corrective gate does not deploy and does not authorize production launch.
 
-External boundaries not represented in this tree: hosting-provider configuration,
-proxy account/credentials, and upstream sports websites/Akamai policy. The
+External boundaries not represented in this tree: managed PostgreSQL/Redis,
+private S3-compatible workbook storage and credentials, identity-provider
+configuration, proxy account/credentials, and upstream sports websites/Akamai policy. The
 October 29, 2026 Fly feasibility run verified the app infrastructure but also
 verified that unproxied Fly egress receives NCAA `Access Denied` responses.

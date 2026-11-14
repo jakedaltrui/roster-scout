@@ -913,16 +913,12 @@ class PublicationTests(PostgreSQLJobTestCase):
             collector=Mock(return_value=self.successful_sections(supplemental_failed=True)),
         )
         self.assertEqual(snapshot.status, "partial")
-        with self.Session.begin() as session:
-            artifact = ReportArtifact(
-                organization_id=organization_id,
-                snapshot_id=snapshot.id,
-                artifact_type="xlsx",
-                status="pending",
-            )
-            session.add(artifact)
         with self.Session() as session:
-            self.assertEqual(session.scalar(select(ReportArtifact.status)), "pending")
+            artifact = session.scalar(select(ReportArtifact))
+            self.assertEqual(artifact.snapshot_id, snapshot.id)
+            self.assertEqual(artifact.status, "pending")
+            self.assertEqual(artifact.schema_version, "basic-xlsx-v1")
+            self.assertEqual(artifact.attempt_count, 0)
 
     def test_same_job_cache_reuse_preserves_source_collection_time(self):
         from roster_scout.jobs import accept_report_job, run_report_job

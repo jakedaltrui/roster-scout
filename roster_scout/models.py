@@ -1038,6 +1038,11 @@ class ReportArtifact(UUIDPrimaryKey, Timestamped, Base):
     schema_version: Mapped[str | None] = mapped_column(String(32))
     sha256: Mapped[str | None] = mapped_column(String(64))
     object_key: Mapped[str | None] = mapped_column(Text)
+    attempt_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    last_attempt_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
+    failure_category: Mapped[str | None] = mapped_column(String(100))
     __table_args__ = (
         UniqueConstraint("snapshot_id", "artifact_type", name="uq_report_artifacts_snapshot_type"),
         ForeignKeyConstraint(
@@ -1047,6 +1052,10 @@ class ReportArtifact(UUIDPrimaryKey, Timestamped, Base):
         CheckConstraint(_allowed("artifact_type", ARTIFACT_TYPES), name="ck_report_artifacts_type"),
         CheckConstraint(_allowed("status", ARTIFACT_STATUSES), name="ck_report_artifacts_status"),
         CheckConstraint("sha256 IS NULL OR char_length(sha256) = 64", name="ck_report_artifacts_sha256_length"),
+        CheckConstraint(
+            "attempt_count >= 0 AND attempt_count <= 10",
+            name="ck_report_artifacts_attempt_count",
+        ),
     )
 
 

@@ -16,7 +16,7 @@ from scripts import validate_phase2_release as phase2
 
 
 PROJECT_ROOT = phase2.PROJECT_ROOT
-EXPECTED_MIGRATION_HEAD = "0023"
+EXPECTED_MIGRATION_HEAD = "0024"
 AUDITED_RELEASE_DIFF_BASE = "fa18b73"
 MVP_STORY = (
     "As a coach, I want to choose an opponent before signing in and verify my "
@@ -39,6 +39,8 @@ FOCUSED_TESTS = (
     "tests.test_app_routes.AuthenticatedSnapshotDownloadAcknowledgementTests",
     "tests.test_phase2_release.Phase2ReleaseStoryTests",
     "tests.test_phase2_release.ExternalFailureStateTests",
+    "tests.test_artifacts.ArtifactStorageUnitTests",
+    "tests.test_artifacts.ArtifactLifecycleTests",
 )
 
 

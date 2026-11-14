@@ -157,12 +157,80 @@ class BrowserlessCapacityConfigTests(unittest.TestCase):
             "BROWSERLESS_TOKEN",
             "DATABASE_URL",
             "CELERY_BROKER_URL",
+            "ROSTER_SCOUT_ARTIFACT_BUCKET",
+            "BUCKET_NAME",
+            "AWS_ACCESS_KEY_ID",
+            "AWS_SECRET_ACCESS_KEY",
+            "AWS_ENDPOINT_URL_S3",
         }
         self.assertTrue(sensitive_names.isdisjoint(self.fly["env"]))
         source = (PROJECT_ROOT / "fly.toml").read_text(encoding="utf-8")
         self.assertNotIn("postgresql://", source)
         self.assertNotIn("postgresql+psycopg://", source)
         self.assertNotIn("redis://", source)
+
+
+class ArtifactStorageDeploymentTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.compose = render_compose()
+        with (PROJECT_ROOT / "fly.toml").open("rb") as handle:
+            cls.fly = tomllib.load(handle)
+
+    def test_compose_app_and_worker_share_only_durable_artifact_volume(self):
+        services = self.compose["services"]
+        for service_name in ("roster-scout", "worker"):
+            environment = services[service_name]["environment"]
+            self.assertEqual(
+                environment["ROSTER_SCOUT_ARTIFACT_BACKEND"], "filesystem"
+            )
+            self.assertEqual(
+                environment["ROSTER_SCOUT_ARTIFACT_DIRECTORY"],
+                "/var/lib/roster-scout-artifacts",
+            )
+            targets = {volume["target"] for volume in services[service_name]["volumes"]}
+            self.assertIn("/var/lib/roster-scout-artifacts", targets)
+        worker_targets = {
+            volume["target"] for volume in services["worker"]["volumes"]
+        }
+        self.assertNotIn("/var/cache/roster-scout", worker_targets)
+
+    def test_fly_selects_s3_without_embedding_bucket_or_credentials(self):
+        self.assertEqual(self.fly["env"]["ROSTER_SCOUT_ARTIFACT_BACKEND"], "s3")
+        self.assertEqual(self.fly["env"]["ROSTER_SCOUT_ARTIFACT_SSE"], "AES256")
+        for secret_name in (
+            "ROSTER_SCOUT_ARTIFACT_BUCKET",
+            "BUCKET_NAME",
+            "AWS_ACCESS_KEY_ID",
+            "AWS_SECRET_ACCESS_KEY",
+            "AWS_ENDPOINT_URL_S3",
+        ):
+            self.assertNotIn(secret_name, self.fly["env"])
+
+    def test_hosted_artifact_configuration_fails_closed_and_redacts_values(self):
+        from roster_scout.artifacts import (
+            ArtifactStorageConfigurationError,
+            artifact_store_from_environ,
+        )
+
+        with self.assertRaises(ArtifactStorageConfigurationError) as raised:
+            artifact_store_from_environ({"ROSTER_SCOUT_ARTIFACT_BACKEND": "s3"}, required=True)
+        self.assertNotIn("secret", str(raised.exception).lower())
+        self.assertIsNone(artifact_store_from_environ({}, required=False))
+
+    def test_runbook_documents_immutable_staging_and_restore_contract(self):
+        guide = (PROJECT_ROOT / "DEPLOYMENT.md").read_text(encoding="utf-8")
+        normalized = " ".join(guide.split())
+        for statement in (
+            "private create-only object with SHA-256 metadata",
+            "Historical download routes read only",
+            "never rebuild from current NCAA data",
+            "migration `0024`",
+            "download the same snapshot again and compare the SHA-256",
+            "A database restore must be paired with a bucket state",
+            "Do not delete historical objects during rollback",
+        ):
+            self.assertIn(statement, normalized)
 
 
 class DownloadAcknowledgementPublicOriginConfigTests(unittest.TestCase):
@@ -238,6 +306,7 @@ class WorkerRetentionPreflightTests(unittest.TestCase):
 
 class DispatchSchedulerEntrypointTests(unittest.TestCase):
     def test_valid_configuration_invokes_bounded_service_boundary(self):
+        from roster_scout.artifacts import ArtifactDispatchResult
         from scripts.run_scheduler import SchedulerConfig, run_scheduler
 
         config = SchedulerConfig.from_environ({
@@ -252,6 +321,8 @@ class DispatchSchedulerEntrypointTests(unittest.TestCase):
             return_value=_ReconcileResult(reopened=3, closed=4, active=1)
         )
         dispatch = Mock()
+        artifact_dispatch = Mock()
+        artifact_drain = Mock(return_value=ArtifactDispatchResult(discovered=1))
 
         run_scheduler(
             config,
@@ -259,6 +330,8 @@ class DispatchSchedulerEntrypointTests(unittest.TestCase):
             dispatch=dispatch,
             drain=drain,
             reconcile=reconcile,
+            artifact_dispatch=artifact_dispatch,
+            artifact_drain=artifact_drain,
             stop_event=threading.Event(),
             max_cycles=1,
         )
@@ -275,6 +348,11 @@ class DispatchSchedulerEntrypointTests(unittest.TestCase):
             lease_duration=config.dispatch_lease_duration,
             redispatch_delay=config.queued_redispatch_deadline,
             failure_backoff=config.poll_interval,
+        )
+        artifact_drain.assert_called_once_with(
+            session_factory,
+            dispatch=artifact_dispatch,
+            limit=10,
         )
 
     def test_invalid_timing_values_fail_before_startup(self):
@@ -1684,6 +1762,14 @@ class Phase2IdentityDeploymentConfigTests(unittest.TestCase):
             "WORKOS_CLIENT_ID",
             "WORKOS_REDIRECT_URI",
             "WORKOS_COOKIE_PASSWORD",
+            "ROSTER_SCOUT_ARTIFACT_BACKEND",
+            "ROSTER_SCOUT_ARTIFACT_DIRECTORY",
+            "ROSTER_SCOUT_ARTIFACT_BUCKET",
+            "ROSTER_SCOUT_ARTIFACT_ENDPOINT_URL",
+            "AWS_ENDPOINT_URL_S3",
+            "AWS_ACCESS_KEY_ID",
+            "AWS_SECRET_ACCESS_KEY",
+            "AWS_SESSION_TOKEN",
         ):
             environment.pop(name, None)
         environment.update(updates or {})
@@ -1755,6 +1841,28 @@ class Phase2IdentityDeploymentConfigTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertEqual(completed.stdout.strip(), "True code_verified")
 
+    def test_hosted_runtime_missing_artifact_storage_fails_readiness_closed(self):
+        completed = self._run_app_process(
+            (
+                "import app; client = app.app.test_client(); "
+                "print(app._ARTIFACT_CONFIGURATION_READY, "
+                "client.get('/readyz').status_code)"
+            ),
+            updates={
+                "FLY_APP_NAME": "roster-scout",
+                "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET": self._secret(b"a"),
+                "ROSTER_SCOUT_PUBLIC_ORIGIN": "https://roster-scout.fly.dev",
+                "ROSTER_SCOUT_IDENTITY_MODE": "workos",
+                "ROSTER_SCOUT_SESSION_SECRET": self._secret(b"b"),
+                "WORKOS_API_KEY": "synthetic-api-key",
+                "WORKOS_CLIENT_ID": "synthetic-client-id",
+                "WORKOS_REDIRECT_URI": "https://roster-scout.fly.dev/auth/callback",
+                "WORKOS_COOKIE_PASSWORD": self._secret(b"c"),
+            },
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout.strip(), "False 503")
+
     def test_hosted_runtime_rejects_non_https_or_inexact_callback(self):
         common = {
             "FLY_APP_NAME": "roster-scout",
@@ -1817,7 +1925,7 @@ class Phase21ReleaseValidatorContractTests(unittest.TestCase):
 
     def test_corrective_gate_covers_journey_domain_browser_and_full_regression(self):
         validator = self._load_validator()
-        self.assertEqual(validator.EXPECTED_MIGRATION_HEAD, "0023")
+        self.assertEqual(validator.EXPECTED_MIGRATION_HEAD, "0024")
         manifest = validator.release_command_manifest(
             sys.executable,
             diff_base="fa18b73",
@@ -1827,6 +1935,8 @@ class Phase21ReleaseValidatorContractTests(unittest.TestCase):
             "tests.test_phase21_release.Phase21CustomerJourneyTests",
             "InstitutionalDomainMembershipTests",
             "CrossOrganizationDenialTests",
+            "ArtifactStorageUnitTests",
+            "ArtifactLifecycleTests",
             "tests/js/home_flow.test.mjs",
             "tests/js/download_tracking.test.mjs",
             "tests/js/report_status.test.mjs",

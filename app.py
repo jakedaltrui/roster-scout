@@ -32,6 +32,10 @@ from werkzeug.exceptions import RequestEntityTooLarge
 from xlsxwriter.utility import xl_pixel_width
 from usage_limits import BrowserCapacityError, check_request_limit
 
+from roster_scout.artifacts import (
+    ArtifactStorageConfigurationError,
+    artifact_store_from_environ,
+)
 from roster_scout.auth_routes import register_auth_routes
 from roster_scout.audit import append_security_audit_event
 from roster_scout.authorization import (
@@ -177,6 +181,17 @@ _AUTH_VERIFICATION_STATUS = (
     "code_verified" if _AUTH_CONFIGURATION_READY else "configuration_required"
 )
 app.secret_key = _SESSION_SIGNING_KEY
+
+try:
+    _ARTIFACT_STORE = artifact_store_from_environ(
+        required=bool(os.environ.get("FLY_APP_NAME", "").strip())
+    )
+except ArtifactStorageConfigurationError:
+    _ARTIFACT_STORE = None
+_ARTIFACT_CONFIGURATION_READY = (
+    _ARTIFACT_STORE is not None
+    or not bool(os.environ.get("FLY_APP_NAME", "").strip())
+)
 
 _DOWNLOAD_ACK_PURPOSE = "roster-scout-workbook-download-v1"
 _AUTHENTICATED_DOWNLOAD_ACK_PURPOSE = (
@@ -738,6 +753,9 @@ register_report_routes(
     app,
     session_factory=_report_session_factory,
     issue_download_ack_proof=_issue_authenticated_download_ack_proof,
+    artifact_reader=(
+        _ARTIFACT_STORE.read if _ARTIFACT_STORE is not None else None
+    ),
 )
 
 
@@ -876,6 +894,11 @@ def _record_workbook_download(event_key):
 @app.route("/readyz")
 def readyz():
     """Fail closed until persisted failure-evidence purge health is ready."""
+    if not _AUTH_CONFIGURATION_READY or not _ARTIFACT_CONFIGURATION_READY:
+        return jsonify({
+            "status": "not_ready",
+            "configuration": "unavailable",
+        }), 503
     try:
         get_failure_evidence_retention()
     except FailureEvidenceConfigurationError:

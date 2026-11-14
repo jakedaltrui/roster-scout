@@ -88,6 +88,8 @@ def run_scheduler(
     dispatch,
     drain,
     reconcile,
+    artifact_dispatch=None,
+    artifact_drain=None,
     stop_event,
     logger=LOGGER,
     max_cycles=None,
@@ -109,19 +111,34 @@ def run_scheduler(
                 redispatch_delay=config.queued_redispatch_deadline,
                 failure_backoff=config.poll_interval,
             )
+            artifact_dispatches = (
+                artifact_drain(
+                    session_factory,
+                    dispatch=artifact_dispatch,
+                    limit=DISPATCH_BATCH_LIMIT,
+                )
+                if artifact_dispatch is not None and artifact_drain is not None
+                else None
+            )
         except Exception:
             # Exception text can contain URLs, credentials, or source payloads.
             logger.warning("scheduler_cycle health=degraded")
         else:
             logger.info(
                 "scheduler_cycle health=healthy claimed=%d published=%d "
-                "released=%d reopened=%d closed=%d active=%d",
+                "released=%d reopened=%d closed=%d active=%d "
+                "artifacts_claimed=%d artifacts_published=%d "
+                "artifacts_released=%d artifacts_discovered=%d",
                 dispatches.claimed,
                 dispatches.published,
                 dispatches.released,
                 reconciliation.reopened,
                 reconciliation.closed,
                 reconciliation.active,
+                artifact_dispatches.claimed if artifact_dispatches else 0,
+                artifact_dispatches.published if artifact_dispatches else 0,
+                artifact_dispatches.released if artifact_dispatches else 0,
+                artifact_dispatches.discovered if artifact_dispatches else 0,
             )
         cycles += 1
         if stop_event.is_set() or (
@@ -138,7 +155,11 @@ def _runtime_dependencies():
         drain_report_dispatch_outbox,
         reconcile_stale_report_jobs,
     )
-    from roster_scout.tasks import dispatch_report_job
+    from roster_scout.artifacts import dispatch_pending_artifacts
+    from roster_scout.tasks import (
+        dispatch_report_job,
+        dispatch_snapshot_artifact,
+    )
 
     engine = get_engine()
     return (
@@ -147,6 +168,8 @@ def _runtime_dependencies():
         dispatch_report_job,
         drain_report_dispatch_outbox,
         reconcile_stale_report_jobs,
+        dispatch_snapshot_artifact,
+        dispatch_pending_artifacts,
     )
 
 
@@ -164,7 +187,15 @@ def main(environ=None):
 
     signal.signal(signal.SIGTERM, request_shutdown)
     signal.signal(signal.SIGINT, request_shutdown)
-    engine, session_factory, dispatch, drain, reconcile = _runtime_dependencies()
+    (
+        engine,
+        session_factory,
+        dispatch,
+        drain,
+        reconcile,
+        artifact_dispatch,
+        artifact_drain,
+    ) = _runtime_dependencies()
     try:
         run_scheduler(
             config,
@@ -172,6 +203,8 @@ def main(environ=None):
             dispatch=dispatch,
             drain=drain,
             reconcile=reconcile,
+            artifact_dispatch=artifact_dispatch,
+            artifact_drain=artifact_drain,
             stop_event=stop_event,
         )
     finally:

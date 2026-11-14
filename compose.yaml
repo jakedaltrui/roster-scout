@@ -5,6 +5,8 @@ services:
       - "5050:5000"
     environment:
       ROSTER_SCOUT_CACHE_DIR: /var/cache/roster-scout
+      ROSTER_SCOUT_ARTIFACT_BACKEND: filesystem
+      ROSTER_SCOUT_ARTIFACT_DIRECTORY: /var/lib/roster-scout-artifacts
       DATABASE_URL: postgresql+psycopg://roster_scout:roster_scout@postgres:5432/roster_scout
       CELERY_BROKER_URL: redis://redis:6379/0
       BROWSERLESS_CAPACITY_BACKEND: postgresql
@@ -15,6 +17,7 @@ services:
       NCAA_BROWSER_FALLBACK: "1"
     volumes:
       - roster-scout-cache:/var/cache/roster-scout
+      - roster-scout-artifacts:/var/lib/roster-scout-artifacts
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:5000/healthz"]
       interval: 30s
@@ -41,6 +44,10 @@ services:
       CELERY_WORKER_CONCURRENCY: "1"
       REPORT_JOB_MAX_ATTEMPTS: "3"
       FAILURE_EVIDENCE_RETENTION_DAYS: "28"
+      ROSTER_SCOUT_ARTIFACT_BACKEND: filesystem
+      ROSTER_SCOUT_ARTIFACT_DIRECTORY: /var/lib/roster-scout-artifacts
+    volumes:
+      - roster-scout-artifacts:/var/lib/roster-scout-artifacts
     tmpfs:
       - /tmp/roster-scout-worker
     depends_on:
@@ -130,4 +137,5 @@ services:
 
 volumes:
   roster-scout-cache:
+  roster-scout-artifacts:
   roster-scout-postgres:

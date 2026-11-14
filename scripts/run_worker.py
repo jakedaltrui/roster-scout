@@ -8,6 +8,7 @@ from roster_scout.evidence import (
     FailureEvidenceConfigurationError,
     get_failure_evidence_retention,
 )
+from roster_scout.artifacts import ArtifactStorageConfigurationError
 
 
 WORKER_CACHE_DIR = "/tmp/roster-scout-worker"
@@ -67,6 +68,9 @@ def worker_command(environ=None):
 
 
 def main():
+    from roster_scout.artifacts import artifact_store_from_environ
+
+    artifact_store_from_environ(required=bool(os.environ.get("FLY_APP_NAME")))
     command = worker_command()
     os.environ["ROSTER_SCOUT_CACHE_DIR"] = WORKER_CACHE_DIR
     os.makedirs(WORKER_CACHE_DIR, mode=0o700, exist_ok=True)
@@ -78,6 +82,9 @@ if __name__ == "__main__":
         main()
     except FailureEvidenceConfigurationError:
         print("invalid failure evidence retention configuration", file=sys.stderr)
+        raise SystemExit(2) from None
+    except ArtifactStorageConfigurationError:
+        print("invalid artifact storage configuration", file=sys.stderr)
         raise SystemExit(2) from None
     except ValueError as exc:
         print(str(exc), file=sys.stderr)

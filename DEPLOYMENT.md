@@ -180,10 +180,11 @@ The earlier `scripts/validate_phase2_release.py` remains the lower-level Phase
 2 identity, organization, report-library, and deployment contract, including
 its revision `0022` lifecycle. Phase 2.1's validator extends that release
 surface with the restored homepage journey, the revision `0023` lifecycle, and
-the school-domain authorization model.
+the school-domain authorization model. The current release head is revision
+`0024`, which adds bounded durable workbook-artifact delivery state.
 
 Only after the full public-select/sign-in/resume/download/shared-portal story,
-domain and tenant security tests, all three Node state machines, the revision `0023` lifecycle, full Python and Node suites,
+domain and tenant security tests, all three Node state machines, the revision `0024` lifecycle, full Python and Node suites,
 catalog, workbook, configuration, compilation, template, and diff checks pass
 does the corrective gate pass. Production launch remains blocked until the
 separate live authentication evidence is complete and the user explicitly
@@ -220,7 +221,12 @@ docker compose --profile worker up --build
 docker compose --profile worker --profile scheduler up --build
 ```
 
-The app is available at [http://localhost:5050](http://localhost:5050). Compose persists lookup and successful-result caches in a named volume. Pass secrets at runtime through your shell, an untracked env file, or a secret manager; do not add them to `compose.yaml`.
+The app is available at [http://localhost:5050](http://localhost:5050). Compose
+persists lookup/successful-result caches and immutable snapshot workbooks in
+separate named volumes. The app and worker share only the workbook-artifact
+volume; the worker still does not mount the browser/result cache. Pass secrets
+at runtime through your shell, an untracked env file, or a secret manager; do
+not add them to `compose.yaml`.
 
 The `worker` profile starts the separate Celery process with PostgreSQL as the
 durable job store and Redis only as its broker. Both app and worker use the same
@@ -327,8 +333,10 @@ The image:
 `fly.toml` defines separate `app`, `worker`, singleton `scheduler`, and singleton
 `purge` process groups. Its release command
 runs `alembic upgrade head` once before the new release receives traffic. Only
-the app process has the HTTP service and `/data` volume; the worker, scheduler,
-and purge processes have neither. Both background commands clear the inherited
+the app process has the HTTP service and `/data` cache volume; the worker,
+scheduler, and purge processes have neither. Durable workbooks use private
+S3-compatible object storage shared by the app and worker instead of the app
+cache volume. Both background commands clear the inherited
 environment. Scheduler receives PostgreSQL, Redis, and four dispatch timings;
 purge receives only PostgreSQL and its cadence, so app-wide Browserless and
 broker credentials are not exposed to the deletion runtime.
@@ -336,7 +344,9 @@ broker credentials are not exposed to the deletion runtime.
 ```bash
 fly auth login
 fly launch --copy-config --no-deploy
-fly secrets set BROWSERLESS_TOKEN=your-token DATABASE_URL=your-managed-postgres-url CELERY_BROKER_URL=your-managed-redis-url ROSTER_SCOUT_DOWNLOAD_ACK_SECRET=your-url-safe-base64-32-byte-secret
+# Provision one private S3-compatible bucket first (for Fly, `fly storage create`).
+# Install all values through secure input or the Fly dashboard; do not paste
+# real credentials into shell history.
 fly scale count app=1 worker=1 scheduler=1 purge=1
 fly deploy
 ```
@@ -344,8 +354,14 @@ fly deploy
 Avoid placing real secret values in shell history. Use the Fly dashboard or a
 secure input method to install the identity-secret checklist:
 `ROSTER_SCOUT_SESSION_SECRET`, `WORKOS_API_KEY`, `WORKOS_CLIENT_ID`,
-`WORKOS_REDIRECT_URI`, and `WORKOS_COOKIE_PASSWORD`. The checked-in
+`WORKOS_REDIRECT_URI`, `WORKOS_COOKIE_PASSWORD`,
+`BUCKET_NAME`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, and
+`AWS_ENDPOINT_URL_S3`. The checked-in
 configuration deliberately keeps TLS verification enabled.
+
+`ROSTER_SCOUT_DOWNLOAD_ACK_SECRET=your-url-safe-base64-32-byte-secret` is a
+documentation placeholder only. Generate unique random material and install it
+through secure input; never copy the placeholder into production.
 
 Before deployment, verify required names without printing values:
 
@@ -356,17 +372,22 @@ fly secrets list | awk 'NR > 1 { print $1 }' | sort
 The name-only output must include `BROWSERLESS_TOKEN`, `DATABASE_URL`,
 `CELERY_BROKER_URL`, `ROSTER_SCOUT_DOWNLOAD_ACK_SECRET`,
 `ROSTER_SCOUT_SESSION_SECRET`, `WORKOS_API_KEY`, `WORKOS_CLIENT_ID`,
-`WORKOS_REDIRECT_URI`, and `WORKOS_COOKIE_PASSWORD`. This is configuration
+`WORKOS_REDIRECT_URI`, `WORKOS_COOKIE_PASSWORD`,
+`BUCKET_NAME`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, and
+`AWS_ENDPOINT_URL_S3`. This is configuration
 readiness only; it does not change `production_auth_verified=false` without the
 separate live smoke record.
 
 Before making a deployment public:
 
 1. Keep production launch blocked until all four prerequisites are verified:
-   managed PostgreSQL, managed Redis, managed object/evidence storage, and
+   managed PostgreSQL, managed Redis, private workbook object storage, and
    uninterrupted Fly worker billing/capacity. Local Compose is development-only
    and does not satisfy this production provisioning gate. Do not deploy a
    durable worker on trial capacity that can stop after five minutes.
+   The private bucket satisfies the managed object/evidence storage
+   prerequisite; failure HTML evidence itself remains separately bounded in
+   PostgreSQL.
 2. Confirm the release migration succeeded before either process group starts.
 3. Run the deterministic suite and catalog validation.
 4. Run `python scripts/live_ncaa_smoke.py` from the target network.
@@ -375,7 +396,55 @@ Before making a deployment public:
    `fresh`; verify each non-fresh state returns HTTP 503.
 7. Confirm rate limiting returns HTTP 429 with `Retry-After`.
 8. Confirm a real workbook download opens in Excel and contains both worksheets.
-9. Review memory use during one uncached browser session.
+9. Open the same historical snapshot after a worker/app restart and confirm the
+   downloaded SHA-256 matches the `report_artifacts` row. Confirm an explicit
+   refresh creates a new artifact key without changing the prior object.
+10. Review memory use during one uncached browser session.
+
+### Workbook object storage and recovery
+
+Every published `ready` or `partial` snapshot receives one pending XLSX
+artifact row in the same PostgreSQL transaction that publishes the snapshot.
+The worker renders that exact snapshot's immutable `source_records`, writes a
+private create-only object with SHA-256 metadata, and marks the row `ready`
+only after storage confirms the write. Historical download routes read only
+the authorized row's stored object key; they never rebuild from current NCAA
+data. The scheduler discovers missing rows, reclaims stale builds after 15
+minutes, and retries queue/storage failures at most three times. Stored object
+keys contain opaque organization/report/snapshot UUIDs and are never public
+URLs.
+
+Production uses `ROSTER_SCOUT_ARTIFACT_BACKEND=s3`. The app and worker require
+the same bucket, endpoint, region, and credentials. `/readyz` returns 503 and
+the worker refuses startup when Fly is detected but artifact storage is
+missing. Keep the bucket private, block public access, retain server-side
+encryption, and do not add lifecycle deletion until the product has an explicit
+customer retention policy. Failure HTML remains separately compressed and
+time-bounded in PostgreSQL; it is not written to the workbook bucket.
+
+Before first production traffic, exercise this staging sequence against a
+non-production database, Redis instance, WorkOS environment, and bucket:
+
+1. Upgrade a disposable copy to migration `0024`, then run `alembic check`.
+2. Generate one report, wait for its artifact row to become `ready`, download
+   it, and record its SHA-256 outside the repository.
+3. Restart app, worker, and scheduler; download the same snapshot again and
+   compare the SHA-256.
+4. Force a refresh, confirm the successor has a different key, and confirm the
+   prior object and digest are unchanged.
+5. Stop Redis during dispatch, restore it, and confirm PostgreSQL reconciliation
+   publishes the pending artifact exactly once.
+6. Temporarily deny bucket writes, restore access, and confirm bounded retry
+   reaches `ready` without overwriting an existing object.
+7. Remove one artifact credential and confirm app readiness is 503 and the
+   worker exits before consuming jobs; restore it and confirm recovery.
+
+Back up PostgreSQL and enable bucket versioning/provider durability before
+cutover. A database restore must be paired with a bucket state from the same
+recovery point. Never restore only object keys or only artifact rows and call
+the result complete. Rollback may return application code to the prior image,
+but migration `0024` columns are additive; keep them and stop new traffic while
+the old image is evaluated. Do not delete historical objects during rollback.
 
 ## Deterministic release verification
 
@@ -510,6 +579,13 @@ production prerequisites remain independently blocked until verified.
 | `WORKOS_CLIENT_ID` | required in `workos` mode | WorkOS AuthKit client identifier |
 | `WORKOS_REDIRECT_URI` | required in `workos` mode | Exact HTTPS callback URL ending in `/auth/callback` |
 | `WORKOS_COOKIE_PASSWORD` | required in `workos` mode | High-entropy key for sealed provider session state |
+| `ROSTER_SCOUT_ARTIFACT_BACKEND` | unset locally; `s3` on Fly | `filesystem` for local Compose/tests or private S3-compatible storage for hosted app/worker |
+| `ROSTER_SCOUT_ARTIFACT_DIRECTORY` | required for `filesystem` | Absolute shared local/Compose directory for immutable snapshot workbooks |
+| `ROSTER_SCOUT_ARTIFACT_BUCKET` / `BUCKET_NAME` | required for `s3` | Private workbook bucket name; `fly storage create` installs `BUCKET_NAME` |
+| `ROSTER_SCOUT_ARTIFACT_ENDPOINT_URL` / `AWS_ENDPOINT_URL_S3` | provider default | HTTPS S3-compatible endpoint; Fly/Tigris may install `AWS_ENDPOINT_URL_S3` |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | required for `s3` | Object-store credentials held only in the secret manager |
+| `AWS_REGION` | provider default | Object-store signing region |
+| `ROSTER_SCOUT_ARTIFACT_SSE` | `AES256` | Server-side encryption passed on immutable object creation |
 | `NCAA_BROWSER_PROVIDER` | local browser | Set to `browserless` to use the hosted browser workflow |
 | `BROWSERLESS_TOKEN` | unset | Browserless API token |
 | `BROWSERLESS_CAPACITY_BACKEND` | `local` | `local` for single-machine development; hosted app and worker must use `postgresql` |
