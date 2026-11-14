@@ -8,6 +8,7 @@ Roster Scout v2.0 is delivered in five dependency-ordered slices. The roadmap fi
 
 - [x] **Phase 1: Canonical Snapshot Foundation** - Persist provenance-rich immutable snapshots through durable report jobs. (completed 2026-11-11)
 - [x] **Phase 2: Identity, Organizations, and Report Library** - Gate Roster Scout behind passwordless organization access and versioned report workflows. (completed 2026-11-13)
+- [ ] **Phase 02.1: Restore public homepage and school-domain sign-in flow** - Reestablish the polished homepage as the primary product, authenticate at generation, auto-join verified school domains, and keep the portal minimal. (INSERTED)
 - [ ] **Phase 3: Detailed NCAA Intelligence** - Add fielding, advanced metrics, situational splits, career history, and game logs.
 - [ ] **Phase 4: Detailed Excel Report** - Deliver the exact detailed snapshot as a branded ten-sheet workbook.
 - [ ] **Phase 5: Embedded Opponent Dashboard** - Securely embed the opponent-branded Power BI report and harden production delivery.
@@ -247,12 +248,36 @@ Plans:
 
 - [x] 02-11-PLAN.md — Gate migrations, security, Node status, 429s, catalog, workbook compatibility, and the full Phase 2 story.
 
+### Phase 02.1: Restore public homepage and school-domain sign-in flow (INSERTED)
+
+**Goal:** A visitor can select an opponent on the original polished homepage, sign in with a verified school email only when generating the workbook, automatically resume the download, and later use a minimal shared saved-report portal.
+**Mode:** mvp
+**UI hint:** yes
+**Requirements:** AUTH-01, AUTH-02, AUTH-05, AUTH-06, ORG-01, ORG-06, ORG-07, ORG-08, SNAP-05, SNAP-06, SNAP-07, SNAP-08, SECU-01, SECU-02, SECU-03, SECU-04, SECU-05, OPS-04, OPS-05
+**Depends on:** Phase 2
+**Success Criteria** (what must be TRUE):
+
+1. Anonymous visitors can use the original D1/D2/D3 homepage selector; generation prompts school-email sign-in and resumes exactly once after verification.
+2. Verified `school.edu` and ordinary `*.school.edu` identities converge on one organization, while non-`.edu`, lookalike, and malformed domains never auto-join.
+3. The homepage request downloads the compatibility workbook and also creates or reuses one organization-owned saved report with canonical usage and audit evidence.
+4. The portal is a minimal saved-report/history/refresh/download surface; organization administration is absent from primary navigation.
+5. Tenant isolation, secure sessions, immutable snapshots, historical downloads, tracking, migrations, and all Phase 1/2 regressions remain green.
+
+**Plans:** 4 plans
+
+Plans:
+
+- [ ] 02.1-01: Add verified institutional-domain organization resolution and membership provenance.
+- [ ] 02.1-02: Restore the public homepage and automatic passwordless sign-in resume.
+- [ ] 02.1-03: Save homepage requests and simplify the portal around reports, history, refresh, and downloads.
+- [ ] 02.1-04: Run corrective browser, visual, security, migration, and regression release verification.
+
 ### Phase 3: Detailed NCAA Intelligence
 
 **Goal:** A snapshot contains auditable season, fielding, derived, split, career, and game-level NCAA intelligence or an explicit unavailable state for each section.
 **Mode:** mvp
 **UI hint:** no
-**Depends on:** Phase 2
+**Depends on:** Phase 02.1
 **Requirements:** STAT-01, STAT-02, STAT-03, STAT-04, STAT-05, STAT-06, STAT-07, STAT-08, SPLT-01, SPLT-02, SPLT-03, SPLT-04, SPLT-05, HIST-01, HIST-02, HIST-03, HIST-04, HIST-05, HIST-06, OPS-03
 **Success Criteria** (what must be TRUE):
 
@@ -320,12 +345,13 @@ Plans:
 
 ## Progress
 
-**Execution Order:** Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5
+**Execution Order:** Phase 1 → Phase 2 → Phase 02.1 → Phase 3 → Phase 4 → Phase 5
 
 | Phase | Plans Complete | Status | Completed |
 |---|---:|---|---|
 | 1. Canonical Snapshot Foundation | 41/41 | Complete | 2026-11-11 |
 | 2. Identity, Organizations, and Report Library | 16/16 | Complete   | 2026-11-13 |
+| 02.1 Restore public homepage and school-domain sign-in flow | 0/4 | Planned | - |
 | 3. Detailed NCAA Intelligence | 0/4 | Not started | - |
 | 4. Detailed Excel Report | 0/3 | Not started | - |
 | 5. Embedded Opponent Dashboard | 0/4 | Not started | - |

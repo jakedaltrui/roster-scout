@@ -41,6 +41,7 @@ A baseball staff can reliably turn fragmented opponent data into a trustworthy, 
 - [ ] Reports include expanded batting, pitching, fielding, derived, split, career, and game-log statistics
 - [ ] One canonical analytics model supplies both the formatted Excel workbook and the embedded Power BI report
 - [ ] Customers can review an opponent-branded embedded dashboard and download the corresponding complete Excel snapshot
+- [ ] Decide future organization pricing, plans, entitlements, and subscription ownership after the core product flow is validated
 
 ### Out of Scope
 
@@ -81,8 +82,9 @@ A baseball staff can reliably turn fragmented opponent data into a trustworthy, 
 | Make the branded web dashboard the primary review surface and keep Excel as a complete companion download | Embedded analytics and portable scouting files solve different customer jobs | — Pending |
 | Gate all Roster Scout use behind authentication | Saved customer reports and Power BI embed tokens require an accountable security boundary | ✓ Phase 2 implemented a default-deny route gate and opaque server sessions |
 | Model customers as organizations with shared reports | Coaching and scouting staffs collaborate on the same opponents | ✓ Phase 2 implemented canonical memberships and a shared report library |
-| Use explicit invitations for organization membership | School email domains are useful hints but insufficient authorization evidence | ✓ Phase 2 implemented exact-address invitations and prohibited domain auto-join |
+| Use verified institutional domains for the default organization membership | The simple school workflow should connect staff who control addresses at the same `.edu` institution while rejecting lookalikes and non-school domains | ⚠ Supersedes the Phase 2 invitation-first default; Phase 02.1 adds strict root/alias mapping and keeps invitations secondary |
 | Support passwordless email and federated school/work identities | Customers may use `.edu`, athletics, vendor, or personal addresses across Microsoft and Google ecosystems | ✓ Phase 2 implemented the provider-neutral WorkOS boundary; live provider setup remains a deployment gate |
+| Keep pricing and billing out of the corrective flow | The authentication and shared-report experience must be validated before choosing plan structure or subscription ownership | — Open product decision after Phase 02.1 |
 | Preserve report snapshots and make refresh create a linked new version | Teams may prepare for the same opponent on consecutive days and need the original evidence | ✓ Phase 1 established immutable predecessor-aware snapshots; Phase 2 adds the customer refresh workflow |
 | Use one canonical analytics model for Excel and Power BI | Shared definitions prevent conflicting metrics and make verification practical | ✓ Phase 1 established the published canonical fact boundary; Phases 3–5 add detailed consumers |
 | Keep the proven Python/Browserless acquisition layer | The prior live `baseballr` runtime experiment was invalidated by NCAA verification | ✓ Good |

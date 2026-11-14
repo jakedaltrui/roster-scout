@@ -7,11 +7,12 @@
 
 ### Authentication
 
-- [x] **AUTH-01**: A visitor must authenticate before accessing team search, report creation, report history, dashboards, exports, or refresh actions.
+- [ ] **AUTH-01**: A visitor can use the public team search without an account, but must authenticate before report generation, workbook delivery, saved-report history, dashboards, or refresh actions.
 - [x] **AUTH-02**: A user can sign in without a password through an emailed single-use code or magic link with bounded expiry and request throttling.
 - [x] **AUTH-03**: A user can sign in through Microsoft or Google federation while retaining the same Roster Scout account and organization memberships.
 - [x] **AUTH-04**: An organization can use an approved OIDC or SAML SSO connection without changing report ownership or authorization rules.
 - [x] **AUTH-05**: A user session persists across ordinary browser refreshes and can be explicitly terminated through logout.
+- [ ] **AUTH-06**: After authentication interrupts a valid homepage generation attempt, the browser automatically restores the exact bounded team selection and resumes the request once without retaining identity or report data in client storage.
 
 ### Organizations
 
@@ -21,7 +22,8 @@
 - [x] **ORG-04**: Organization roles distinguish administrators who manage membership from members who create and review reports.
 - [x] **ORG-05**: An organization administrator can view pending invitations, revoke invitations, and remove members.
 - [x] **ORG-06**: All active organization members can review the organization's report library and the snapshots they are authorized to access.
-- [x] **ORG-07**: Email-domain matching may suggest an organization but can never grant membership automatically.
+- [ ] **ORG-07**: A provider-verified `.edu` institutional root domain automatically creates or joins one school organization; ordinary school subdomains share that organization.
+- [ ] **ORG-08**: Exact operator-managed domain aliases can map exceptional school subdomains deliberately, while malformed, lookalike, and non-`.edu` domains never grant automatic membership.
 
 ### Snapshot Foundation
 
@@ -152,14 +154,15 @@
 | Requirement group | Phase | Status |
 |---|---:|---|
 | SNAP-01–04, DATA-01–10, OPS-01–02, OPS-04–05 | Phase 1 | Complete |
-| AUTH-01–05, ORG-01–07, SNAP-05–08, SECU-01–05 | Phase 2 | Complete |
+| AUTH-01–05, ORG-01–07, SNAP-05–08, SECU-01–05 | Phase 2 | Superseded in part by Phase 02.1 |
+| AUTH-01–02, AUTH-05–06, ORG-01, ORG-06–08, SNAP-05–08, SECU-01–05, OPS-04–05 | Phase 02.1 | In progress |
 | STAT-01–08, SPLT-01–05, HIST-01–06, OPS-03 | Phase 3 | Pending |
 | XLSX-01–06 | Phase 4 | Pending |
 | SNAP-09, PBI-01–10, SECU-06 | Phase 5 | Pending |
 
 **Coverage:**
-- v2.0 requirements: 77 total
-- Mapped to phases: 77
+- v2.0 requirements: 79 total
+- Mapped to phases: 79
 - Unmapped: 0 ✓
 
 ---

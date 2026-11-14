@@ -1,7 +1,8 @@
 ---
 phase: 02-identity-organizations-and-report-library
 verified: 2026-11-13T13:25:23Z
-status: passed
+status: superseded
+superseded_by: 02.1-restore-public-homepage-and-school-domain-sign-in-flow
 score: "57/57 must-haves verified"
 code_verified: true
 production_auth_verified: false

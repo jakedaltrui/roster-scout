@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
-status: ready_to_plan
-stopped_at: Phase 02 complete (16/16) — ready to discuss Phase 3
-last_updated: 2026-11-13T13:26:27.052Z
+status: planning
+stopped_at: Phase 02.1 corrective audit and plans ready
+last_updated: "2026-11-14T03:10:42.491Z"
 last_activity: 2026-11-13
 progress:
-  total_phases: 5
+  total_phases: 6
   completed_phases: 2
   total_plans: 57
   completed_plans: 57
-  percent: 40
+  percent: 33
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-11-13)
 
 **Core value:** A baseball staff can reliably turn fragmented opponent data into a trustworthy, reusable scouting report with interactive analysis and a portable Excel download.
-**Current focus:** Phase 3 — detailed ncaa intelligence
+**Current focus:** Phase 02.1 — restore public homepage and school-domain sign-in flow
 
 ## Current Position
 
-Phase: 3
-Plan: Not started
-Status: Ready to plan
+Phase: 02.1 (restore-public-homepage-and-school-domain-sign-in-flow) — PLANNED
+Plan: 0 of 4
+Status: Ready to execute corrective plans
 Last activity: 2026-11-13
 
-Progress: [██████████] 100%
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
@@ -72,6 +72,10 @@ Progress: [██████████] 100%
 | 01 | 21 | 10 min | 3 | 9 |
 
 ## Accumulated Context
+
+### Roadmap Evolution
+
+- Phase 02.1 inserted after Phase 2: Restore public homepage and school-domain sign-in flow (URGENT)
 
 ### Decisions
 
