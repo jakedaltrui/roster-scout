@@ -1472,6 +1472,8 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
         self.assertIn(">Dashboard<", template)
         self.assertIn(">New report<", template)
         self.assertIn(">Sign in<", template)
+        self.assertIn('aria-label="Sign out"', template)
+        self.assertIn('data-pending-label="Signing out…"', template)
         self.assertNotIn("What you get", template)
         self.assertGreater(
             template.index("data-theme-control"),
@@ -1514,6 +1516,7 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
         self.assertIn("@keyframes auth-content-in", homepage_template)
         self.assertIn("@keyframes menu-out", homepage_template)
         self.assertIn("accountMenu.classList.add('is-closing')", homepage_template)
+        self.assertIn("accountLogoutForm?.addEventListener('submit'", homepage_template)
         self.assertIn("void nextState.offsetWidth", homepage_template)
 
         auth_error = os.path.join(

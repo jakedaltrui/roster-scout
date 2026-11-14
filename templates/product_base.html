@@ -41,7 +41,7 @@
               <p class="account-email">{{ account_email }}</p>
               <form action="{{ url_for('auth.logout') }}" method="post">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <button class="button button--quiet" type="submit">Sign out</button>
+                <button class="button button--quiet" type="submit" aria-label="Sign out" data-pending-label="Signing out…">Sign out</button>
               </form>
             </div>
           </details>

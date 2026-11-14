@@ -154,7 +154,11 @@ def _identity_configuration():
     }
 
     if mode == "fake" and not hosted:
-        return FakeIdentityProvider(), session_secret or secrets.token_urlsafe(32), True
+        return (
+            FakeIdentityProvider(logout_url=""),
+            session_secret or secrets.token_urlsafe(32),
+            True,
+        )
     if (
         mode == "workos"
         and session_secret

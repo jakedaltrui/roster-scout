@@ -1811,6 +1811,14 @@ class Phase2IdentityDeploymentConfigTests(unittest.TestCase):
             r"WORKOS_COOKIE_PASSWORD[ \t]*=[ \t]*[^\s\n]+",
         )
 
+    def test_local_fake_logout_returns_to_the_app_in_one_navigation(self):
+        completed = self._run_app_process(
+            "import app; print(repr(app._IDENTITY_PROVIDER.logout_url("
+            "sealed_session='local-test')))"
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout.strip(), "''")
+
     def test_hosted_runtime_missing_identity_configuration_fails_closed(self):
         completed = self._run_app_process(
             "import app; print(app._AUTH_CONFIGURATION_READY)",

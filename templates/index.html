@@ -544,7 +544,7 @@
               <p class="account-email" id="account-email">{{ account_email or '' }}</p>
               <form action="{{ url_for('auth.logout') }}" method="post">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <button class="account-sign-out" type="submit">Sign out</button>
+                <button class="account-sign-out" type="submit" aria-label="Sign out" data-pending-label="Signing out…">Sign out</button>
               </form>
             </div>
           </details>
@@ -1501,7 +1501,15 @@
     if (accountMenu) {
       const accountSummary = accountMenu.querySelector('summary');
       const accountPanel = accountMenu.querySelector('.account-menu__panel');
+      const accountLogoutButton = accountPanel?.querySelector('button[type="submit"]');
+      const accountLogoutForm = accountLogoutButton?.form;
       let accountCloseTimer = null;
+      accountLogoutForm?.addEventListener('submit', event => {
+        if (event.defaultPrevented || !accountLogoutButton) return;
+        accountLogoutButton.disabled = true;
+        accountLogoutButton.textContent = accountLogoutButton.dataset.pendingLabel || 'Signing out…';
+        accountLogoutForm.setAttribute('aria-busy', 'true');
+      });
       const finishAccountMenuClose = (restoreFocus = false) => {
         if (accountCloseTimer !== null) window.clearTimeout(accountCloseTimer);
         accountCloseTimer = null;
