@@ -131,6 +131,17 @@
     });
   }
 
+  function enhanceReportRows() {
+    document.querySelectorAll("[data-report-href]").forEach((row) => {
+      row.addEventListener("click", (event) => {
+        if (event.defaultPrevented || event.button > 0) return;
+        if (event.target.closest("a, button, input, select, textarea, summary")) return;
+        const destination = row.dataset.reportHref;
+        if (destination) window.location.assign(destination);
+      });
+    });
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
     const control = document.querySelector("[data-theme-control]");
     if (control) {
@@ -152,5 +163,6 @@
     enhancePendingForms();
     enhanceAccountMenu();
     enhanceTeamLogos();
+    enhanceReportRows();
   });
 })();

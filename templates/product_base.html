@@ -30,7 +30,7 @@
       <div class="product-actions">
         {% if account_email %}
           {% if request.endpoint == "reports.library" %}
-            <a class="product-dashboard-link" href="/#builder">New report</a>
+            <a class="product-dashboard-link" href="/reports/new">New report</a>
           {% else %}
             <a class="product-dashboard-link" href="/reports">Dashboard</a>
           {% endif %}

@@ -146,9 +146,9 @@
     combobox.setAttribute("aria-invalid", "false");
     seasonTeamInput.value = seasonTeamId;
     submitButton.disabled = false;
-    exactSelection.textContent = `Selected: ${teamLabel(team)} · ${divisionInput.value.toUpperCase()} · ${catalogYear || team.year}`;
+    exactSelection.textContent = `${teamLabel(team)} · ${divisionInput.value.toUpperCase()} · ${catalogYear || team.year}`;
     exactSelection.hidden = false;
-    catalogStatus.textContent = "Exact NCAA team selected.";
+    catalogStatus.textContent = "";
     closeResults();
   }
 

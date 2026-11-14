@@ -357,6 +357,8 @@ class SharedLibraryTests(unittest.TestCase):
         ):
             self.assertGreaterEqual(response.data.count(value), 2, value)
         self.assertIn(b"Open report", response.data)
+        self.assertIn(b'data-report-href="/reports/', response.data)
+        self.assertIn(b'href="/reports/new">New report</a>', response.data)
         self.assertNotIn(b">Completeness<", response.data)
         self.assertNotIn(b">Snapshots<", response.data)
         self.assertIn(b"<table", response.data)
@@ -1703,6 +1705,8 @@ class ReportAcceptanceIdempotencyTests(unittest.TestCase):
         self.assertIn('name="season_team_id"', body)
         self.assertIn('name="idempotency_key"', body)
         self.assertIn("Choose an exact NCAA team", body)
+        self.assertIn("Dashboard</a> / New report", body)
+        self.assertIn("Create opponent report", body)
         self.assertIn("report_form.js", body)
         self.assertIn('id="create-report-submit"', body)
         self.assertIn("disabled", body)

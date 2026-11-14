@@ -116,7 +116,13 @@
     .auth-error { min-height:19px; margin:-6px 0 0; color:#e2a09a; font-size:12px; line-height:1.55; }
     .auth-back { display:inline-flex; align-items:center; gap:6px; margin:0 0 22px; padding:0; border:0; color:#929297; background:transparent; font-size:11px; font-weight:700; }
     .auth-back:hover { color:#f0f0ee; }
-    .auth-code-input { height:64px !important; text-align:center; font-size:25px !important; font-weight:700; letter-spacing:.42em; padding-left:calc(14px + .42em) !important; font-variant-numeric:tabular-nums; }
+    .auth-code-control { position:relative; display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:clamp(6px,2vw,9px); width:100%; }
+    .auth-code-input { position:absolute; z-index:2; inset:0; width:100%; height:100% !important; margin:0; padding:0 !important; border:0 !important; opacity:.01; color:transparent; background:transparent !important; caret-color:transparent; }
+    .auth-code-input:focus { box-shadow:none; }
+    .auth-code-box { display:grid; place-items:center; aspect-ratio:1/1.08; min-width:0; border:1px solid #39393d; border-radius:12px; color:#f4f4f3; background:#111113; font-size:clamp(20px,5vw,25px); font-weight:700; font-variant-numeric:tabular-nums; transition:border-color .2s,background-color .2s,box-shadow .2s,transform .2s cubic-bezier(.2,.8,.2,1); }
+    .auth-code-box.is-filled { border-color:#5b5b60; background:#171719; }
+    .auth-code-control:focus-within .auth-code-box.is-active { border-color:#a2a2a6; box-shadow:0 0 0 3px rgba(255,255,255,.08); transform:translateY(-1px); }
+    .auth-code-control[data-invalid="true"] .auth-code-box { border-color:#a85e57; }
     .auth-code-actions { display:flex; align-items:center; justify-content:space-between; gap:12px; }
     .auth-text-button { min-height:44px; padding:0; border:0; color:#aaaab0; background:transparent; font-size:11px; font-weight:700; text-decoration:underline; text-underline-offset:3px; }
     .auth-text-button:hover { color:#f0f0ee; }
@@ -574,7 +580,18 @@
           <h2 class="card-title" id="auth-code-title">Check your email.</h2>
           <p class="card-sub">Enter the six-digit code sent to <strong id="auth-code-email"></strong>.</p>
           <form class="auth-form" id="auth-code-form" novalidate>
-            <div class="field"><label for="auth-code">Verification code</label><input class="auth-code-input" id="auth-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" aria-describedby="auth-code-error" required /></div>
+            <div class="field">
+              <label for="auth-code">Verification code</label>
+              <div class="auth-code-control" id="auth-code-control" data-invalid="false">
+                <input class="auth-code-input" id="auth-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" aria-describedby="auth-code-error" required />
+                <span class="auth-code-box" data-auth-code-digit aria-hidden="true"></span>
+                <span class="auth-code-box" data-auth-code-digit aria-hidden="true"></span>
+                <span class="auth-code-box" data-auth-code-digit aria-hidden="true"></span>
+                <span class="auth-code-box" data-auth-code-digit aria-hidden="true"></span>
+                <span class="auth-code-box" data-auth-code-digit aria-hidden="true"></span>
+                <span class="auth-code-box" data-auth-code-digit aria-hidden="true"></span>
+              </div>
+            </div>
             <p class="auth-error" id="auth-code-error" role="alert"></p>
             <button class="btn btn-primary" id="auth-code-submit" type="submit">Verify and continue</button>
             <div class="auth-code-actions"><button class="auth-text-button" id="auth-resend" type="button">Send a new code</button><span class="hint" id="auth-expiry">Code expires in 10 minutes</span></div>
@@ -1417,9 +1434,21 @@
     const authEmailInput = document.getElementById('auth-email');
     const authEmailError = document.getElementById('auth-email-error');
     const authCodeInput = document.getElementById('auth-code');
+    const authCodeControl = document.getElementById('auth-code-control');
+    const authCodeDigits = Array.from(document.querySelectorAll('[data-auth-code-digit]'));
     const authCodeError = document.getElementById('auth-code-error');
     const authEmailSubmit = document.getElementById('auth-email-submit');
     const authCodeSubmit = document.getElementById('auth-code-submit');
+
+    function renderAuthCode() {
+      const value = authCodeInput.value;
+      const activeIndex = Math.min(value.length, authCodeDigits.length - 1);
+      authCodeDigits.forEach((digit, index) => {
+        digit.textContent = value[index] || '';
+        digit.classList.toggle('is-filled', index < value.length);
+        digit.classList.toggle('is-active', index === activeIndex && value.length < 6);
+      });
+    }
 
     function setAuthBusy(button, busy, busyLabel, readyLabel) {
       button.disabled = busy;
@@ -1525,6 +1554,8 @@
         magicAuthEmail = email;
         document.getElementById('auth-code-email').textContent = email;
         authCodeInput.value = '';
+        authCodeControl.dataset.invalid = 'false';
+        renderAuthCode();
         authCodeError.textContent = '';
         const developmentNote = document.getElementById('auth-dev-note');
         developmentNote.hidden = !data.development_code;
@@ -1552,7 +1583,9 @@
     authCodeInput.addEventListener('input', () => {
       authCodeInput.value = authCodeInput.value.replace(/\D/g, '').slice(0, 6);
       authCodeInput.setAttribute('aria-invalid', 'false');
+      authCodeControl.dataset.invalid = 'false';
       authCodeError.textContent = '';
+      renderAuthCode();
     });
 
     document.getElementById('auth-code-form').addEventListener('submit', async event => {
@@ -1561,6 +1594,7 @@
       if (!/^\d{6}$/.test(code)) {
         authCodeError.textContent = 'Enter the complete six-digit code.';
         authCodeInput.setAttribute('aria-invalid', 'true');
+        authCodeControl.dataset.invalid = 'true';
         authCodeInput.focus();
         return;
       }
@@ -1581,6 +1615,7 @@
           };
           authCodeError.textContent = messages[data.error] || 'We could not complete sign-in.';
           authCodeInput.setAttribute('aria-invalid', 'true');
+          authCodeControl.dataset.invalid = 'true';
           return;
         }
         finishInlineAuth(data);
