@@ -14,6 +14,7 @@
   const submitButton = document.getElementById("create-report-submit");
   const backLink = document.getElementById("back-to-reports");
   const submitStatus = document.getElementById("submit-status");
+  const divisionGroup = document.querySelector(".division-group");
   const divisionButtons = Array.from(
     document.querySelectorAll(".division-button")
   );
@@ -25,6 +26,13 @@
   let selectedTeam = null;
   let catalogYear = null;
   let submitting = false;
+
+  function updateDivisionThumb() {
+    const selectedIndex = Math.max(0, divisionButtons.findIndex(
+      (button) => button.getAttribute("aria-pressed") === "true"
+    ));
+    divisionGroup?.style.setProperty("--division-index", selectedIndex);
+  }
 
   function teamLabel(team) {
     return String(team.display_name || team.name || "").trim();
@@ -65,13 +73,15 @@
     fallback.textContent = initials(teamLabel(team));
     logo.appendChild(fallback);
     const teamId = String(team.team_id || "");
-    if (/^\d+$/.test(teamId)) {
+    const logoUrl = String(team.logo_url || "").trim();
+    if (logoUrl || /^\d+$/.test(teamId)) {
       const image = document.createElement("img");
       image.alt = "";
       image.loading = "lazy";
+      image.referrerPolicy = "no-referrer";
       image.addEventListener("load", () => { fallback.hidden = true; });
       image.addEventListener("error", () => { image.remove(); });
-      image.src = `/api/team-logo/${encodeURIComponent(teamId)}`;
+      image.src = logoUrl || `/api/team-logo/${encodeURIComponent(teamId)}`;
       logo.appendChild(image);
     }
     option.appendChild(logo);
@@ -181,7 +191,7 @@
       ));
       catalogYear = data.year;
       combobox.disabled = false;
-      catalogStatus.textContent = `${catalog.length} ${division.toUpperCase()} teams · ${catalogYear || "current season"}`;
+      catalogStatus.textContent = "";
     } catch (_error) {
       if (requestId !== requestSequence) return;
       combobox.disabled = true;
@@ -240,6 +250,7 @@
           String(candidate === button)
         );
       });
+      updateDivisionThumb();
       loadCatalog(division);
     });
   });
@@ -270,5 +281,6 @@
 
   const errorSummary = document.getElementById("form-errors");
   if (errorSummary) errorSummary.focus();
+  updateDivisionThumb();
   loadCatalog(divisionInput.value);
 })();

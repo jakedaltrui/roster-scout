@@ -5,53 +5,84 @@
 
 {% block head %}
 <style>
-  .product-main { width: min(calc(100% - 40px), 760px); }
+  .product-main { width: min(calc(100% - 40px), 640px); }
   .report-create { width: 100%; }
   .report-create__intro { max-width: 580px; margin: -18px 0 30px; color: var(--muted); font-size: 16px; line-height: 1.65; }
-  .report-form { overflow: visible; border: 1px solid var(--border); border-radius: 22px; background: var(--surface); box-shadow: 0 24px 64px rgba(32, 33, 31, .07); }
-  .report-form__header { display: flex; align-items: center; gap: 14px; padding: 22px 26px; border-bottom: 1px solid var(--border); }
-  .report-form__step { display: grid; place-items: center; flex: 0 0 34px; width: 34px; height: 34px; border-radius: 50%; color: var(--surface); background: var(--ink); font-size: 12px; font-weight: 700; }
-  .report-form__header-copy { display: grid; gap: 2px; }
-  .report-form__eyebrow { margin: 0; font-size: 14px; font-weight: 700; }
-  .report-form__helper { margin: 0; color: var(--muted); font-size: 13px; }
-  .report-form__body { padding: 28px 26px 30px; }
-  .report-form__field { margin: 0 0 28px; padding: 0; border: 0; }
-  .report-form__label { display: block; margin-bottom: 10px; font-size: 13px; font-weight: 700; }
-  .division-group { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 5px; border: 1px solid var(--border); border-radius: 13px; background: var(--canvas); }
-  .division-button { min-height: 42px; border: 0; border-radius: 9px; background: transparent; color: var(--muted); font: 700 13px/1.4 "DM Sans", system-ui, sans-serif; cursor: pointer; }
-  .division-button:hover { color: var(--ink); background: color-mix(in srgb, var(--surface) 62%, transparent); }
-  .division-button[aria-pressed="true"] { color: var(--ink); background: var(--surface); box-shadow: 0 2px 10px rgba(32, 33, 31, .09); }
+  .report-form { overflow: visible; padding: 38px 40px; border: 1px solid #e3e4df; border-radius: 22px; background: #fff; box-shadow: 0 24px 70px rgba(25, 25, 20, .07); }
+  .report-card-title { margin: 0 0 8px; font: 600 28px/1.15 "DM Sans", sans-serif; letter-spacing: -.045em; }
+  .report-card-sub { margin: 0 0 28px; color: #6f726f; font-size: 13px; line-height: 1.65; }
+  .report-form-fields { display: grid; gap: 22px; }
+  .report-form__field { margin: 0; padding: 0; border: 0; }
+  .report-form__label { display: block; margin-bottom: 10px; color: #424540; font-size: 11px; font-weight: 700; }
+  .division-group { --division-index: 0; position: relative; isolation: isolate; display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; padding: 4px; border: 1px solid #e7e8e3; border-radius: 12px; background: #f2f3f0; }
+  .division-group::before { position: absolute; z-index: -1; top: 4px; bottom: 4px; left: 4px; width: calc((100% - 14px) / 3); border-radius: 8px; background: #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, .1); transform: translateX(calc(var(--division-index) * (100% + 3px))); transition: transform .42s cubic-bezier(.22, 1, .36, 1), background-color .25s ease, box-shadow .25s ease; content: ""; }
+  .division-button { min-height: 43px; border: 0; border-radius: 8px; background: transparent; color: #777a74; font: 700 12px/1.4 "DM Sans", system-ui, sans-serif; cursor: pointer; transition: color .25s ease; }
+  .division-button:hover, .report-form .division-button:hover:not([aria-pressed="true"]) { border-color: transparent; color: #20211f; background: transparent; transform: none; }
+  .division-button[aria-pressed="true"] { color: #20211f; background: transparent; box-shadow: none; }
   .team-selector { position: relative; }
-  .team-selector::before { position: absolute; z-index: 1; top: calc(50% - 2px); left: 16px; width: 11px; height: 11px; border: 1.7px solid currentColor; border-radius: 50%; opacity: .48; transform: translateY(-50%); content: ""; }
-  .team-selector::after { position: absolute; z-index: 1; top: calc(50% + 5px); left: 27px; width: 6px; height: 1.7px; border-radius: 2px; background: currentColor; opacity: .48; transform: rotate(45deg); transform-origin: left center; content: ""; }
-  .team-selector input, .report-form select { width: 100%; min-height: 52px; padding: 10px 14px 10px 46px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--ink); font: inherit; transition: border-color var(--motion-control), box-shadow var(--motion-control); }
-  .team-selector input:focus { border-color: color-mix(in srgb, var(--ink) 58%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 8%, transparent); outline: 0; }
+  .team-selector input, .report-form select { width: 100%; height: 50px; padding: 0 14px; border: 1px solid #d9dbd5; border-radius: 10px; background: #fff; color: #20211f; font: 14px/1.4 "DM Sans", system-ui, sans-serif; outline: 0; transition: border-color .25s, box-shadow .25s; }
+  .team-selector input::placeholder { color: #8a8d87; }
+  .team-selector input:focus { border-color: #8a8c86; box-shadow: 0 0 0 3px rgba(0, 0, 0, .06); }
   .team-selector input[aria-invalid="true"] { border-color: var(--danger); }
-  .team-results { position: absolute; z-index: 5; top: calc(100% + 8px); left: 0; width: 100%; max-height: 320px; overflow-y: auto; margin: 0; padding: 7px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); box-shadow: 0 20px 50px rgba(32, 33, 31, .16); }
-  .team-option { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 52px; padding: 8px 10px; border: 0; border-radius: 9px; background: transparent; color: var(--ink); text-align: left; font: inherit; cursor: pointer; }
-  .team-option[aria-selected="true"], .team-option:hover { background: var(--canvas); }
-  .team-option__logo { display: grid; flex: 0 0 34px; place-items: center; width: 34px; height: 34px; overflow: hidden; color: var(--muted); font-size: 12px; font-weight: 700; }
-  .team-option__logo img { width: 100%; height: 100%; object-fit: contain; }
+  .team-results { position: absolute; z-index: 5; top: calc(100% + 5px); left: 0; width: 100%; max-height: 230px; overflow-y: auto; margin: 0; padding: 6px; border: 1px solid #dedfd9; border-radius: 12px; background: #fff; box-shadow: 0 18px 40px rgba(0, 0, 0, .12); }
+  .team-option { display: flex; align-items: center; gap: 11px; width: 100%; min-height: 48px; padding: 6px 10px; border: 0; border-radius: 7px; background: transparent; color: #20211f; text-align: left; font: 13px/1.4 "DM Sans", system-ui, sans-serif; cursor: pointer; transition: background .2s ease, transform .2s cubic-bezier(.2, .8, .2, 1); }
+  .team-option[aria-selected="true"], .team-option:hover { background: #f0f1ed; }
+  .team-option__logo { display: grid; flex: 0 0 36px; place-items: center; width: 36px; height: 36px; overflow: hidden; color: #666963; font-size: 10px; font-weight: 700; letter-spacing: .02em; }
+  .team-option__logo img { display: block; width: 30px; height: 30px; object-fit: contain; }
   .team-option__copy { display: grid; }
-  .team-option__meta { color: var(--muted); font-size: 12px; }
-  .selector-status { min-height: 20px; margin: 9px 0 0; color: var(--muted); font-size: 12px; }
+  .team-option__meta { margin-top: 3px; color: #777a74; font-size: 10px; }
+  .selector-status { min-height: 17px; margin: 8px 0 0; color: #6f726c; font-size: 11px; line-height: 1.5; }
   .selector-status:empty, .catalog-retry[hidden] { display: none; }
-  .exact-selection { position: relative; display: flex; align-items: center; min-height: 20px; margin: 12px 0 0; padding-left: 27px; color: var(--ready-fg); font-size: 13px; font-weight: 700; }
-  .exact-selection::before { position: absolute; left: 0; width: 19px; height: 19px; border-radius: 50%; background: var(--ready-bg); content: ""; }
+  .exact-selection { position: relative; display: flex; align-items: center; min-height: 20px; margin: 10px 0 0; padding-left: 25px; color: var(--ready-fg); font-size: 11px; font-weight: 700; }
+  .exact-selection::before { position: absolute; left: 0; width: 18px; height: 18px; border-radius: 50%; background: var(--ready-bg); content: ""; }
   .exact-selection::after { position: absolute; top: 5px; left: 7px; width: 4px; height: 7px; border: solid var(--ready-fg); border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); content: ""; }
   .exact-selection[hidden] { display: none; }
   .catalog-retry { min-height: 36px; margin-top: 8px; }
-  .report-form__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding-top: 2px; }
-  .report-form__actions .button--primary { min-width: 150px; }
+  .report-submit { position: relative; isolation: isolate; display: grid; grid-template-columns: minmax(0, 1fr) 42px; align-items: center; width: 100%; min-height: 52px; gap: 10px; overflow: hidden; padding: 5px 5px 5px 18px; border: 0; border-radius: 11px; color: #fff; background: #20211f; font: 700 13px/1.4 "DM Sans", system-ui, sans-serif; cursor: pointer; touch-action: manipulation; transition: background .22s, transform .22s cubic-bezier(.2, .8, .2, 1), box-shadow .22s; }
+  .report-submit::before { position: absolute; z-index: 0; top: -55%; bottom: -55%; left: -38%; width: 28%; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .32), transparent); transform: skewX(-18deg) translateX(-180%); transition: transform .65s cubic-bezier(.22, 1, .36, 1); content: ""; pointer-events: none; }
+  .report-submit:not(:disabled):hover { background: #41433f; transform: translateY(-1px); }
+  .report-submit:not(:disabled):hover::before { transform: skewX(-18deg) translateX(620%); }
+  .report-submit:not(:disabled):active { transform: translateY(1px) scale(.975); transition-duration: .11s; }
+  .report-submit__label { position: relative; z-index: 1; justify-self: center; transition: transform .4s cubic-bezier(.22, 1, .36, 1), letter-spacing .4s cubic-bezier(.22, 1, .36, 1); }
+  .report-submit__icon { position: relative; z-index: 1; display: grid; place-items: center; width: 42px; height: 42px; overflow: hidden; border-radius: 9px; color: #20211f; background: #fff; box-shadow: inset 0 0 0 1px rgba(32, 33, 31, .1); transition: transform .4s cubic-bezier(.22, 1, .36, 1); }
+  .report-submit__icon svg { width: 21px; height: 21px; transition: transform .4s cubic-bezier(.22, 1, .36, 1); }
+  .report-submit:not(:disabled):hover .report-submit__label { transform: translateX(5px); letter-spacing: .015em; }
+  .report-submit:not(:disabled):hover .report-submit__icon { transform: scale(1.04); }
+  .report-submit:not(:disabled):hover .report-submit__icon svg { transform: translateX(2px); }
+  .report-submit:disabled { opacity: .5; cursor: not-allowed; }
+  .report-back { width: 100%; min-height: 42px; border: 0; background: transparent; color: #6f726c; }
+  .report-back:hover { border-color: transparent; background: transparent; color: #20211f; }
   .button[disabled], .button[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
-  .submit-status { margin: 12px 0 0; color: var(--muted); font-size: 14px; }
-  :root[data-theme="dark"] .report-form { box-shadow: 0 24px 64px rgba(0, 0, 0, .28); }
-  :root[data-theme="dark"] .division-button[aria-pressed="true"] { box-shadow: 0 2px 10px rgba(0, 0, 0, .26); }
+  .submit-status { min-height: 0; margin: -8px 0 0; color: var(--muted); font-size: 12px; text-align: center; }
+  :root[data-theme="dark"] .report-form { border-color: #28282b; background: #171719; box-shadow: 0 24px 70px rgba(0, 0, 0, .25); }
+  :root[data-theme="dark"] .report-card-sub { color: #a1a1a5; }
+  :root[data-theme="dark"] .report-form__label { color: #c9c9ca; }
+  :root[data-theme="dark"] .division-group { border-color: #2c2c2f; background: #101012; }
+  :root[data-theme="dark"] .division-group::before { background: #3a3a3d; box-shadow: 0 2px 5px rgba(0, 0, 0, .2); }
+  :root[data-theme="dark"] .division-button { color: #98989c; }
+  :root[data-theme="dark"] .division-button:hover, :root[data-theme="dark"] .report-form .division-button:hover:not([aria-pressed="true"]) { color: #f4f4f2; }
+  :root[data-theme="dark"] .division-button[aria-pressed="true"] { color: #fff; }
+  :root[data-theme="dark"] .team-selector input, :root[data-theme="dark"] .report-form select { border-color: #39393d; background: #111113; color: #f4f4f3; }
+  :root[data-theme="dark"] .team-selector input::placeholder { color: #737378; }
+  :root[data-theme="dark"] .team-selector input:focus { border-color: #8e8e93; box-shadow: 0 0 0 3px rgba(255, 255, 255, .07); }
+  :root[data-theme="dark"] .team-results { border-color: #3a3a3e; background: #212124; box-shadow: 0 18px 40px rgba(0, 0, 0, .35); }
+  :root[data-theme="dark"] .team-option { color: #efefed; }
+  :root[data-theme="dark"] .team-option[aria-selected="true"], :root[data-theme="dark"] .team-option:hover { background: #36363a; }
+  :root[data-theme="dark"] .team-option__logo { color: #a5a5aa; }
+  :root[data-theme="dark"] .team-option__meta, :root[data-theme="dark"] .selector-status, :root[data-theme="dark"] .report-back { color: #89898e; }
+  :root[data-theme="dark"] .report-submit { color: #161618; background: #f0f0ee; }
+  :root[data-theme="dark"] .report-submit::before { background: linear-gradient(90deg, transparent, rgba(24, 24, 26, .18), transparent); }
+  :root[data-theme="dark"] .report-submit:not(:disabled):hover { background: #d5d5d3; }
+  :root[data-theme="dark"] .report-submit__icon { color: #f0f0ee; background: #18181a; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08); }
+  :root[data-theme="dark"] .report-back:hover { color: #f0f0ee; }
+  @keyframes report-page-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+  @media (prefers-reduced-motion: no-preference) {
+    .report-card-title, .report-card-sub { animation: report-page-in .48s .36s cubic-bezier(.22, 1, .36, 1) both; }
+    .report-form-fields { animation: report-page-in .48s .43s cubic-bezier(.22, 1, .36, 1) both; }
+  }
   @media (max-width: 480px) {
     .report-form { border-radius: 18px; }
-    .report-form__header { padding: 18px; }
-    .report-form__body { padding: 22px 18px 24px; }
-    .report-form__actions .button { width: 100%; }
+    .report-form { padding: 28px 24px; }
   }
 </style>
 {% endblock %}
@@ -77,13 +108,11 @@
     <input id="season-team-id" type="hidden" name="season_team_id" value="{{ season_team_id }}">
     <input type="hidden" name="idempotency_key" value="{{ idempotency_key }}">
 
-    <div class="report-form__header">
-      <span class="report-form__step" aria-hidden="true">1</span>
-      <span class="report-form__header-copy"><span class="report-form__eyebrow">Create opponent report</span><span class="report-form__helper">Choose an exact NCAA team to begin.</span></span>
-    </div>
-    <div class="report-form__body">
+    <h2 class="report-card-title">Find an opponent.</h2>
+    <p class="report-card-sub">Choose a division, then select a school to create a report.</p>
+    <div class="report-form-fields">
     <fieldset class="report-form__field">
-      <legend class="report-form__label">NCAA division</legend>
+      <legend class="report-form__label">Division</legend>
       <div class="division-group" aria-label="NCAA division">
         {% for division in ("d1", "d2", "d3") %}
           <button class="division-button" type="button" data-division="{{ division }}" aria-pressed="{{ 'true' if selected_division == division else 'false' }}">{{ division|upper }}</button>
@@ -92,7 +121,7 @@
     </fieldset>
 
     <div class="report-form__field">
-      <label class="report-form__label" for="team-combobox">NCAA team</label>
+      <label class="report-form__label" for="team-combobox">School</label>
       <div class="team-selector">
         <input
           id="team-combobox"
@@ -116,10 +145,8 @@
       {% if error %}<p id="team-error" class="field-error">{{ error }}</p>{% endif %}
     </div>
 
-    <div class="report-form__actions">
-      <button id="create-report-submit" class="button button--primary" type="submit" disabled>Create report</button>
-      <a id="back-to-reports" class="button" href="/reports">Back to reports</a>
-    </div>
+    <button id="create-report-submit" class="report-submit" type="submit" disabled><span class="report-submit__label">Create report</span><span class="report-submit__icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m14 7 5 5-5 5"/></svg></span></button>
+    <a id="back-to-reports" class="button report-back" href="/reports">Back to reports</a>
     <p id="submit-status" class="submit-status" role="status" aria-live="polite"></p>
     <noscript>
       <div class="report-form__field">

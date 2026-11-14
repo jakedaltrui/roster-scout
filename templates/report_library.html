@@ -2,10 +2,11 @@
 
 {% macro team_identity(report) -%}
   {% set name_parts = report.opponent_name.split() %}
+  {% set catalog_logo_url = logo_urls.get(report.source_team_id) if logo_urls else none %}
   <span class="report-team">
     <span class="report-team__logo" data-team-logo aria-hidden="true">
       <span data-team-logo-fallback>{{ name_parts[0][0] }}{% if name_parts|length > 1 %}{{ name_parts[-1][0] }}{% endif %}</span>
-      <img src="{{ url_for('team_logo', team_id=report.source_team_id) }}" alt="" width="48" height="48" loading="lazy" data-team-logo-image>
+      <img src="{{ catalog_logo_url or url_for('team_logo', team_id=report.source_team_id) }}" alt="" width="30" height="30" loading="lazy" referrerpolicy="no-referrer" data-team-logo-image>
     </span>
     <span class="report-team__copy">
       <span class="report-name">{{ report.opponent_name }}</span>
@@ -100,8 +101,8 @@
     .reports-table thead th:last-child { width: 10%; }
     .reports-table tbody tr:last-child > * { border-bottom: 0; }
     .report-team { display: flex; align-items: center; gap: 14px; min-width: 0; }
-    .report-team__logo { position: relative; display: grid; flex: 0 0 48px; place-items: center; width: 48px; height: 48px; overflow: hidden; color: var(--muted); font-size: 13px; font-weight: 750; letter-spacing: -.02em; }
-    .report-team__logo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; opacity: 0; transition: opacity var(--motion-control); }
+    .report-team__logo { position: relative; display: grid; flex: 0 0 36px; place-items: center; width: 36px; height: 36px; overflow: hidden; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .02em; }
+    .report-team__logo img { position: absolute; inset: 3px; width: 30px; height: 30px; object-fit: contain; opacity: 0; transition: opacity var(--motion-control); }
     .report-team__logo img.is-loaded { opacity: 1; }
     .report-team__copy { display: grid; min-width: 0; gap: 3px; }
     .report-name { overflow: hidden; font-size: 15px; font-weight: 700; letter-spacing: -.02em; text-overflow: ellipsis; white-space: nowrap; }
@@ -144,7 +145,6 @@
       .empty-state__actions .button { justify-content: space-between; }
       .report-card__header { align-items: flex-start; }
       .report-team { gap: 11px; }
-      .report-team__logo { flex-basis: 44px; width: 44px; height: 44px; border-radius: 12px; }
       .run-state { min-height: 28px; padding: 0 8px; font-size: 11px; }
     }
     @media (prefers-reduced-motion: reduce) {

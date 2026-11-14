@@ -107,6 +107,35 @@ def _page_number(parameter="page"):
     return page
 
 
+def _catalog_logo_urls(reports):
+    """Return official catalog logos for visible reports without blocking the library."""
+    wanted_by_division = {}
+    for report in reports:
+        division = str(report.division or "").lower()
+        source_team_id = str(report.source_team_id or "")
+        if division in _DIVISIONS and source_team_id:
+            wanted_by_division.setdefault(division, set()).add(source_team_id)
+
+    logo_urls = {}
+    for division, wanted_team_ids in wanted_by_division.items():
+        try:
+            catalog = list_ncaa_teams(division)
+        except (NcaaError, RuntimeError, ValueError, TypeError):
+            continue
+        for team in catalog:
+            source_team_id = str(team.get("team_id") or "")
+            logo_url = str(team.get("logo_url") or "").strip()
+            if (
+                source_team_id in wanted_team_ids
+                and (
+                    logo_url.startswith("https://www.ncaa.com/")
+                    or logo_url.startswith("/static/logos/")
+                )
+            ):
+                logo_urls[source_team_id] = logo_url
+    return logo_urls
+
+
 def _shell_context(session, authorization_context):
     organization = session.scalar(
         select(Organization).where(
@@ -281,12 +310,15 @@ def library():
             current_role=context.role,
             account_email=None,
             library_page=None,
+            logo_urls={},
             load_error=True,
         ), 503
+    logo_urls = _catalog_logo_urls(library_page.items)
     return render_template(
         "report_library.html",
         **shell,
         library_page=library_page,
+        logo_urls=logo_urls,
         load_error=False,
     )
 

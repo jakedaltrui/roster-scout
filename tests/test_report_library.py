@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 import unittest
 import re
+from types import SimpleNamespace
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from threading import Barrier
@@ -364,6 +365,52 @@ class SharedLibraryTests(unittest.TestCase):
         self.assertIn(b"<table", response.data)
         self.assertIn(b'<time class="report-meta" datetime=', response.data)
         self.assertIn(b'<ul class="member-cards"', response.data)
+
+    def test_library_uses_the_same_official_catalog_logo_as_the_homepage_picker(self):
+        from roster_scout.report_routes import _catalog_logo_urls
+
+        report = SimpleNamespace(source_team_id="2", division="D1")
+        official_logo = (
+            "https://www.ncaa.com/sites/default/files/images/logos/"
+            "schools/bgl/abilene-christian.svg"
+        )
+        with patch(
+            "roster_scout.report_routes.list_ncaa_teams",
+            return_value=[{"team_id": "2", "logo_url": official_logo}],
+        ):
+            logo_urls = _catalog_logo_urls((report,))
+
+        self.assertEqual(logo_urls, {"2": official_logo})
+
+    def test_library_ignores_untrusted_catalog_logo_hosts(self):
+        from roster_scout.report_routes import _catalog_logo_urls
+
+        report = SimpleNamespace(source_team_id="2", division="D1")
+        with patch(
+            "roster_scout.report_routes.list_ncaa_teams",
+            return_value=[{"team_id": "2", "logo_url": "https://example.com/logo.svg"}],
+        ):
+            logo_urls = _catalog_logo_urls((report,))
+
+        self.assertEqual(logo_urls, {})
+
+    def test_library_preserves_reviewed_local_catalog_logos(self):
+        from roster_scout.report_routes import _catalog_logo_urls
+
+        report = SimpleNamespace(source_team_id="14927", division="D1")
+        with patch(
+            "roster_scout.report_routes.list_ncaa_teams",
+            return_value=[{
+                "team_id": "14927",
+                "logo_url": "/static/logos/texas-am-corpus-christi.svg",
+            }],
+        ):
+            logo_urls = _catalog_logo_urls((report,))
+
+        self.assertEqual(
+            logo_urls,
+            {"14927": "/static/logos/texas-am-corpus-christi.svg"},
+        )
 
 
 class SnapshotHistoryTests(unittest.TestCase):
@@ -1699,14 +1746,14 @@ class ReportAcceptanceIdempotencyTests(unittest.TestCase):
         body = response.get_data(as_text=True)
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn("Create opponent report", body)
+        self.assertIn("Find an opponent.", body)
         self.assertIn('role="combobox"', body)
         self.assertIn('role="listbox"', body)
         self.assertIn('name="season_team_id"', body)
         self.assertIn('name="idempotency_key"', body)
-        self.assertIn("Choose an exact NCAA team", body)
+        self.assertIn("Choose a division, then select a school", body)
         self.assertIn("Dashboard</a> / New report", body)
-        self.assertIn("Create opponent report", body)
+        self.assertIn("Create report", body)
         self.assertIn("report_form.js", body)
         self.assertIn('id="create-report-submit"', body)
         self.assertIn("disabled", body)
