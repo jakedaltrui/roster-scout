@@ -612,6 +612,8 @@ class ReportLibraryItem:
     source_team_id: str
     division: str
     season_year: int
+    last_run_at: datetime
+    last_run_age: str
     latest_snapshot_at: object | None
     completeness: str
     unavailable_count: int
@@ -639,6 +641,24 @@ _BUILD_LABELS = {
 }
 
 
+def _relative_run_age(value, now):
+    """Return a deliberately rough, coach-friendly age for library rows."""
+    elapsed_seconds = max(0, int((now - value).total_seconds()))
+    elapsed_hours = elapsed_seconds // 3600
+    if elapsed_hours < 1:
+        return "Less than an hour ago"
+    if elapsed_hours < 24:
+        unit = "hour" if elapsed_hours == 1 else "hours"
+        return f"{elapsed_hours} {unit} ago"
+    elapsed_days = elapsed_hours // 24
+    if elapsed_days < 7:
+        unit = "day" if elapsed_days == 1 else "days"
+        return f"{elapsed_days} {unit} ago"
+    elapsed_weeks = elapsed_days // 7
+    unit = "week" if elapsed_weeks == 1 else "weeks"
+    return f"{elapsed_weeks} {unit} ago"
+
+
 def load_report_library(session, organization_id, *, page=1, now=None):
     """Build one truthful, fixed-size page for the active organization."""
     if not isinstance(page, int) or page < 1:
@@ -656,13 +676,21 @@ def load_report_library(session, organization_id, *, page=1, now=None):
         limit=page_size,
     )
     start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    items = tuple(
-        ReportLibraryItem(
+    def build_item(record):
+        activity_candidates = [record.created_at]
+        if record.latest_snapshot is not None:
+            activity_candidates.append(record.latest_snapshot.published_at)
+        if record.latest_build is not None:
+            activity_candidates.append(record.latest_build.created_at)
+        last_run_at = max(value for value in activity_candidates if value is not None)
+        return ReportLibraryItem(
             id=record.report_id,
             opponent_name=record.team_name or record.report_name,
             source_team_id=record.source_team_id,
             division=record.division,
             season_year=record.season_year,
+            last_run_at=last_run_at,
+            last_run_age=_relative_run_age(last_run_at, now),
             latest_snapshot_at=(
                 record.latest_snapshot.published_at
                 if record.latest_snapshot is not None
@@ -685,8 +713,7 @@ def load_report_library(session, organization_id, *, page=1, now=None):
             ),
             snapshot_count=record.snapshot_count,
         )
-        for record in records
-    )
+    items = tuple(build_item(record) for record in records)
     return ReportLibraryPage(
         items=items,
         total_count=total_count,

@@ -114,7 +114,6 @@
     .auth-form input { border-radius:10px; background:#111113; color:#f4f4f3; border-color:#39393d; transition:border-color .25s,box-shadow .25s; }
     .auth-form input:focus { border-color:#8e8e93; box-shadow:0 0 0 3px rgba(255,255,255,.07); }
     .auth-error { min-height:19px; margin:-6px 0 0; color:#e2a09a; font-size:12px; line-height:1.55; }
-    .auth-trust { margin:18px 0 0; color:#89898e; font-size:12px; line-height:1.55; }
     .auth-back { display:inline-flex; align-items:center; gap:6px; margin:0 0 22px; padding:0; border:0; color:#929297; background:transparent; font-size:11px; font-weight:700; }
     .auth-back:hover { color:#f0f0ee; }
     .auth-code-input { height:64px !important; text-align:center; font-size:25px !important; font-weight:700; letter-spacing:.42em; padding-left:calc(14px + .42em) !important; font-variant-numeric:tabular-nums; }
@@ -278,6 +277,7 @@
     .loading-team { background:#303033; color:#dededc; border-radius:999px; }
     .state.active { animation:state-in .3s cubic-bezier(.2,.8,.2,1) both; }
     @keyframes state-in { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:translateY(0); } }
+    @keyframes auth-content-in { from { opacity:0; transform:translate3d(0,10px,0); } to { opacity:1; transform:translate3d(0,0,0); } }
     /* One motion language, with a distinct entrance for each part of the story. */
     @keyframes page-in { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
     @keyframes nav-in { from { opacity:0; transform:translateY(-7px); } to { opacity:1; transform:translateY(0); } }
@@ -294,6 +294,15 @@
       .hero .card { animation:card-in .78s .16s cubic-bezier(.22,1,.36,1) both; }
       #state-form.active .card-title, #state-form.active .card-sub { animation:page-in .48s .36s cubic-bezier(.22,1,.36,1) both; }
       #state-form.active form, #state-form.active .card-foot { animation:page-in .48s .43s cubic-bezier(.22,1,.36,1) both; }
+      #state-auth-email.active .auth-back,
+      #state-auth-code.active .auth-back { animation:auth-content-in .38s cubic-bezier(.22,1,.36,1) both; }
+      #state-auth-email.active .card-title,
+      #state-auth-code.active .card-title { animation:auth-content-in .46s .05s cubic-bezier(.22,1,.36,1) both; }
+      #state-auth-email.active .card-sub,
+      #state-auth-code.active .card-sub { animation:auth-content-in .46s .09s cubic-bezier(.22,1,.36,1) both; }
+      #state-auth-email.active .auth-context,
+      #state-auth-code.active .auth-form { animation:auth-content-in .5s .13s cubic-bezier(.22,1,.36,1) both; }
+      #state-auth-email.active .auth-form { animation:auth-content-in .5s .17s cubic-bezier(.22,1,.36,1) both; }
 
       .reveal-ready [data-reveal] { opacity:0; filter:blur(3px); transform:var(--reveal-from,translate3d(0,22px,0)); transform-origin:center; transition:opacity .68s cubic-bezier(.22,1,.36,1),transform .78s cubic-bezier(.22,1,.36,1),filter .56s ease; transition-delay:var(--reveal-delay,0s); will-change:opacity,transform,filter; }
       .reveal-ready [data-reveal="left"] { --reveal-from:translate3d(-26px,0,0); }
@@ -555,11 +564,10 @@
           <p class="card-sub">We’ll send you a six-digit code. No password required.</p>
           <div class="auth-context" id="auth-team-context"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 20h16M6 20V9l6-4 6 4v11M9 12h.01M12 12h.01M15 12h.01M9 16h.01M12 16h.01M15 16h.01"/></svg><span id="auth-team-name">Saved reports</span></div>
           <form class="auth-form" id="auth-email-form" novalidate>
-            <div class="field"><label for="auth-email">School email</label><input id="auth-email" type="email" autocomplete="email" inputmode="email" placeholder="coach@school.edu" aria-describedby="auth-email-error auth-trust" required /></div>
+            <div class="field"><label for="auth-email">School email</label><input id="auth-email" type="email" autocomplete="email" inputmode="email" placeholder="coach@school.edu" aria-describedby="auth-email-error" required /></div>
             <p class="auth-error" id="auth-email-error" role="alert"></p>
             <button class="btn btn-primary" id="auth-email-submit" type="submit">Email me a code</button>
           </form>
-          <p class="auth-trust" id="auth-trust">Use your school email to continue. No password required. Reports are securely shared with verified staff at your school.</p>
         </div>
         <div id="state-auth-code" class="state auth-state" aria-labelledby="auth-code-title">
           <button class="auth-back" type="button" id="auth-change-email"><span aria-hidden="true">←</span> Change email</button>
@@ -1341,9 +1349,14 @@
 
     function show(name) {
       if (name !== 'loading') stopLoadingActivity();
+      const nextState = document.getElementById(`state-${name}`);
       STATES.forEach(s => {
-        document.getElementById(`state-${s}`).classList.toggle('active', s === name);
+        document.getElementById(`state-${s}`).classList.remove('active');
       });
+      // Reflow after clearing the current state so repeated nav sign-in attempts
+      // restart the same in-card entrance instead of replacing content instantly.
+      void nextState.offsetWidth;
+      nextState.classList.add('active');
     }
 
     function resetForm() {

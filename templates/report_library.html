@@ -122,7 +122,7 @@
               <tr data-report-row="desktop">
                 <th scope="row">
                   <span class="report-name">{{ report.opponent_name }}</span><br>
-                  <span class="report-meta">{{ report.division }} · {{ report.season_year }}</span>
+                  <time class="report-meta" datetime="{{ report.last_run_at.isoformat() }}" title="Last run {{ report.last_run_at.strftime('%b %-d, %Y · %-I:%M %p') }} UTC">{{ report.last_run_age }}</time>
                 </th>
                 <td>
                   <span class="visually-hidden">Latest snapshot</span>
@@ -147,7 +147,7 @@
         {% for report in library_page.items %}
           <li data-report-row="mobile">
             <p class="report-name">{{ report.opponent_name }}</p>
-            <p class="report-meta">{{ report.division }} · {{ report.season_year }}</p>
+            <p class="report-meta"><time datetime="{{ report.last_run_at.isoformat() }}" title="Last run {{ report.last_run_at.strftime('%b %-d, %Y · %-I:%M %p') }} UTC">{{ report.last_run_age }}</time></p>
             <dl>
               <div><dt>Latest snapshot</dt><dd>{% if report.latest_snapshot_at %}<time datetime="{{ report.latest_snapshot_at.isoformat() }}">{{ report.latest_snapshot_at.strftime("%b %-d, %Y · %-I:%M %p") }} UTC</time>{% else %}No snapshot yet{% endif %}</dd></div>
               <div><dt>Completeness</dt><dd>{% if report.completeness != "—" %}<span class="status-chip" data-state="{{ report.completeness|lower }}">{{ report.completeness }}</span>{% else %}—{% endif %}{% if report.unavailable_count %} · {{ report.unavailable_count }} unavailable{% endif %}</dd></div>

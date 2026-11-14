@@ -1494,6 +1494,15 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
         self.assertIn(".account-menu[open] .account-menu__panel", product_css)
         self.assertIn("@media (prefers-reduced-motion: reduce)", product_css)
 
+        homepage = os.path.join(
+            os.path.dirname(__file__), "..", "templates", "index.html"
+        )
+        with open(homepage, encoding="utf-8") as handle:
+            homepage_template = handle.read()
+        self.assertNotIn("Use your school email to continue.", homepage_template)
+        self.assertIn("@keyframes auth-content-in", homepage_template)
+        self.assertIn("void nextState.offsetWidth", homepage_template)
+
         auth_error = os.path.join(
             os.path.dirname(__file__), "..", "templates", "auth_error.html"
         )

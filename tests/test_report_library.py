@@ -222,12 +222,30 @@ class SharedLibraryTests(unittest.TestCase):
         self.assertIn(b"Falcons", member_html.data)
         self.assertIn(b"Ready", admin_html.data)
         self.assertIn(b"Collecting", admin_html.data)
+        self.assertIn(b"Less than an hour ago", admin_html.data)
+        self.assertNotIn(b"D1 \xc2\xb7 2026", admin_html.data)
         self.assertNotIn(b"Foreign Rivals", admin_html.data)
         self.assertIn(b"Foreign Rivals", foreign_html.data)
         self.assertNotIn(b">Members<", admin_html.data)
         self.assertNotIn(b">Members<", member_html.data)
         self.assertIn(b">New report<", admin_html.data)
         self.assertIn(b">Dashboard<", member_html.data)
+
+    def test_library_run_age_uses_hours_then_days_then_weeks(self):
+        from roster_scout.reports import _relative_run_age
+
+        self.assertEqual(
+            _relative_run_age(self.now - timedelta(hours=3), self.now),
+            "3 hours ago",
+        )
+        self.assertEqual(
+            _relative_run_age(self.now - timedelta(days=1), self.now),
+            "1 day ago",
+        )
+        self.assertEqual(
+            _relative_run_age(self.now - timedelta(weeks=3), self.now),
+            "3 weeks ago",
+        )
 
     def test_empty_library_uses_the_shared_premium_workbook_state(self):
         organization_id, accounts = self._organization(
