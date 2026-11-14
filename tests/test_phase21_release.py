@@ -174,7 +174,7 @@ class Phase21CustomerJourneyTests(unittest.TestCase):
         self.assertEqual(callback.headers["Location"], "/?resume=download")
         resumed = client.get(callback.headers["Location"])
         self.assertEqual(resumed.status_code, 200)
-        self.assertIn(b">Saved reports<", resumed.data)
+        self.assertIn(b">Dashboard<", resumed.data)
         csrf = self._csrf(resumed.get_data(as_text=True))
 
         with (

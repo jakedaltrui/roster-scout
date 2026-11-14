@@ -658,10 +658,10 @@ def request_too_large(_error):
     return _json_error("Request body is too large.", 413)
 
 
-@app.route("/")
-def index():
+def _public_shell_context():
     signed_in = False
     account_initial = None
+    account_email = None
     cookie_value = request.cookies.get(SESSION_COOKIE_NAME, "")
     if cookie_value:
         try:
@@ -672,21 +672,29 @@ def index():
                 )
                 account = session.get(Account, g.authorization_context.account_id)
                 if account is not None and account.normalized_email:
+                    account_email = account.normalized_email
                     account_initial = account.normalized_email[0].upper()
             signed_in = True
         except Exception:
             signed_in = False
-    return render_template(
-        "index.html",
-        signed_in=signed_in,
-        account_initial=account_initial,
-    )
+    return {
+        "signed_in": signed_in,
+        "account_initial": account_initial,
+        "account_email": account_email,
+    }
+
+
+@app.route("/")
+def index():
+    return render_template("index.html", **_public_shell_context())
 
 
 @app.route("/demo")
 def demo():
     """Render the unlisted product demo landing page."""
-    response = app.make_response(render_template("demo.html"))
+    response = app.make_response(
+        render_template("demo.html", **_public_shell_context())
+    )
     response.headers["X-Robots-Tag"] = "noindex, nofollow"
     return response
 

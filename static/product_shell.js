@@ -8,17 +8,17 @@
     } catch (_error) {
       // Storage is optional; device preference remains a complete fallback.
     }
-    return window.matchMedia("(prefers-color-scheme: dark)").matches
-      ? "dark"
-      : "light";
+    return "light";
   }
 
   function applyTheme(theme, control) {
     document.documentElement.dataset.theme = theme;
+    const themeColor = document.querySelector('meta[name="theme-color"]');
+    if (themeColor) themeColor.content = theme === "dark" ? "#09090b" : "#f6f6f3";
     if (control) {
       const next = theme === "dark" ? "light" : "dark";
-      control.textContent = `Switch to ${next} mode`;
       control.setAttribute("aria-label", `Switch to ${next} mode`);
+      control.title = `Switch to ${next} mode`;
     }
   }
 

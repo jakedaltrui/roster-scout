@@ -438,6 +438,7 @@ def magic_verify():
         "return_to": pending.return_path,
         "csrf_token": _browser_csrf_token(credential.csrf_secret),
         "account_initial": normalized_email[0].upper(),
+        "account_email": normalized_email,
     })
     response.set_cookie(
         SESSION_COOKIE_NAME,

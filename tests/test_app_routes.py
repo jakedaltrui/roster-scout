@@ -972,7 +972,7 @@ class AuthenticatedSnapshotDownloadAcknowledgementTests(unittest.TestCase):
         homepage = client.get("/")
         self.assertEqual(homepage.status_code, 200)
         self.assertIn(b"Download Roster Stat Sheet", homepage.data)
-        self.assertIn(b">Saved reports<", homepage.data)
+        self.assertIn(b">Dashboard<", homepage.data)
         self.assertIn(b'name="csrf-token"', homepage.data)
 
         payload = {
@@ -1544,6 +1544,14 @@ class AppRouteTests(unittest.TestCase):
         self.assertIn(b"Download Roster Stat Sheet", response.data)
         self.assertIn(b'id="team-combobox"', response.data)
         self.assertIn(b'role="listbox"', response.data)
+        self.assertNotIn(b'<nav class="header-nav"', response.data)
+        self.assertNotIn(b'href="#output"', response.data)
+        self.assertNotIn(b'href="#how-it-works"', response.data)
+        self.assertNotIn(b'href="#questions"', response.data)
+        self.assertLess(
+            response.data.index(b'id="theme-toggle"'),
+            response.data.index(b'id="signed-out-actions"'),
+        )
         self.assertNotIn(b"email-input", response.data)
         self.assertNotIn(b"Google Sheets", response.data)
         self.assertNotIn(b"JUCO", response.data)

@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f6f6f3">
   <meta name="csrf-token" content="{{ csrf_token() }}">
   <script>
     try {
@@ -13,7 +14,7 @@
   <title>{% block title %}Roster Scout{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='product.css') }}">
   <script defer src="{{ url_for('static', filename='product_shell.js') }}"></script>
   {% block head %}{% endblock %}
@@ -26,27 +27,24 @@
         <span class="product-brand__mark" aria-hidden="true"><img src="{{ url_for('static', filename='brand/roster-scout-dog-outlined.png') }}" alt=""></span>
         <span>roster scout</span>
       </a>
-      <nav class="product-nav" aria-label="Primary navigation">
-        <a href="/">New report</a>
-        <a href="/reports"{% if request.endpoint in ("reports.library", "reports.detail") %} aria-current="page"{% endif %}>Saved reports</a>
-      </nav>
       <div class="product-actions">
-        <details class="account-menu">
-          <summary aria-label="Open account menu"><span class="product-account-avatar" aria-hidden="true">{{ account_email[0]|upper if account_email else '•' }}</span><span>Account</span></summary>
-          <div class="account-menu__panel">
-            <nav class="mobile-account-nav" aria-label="Mobile navigation">
-              <a href="/">New report</a>
-              <a href="/reports"{% if request.endpoint in ("reports.library", "reports.detail") %} aria-current="page"{% endif %}>Saved reports</a>
-            </nav>
-            {% if organization_name %}<p class="account-organization">{{ organization_name }}</p>{% endif %}
-            {% if account_email %}<p class="account-email">{{ account_email }}</p>{% endif %}
-            <button class="theme-control" type="button" data-theme-control>Switch to dark mode</button>
-            <form action="{{ url_for('auth.logout') }}" method="post">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button class="button button--quiet" type="submit">Sign out</button>
-            </form>
-          </div>
-        </details>
+        <button type="button" class="theme-toggle" data-theme-control aria-label="Switch to dark mode" title="Switch to dark mode"><svg class="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.9 13.1A9 9 0 0 1 10.9 3.1 9 9 0 1 0 20.9 13.1Z" /></svg><svg class="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" /></svg></button>
+        {% if account_email %}
+          <a class="product-dashboard-link" href="/reports"{% if request.endpoint in ("reports.library", "reports.detail") %} aria-current="page"{% endif %}>Dashboard</a>
+          <details class="account-menu">
+            <summary aria-label="Open account menu" aria-expanded="false"><span class="product-account-avatar" aria-hidden="true">{{ account_email[0]|upper }}</span></summary>
+            <div class="account-menu__panel">
+              {% if organization_name %}<p class="account-organization">{{ organization_name }}</p>{% endif %}
+              <p class="account-email">{{ account_email }}</p>
+              <form action="{{ url_for('auth.logout') }}" method="post">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="button button--quiet" type="submit">Sign out</button>
+              </form>
+            </div>
+          </details>
+        {% else %}
+          <a class="product-sign-in" href="{{ url_for('auth.login') }}"><span class="product-account-avatar product-account-avatar--signed-out" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M5.5 20c.7-4 3-6 6.5-6s5.8 2 6.5 6"/></svg></span><span>Sign in</span></a>
+        {% endif %}
       </div>
     </div>
   </header>

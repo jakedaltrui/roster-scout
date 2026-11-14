@@ -1,45 +1,17 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light dark">
-  <title>{% if state == 'no_membership' %}Organization access needed{% else %}Sign-in unavailable{% endif %} · Roster Scout</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600&display=swap" rel="stylesheet">
-  <style>
-    :root { color-scheme:light dark; font-family:"DM Sans",system-ui,sans-serif; --canvas:#f6f6f3; --surface:#fff; --ink:#20211f; --muted:#6f726c; --border:#dedfd9; --accent:#214d3b; --accent-ink:#fff; }
-    * { box-sizing:border-box; }
-    body { min-height:100vh; margin:0; display:grid; place-items:center; padding:24px; background:var(--canvas); color:var(--ink); font-size:16px; line-height:1.5; }
-    .skip { position:fixed; top:8px; left:8px; padding:12px 16px; border-radius:8px; background:#20211f; color:#fff; transform:translateY(-160%); }
-    .skip:focus { transform:none; outline:3px solid var(--accent); outline-offset:3px; }
-    main { width:min(100%,480px); padding:32px; border:1px solid var(--border); border-radius:22px; background:var(--surface); box-shadow:0 24px 64px rgba(32,33,31,.08); }
-    .eyebrow { margin:0 0 16px; color:var(--muted); font-size:14px; font-weight:600; }
-    h1 { margin:0; font-size:28px; font-weight:600; line-height:1.2; }
-    p { margin:16px 0 0; color:var(--muted); }
-    a,button { display:inline-flex; align-items:center; justify-content:center; min-height:48px; margin-top:24px; padding:0 20px; border:0; border-radius:12px; background:var(--accent); color:var(--accent-ink); font:600 14px/1.4 "DM Sans",sans-serif; text-decoration:none; cursor:pointer; }
-    a:focus-visible,button:focus-visible { outline:3px solid var(--accent); outline-offset:3px; }
-    form { display:inline; }
-    @media (prefers-color-scheme:dark) { :root { --canvas:#09090b; --surface:#171719; --ink:#f0f0ee; --muted:#a1a1a4; --border:#303034; --accent:#b3d1b7; --accent-ink:#171719; } main { box-shadow:0 24px 64px rgba(0,0,0,.28); } }
-  </style>
-</head>
-<body>
-  <a class="skip" href="#main-content">Skip to content</a>
-  <main id="main-content">
-    <p class="eyebrow">Roster Scout</p>
+{% extends "product_base.html" %}
+{% block title %}{% if state == 'no_membership' %}Organization access needed{% else %}Sign-in unavailable{% endif %} · Roster Scout{% endblock %}
+{% block page_title %}{% if state == "no_membership" %}Your account isn’t connected to an organization{% else %}We couldn’t sign you in{% endif %}{% endblock %}
+{% block content %}
+  <section class="empty-state" role="alert">
     {% if state == "no_membership" %}
-      <h1>Your account isn’t connected to an organization</h1>
       <p>Ask your organization administrator for an invitation, or sign out and use the invited account.</p>
       <form action="{{ url_for('auth.logout') }}" method="post">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit">Sign out</button>
+        <button class="button button--primary" type="submit">Sign out</button>
       </form>
     {% else %}
-      <h1>We couldn’t sign you in</h1>
-      <p>Return to sign in and try again. If the problem continues, contact support.</p>
+      <p>Return to the homepage and try signing in again. If the problem continues, contact support.</p>
+      <a class="button button--primary" href="{{ url_for('auth.login') }}">Return to sign in</a>
     {% endif %}
-    {% if state != "no_membership" %}<a href="{{ url_for('auth.login') }}">Return to sign in</a>{% endif %}
-  </main>
-</body>
-</html>
+  </section>
+{% endblock %}

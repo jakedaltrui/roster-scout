@@ -44,14 +44,21 @@
     .header-note { font-size:11px; letter-spacing:.13em; text-transform:uppercase; color:#627169; font-weight:700; }
     .brand { color:inherit; text-decoration:none; }
     .header-actions { display:flex; align-items:center; gap:7px; }
-    .header-nav { display:flex; align-items:center; gap:2px; }
-    .header-nav a { padding:9px 12px; border-radius:999px; color:#a3a3a7; font-size:11px; font-weight:600; text-decoration:none; transition:color .2s,background-color .2s; }
-    .header-nav a:hover { color:#f3f3f1; background:rgba(255,255,255,.08); }
-    .account-link { display:inline-flex; align-items:center; gap:7px; padding:7px 11px 7px 7px; border-radius:999px; color:#d7d7d5; font-size:11px; font-weight:700; text-decoration:none; white-space:nowrap; transition:color .2s,background-color .2s; }
-    .account-link:hover { color:#fff; background:rgba(255,255,255,.08); }
+    .account-actions { display:flex; align-items:center; gap:5px; }
+    .account-link,.dashboard-link,.account-menu summary { display:inline-flex; align-items:center; gap:7px; min-height:42px; padding:7px 11px 7px 7px; border:0; border-radius:999px; color:#d7d7d5; background:transparent; font:700 11px/1.4 "DM Sans",sans-serif; text-decoration:none; white-space:nowrap; transition:color .2s,background-color .2s; }
+    .dashboard-link { padding-left:12px; }
+    .account-link:hover,.dashboard-link:hover,.account-menu summary:hover { color:#fff; background:rgba(255,255,255,.08); }
     .account-avatar { display:grid; place-items:center; width:28px; height:28px; border:1px solid #3a3a3e; border-radius:50%; color:#a8a8ac; background:#242426; font-size:11px; }
     .account-avatar svg { width:15px; height:15px; }
     .account-avatar[data-signed-in="true"] { color:#171719; background:#ededeb; border-color:#ededeb; font-weight:800; }
+    .account-menu { position:relative; }
+    .account-menu summary { padding:7px; list-style:none; cursor:pointer; }
+    .account-menu summary::-webkit-details-marker { display:none; }
+    .account-menu__panel { position:absolute; top:calc(100% + 10px); right:0; width:240px; padding:16px; border:1px solid #303034; border-radius:18px; background:#171719; box-shadow:0 20px 48px rgba(0,0,0,.32); }
+    .account-email { margin:0 0 12px; overflow-wrap:anywhere; color:#a1a1a4; font-size:13px; }
+    .account-menu__panel form,.account-menu__panel button { width:100%; }
+    .account-sign-out { min-height:44px; border:1px solid #303034; border-radius:11px; color:#f0f0ee; background:#202023; font-size:12px; font-weight:700; }
+    .account-sign-out:hover { background:#2a2a2e; }
     .hero { display:grid; grid-template-columns:minmax(0,1fr) minmax(400px, 510px); gap:8%; align-items:center; min-height:calc(100vh - 78px); padding:65px 0 85px; }
     .intro { max-width:630px; }
     .eyebrow { display:flex; align-items:center; gap:11px; color:#536f5f; font-size:11px; font-weight:700; letter-spacing:.15em; text-transform:uppercase; }
@@ -256,7 +263,7 @@
     .cta-link { display:inline-flex; align-items:center; justify-content:center; flex:none; min-width:220px; min-height:52px; padding:0 24px; border-radius:11px; color:#171719; background:#f0f0ee; font-size:13px; font-weight:700; text-decoration:none; transition:background .22s, transform .22s; }
     .cta-link:hover { background:#d5d5d3; transform:translateY(-1px); }
     @media(max-width:900px) { .output-section { grid-template-columns:1fr; gap:48px; padding:68px 7%; } }
-    @media(max-width:700px) { .header-nav { display:none; } .final-cta { align-items:flex-start; flex-direction:column; } .faq-section { grid-template-columns:1fr; gap:38px; } .cta-link { width:100%; } }
+    @media(max-width:700px) { .final-cta { align-items:flex-start; flex-direction:column; } .faq-section { grid-template-columns:1fr; gap:38px; } .cta-link { width:100%; } }
     @media(max-width:480px) { .header-actions { gap:5px; } .output-section { margin-left:-6px; margin-right:-6px; padding:52px 24px; border-radius:20px; } .workbook-preview { padding:10px; } .sample-team { padding:15px 14px; } .sample-team-logo { width:50px; height:38px; } .sheet-tabs { padding-right:8px; padding-left:8px; } .sheet-tab { min-width:104px; padding:0 11px; } .faq-section { padding:56px 0; } .final-cta { margin-bottom:60px; padding:38px 28px; } }
     .btn { border-radius:11px; transition:background .22s,transform .22s cubic-bezier(.2,.8,.2,1),box-shadow .22s; }
     .btn-primary,.btn-success { background:#f0f0ee; color:#161618; }
@@ -277,10 +284,8 @@
     @media (prefers-reduced-motion: no-preference) {
       .header .brand-mark { animation:nav-in .55s cubic-bezier(.2,.8,.2,1) backwards; }
       .header .brand-name { animation:nav-in .55s .06s cubic-bezier(.2,.8,.2,1) backwards; }
-      .header-nav a:nth-child(1) { animation:nav-in .55s .09s cubic-bezier(.2,.8,.2,1) backwards; }
-      .header-nav a:nth-child(2) { animation:nav-in .55s .13s cubic-bezier(.2,.8,.2,1) backwards; }
-      .header-nav a:nth-child(3) { animation:nav-in .55s .17s cubic-bezier(.2,.8,.2,1) backwards; }
-      .header .theme-toggle { animation:nav-in .55s .21s cubic-bezier(.2,.8,.2,1) backwards; }
+      .header .theme-toggle { animation:nav-in .55s .09s cubic-bezier(.2,.8,.2,1) backwards; }
+      .header .account-actions { animation:nav-in .55s .15s cubic-bezier(.2,.8,.2,1) backwards; }
       .headline-line:first-child { animation:headline-in .72s .04s cubic-bezier(.22,1,.36,1) both; }
       .headline-line:last-child { animation:headline-in .72s .13s cubic-bezier(.22,1,.36,1) both; }
       .intro-copy { animation:page-in .65s .23s cubic-bezier(.22,1,.36,1) both; }
@@ -303,12 +308,14 @@
     html[data-theme="light"] { color-scheme:light; --ink:#20211f; --muted:#686b68; }
     html[data-theme="light"] body { background:#f6f6f3; }
     html[data-theme="light"] .header { border-color:rgba(32,33,31,.12); background:rgba(255,255,253,.82); box-shadow:0 14px 38px rgba(25,25,20,.1),inset 0 1px 0 rgba(255,255,255,.9); }
-    html[data-theme="light"] .header-nav a { color:#676a65; }
-    html[data-theme="light"] .header-nav a:hover { color:#20211f; background:rgba(0,0,0,.055); }
-    html[data-theme="light"] .account-link { color:#31332f; }
-    html[data-theme="light"] .account-link:hover { background:rgba(0,0,0,.055); }
+    html[data-theme="light"] .account-link,html[data-theme="light"] .dashboard-link,html[data-theme="light"] .account-menu summary { color:#31332f; }
+    html[data-theme="light"] .account-link:hover,html[data-theme="light"] .dashboard-link:hover,html[data-theme="light"] .account-menu summary:hover { background:rgba(0,0,0,.055); }
     html[data-theme="light"] .account-avatar { color:#676a65; background:#f0f0ed; border-color:#dedfd9; }
     html[data-theme="light"] .account-avatar[data-signed-in="true"] { color:#fff; background:#20211f; border-color:#20211f; }
+    html[data-theme="light"] .account-menu__panel { border-color:#dedfd9; background:#fff; box-shadow:0 20px 48px rgba(32,33,31,.12); }
+    html[data-theme="light"] .account-email { color:#6f726c; }
+    html[data-theme="light"] .account-sign-out { border-color:#dedfd9; color:#20211f; background:#f7f7f4; }
+    html[data-theme="light"] .account-sign-out:hover { background:#eeeeea; }
     html[data-theme="light"] .auth-context, html[data-theme="light"] .auth-form input { color:#20211f; background:#f7f7f4; border-color:#dedfd9; }
     html[data-theme="light"] .auth-context svg { color:#747770; }
     html[data-theme="light"] .auth-form input:focus { border-color:#6f716c; box-shadow:0 0 0 3px rgba(32,33,31,.08); }
@@ -502,9 +509,23 @@
     <header class="header">
       <a class="brand" href="#top" aria-label="Roster Scout home"><img class="brand-mark" src="{{ url_for('static', filename='brand/roster-scout-dog-outlined.png') }}" width="42" height="42" alt="" /><span class="brand-name">roster scout</span></a>
       <div class="header-actions">
-        <nav class="header-nav" aria-label="Page sections"><a href="#output">What you get</a><a href="#how-it-works">How it works</a><a href="#questions">Questions</a></nav>
-        <a class="account-link" id="account-link" href="{% if signed_in %}/reports{% else %}#builder{% endif %}" data-signed-in="{{ 'true' if signed_in else 'false' }}"><span class="account-avatar" id="account-avatar" data-signed-in="{{ 'true' if signed_in else 'false' }}" aria-hidden="true">{% if signed_in and account_initial %}{{ account_initial }}{% else %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M5.5 20c.7-4 3-6 6.5-6s5.8 2 6.5 6"/></svg>{% endif %}</span><span id="account-label">{% if signed_in %}Saved reports{% else %}Sign in{% endif %}</span></a>
         <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Switch to dark mode" title="Switch to dark mode"><svg class="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.9 13.1A9 9 0 0 1 10.9 3.1 9 9 0 1 0 20.9 13.1Z" /></svg><svg class="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" /></svg></button>
+        <div class="account-actions" id="signed-out-actions"{% if signed_in %} hidden{% endif %}>
+          <a class="account-link" id="account-link" href="#builder"><span class="account-avatar" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M5.5 20c.7-4 3-6 6.5-6s5.8 2 6.5 6"/></svg></span><span>Sign in</span></a>
+        </div>
+        <div class="account-actions" id="signed-in-actions"{% if not signed_in %} hidden{% endif %}>
+          <a class="dashboard-link" href="/reports">Dashboard</a>
+          <details class="account-menu">
+            <summary aria-label="Open account menu" aria-expanded="false"><span class="account-avatar" id="account-avatar" data-signed-in="true" aria-hidden="true">{{ account_initial or '•' }}</span></summary>
+            <div class="account-menu__panel">
+              <p class="account-email" id="account-email">{{ account_email or '' }}</p>
+              <form action="{{ url_for('auth.logout') }}" method="post">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="account-sign-out" type="submit">Sign out</button>
+              </form>
+            </div>
+          </details>
+        </div>
       </div>
     </header>
     <main id="main-content">
@@ -1373,7 +1394,9 @@
 
     const accountLink = document.getElementById('account-link');
     const accountAvatar = document.getElementById('account-avatar');
-    const accountLabel = document.getElementById('account-label');
+    const accountEmail = document.getElementById('account-email');
+    const signedOutActions = document.getElementById('signed-out-actions');
+    const signedInActions = document.getElementById('signed-in-actions');
     const authEmailInput = document.getElementById('auth-email');
     const authEmailError = document.getElementById('auth-email-error');
     const authCodeInput = document.getElementById('auth-code');
@@ -1402,11 +1425,11 @@
       signedIn = true;
       csrfToken = data.csrf_token;
       authenticatedHeaders = { 'X-CSRFToken': csrfToken };
-      accountLink.href = '/reports';
-      accountLink.dataset.signedIn = 'true';
       accountAvatar.dataset.signedIn = 'true';
       accountAvatar.replaceChildren(document.createTextNode(data.account_initial || '•'));
-      accountLabel.textContent = 'Saved reports';
+      accountEmail.textContent = data.account_email || magicAuthEmail;
+      signedOutActions.hidden = true;
+      signedInActions.hidden = false;
 
       const intent = pendingAuthIntent;
       pendingAuthIntent = null;
@@ -1419,10 +1442,23 @@
     }
 
     accountLink.addEventListener('click', event => {
-      if (signedIn) return;
       event.preventDefault();
       beginInlineAuth({ returnTo: '/reports' });
     });
+
+    const accountMenu = document.querySelector('details.account-menu');
+    if (accountMenu) {
+      const accountSummary = accountMenu.querySelector('summary');
+      accountMenu.addEventListener('toggle', () => {
+        accountSummary.setAttribute('aria-expanded', String(accountMenu.open));
+      });
+      accountMenu.addEventListener('keydown', event => {
+        if (event.key !== 'Escape' || !accountMenu.open) return;
+        event.preventDefault();
+        accountMenu.open = false;
+        accountSummary.focus();
+      });
+    }
 
     document.querySelectorAll('[data-auth-back]').forEach(button => {
       button.addEventListener('click', () => {
