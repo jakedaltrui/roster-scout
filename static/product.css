@@ -161,7 +161,8 @@ a { color: inherit; }
   box-shadow: 0 20px 48px rgba(32, 33, 31, .12);
 }
 
-.account-email { margin: 0 0 8px; overflow-wrap: anywhere; color: var(--muted); font-size: 14px; }
+.account-organization { margin: 0; overflow-wrap: anywhere; font-size: 14px; font-weight: 600; }
+.account-email { margin: 2px 0 12px; overflow-wrap: anywhere; color: var(--muted); font-size: 13px; }
 .theme-control { width: 100%; justify-content: flex-start; margin-bottom: 8px; }
 .mobile-account-nav { display: none; }
 

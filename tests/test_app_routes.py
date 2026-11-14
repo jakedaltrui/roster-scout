@@ -997,6 +997,122 @@ class AuthenticatedSnapshotDownloadAcknowledgementTests(unittest.TestCase):
             )
         self.assertEqual(accepted.status_code, 200)
 
+    def test_homepage_download_accepts_one_saved_report_before_collection(self):
+        from roster_scout.models import ProductUsageEvent, Report, ReportJob
+
+        account_id, organization_id, credential = self._identity("Saved")
+        client = self._client(credential)
+        event_id = str(uuid.uuid4())
+        payload = {
+            "team": "Tampa",
+            "division": "d2",
+            "season_team_id": "615087",
+            "team_id": "689",
+            "display_name": "Tampa",
+            "download_event_id": event_id,
+        }
+        catalog = [{
+            "name": "Tampa",
+            "display_name": "Tampa",
+            "team_id": "689",
+            "season_team_id": "615087",
+            "division": "d2",
+            "year": 2026,
+        }]
+
+        with (
+            patch(
+                "roster_scout.report_routes.list_ncaa_teams",
+                return_value=catalog,
+            ),
+            patch.object(app_module, "check_request_limit", return_value=0),
+            patch.object(
+                app_module,
+                "scrape_ncaa_by_id",
+                return_value=([SAMPLE_PLAYER], "Tampa"),
+            ) as collect,
+            patch.object(app_module, "_ncaa_workbook_branding", return_value=None),
+            patch.object(app_module, "drain_report_dispatch_outbox") as dispatch,
+        ):
+            first = client.post(
+                "/scrape",
+                json=payload,
+                headers={"X-CSRFToken": self._csrf_token(credential)},
+            )
+            second = client.post(
+                "/scrape",
+                json=payload,
+                headers={"X-CSRFToken": self._csrf_token(credential)},
+            )
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(
+            first.headers["X-Roster-Scout-Report-URL"],
+            second.headers["X-Roster-Scout-Report-URL"],
+        )
+        self.assertRegex(
+            first.headers["X-Roster-Scout-Report-URL"],
+            r"^/reports/[0-9a-f-]{36}$",
+        )
+        self.assertEqual(collect.call_count, 2)
+        self.assertEqual(dispatch.call_count, 2)
+        with self.Session() as session:
+            reports = list(session.scalars(select(Report)))
+            jobs = list(session.scalars(select(ReportJob)))
+            usage = list(session.scalars(select(ProductUsageEvent)))
+        self.assertEqual(len(reports), 1)
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(len(usage), 1)
+        self.assertEqual(reports[0].organization_id, organization_id)
+        self.assertEqual(jobs[0].requested_by_account_id, account_id)
+        self.assertEqual(usage[0].event_type, "authenticated_use")
+
+    def test_homepage_acceptance_failure_collects_nothing(self):
+        from roster_scout.models import Report, ReportJob
+
+        _account_id, _organization_id, credential = self._identity("Unavailable")
+        client = self._client(credential)
+        payload = {
+            "team": "Tampa",
+            "division": "d2",
+            "season_team_id": "615087",
+            "team_id": "689",
+            "display_name": "Tampa",
+            "download_event_id": str(uuid.uuid4()),
+        }
+        catalog = [{
+            "name": "Tampa",
+            "display_name": "Tampa",
+            "team_id": "689",
+            "season_team_id": "615087",
+            "division": "d2",
+            "year": 2026,
+        }]
+        with (
+            patch(
+                "roster_scout.report_routes.list_ncaa_teams",
+                return_value=catalog,
+            ),
+            patch.object(
+                app_module,
+                "accept_authorized_report_request",
+                side_effect=RuntimeError("database unavailable"),
+            ),
+            patch.object(app_module, "scrape_ncaa_by_id") as collect,
+        ):
+            response = client.post(
+                "/scrape",
+                json=payload,
+                headers={"X-CSRFToken": self._csrf_token(credential)},
+            )
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.get_json(), {"error": "report_service_unavailable"})
+        collect.assert_not_called()
+        with self.Session() as session:
+            self.assertEqual(session.query(Report).count(), 0)
+            self.assertEqual(session.query(ReportJob).count(), 0)
+
     def test_valid_recent_proof_and_ambiguous_retry_record_one_canonical_event(self):
         from roster_scout.models import SecurityAuditEvent
 

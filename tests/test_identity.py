@@ -1361,7 +1361,9 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
         self.assertNotIn('type="email"', template)
         self.assertIn("static', filename='product.css'", template)
         self.assertIn("mobile-account-nav", template)
-        self.assertIn("Create report", template)
+        self.assertIn("New report", template)
+        self.assertIn("Saved reports", template)
+        self.assertNotIn(">Members<", template)
         self.assertIn("data-theme-control", template)
         self.assertIn("static', filename='product_shell.js'", template)
 

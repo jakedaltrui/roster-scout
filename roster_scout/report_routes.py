@@ -134,7 +134,12 @@ def _canonical_action_id(value):
     return value
 
 
-def _catalog_request(division, season_team_id, submitted_name=None):
+def resolve_catalog_report_request(
+    division,
+    season_team_id,
+    submitted_name=None,
+    submitted_team_id=None,
+):
     if (
         division not in _DIVISIONS
         or not season_team_id.isascii()
@@ -168,6 +173,8 @@ def _catalog_request(division, season_team_id, submitted_name=None):
     ):
         raise ValueError("invalid selector")
     source_team_id = str(team.get("team_id") or season_team_id)
+    if submitted_team_id is not None and submitted_team_id != source_team_id:
+        raise ValueError("invalid selector")
     return CanonicalReportRequest(
         source_team_id=source_team_id,
         team_name=canonical_name,
@@ -184,8 +191,8 @@ def _selected_catalog_team():
         parts = fallback.split(":", 1)
         if len(parts) != 2:
             raise ValueError("invalid selector")
-        return _catalog_request(parts[0].lower(), parts[1])
-    return _catalog_request(
+        return resolve_catalog_report_request(parts[0].lower(), parts[1])
+    return resolve_catalog_report_request(
         (request.form.get("division") or "").strip().lower(),
         (request.form.get("season_team_id") or "").strip(),
         (request.form.get("team_name") or "").strip(),

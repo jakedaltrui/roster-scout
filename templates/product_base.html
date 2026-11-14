@@ -17,29 +17,23 @@
   <a class="skip-link" href="#main-content">Skip to content</a>
   <header class="product-header">
     <div class="product-header__inner">
-      <a class="product-brand" href="/reports" aria-label="Roster Scout reports">
+      <a class="product-brand" href="/" aria-label="Roster Scout home">
         <span class="product-brand__mark" aria-hidden="true"><img src="{{ url_for('static', filename='brand/roster-scout-dog-outlined.png') }}" alt=""></span>
         <span>roster scout</span>
       </a>
       <nav class="product-nav" aria-label="Primary navigation">
-        <a href="/reports"{% if request.endpoint == "reports.library" %} aria-current="page"{% endif %}>Reports</a>
-        {% if current_role == "admin" %}<a href="/organization/members"{% if request.endpoint == "organization.members" %} aria-current="page"{% endif %}>Members</a>{% endif %}
+        <a href="/">New report</a>
+        <a href="/reports"{% if request.endpoint in ("reports.library", "reports.detail") %} aria-current="page"{% endif %}>Saved reports</a>
       </nav>
       <div class="product-actions">
-        {% if organization_name %}
-          <a class="organization-switcher" href="/organizations/select" title="{{ organization_name }}">
-            <span class="visually-hidden">Current organization: </span>{{ organization_name }}
-          </a>
-        {% endif %}
-        <a class="button button--primary" href="/reports/new">Create report</a>
         <details class="account-menu">
           <summary aria-label="Open account menu">Account</summary>
           <div class="account-menu__panel">
             <nav class="mobile-account-nav" aria-label="Mobile navigation">
-              <a href="/reports"{% if request.endpoint == "reports.library" %} aria-current="page"{% endif %}>Reports</a>
-              {% if current_role == "admin" %}<a href="/organization/members"{% if request.endpoint == "organization.members" %} aria-current="page"{% endif %}>Members</a>{% endif %}
-              <a href="/reports/new"{% if request.endpoint == "reports.create_report" %} aria-current="page"{% endif %}>Create report</a>
+              <a href="/">New report</a>
+              <a href="/reports"{% if request.endpoint in ("reports.library", "reports.detail") %} aria-current="page"{% endif %}>Saved reports</a>
             </nav>
+            {% if organization_name %}<p class="account-organization">{{ organization_name }}</p>{% endif %}
             {% if account_email %}<p class="account-email">{{ account_email }}</p>{% endif %}
             <button class="theme-control" type="button" data-theme-control>Switch to dark mode</button>
             <form action="{{ url_for('auth.logout') }}" method="post">

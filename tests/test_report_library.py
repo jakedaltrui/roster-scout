@@ -224,8 +224,10 @@ class SharedLibraryTests(unittest.TestCase):
         self.assertIn(b"Collecting", admin_html.data)
         self.assertNotIn(b"Foreign Rivals", admin_html.data)
         self.assertIn(b"Foreign Rivals", foreign_html.data)
-        self.assertIn(b">Members<", admin_html.data)
+        self.assertNotIn(b">Members<", admin_html.data)
         self.assertNotIn(b">Members<", member_html.data)
+        self.assertIn(b">New report<", admin_html.data)
+        self.assertIn(b">Saved reports<", member_html.data)
 
     def test_library_is_bounded_to_25_and_orders_by_newest_activity(self):
         organization_id, accounts = self._organization(

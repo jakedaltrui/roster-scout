@@ -1,7 +1,7 @@
 {% extends "product_base.html" %}
 
-{% block title %}Opponent reports · Roster Scout{% endblock %}
-{% block page_title %}{{ organization_name or "Opponent reports" }}{% endblock %}
+{% block title %}Saved reports · Roster Scout{% endblock %}
+{% block page_title %}Saved reports{% endblock %}
 
 {% block head %}
   <style>
@@ -28,12 +28,12 @@
   <section aria-labelledby="library-label">
     <div class="library-heading">
       <div>
-        <p class="library-eyebrow" id="library-label">Opponent reports</p>
+        <p class="library-eyebrow" id="library-label">Shared with {{ organization_name or "your school" }}</p>
         {% if library_page %}
           <p class="library-summary">{{ library_page.total_count }} reports · {{ library_page.updated_today_count }} updated today</p>
         {% endif %}
       </div>
-      <a class="button button--primary" href="/reports/new">Create report</a>
+      <a class="button button--primary" href="/#builder">New report</a>
     </div>
 
     {% if load_error %}
@@ -47,7 +47,7 @@
         <img class="empty-state__mark" src="{{ url_for('static', filename='brand/roster-scout-dog-outlined.png') }}" alt="">
         <h2>No opponent reports yet</h2>
         <p class="empty-copy">Create your first report to save a dated opponent snapshot for your staff.</p>
-        <a class="button button--primary" href="/reports/new">Create report</a>
+        <a class="button button--primary" href="/#builder">New report</a>
       </div>
     {% else %}
       <div class="desktop-table">

@@ -14,7 +14,7 @@ import os
 import re
 import secrets
 import uuid
-from datetime import date
+from datetime import date, timedelta
 from functools import lru_cache
 from hashlib import sha256
 from urllib.parse import urlsplit
@@ -23,6 +23,7 @@ import idna
 import requests
 import xlsxwriter
 from PIL import Image, ImageDraw, UnidentifiedImageError
+from sqlalchemy.exc import SQLAlchemyError
 from flask import Flask, g, jsonify, redirect, render_template, request, send_file
 from flask_wtf import CSRFProtect
 from flask_wtf.csrf import CSRFError
@@ -54,8 +55,16 @@ from roster_scout.identity import (
     IdentityFailure,
     WorkOSIdentityProvider,
 )
+from roster_scout.jobs import drain_report_dispatch_outbox
 from roster_scout.organization_routes import register_organization_routes
-from roster_scout.report_routes import register_report_routes
+from roster_scout.report_routes import (
+    register_report_routes,
+    resolve_catalog_report_request,
+)
+from roster_scout.reports import (
+    ReportAcceptanceFailure,
+    accept_authorized_report_request,
+)
 from roster_scout.sessions import (
     SESSION_COOKIE_NAME,
     load_account_session,
@@ -1080,6 +1089,43 @@ def scrape():
     if not team and not season_team_id:
         return _json_error("Please enter a team name.", 400)
 
+    context = getattr(g, "authorization_context", None)
+    accepted_report = None
+    if context is not None and division in {"d1", "d2", "d3"}:
+        try:
+            canonical_request = resolve_catalog_report_request(
+                division,
+                season_team_id,
+                submitted_name=body["display_name"],
+                submitted_team_id=body["team_id"],
+            )
+            with _report_session_factory().begin() as session:
+                accepted_report = accept_authorized_report_request(
+                    session,
+                    actor_account_id=context.account_id,
+                    organization_id=context.organization_id,
+                    request=canonical_request,
+                    idempotency_key=download_event_id,
+                )
+        except (NcaaError, ValueError, TypeError):
+            return jsonify({"error": "team_selection_invalid"}), 400
+        except ReportAcceptanceFailure:
+            return jsonify({"error": "not_found"}), 404
+        except (SQLAlchemyError, RuntimeError):
+            app.logger.warning("homepage_report_acceptance_failed")
+            return jsonify({"error": "report_service_unavailable"}), 503
+
+        try:
+            drain_report_dispatch_outbox(
+                _report_session_factory(),
+                dispatch=app.extensions["roster_scout_report_dispatch"],
+                limit=1,
+                failure_backoff=timedelta(0),
+                job_id=accepted_report.job_id,
+            )
+        except (SQLAlchemyError, RuntimeError):
+            app.logger.warning("homepage_report_dispatch_queued")
+
     try:
         client = request.remote_addr or "unknown"
         if os.environ.get("TRUST_FLY_CLIENT_IP") == "1":
@@ -1128,7 +1174,6 @@ def scrape():
         response.headers["X-Roster-Scout-Hitters"] = str(len(hitters))
         response.headers["X-Roster-Scout-Pitchers"] = str(len(pitchers))
         response.headers["X-Roster-Scout-Download-Event-ID"] = download_event_id
-        context = getattr(g, "authorization_context", None)
         response.headers["X-Roster-Scout-Download-Ack-Proof"] = (
             _issue_authenticated_legacy_download_ack_proof(
                 download_event_id,
@@ -1138,6 +1183,10 @@ def scrape():
             if context is not None
             else _issue_download_ack_proof(download_event_id)
         )
+        if accepted_report is not None:
+            response.headers["X-Roster-Scout-Report-URL"] = (
+                f"/reports/{accepted_report.report_id}"
+            )
         response.headers["Cache-Control"] = "no-store"
         return response
 
