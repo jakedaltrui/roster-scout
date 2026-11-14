@@ -1548,7 +1548,7 @@ class AppRouteTests(unittest.TestCase):
         self.assertNotIn(b'href="#output"', response.data)
         self.assertNotIn(b'href="#how-it-works"', response.data)
         self.assertNotIn(b'href="#questions"', response.data)
-        self.assertLess(
+        self.assertGreater(
             response.data.index(b'id="theme-toggle"'),
             response.data.index(b'id="signed-out-actions"'),
         )

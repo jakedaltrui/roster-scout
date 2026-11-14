@@ -28,9 +28,12 @@
         <span>roster scout</span>
       </a>
       <div class="product-actions">
-        <button type="button" class="theme-toggle" data-theme-control aria-label="Switch to dark mode" title="Switch to dark mode"><svg class="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.9 13.1A9 9 0 0 1 10.9 3.1 9 9 0 1 0 20.9 13.1Z" /></svg><svg class="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" /></svg></button>
         {% if account_email %}
-          <a class="product-dashboard-link" href="/reports"{% if request.endpoint in ("reports.library", "reports.detail") %} aria-current="page"{% endif %}>Dashboard</a>
+          {% if request.endpoint == "reports.library" %}
+            <a class="product-dashboard-link" href="/#builder">New report</a>
+          {% else %}
+            <a class="product-dashboard-link" href="/reports">Dashboard</a>
+          {% endif %}
           <details class="account-menu">
             <summary aria-label="Open account menu" aria-expanded="false"><span class="product-account-avatar" aria-hidden="true">{{ account_email[0]|upper }}</span></summary>
             <div class="account-menu__panel">
@@ -45,6 +48,7 @@
         {% else %}
           <a class="product-sign-in" href="{{ url_for('auth.login') }}"><span class="product-account-avatar product-account-avatar--signed-out" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M5.5 20c.7-4 3-6 6.5-6s5.8 2 6.5 6"/></svg></span><span>Sign in</span></a>
         {% endif %}
+        <button type="button" class="theme-toggle" data-theme-control aria-label="Switch to dark mode" title="Switch to dark mode"><svg class="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.9 13.1A9 9 0 0 1 10.9 3.1 9 9 0 1 0 20.9 13.1Z" /></svg><svg class="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" /></svg></button>
       </div>
     </div>
   </header>

@@ -111,6 +111,9 @@
     menu.addEventListener("toggle", () => {
       summary.setAttribute("aria-expanded", String(menu.open));
     });
+    document.addEventListener("click", (event) => {
+      if (menu.open && !menu.contains(event.target)) menu.open = false;
+    });
   }
 
   document.addEventListener("DOMContentLoaded", () => {

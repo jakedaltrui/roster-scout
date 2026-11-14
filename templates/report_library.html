@@ -11,7 +11,6 @@
     .library-pagination { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-top: 24px; }
     .library-pagination__position { margin: 0; color: var(--muted); font-size: 14px; }
     .empty-state { display: grid; justify-items: start; gap: 8px; padding: 32px; border-radius: 22px; }
-    .empty-state__mark { width: 48px; height: 48px; object-fit: contain; filter: grayscale(1); opacity: .72; }
     .empty-state h2, .empty-state p { margin: 0; }
     .report-name { font-weight: 600; }
     .report-meta, .report-detail { color: var(--muted); font-size: 14px; }
@@ -44,7 +43,6 @@
       </div>
     {% elif not library_page.items %}
       <div class="empty-state">
-        <img class="empty-state__mark" src="{{ url_for('static', filename='brand/roster-scout-dog-outlined.png') }}" alt="">
         <h2>No opponent reports yet</h2>
         <p class="empty-copy">Create your first report to save a dated opponent snapshot for your staff.</p>
         <a class="button button--primary" href="/#builder">New report</a>
