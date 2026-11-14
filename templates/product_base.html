@@ -55,7 +55,9 @@
   <main id="main-content" class="product-main" tabindex="-1">
     {% block breadcrumbs %}{% endblock %}
     <h1>{% block page_title %}Roster Scout{% endblock %}</h1>
-    {% block content %}{% endblock %}
+    <div class="product-content">
+      {% block content %}{% endblock %}
+    </div>
   </main>
 </body>
 </html>

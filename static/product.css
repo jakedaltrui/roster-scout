@@ -1,6 +1,11 @@
 :root {
   color-scheme: light dark;
   font-family: "DM Sans", system-ui, sans-serif;
+  --motion-standard: cubic-bezier(.2, .8, .2, 1);
+  --motion-emphasized: cubic-bezier(.22, 1, .36, 1);
+  --motion-fast: .16s;
+  --motion-control: .22s;
+  --motion-enter: .68s;
   --canvas: #f6f6f3;
   --surface: #ffffff;
   --ink: #20211f;
@@ -111,6 +116,7 @@ a { color: inherit; }
   font: 600 14px/1.4 "DM Sans", system-ui, sans-serif;
   text-decoration: none;
   cursor: pointer;
+  transition: color var(--motion-control), background-color var(--motion-control), transform var(--motion-control) var(--motion-standard);
 }
 
 .product-actions { margin-left: auto; }
@@ -133,6 +139,7 @@ a { color: inherit; }
   font: 600 14px/1.4 "DM Sans", system-ui, sans-serif;
   text-decoration: none;
   cursor: pointer;
+  touch-action: manipulation;
 }
 
 .button--primary { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
@@ -153,6 +160,7 @@ a { color: inherit; }
   border-radius: 12px;
   background: var(--surface);
   box-shadow: 0 20px 48px rgba(32, 33, 31, .12);
+  transform-origin: top right;
 }
 
 .account-organization { margin: 0; overflow-wrap: anywhere; font-size: 14px; font-weight: 600; }
@@ -172,7 +180,7 @@ a { color: inherit; }
 .content-section h2 { margin-bottom: 16px; font-size: 20px; }
 .stack-form { display: grid; grid-template-columns: minmax(240px, 2fr) minmax(160px, 1fr) auto; align-items: end; gap: 16px; }
 .stack-form label { display: block; margin-bottom: 6px; font-weight: 600; }
-.stack-form input, .stack-form select { width: 100%; min-height: 44px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--ink); font: inherit; }
+.stack-form input, .stack-form select { width: 100%; min-height: 44px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--ink); font: inherit; transition: border-color var(--motion-control), box-shadow var(--motion-control), background-color var(--motion-control); }
 .field-help, .empty-copy { color: var(--muted); }
 .field-help { margin: 6px 0 0; font-size: 14px; }
 .field-error { margin: 6px 0 0; color: var(--danger); font-size: 14px; }
@@ -378,4 +386,257 @@ body { background: #f6f6f3; -webkit-font-smoothing: antialiased; }
   .product-header__inner { width: calc(100% - 40px); padding-right: 8px; }
   .product-main { width: calc(100% - 40px); padding-top: 54px; }
   .product-dashboard-link { padding-right: 10px; padding-left: 10px; }
+}
+
+/* Homepage-matched interaction and motion system. */
+.product-content { min-width: 0; }
+
+.product-brand,
+.theme-toggle,
+.button,
+.division-button,
+.team-option,
+.member-cards li,
+.report-panel,
+.video-frame,
+.demo-after,
+.desktop-table {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.product-brand,
+.theme-toggle,
+.button,
+.division-button,
+.team-option,
+.member-cards li,
+.report-panel,
+.video-frame,
+.demo-after,
+.desktop-table,
+.banner,
+.empty-state {
+  transition:
+    color var(--motion-control),
+    background-color var(--motion-control),
+    border-color var(--motion-control),
+    box-shadow var(--motion-control),
+    opacity var(--motion-control),
+    transform var(--motion-control) var(--motion-standard);
+}
+
+.product-brand:active,
+.product-dashboard-link:active,
+.product-sign-in:active,
+.account-menu summary:active,
+.theme-toggle:active,
+.button:active:not([disabled]),
+.division-button:active,
+.team-option:active {
+  transform: translateY(0) scale(.975);
+  transition-duration: .11s;
+}
+
+.button--secondary:hover,
+.button--quiet:hover,
+.button:not([class*="button--"]):hover {
+  border-color: color-mix(in srgb, var(--ink) 26%, var(--border));
+  background: color-mix(in srgb, var(--surface) 84%, var(--canvas));
+}
+
+.button--danger:hover {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 9%, transparent);
+}
+
+.button[disabled],
+.button[aria-disabled="true"],
+select[disabled],
+input[disabled] {
+  transform: none !important;
+  box-shadow: none;
+}
+
+form[aria-busy="true"] .button[disabled]::after {
+  width: 12px;
+  height: 12px;
+  margin-left: 9px;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  content: "";
+  animation: product-spin .7s linear infinite;
+}
+
+.account-menu[open] .account-menu__panel {
+  animation: product-menu-in var(--motion-control) var(--motion-standard) both;
+}
+
+.account-menu[open] summary {
+  background: rgba(0, 0, 0, .055);
+}
+
+:root[data-theme="dark"] .account-menu[open] summary {
+  background: rgba(255, 255, 255, .08);
+}
+
+.stack-form input:focus,
+.stack-form select:focus,
+.member-action-form select:focus,
+.team-selector input:focus,
+.report-form select:focus {
+  border-color: color-mix(in srgb, var(--ink) 52%, var(--border));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
+.desktop-table tbody tr,
+.section-list li,
+.history-cards li {
+  transition: background-color var(--motion-control), border-color var(--motion-control), transform var(--motion-control) var(--motion-standard);
+}
+
+.desktop-table tbody tr:hover {
+  background: color-mix(in srgb, var(--surface) 72%, var(--canvas));
+}
+
+.desktop-table tbody a:not(.button) {
+  font-weight: 650;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+  transition: color var(--motion-fast), text-decoration-color var(--motion-fast);
+}
+
+.desktop-table tbody a:not(.button):hover {
+  text-decoration-color: transparent;
+}
+
+.confirmation-dialog[open],
+.refresh-confirmation[open] {
+  animation: product-dialog-in .3s var(--motion-emphasized) both;
+}
+
+.confirmation-dialog[open]::backdrop,
+.refresh-confirmation[open]::backdrop {
+  animation: product-scrim-in .22s ease-out both;
+}
+
+.download-status:not(:empty),
+.submit-status:not(:empty),
+.selector-status:not(:empty),
+.status-note:not(:empty) {
+  animation: product-status-in .3s var(--motion-standard) both;
+}
+
+[data-status-sections].is-refreshing {
+  animation: product-status-in .3s var(--motion-standard) both;
+}
+
+.team-results:not([hidden]) {
+  transform-origin: top center;
+  animation: product-menu-in var(--motion-fast) var(--motion-standard) both;
+}
+
+.team-option:hover { transform: translateX(2px); }
+
+.division-button:hover:not([aria-pressed="true"]) {
+  border-color: color-mix(in srgb, var(--ink) 28%, var(--border));
+  background: color-mix(in srgb, var(--surface) 76%, var(--canvas));
+  transform: translateY(-1px);
+}
+
+.theme-toggle { position: relative; }
+.theme-toggle svg {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  display: block;
+  opacity: 1;
+  transform: translate(-50%, -50%) rotate(0) scale(1);
+  transition: opacity var(--motion-control), transform .4s var(--motion-emphasized);
+}
+.theme-toggle .theme-icon-sun {
+  display: block;
+  opacity: 0;
+  transform: translate(-50%, -50%) rotate(-35deg) scale(.72);
+}
+:root[data-theme="dark"] .theme-toggle .theme-icon-moon {
+  display: block;
+  opacity: 0;
+  transform: translate(-50%, -50%) rotate(35deg) scale(.72);
+}
+:root[data-theme="dark"] .theme-toggle .theme-icon-sun {
+  display: block;
+  opacity: 1;
+  transform: translate(-50%, -50%) rotate(0) scale(1);
+}
+
+@keyframes product-page-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes product-nav-in {
+  from { opacity: 0; transform: translateY(-7px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes product-headline-in {
+  from { opacity: 0; clip-path: inset(0 0 100% 0); transform: translateY(24px); }
+  to { opacity: 1; clip-path: inset(0); transform: translateY(0); }
+}
+
+@keyframes product-card-in {
+  from { opacity: 0; transform: translate3d(22px, 16px, 0) scale(.975); }
+  to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+
+@keyframes product-menu-in {
+  from { opacity: 0; transform: translateY(-5px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes product-dialog-in {
+  from { opacity: 0; transform: translateY(10px) scale(.975); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes product-scrim-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes product-status-in {
+  from { opacity: .25; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes product-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: no-preference) {
+  .product-header .product-brand__mark { animation: product-nav-in .55s var(--motion-standard) backwards; }
+  .product-header .product-brand > span:last-child { animation: product-nav-in .55s .06s var(--motion-standard) backwards; }
+  .product-header .product-actions { animation: product-nav-in .55s .12s var(--motion-standard) backwards; }
+  .product-main > .breadcrumbs { animation: product-page-in .48s .04s var(--motion-emphasized) both; }
+  .product-main > h1 { animation: product-headline-in .72s .08s var(--motion-emphasized) both; }
+  .product-main > .product-content { animation: product-card-in .78s .16s var(--motion-emphasized) both; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-delay: 0s !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition: none !important;
+  }
+
+  .product-brand:hover,
+  .product-dashboard-link:hover,
+  .product-sign-in:hover,
+  .account-menu summary:hover,
+  .theme-toggle:hover,
+  .button:hover,
+  .division-button:hover,
+  .team-option:hover {
+    transform: none !important;
+  }
 }

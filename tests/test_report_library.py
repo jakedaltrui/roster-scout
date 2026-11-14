@@ -229,6 +229,21 @@ class SharedLibraryTests(unittest.TestCase):
         self.assertIn(b">New report<", admin_html.data)
         self.assertIn(b">Dashboard<", member_html.data)
 
+    def test_empty_library_uses_the_shared_premium_workbook_state(self):
+        organization_id, accounts = self._organization(
+            "Empty State University", ("coach@example.edu", "admin")
+        )
+
+        response = self._client(accounts[0], organization_id).get("/reports")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"No opponent reports yet", response.data)
+        self.assertIn(b"Your scouting workspace", response.data)
+        self.assertIn(b"Create your first report", response.data)
+        self.assertIn(b"Opponent_Roster_Stats.xlsx", response.data)
+        self.assertIn(b"Fielding", response.data)
+        self.assertNotIn(b"roster-scout-dog-outlined", response.data.split(b"<main", 1)[1])
+
     def test_library_is_bounded_to_25_and_orders_by_newest_activity(self):
         organization_id, accounts = self._organization(
             "Pagination University", ("coach@example.edu", "admin")

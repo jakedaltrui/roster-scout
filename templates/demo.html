@@ -16,11 +16,6 @@
       .demo-after { align-items: stretch; flex-direction: column; padding: 22px; }
       .demo-after .button { width: 100%; }
     }
-    @media (prefers-reduced-motion: no-preference) {
-      .video-frame, .demo-after { animation: demo-enter .7s cubic-bezier(.22,1,.36,1) both; }
-      .demo-after { animation-delay: .08s; }
-      @keyframes demo-enter { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
-    }
   </style>
 {% endblock %}
 {% block content %}

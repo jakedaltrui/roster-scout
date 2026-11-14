@@ -158,6 +158,12 @@
         fragment.append(row);
       });
       sections.replaceChildren(fragment);
+      if (typeof sections.getAnimations === "function") {
+        sections.getAnimations().forEach((animation) => animation.cancel());
+      }
+      sections.classList.remove("is-refreshing");
+      void sections.offsetWidth;
+      sections.classList.add("is-refreshing");
     }
 
     function render(view) {

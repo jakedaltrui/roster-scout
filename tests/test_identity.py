@@ -1480,6 +1480,19 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
         self.assertNotIn(">Members<", template)
         self.assertIn("data-theme-control", template)
         self.assertIn("static', filename='product_shell.js'", template)
+        self.assertIn('class="product-content"', template)
+
+        stylesheet = os.path.join(
+            os.path.dirname(__file__), "..", "static", "product.css"
+        )
+        with open(stylesheet, encoding="utf-8") as handle:
+            product_css = handle.read()
+        self.assertIn("--motion-standard", product_css)
+        self.assertIn("product-headline-in", product_css)
+        self.assertIn("product-card-in", product_css)
+        self.assertIn("product-dialog-in", product_css)
+        self.assertIn(".account-menu[open] .account-menu__panel", product_css)
+        self.assertIn("@media (prefers-reduced-motion: reduce)", product_css)
 
         auth_error = os.path.join(
             os.path.dirname(__file__), "..", "templates", "auth_error.html"
