@@ -116,6 +116,21 @@
     });
   }
 
+  function enhanceTeamLogos() {
+    document.querySelectorAll("[data-team-logo]").forEach((logo) => {
+      const image = logo.querySelector("[data-team-logo-image]");
+      const fallback = logo.querySelector("[data-team-logo-fallback]");
+      if (!image) return;
+      const showImage = () => {
+        image.classList.add("is-loaded");
+        if (fallback) fallback.hidden = true;
+      };
+      if (image.complete && image.naturalWidth > 0) showImage();
+      else image.addEventListener("load", showImage, { once: true });
+      image.addEventListener("error", () => image.remove(), { once: true });
+    });
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
     const control = document.querySelector("[data-theme-control]");
     if (control) {
@@ -136,5 +151,6 @@
     enhanceRoleConfirmations();
     enhancePendingForms();
     enhanceAccountMenu();
+    enhanceTeamLogos();
   });
 })();

@@ -1,5 +1,55 @@
 {% extends "product_base.html" %}
 
+{% macro team_identity(report) -%}
+  {% set name_parts = report.opponent_name.split() %}
+  <span class="report-team">
+    <span class="report-team__logo" data-team-logo aria-hidden="true">
+      <span data-team-logo-fallback>{{ name_parts[0][0] }}{% if name_parts|length > 1 %}{{ name_parts[-1][0] }}{% endif %}</span>
+      <img src="{{ url_for('team_logo', team_id=report.source_team_id) }}" alt="" width="48" height="48" loading="lazy" data-team-logo-image>
+    </span>
+    <span class="report-team__copy">
+      <span class="report-name">{{ report.opponent_name }}</span>
+      <time class="report-meta" datetime="{{ report.last_run_at.isoformat() }}" title="Last run {{ report.last_run_at.strftime('%b %-d, %Y · %-I:%M %p') }} UTC">{{ report.last_run_age }}</time>
+    </span>
+  </span>
+{%- endmacro %}
+
+{% macro run_state(report) -%}
+  {% if report.build_status in ("Queued", "Collecting", "Saving") %}
+    <span class="run-state" data-state="active"><span class="run-state__dot" aria-hidden="true"></span>{% if report.latest_snapshot_at %}Updating{% else %}Preparing{% endif %}</span>
+  {% elif report.build_status == "Failed" %}
+    <span class="run-state" data-state="failed"><span class="run-state__dot" aria-hidden="true"></span>Needs attention</span>
+  {% elif report.completeness == "Ready" %}
+    <span class="run-state" data-state="ready"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3.5 8.2 2.8 2.8 6.2-6.2"/></svg>Ready to use</span>
+  {% elif report.completeness == "Partial" %}
+    <span class="run-state" data-state="warning"><span class="run-state__dot" aria-hidden="true"></span>Ready with gaps</span>
+  {% else %}
+    <span class="run-state" data-state="active"><span class="run-state__dot" aria-hidden="true"></span>Preparing</span>
+  {% endif %}
+{%- endmacro %}
+
+{% macro data_state(report) -%}
+  {% if report.build_status in ("Queued", "Collecting", "Saving") and report.latest_snapshot_at %}
+    Previous report remains available
+  {% elif report.build_status in ("Queued", "Collecting", "Saving") %}
+    Gathering roster and stats
+  {% elif report.build_status == "Failed" and report.latest_snapshot_at %}
+    Previous report remains available
+  {% elif report.build_status == "Failed" %}
+    Open to review the issue
+  {% elif report.completeness == "Ready" %}
+    All data available
+  {% elif report.completeness == "Partial" %}
+    {{ report.unavailable_count }} section{% if report.unavailable_count != 1 %}s{% endif %} unavailable
+  {% else %}
+    Waiting for first report
+  {% endif %}
+{%- endmacro %}
+
+{% macro saved_versions(report) -%}
+  {{ report.snapshot_count }} saved version{% if report.snapshot_count != 1 %}s{% endif %}
+{%- endmacro %}
+
 {% block title %}Dashboard · Roster Scout{% endblock %}
 {% block page_title %}Dashboard{% endblock %}
 
@@ -40,8 +90,41 @@
     :root[data-theme="dark"] .empty-state--reports { box-shadow: 0 26px 70px rgba(0, 0, 0, .28); }
     :root[data-theme="dark"] .empty-workbook { box-shadow: 0 28px 60px rgba(0, 0, 0, .35); }
     :root[data-theme="dark"] .empty-state--reports:hover .empty-workbook { box-shadow: 0 34px 72px rgba(0, 0, 0, .48); }
-    .report-name { font-weight: 600; }
-    .report-meta, .report-detail { color: var(--muted); font-size: 14px; }
+    .reports-table { table-layout: fixed; }
+    .reports-table th, .reports-table td { padding: 18px 20px; vertical-align: middle; }
+    .reports-table thead th { padding-top: 14px; padding-bottom: 14px; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
+    .reports-table thead th:first-child { width: 34%; }
+    .reports-table thead th:nth-child(2) { width: 18%; }
+    .reports-table thead th:nth-child(3) { width: 23%; }
+    .reports-table thead th:nth-child(4) { width: 15%; }
+    .reports-table thead th:last-child { width: 10%; }
+    .reports-table tbody tr:last-child > * { border-bottom: 0; }
+    .report-team { display: flex; align-items: center; gap: 14px; min-width: 0; }
+    .report-team__logo { position: relative; display: grid; flex: 0 0 48px; place-items: center; width: 48px; height: 48px; overflow: hidden; border: 1px solid var(--border); border-radius: 13px; color: var(--muted); background: color-mix(in srgb, var(--surface) 76%, var(--canvas)); font-size: 13px; font-weight: 750; letter-spacing: -.02em; }
+    .report-team__logo img { position: absolute; inset: 0; width: 100%; height: 100%; padding: 5px; object-fit: contain; background: #fff; opacity: 0; transition: opacity var(--motion-control); }
+    .report-team__logo img.is-loaded { opacity: 1; }
+    .report-team__copy { display: grid; min-width: 0; gap: 3px; }
+    .report-name { overflow: hidden; font-size: 15px; font-weight: 700; letter-spacing: -.02em; text-overflow: ellipsis; white-space: nowrap; }
+    .report-meta, .report-detail { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+    .run-state { display: inline-flex; align-items: center; gap: 7px; min-height: 30px; padding: 0 10px; border: 1px solid transparent; border-radius: 999px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+    .run-state svg { width: 14px; height: 14px; }
+    .run-state__dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+    .run-state[data-state="ready"] { border-color: #cfe2d1; color: #2f6a3b; background: #eaf4eb; }
+    .run-state[data-state="active"] { border-color: color-mix(in srgb, var(--active-fg) 20%, var(--active-bg)); color: var(--active-fg); background: var(--active-bg); }
+    .run-state[data-state="warning"] { border-color: color-mix(in srgb, var(--warning-fg) 18%, var(--warning-bg)); color: var(--warning-fg); background: var(--warning-bg); }
+    .run-state[data-state="failed"] { border-color: color-mix(in srgb, var(--failed-fg) 18%, var(--failed-bg)); color: var(--failed-fg); background: var(--failed-bg); }
+    .report-data-state { color: color-mix(in srgb, var(--ink) 82%, var(--muted)); font-size: 13px; font-weight: 550; }
+    .report-version { color: var(--muted); font-size: 13px; }
+    .report-open { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; white-space: nowrap; }
+    .report-open svg { width: 14px; height: 14px; transition: transform .35s var(--motion-emphasized); }
+    .report-open:hover svg { transform: translateX(3px); }
+    :root[data-theme="dark"] .report-team__logo { background: #202023; }
+    :root[data-theme="dark"] .run-state[data-state="ready"] { border-color: #35513a; color: #b8ddb9; background: #223326; }
+    .report-card__header { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+    .report-card__facts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 18px 0; padding: 16px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+    .report-card__fact { display: grid; gap: 3px; }
+    .report-card__fact-label { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+    .report-card__fact-value { font-size: 13px; font-weight: 600; }
     @media (max-width: 767px) {
       .library-heading { align-items: start; margin-top: -16px; }
       .library-pagination { align-items: stretch; flex-wrap: wrap; }
@@ -49,12 +132,18 @@
       .library-pagination__position { width: 100%; text-align: center; order: -1; }
       .empty-state--reports { grid-template-columns: 1fr; min-height: 0; padding: 30px 24px 0; }
       .empty-workbook { width: min(100%, 360px); }
+      .member-cards li { padding: 20px; border-radius: 18px; }
+      .member-cards .button--quiet { justify-content: space-between; }
     }
     @media (max-width: 480px) {
       .library-heading { flex-direction: column; }
       .library-heading .button { width: 100%; }
       .empty-state__actions, .empty-state__actions .button { width: 100%; }
       .empty-state__actions .button { justify-content: space-between; }
+      .report-card__header { align-items: flex-start; }
+      .report-team { gap: 11px; }
+      .report-team__logo { flex-basis: 44px; width: 44px; height: 44px; border-radius: 12px; }
+      .run-state { min-height: 28px; padding: 0 8px; font-size: 11px; }
     }
     @media (prefers-reduced-motion: reduce) {
       .empty-state--reports:hover .empty-workbook,
@@ -69,7 +158,7 @@
       <div>
         <p class="library-eyebrow" id="library-label">Shared with {{ organization_name or "your school" }}</p>
         {% if library_page %}
-          <p class="library-summary">{{ library_page.total_count }} reports · {{ library_page.updated_today_count }} updated today</p>
+          <p class="library-summary">{{ library_page.total_count }} report{% if library_page.total_count != 1 %}s{% endif %} · {{ library_page.updated_today_count }} updated today</p>
         {% endif %}
       </div>
       <a class="button button--primary" href="/#builder">New report</a>
@@ -105,38 +194,25 @@
       </div>
     {% else %}
       <div class="desktop-table">
-        <table>
+        <table class="reports-table">
           <caption class="visually-hidden">Opponent reports for {{ organization_name }}</caption>
           <thead>
             <tr>
               <th scope="col">Opponent</th>
-              <th scope="col">Latest snapshot</th>
-              <th scope="col">Completeness</th>
-              <th scope="col">Build status</th>
-              <th scope="col">Snapshots</th>
+              <th scope="col">Status</th>
+              <th scope="col">Your report</th>
+              <th scope="col">History</th>
               <th scope="col"><span class="visually-hidden">Actions</span></th>
             </tr>
           </thead>
           <tbody>
             {% for report in library_page.items %}
               <tr data-report-row="desktop">
-                <th scope="row">
-                  <span class="report-name">{{ report.opponent_name }}</span><br>
-                  <time class="report-meta" datetime="{{ report.last_run_at.isoformat() }}" title="Last run {{ report.last_run_at.strftime('%b %-d, %Y · %-I:%M %p') }} UTC">{{ report.last_run_age }}</time>
-                </th>
-                <td>
-                  <span class="visually-hidden">Latest snapshot</span>
-                  {% if report.latest_snapshot_at %}
-                    <time datetime="{{ report.latest_snapshot_at.isoformat() }}">{{ report.latest_snapshot_at.strftime("%b %-d, %Y · %-I:%M %p") }} UTC</time>
-                  {% else %}No snapshot yet{% endif %}
-                </td>
-                <td>
-                  {% if report.completeness != "—" %}<span class="status-chip" data-state="{{ report.completeness|lower }}">{{ report.completeness }}</span>{% else %}—{% endif %}
-                  {% if report.unavailable_count %}<span class="report-detail">{{ report.unavailable_count }} unavailable</span>{% endif %}
-                </td>
-                <td><span class="visually-hidden">Build status</span>{% if report.build_status != "No active build" %}<span class="status-chip" data-state="{{ report.build_status|lower }}">{{ report.build_status }}</span>{% else %}No active build{% endif %}</td>
-                <td><span class="visually-hidden">Snapshots</span>{{ report.snapshot_count }}</td>
-                <td><a href="/reports/{{ report.id }}">Open report<span class="visually-hidden"> for {{ report.opponent_name }}</span></a></td>
+                <th scope="row">{{ team_identity(report) }}</th>
+                <td>{{ run_state(report) }}</td>
+                <td><span class="report-data-state">{{ data_state(report) }}</span></td>
+                <td><span class="report-version">{{ saved_versions(report) }}</span></td>
+                <td><a class="report-open" href="/reports/{{ report.id }}">Open<span class="visually-hidden"> report for {{ report.opponent_name }}</span><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4" /></svg></a></td>
               </tr>
             {% endfor %}
           </tbody>
@@ -146,15 +222,15 @@
       <ul class="member-cards" aria-label="Opponent reports">
         {% for report in library_page.items %}
           <li data-report-row="mobile">
-            <p class="report-name">{{ report.opponent_name }}</p>
-            <p class="report-meta"><time datetime="{{ report.last_run_at.isoformat() }}" title="Last run {{ report.last_run_at.strftime('%b %-d, %Y · %-I:%M %p') }} UTC">{{ report.last_run_age }}</time></p>
-            <dl>
-              <div><dt>Latest snapshot</dt><dd>{% if report.latest_snapshot_at %}<time datetime="{{ report.latest_snapshot_at.isoformat() }}">{{ report.latest_snapshot_at.strftime("%b %-d, %Y · %-I:%M %p") }} UTC</time>{% else %}No snapshot yet{% endif %}</dd></div>
-              <div><dt>Completeness</dt><dd>{% if report.completeness != "—" %}<span class="status-chip" data-state="{{ report.completeness|lower }}">{{ report.completeness }}</span>{% else %}—{% endif %}{% if report.unavailable_count %} · {{ report.unavailable_count }} unavailable{% endif %}</dd></div>
-              <div><dt>Build status</dt><dd>{% if report.build_status != "No active build" %}<span class="status-chip" data-state="{{ report.build_status|lower }}">{{ report.build_status }}</span>{% else %}No active build{% endif %}</dd></div>
-              <div><dt>Snapshots</dt><dd>{{ report.snapshot_count }}</dd></div>
-            </dl>
-            <a class="button button--quiet" href="/reports/{{ report.id }}">Open report<span class="visually-hidden"> for {{ report.opponent_name }}</span></a>
+            <div class="report-card__header">
+              {{ team_identity(report) }}
+              {{ run_state(report) }}
+            </div>
+            <div class="report-card__facts">
+              <span class="report-card__fact"><span class="report-card__fact-label">Your report</span><span class="report-card__fact-value">{{ data_state(report) }}</span></span>
+              <span class="report-card__fact"><span class="report-card__fact-label">History</span><span class="report-card__fact-value">{{ saved_versions(report) }}</span></span>
+            </div>
+            <a class="button button--quiet" href="/reports/{{ report.id }}">Open report<span class="visually-hidden"> for {{ report.opponent_name }}</span><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4" /></svg></a>
           </li>
         {% endfor %}
       </ul>

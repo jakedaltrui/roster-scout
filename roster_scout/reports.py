@@ -646,17 +646,14 @@ def _relative_run_age(value, now):
     elapsed_seconds = max(0, int((now - value).total_seconds()))
     elapsed_hours = elapsed_seconds // 3600
     if elapsed_hours < 1:
-        return "Less than an hour ago"
+        return "<1h ago"
     if elapsed_hours < 24:
-        unit = "hour" if elapsed_hours == 1 else "hours"
-        return f"{elapsed_hours} {unit} ago"
+        return f"{elapsed_hours}h ago"
     elapsed_days = elapsed_hours // 24
     if elapsed_days < 7:
-        unit = "day" if elapsed_days == 1 else "days"
-        return f"{elapsed_days} {unit} ago"
+        return f"{elapsed_days}d ago"
     elapsed_weeks = elapsed_days // 7
-    unit = "week" if elapsed_weeks == 1 else "weeks"
-    return f"{elapsed_weeks} {unit} ago"
+    return f"{elapsed_weeks}w ago"
 
 
 def load_report_library(session, organization_id, *, page=1, now=None):

@@ -220,9 +220,9 @@ class SharedLibraryTests(unittest.TestCase):
         self.assertEqual(member_html.status_code, 200)
         self.assertIn(b"Falcons", admin_html.data)
         self.assertIn(b"Falcons", member_html.data)
-        self.assertIn(b"Ready", admin_html.data)
-        self.assertIn(b"Collecting", admin_html.data)
-        self.assertIn(b"Less than an hour ago", admin_html.data)
+        self.assertIn(b"Updating", admin_html.data)
+        self.assertIn(b"Previous report remains available", admin_html.data)
+        self.assertIn(b"&lt;1h ago", admin_html.data)
         self.assertNotIn(b"D1 \xc2\xb7 2026", admin_html.data)
         self.assertNotIn(b"Foreign Rivals", admin_html.data)
         self.assertIn(b"Foreign Rivals", foreign_html.data)
@@ -236,15 +236,15 @@ class SharedLibraryTests(unittest.TestCase):
 
         self.assertEqual(
             _relative_run_age(self.now - timedelta(hours=3), self.now),
-            "3 hours ago",
+            "3h ago",
         )
         self.assertEqual(
             _relative_run_age(self.now - timedelta(days=1), self.now),
-            "1 day ago",
+            "1d ago",
         )
         self.assertEqual(
             _relative_run_age(self.now - timedelta(weeks=3), self.now),
-            "3 weeks ago",
+            "3w ago",
         )
 
     def test_empty_library_uses_the_shared_premium_workbook_state(self):
@@ -301,8 +301,8 @@ class SharedLibraryTests(unittest.TestCase):
         response = client.get("/reports")
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Partial", response.data)
-        self.assertIn(b"1 unavailable", response.data)
-        self.assertIn(b"No snapshot yet", response.data)
+        self.assertIn(b"1 section unavailable", response.data)
+        self.assertIn(b"Waiting for first report", response.data)
 
         class _BrokenFactory:
             def begin(self):
@@ -350,15 +350,17 @@ class SharedLibraryTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         for value in (
             b"Accessible Owls",
-            b"D1 \xc2\xb7 2026",
-            b"Latest snapshot",
-            b"Build status",
-            b"Snapshots",
-            b"Open report",
+            b"Ready to use",
+            b"All data available",
+            b"1 saved version",
+            b"data-team-logo",
         ):
             self.assertGreaterEqual(response.data.count(value), 2, value)
+        self.assertIn(b"Open report", response.data)
+        self.assertNotIn(b">Completeness<", response.data)
+        self.assertNotIn(b">Snapshots<", response.data)
         self.assertIn(b"<table", response.data)
-        self.assertIn(b"<time datetime=", response.data)
+        self.assertIn(b'<time class="report-meta" datetime=', response.data)
         self.assertIn(b'<ul class="member-cards"', response.data)
 
 
