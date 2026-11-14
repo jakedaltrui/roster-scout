@@ -26,7 +26,7 @@ MVP_STORY = (
     "so that my staff can reuse dated scouting reports without cross-organization "
     "access."
 )
-EXPECTED_MIGRATION_HEAD = "0021"
+EXPECTED_MIGRATION_HEAD = "0022"
 EXPECTED_WORKOS_USER_INVITATION_URL = (
     "https://roster-scout.fly.dev/auth/start"
 )

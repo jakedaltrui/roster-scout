@@ -79,6 +79,30 @@ class _PostgreSQLOrganizationCase(unittest.TestCase):
 
 
 class OrganizationOwnershipSchemaTests(_PostgreSQLOrganizationCase):
+    def test_revision_0022_is_reversible_and_drift_free(self):
+        config = alembic_config(self.database_url)
+        command.downgrade(config, "0021")
+        inspector = inspect(self.engine)
+        self.assertNotIn("organization_domains", inspector.get_table_names())
+        membership_columns = {
+            item["name"]
+            for item in inspector.get_columns("organization_memberships")
+        }
+        self.assertNotIn("membership_source", membership_columns)
+        self.assertNotIn("source_domain", membership_columns)
+
+        command.upgrade(config, "head")
+        command.check(config)
+        inspector = inspect(self.engine)
+        self.assertIn("organization_domains", inspector.get_table_names())
+        membership_columns = {
+            item["name"]
+            for item in inspector.get_columns("organization_memberships")
+        }
+        self.assertTrue(
+            {"membership_source", "source_domain"}.issubset(membership_columns)
+        )
+
     def test_revision_0017_is_reversible_and_drift_free(self):
         config = alembic_config(self.database_url)
         command.downgrade(config, "0016")
@@ -1121,7 +1145,7 @@ class MembershipAdministrationTests(_PostgreSQLOrganizationCase):
         self.assertEqual(active_admins, 1)
 
 
-class NoDomainAutoJoinTests(_PostgreSQLOrganizationCase):
+class InstitutionalDomainMembershipTests(_PostgreSQLOrganizationCase):
     def test_provider_organization_context_has_no_acceptance_api(self):
         from roster_scout import organizations
 
@@ -1129,34 +1153,189 @@ class NoDomainAutoJoinTests(_PostgreSQLOrganizationCase):
             hasattr(organizations, "accept_provider_invitation_handoff")
         )
 
-    def test_provider_domain_and_organization_claims_create_no_membership(self):
+    def test_verified_edu_root_and_subdomain_share_an_organization(self):
         from roster_scout.accounts import link_verified_identity
         from roster_scout.identity import VerifiedIdentity
         from roster_scout.models import OrganizationMembership
+        from roster_scout.organizations import resolve_verified_institutional_membership
+
+        account_ids = []
+        organization_ids = []
+        for index, email in enumerate(
+            ("coach@school.edu", "assistant@athletics.school.edu")
+        ):
+            with self.Session.begin() as session:
+                account = link_verified_identity(
+                    session,
+                    VerifiedIdentity(
+                        issuer="https://identity.example.test",
+                        subject=f"same-domain-subject-{index}",
+                        provider_user_id=f"same-domain-user-{index}",
+                        email=email,
+                        email_verified=True,
+                        linking_approved=False,
+                        sealed_session="sealed-sso-session",
+                    ),
+                    now=self.now,
+                )
+                resolution = resolve_verified_institutional_membership(
+                    session,
+                    account_id=account.id,
+                    now=self.now,
+                )
+                account_ids.append(account.id)
+                organization_ids.append(resolution.membership.organization_id)
+
+        self.assertEqual(organization_ids[0], organization_ids[1])
+        with self.Session.begin() as session:
+            memberships = list(session.scalars(
+                select(OrganizationMembership)
+                .where(OrganizationMembership.account_id.in_(account_ids))
+            ))
+        roles = {item.account_id: item.role for item in memberships}
+        self.assertEqual(roles[account_ids[0]], "admin")
+        self.assertEqual(roles[account_ids[1]], "member")
+        self.assertTrue(
+            all(item.membership_source == "verified_domain" for item in memberships)
+        )
+
+    def test_concurrent_first_join_creates_one_school_organization(self):
+        from roster_scout.models import Account, OrganizationDomain
+        from roster_scout.organizations import resolve_verified_institutional_membership
+
+        account_ids = [
+            self._account("coach@concurrent.edu"),
+            self._account("assistant@athletics.concurrent.edu"),
+        ]
+        barrier = Barrier(2)
+
+        def resolve(account_id):
+            barrier.wait(timeout=5)
+            with self.Session.begin() as session:
+                result = resolve_verified_institutional_membership(
+                    session,
+                    account_id=account_id,
+                    now=self.now,
+                )
+                return result.membership.organization_id
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            organization_ids = list(pool.map(resolve, account_ids))
+
+        self.assertEqual(organization_ids[0], organization_ids[1])
+        with self.Session() as session:
+            routes = list(session.scalars(select(OrganizationDomain)))
+            accounts = list(session.scalars(select(Account)))
+        self.assertEqual(len(routes), 1)
+        self.assertEqual(routes[0].domain, "concurrent.edu")
+        self.assertEqual(len(accounts), 2)
+
+    def test_exact_subdomain_alias_can_route_to_a_separate_school(self):
+        from roster_scout.models import Account, Organization, OrganizationDomain
+        from roster_scout.organizations import resolve_verified_institutional_membership
 
         with self.Session.begin() as session:
-            account = link_verified_identity(
-                session,
-                VerifiedIdentity(
-                    issuer="https://identity.example.test",
-                    subject="same-domain-subject",
-                    provider_user_id="same-domain-user",
-                    email="uninvited@example.edu",
-                    email_verified=True,
-                    linking_approved=False,
-                    sealed_session="sealed-sso-session",
+            root_organization = Organization(name="Root University")
+            athletics_organization = Organization(name="Athletics Campus")
+            account = Account(
+                normalized_email="coach@athletics.school.edu",
+                email_verified_at=self.now,
+                status="active",
+            )
+            session.add_all((root_organization, athletics_organization, account))
+            session.flush()
+            session.add_all((
+                OrganizationDomain(
+                    organization_id=root_organization.id,
+                    domain="school.edu",
+                    root_domain="school.edu",
                 ),
+                OrganizationDomain(
+                    organization_id=athletics_organization.id,
+                    domain="athletics.school.edu",
+                    root_domain="school.edu",
+                    is_primary=False,
+                ),
+            ))
+            session.flush()
+            expected_id = athletics_organization.id
+            resolution = resolve_verified_institutional_membership(
+                session,
+                account_id=account.id,
                 now=self.now,
             )
-            account_id = account.id
+            self.assertEqual(resolution.membership.organization_id, expected_id)
+
+    def test_non_edu_and_suffix_spoof_domains_are_rejected(self):
+        from roster_scout.organizations import (
+            OrganizationFailure,
+            institutional_domain_from_verified_email,
+        )
+
+        for email in (
+            "coach@school.com",
+            "coach@school.edu.evil.com",
+            "coach@school-edu.com",
+            "coach@edu",
+        ):
+            with self.subTest(email=email):
+                with self.assertRaises(OrganizationFailure) as raised:
+                    institutional_domain_from_verified_email(email)
+                self.assertEqual(
+                    raised.exception.category,
+                    "institutional_domain_required",
+                )
+
+    def test_domain_change_deactivates_only_prior_domain_membership(self):
+        from roster_scout.models import Account, Organization, OrganizationMembership
+        from roster_scout.organizations import resolve_verified_institutional_membership
+
         with self.Session.begin() as session:
-            self.assertIsNone(
-                session.scalar(
-                    select(OrganizationMembership).where(
-                        OrganizationMembership.account_id == account_id
-                    )
+            account = Account(
+                normalized_email="coach@first.edu",
+                email_verified_at=self.now,
+                status="active",
+            )
+            session.add(account)
+            session.flush()
+            first = resolve_verified_institutional_membership(
+                session,
+                account_id=account.id,
+                now=self.now,
+            )
+            first_membership_id = first.membership.id
+
+            invited_organization = Organization(name="Invited Organization")
+            session.add(invited_organization)
+            session.flush()
+            session.add(OrganizationMembership(
+                organization_id=invited_organization.id,
+                account_id=account.id,
+                role="member",
+                status="active",
+            ))
+            session.flush()
+            account_id = account.id
+            invited_organization_id = invited_organization.id
+            account.normalized_email = "coach@second.edu"
+            account.email_verified_at = self.now + timedelta(minutes=1)
+            second = resolve_verified_institutional_membership(
+                session,
+                account_id=account.id,
+                now=self.now + timedelta(minutes=1),
+            )
+            self.assertEqual(second.membership.organization_id, invited_organization_id)
+
+        with self.Session.begin() as session:
+            first_membership = session.get(OrganizationMembership, first_membership_id)
+            invited_membership = session.scalar(
+                select(OrganizationMembership).where(
+                    OrganizationMembership.organization_id == invited_organization_id,
+                    OrganizationMembership.account_id == account_id,
                 )
             )
+            self.assertEqual(first_membership.status, "inactive")
+            self.assertEqual(invited_membership.status, "active")
 
 
 class OrganizationBootstrapCliTests(_PostgreSQLOrganizationCase):

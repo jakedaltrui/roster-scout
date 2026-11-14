@@ -189,7 +189,7 @@ class PasswordlessBoundaryTests(_PostgreSQLIdentityCase):
         self.assertEqual(callback.status_code, 302)
         self.assertEqual(
             urlsplit(callback.headers["Location"]).path,
-            "/organizations/none",
+            "/reports",
         )
         cookie = callback.headers["Set-Cookie"]
         self.assertIn(f"{SESSION_COOKIE_NAME}=", cookie)
@@ -1051,12 +1051,12 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
             with self.subTest(path=path):
                 self.assertNotEqual(self.client.get(path).status_code, 302)
 
-    def test_callback_selects_only_current_local_memberships(self):
+    def test_callback_adds_verified_school_membership_and_selects_when_needed(self):
         from roster_scout.identity import FakeIdentityProvider
         from roster_scout.models import AccountSession
 
         for membership_count, expected_path in (
-            (0, "/organizations/none"),
+            (0, "/reports"),
             (1, "/reports"),
             (2, "/organizations/select"),
         ):
@@ -1088,7 +1088,7 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
                     row = session.scalar(select(AccountSession))
                     self.assertEqual(
                         row.active_organization_id is not None,
-                        membership_count == 1,
+                        True,
                     )
 
     def test_invitation_token_entry_binds_local_invite_before_callback(self):
@@ -1223,13 +1223,15 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
         )
         self.assertEqual(
             urlsplit(response.headers["Location"]).path,
-            "/organizations/none",
+            "/reports",
         )
         with self.Session() as session:
             invitation = session.get(OrganizationInvitation, invitation_id)
             memberships = list(session.scalars(select(OrganizationMembership)))
         self.assertEqual(invitation.status, "pending")
-        self.assertEqual(memberships, [])
+        self.assertEqual(len(memberships), 1)
+        self.assertEqual(memberships[0].membership_source, "verified_domain")
+        self.assertNotEqual(memberships[0].organization_id, organization_id)
 
     def test_request_authorization_refreshes_provider_and_audits_sign_in_outcomes(self):
         from roster_scout.identity import FakeIdentityProvider, RefreshResult

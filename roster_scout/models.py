@@ -61,6 +61,29 @@ class Organization(UUIDPrimaryKey, Timestamped, Base):
     name: Mapped[str] = mapped_column(String(200), nullable=False)
 
 
+class OrganizationDomain(UUIDPrimaryKey, Timestamped, Base):
+    """Verified institutional domain routed to one local organization."""
+
+    __tablename__ = "organization_domains"
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("organizations.id", name="fk_organization_domains_organization"),
+        nullable=False,
+    )
+    domain: Mapped[str] = mapped_column(String(253), nullable=False)
+    root_domain: Mapped[str] = mapped_column(String(253), nullable=False)
+    is_primary: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+    __table_args__ = (
+        UniqueConstraint("domain", name="uq_organization_domains_domain"),
+        CheckConstraint(
+            "domain = lower(domain) AND root_domain = lower(root_domain)",
+            name="ck_organization_domains_canonical",
+        ),
+        Index("ix_organization_domains_root", "root_domain"),
+    )
+
+
 class OrganizationMembership(UUIDPrimaryKey, Timestamped, Base):
     """Canonical local authorization relationship for one account and tenant."""
 
@@ -80,6 +103,10 @@ class OrganizationMembership(UUIDPrimaryKey, Timestamped, Base):
         String(16), nullable=False, default="active", server_default="active"
     )
     deactivated_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
+    membership_source: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="invitation", server_default="invitation"
+    )
+    source_domain: Mapped[str | None] = mapped_column(String(253))
     __table_args__ = (
         UniqueConstraint(
             "organization_id",
@@ -109,7 +136,13 @@ class OrganizationMembership(UUIDPrimaryKey, Timestamped, Base):
             "(status = 'inactive' AND deactivated_at IS NOT NULL)",
             name="ck_memberships_deactivated_at",
         ),
+        CheckConstraint(
+            "(membership_source = 'invitation' AND source_domain IS NULL) OR "
+            "(membership_source = 'verified_domain' AND source_domain IS NOT NULL)",
+            name="ck_memberships_source",
+        ),
         Index("ix_memberships_account_status", "account_id", "status"),
+        Index("ix_memberships_source_domain", "source_domain"),
         Index(
             "ix_memberships_organization_status_role",
             "organization_id",

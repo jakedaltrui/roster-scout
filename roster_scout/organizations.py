@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+import idna
 from sqlalchemy import func, select
 
 from .accounts import AccountLinkFailure, normalize_verified_email
@@ -18,6 +20,7 @@ from .audit import append_security_audit_event
 from .models import (
     Account,
     Organization,
+    OrganizationDomain,
     OrganizationIdentityConnection,
     OrganizationInvitation,
     OrganizationMembership,
@@ -29,6 +32,16 @@ INVITATION_LIFETIME = timedelta(days=7)
 INVITATION_DELIVERY_LEASE = timedelta(minutes=2)
 ORGANIZATION_ROLES = frozenset({"admin", "member"})
 _LOGGER = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class InstitutionalMembershipResolution:
+    """Result of routing one provider-verified school email."""
+
+    membership: OrganizationMembership
+    verified_domain: str
+    root_domain: str
+    organization_created: bool
 
 
 class OrganizationFailure(RuntimeError):
@@ -74,6 +87,213 @@ def _organization_name(value):
     if not normalized or len(normalized) > 200:
         raise OrganizationFailure("validation_failed")
     return normalized
+
+
+def institutional_domain_from_verified_email(value: str) -> tuple[str, str]:
+    """Return canonical exact/root .edu domains or one fixed safe failure."""
+    try:
+        normalized_email = normalize_verified_email(value)
+        domain = normalized_email.rsplit("@", 1)[1]
+        if domain.endswith("."):
+            raise ValueError
+        canonical = idna.encode(
+            domain,
+            uts46=True,
+            std3_rules=True,
+        ).decode("ascii").casefold()
+    except (AccountLinkFailure, idna.IDNAError, UnicodeError, ValueError):
+        raise OrganizationFailure("institutional_domain_required") from None
+
+    labels = canonical.split(".")
+    if (
+        len(canonical) > 253
+        or len(labels) < 2
+        or any(not label or len(label) > 63 for label in labels)
+        or labels[-1] != "edu"
+    ):
+        raise OrganizationFailure("institutional_domain_required")
+    return canonical, ".".join(labels[-2:])
+
+
+def _lock_institutional_root(session, root_domain: str) -> None:
+    """Serialize first-use organization creation for one school root domain."""
+    session.execute(
+        select(func.pg_advisory_xact_lock(func.hashtext(root_domain)))
+    )
+
+
+def resolve_verified_institutional_membership(
+    session,
+    *,
+    account_id,
+    now=None,
+) -> InstitutionalMembershipResolution:
+    """Route a verified .edu account to its shared local organization.
+
+    Exact aliases win over the default last-two-label root mapping. The caller
+    must already have verified the address through the identity provider.
+    """
+    account_id = _canonical_uuid(account_id)
+    now = _utc_datetime(now or datetime.now(UTC))
+    account = session.get(Account, account_id, with_for_update=True)
+    if account is None or account.status != "active":
+        raise OrganizationFailure("account_unavailable")
+    verified_domain, root_domain = institutional_domain_from_verified_email(
+        account.normalized_email
+    )
+
+    _lock_institutional_root(session, root_domain)
+    domain_route = session.scalar(
+        select(OrganizationDomain)
+        .where(OrganizationDomain.domain == verified_domain)
+        .with_for_update()
+    )
+    if domain_route is None and verified_domain != root_domain:
+        domain_route = session.scalar(
+            select(OrganizationDomain)
+            .where(OrganizationDomain.domain == root_domain)
+            .with_for_update()
+        )
+
+    organization_created = False
+    if domain_route is None:
+        explicit_memberships = list(
+            session.scalars(
+                select(OrganizationMembership)
+                .where(
+                    OrganizationMembership.account_id == account.id,
+                    OrganizationMembership.status == "active",
+                    OrganizationMembership.membership_source == "invitation",
+                )
+                .with_for_update()
+            )
+        )
+        if len(explicit_memberships) == 1:
+            organization = session.get(
+                Organization,
+                explicit_memberships[0].organization_id,
+                with_for_update=True,
+            )
+            if organization is None:
+                raise OrganizationFailure("organization_unavailable")
+        else:
+            organization_created = True
+            organization = Organization(name=root_domain)
+            session.add(organization)
+            session.flush()
+        domain_route = OrganizationDomain(
+            organization_id=organization.id,
+            domain=root_domain,
+            root_domain=root_domain,
+            is_primary=True,
+        )
+        session.add(domain_route)
+        session.flush()
+        if organization_created:
+            append_security_audit_event(
+                session,
+                actor_account_id=account.id,
+                organization_id=organization.id,
+                target_type="organization",
+                target_id=organization.id,
+                action="organization.bootstrap",
+                outcome="succeeded",
+                reason="institutional_domain_provisioned",
+                occurred_at=now,
+            )
+    else:
+        organization = session.get(
+            Organization,
+            domain_route.organization_id,
+            with_for_update=True,
+        )
+        if organization is None:
+            raise OrganizationFailure("organization_unavailable")
+
+    prior_memberships = list(
+        session.scalars(
+            select(OrganizationMembership)
+            .where(
+                OrganizationMembership.account_id == account.id,
+                OrganizationMembership.status == "active",
+                OrganizationMembership.membership_source == "verified_domain",
+                OrganizationMembership.organization_id != organization.id,
+            )
+            .with_for_update()
+        )
+    )
+    for prior in prior_memberships:
+        prior.status = "inactive"
+        prior.deactivated_at = now
+        clear_active_organization_sessions(
+            session,
+            account_id=account.id,
+            organization_id=prior.organization_id,
+        )
+        append_security_audit_event(
+            session,
+            actor_account_id=account.id,
+            organization_id=prior.organization_id,
+            target_type="membership",
+            target_id=prior.id,
+            action="membership.remove",
+            outcome="succeeded",
+            reason="verified_domain_changed",
+            occurred_at=now,
+        )
+
+    membership = session.scalar(
+        select(OrganizationMembership)
+        .where(
+            OrganizationMembership.organization_id == organization.id,
+            OrganizationMembership.account_id == account.id,
+        )
+        .with_for_update()
+    )
+    membership_activated = membership is None or membership.status != "active"
+    if membership is None:
+        active_member_count = session.scalar(
+            select(func.count())
+            .select_from(OrganizationMembership)
+            .where(
+                OrganizationMembership.organization_id == organization.id,
+                OrganizationMembership.status == "active",
+            )
+        )
+        membership = OrganizationMembership(
+            organization_id=organization.id,
+            account_id=account.id,
+            role="admin" if active_member_count == 0 else "member",
+            status="active",
+            membership_source="verified_domain",
+            source_domain=verified_domain,
+        )
+        session.add(membership)
+    elif membership.status != "active":
+        membership.status = "active"
+        membership.deactivated_at = None
+
+    if membership.membership_source == "verified_domain":
+        membership.source_domain = verified_domain
+    session.flush()
+    if membership_activated:
+        append_security_audit_event(
+            session,
+            actor_account_id=account.id,
+            organization_id=organization.id,
+            target_type="membership",
+            target_id=membership.id,
+            action="membership.create",
+            outcome="succeeded",
+            reason="verified_domain_joined",
+            occurred_at=now,
+        )
+    return InstitutionalMembershipResolution(
+        membership=membership,
+        verified_domain=verified_domain,
+        root_domain=root_domain,
+        organization_created=organization_created,
+    )
 
 
 def _active_admin(session, *, organization_id, account_id):
@@ -462,12 +682,16 @@ def accept_invitation(
             account_id=account_id,
             role=invitation.role,
             status="active",
+            membership_source="invitation",
+            source_domain=None,
         )
         session.add(membership)
     else:
         membership.role = invitation.role
         membership.status = "active"
         membership.deactivated_at = None
+        membership.membership_source = "invitation"
+        membership.source_domain = None
     session.flush()
 
     invitation.status = "accepted"

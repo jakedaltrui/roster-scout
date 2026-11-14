@@ -33,6 +33,7 @@ from .sessions import (
 from .organizations import (
     OrganizationFailure,
     accept_invitation,
+    resolve_verified_institutional_membership,
     resolve_provider_invitation_reference,
 )
 
@@ -292,14 +293,27 @@ def callback():
                     invitation_id=transaction.invitation_id,
                     account_id=account.id,
                 )
+            institutional_resolution = None
+            try:
+                institutional_resolution = resolve_verified_institutional_membership(
+                    session,
+                    account_id=account.id,
+                )
+            except OrganizationFailure as exc:
+                if exc.category != "institutional_domain_required":
+                    raise
             memberships = list_active_memberships(
                 session,
                 account_id=account.id,
             )
             active_organization_id = (
-                memberships[0].organization_id
-                if len(memberships) == 1
-                else None
+                institutional_resolution.membership.organization_id
+                if institutional_resolution is not None
+                else (
+                    memberships[0].organization_id
+                    if len(memberships) == 1
+                    else None
+                )
             )
             credential = create_account_session(
                 session,

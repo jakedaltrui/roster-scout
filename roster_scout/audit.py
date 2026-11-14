@@ -73,6 +73,9 @@ AUDIT_REASONS = frozenset(
         "identity_not_verified",
         "identity_conflict",
         "identity_unavailable",
+        "institutional_domain_provisioned",
+        "verified_domain_joined",
+        "verified_domain_changed",
     }
 )
 
