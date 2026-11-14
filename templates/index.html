@@ -56,6 +56,7 @@
     .account-menu summary::-webkit-details-marker { display:none; }
     .account-menu__panel { position:absolute; top:calc(100% + 10px); right:0; width:240px; padding:16px; border:1px solid #303034; border-radius:18px; background:#171719; box-shadow:0 20px 48px rgba(0,0,0,.32); transform-origin:top right; }
     .account-menu[open] .account-menu__panel { animation:menu-in .18s cubic-bezier(.2,.8,.2,1) both; }
+    .account-menu.is-closing .account-menu__panel { animation:menu-out .16s ease-in both; pointer-events:none; }
     .account-menu[open] summary { color:#fff; background:rgba(255,255,255,.08); }
     .account-email { margin:0 0 12px; overflow-wrap:anywhere; color:#a1a1a4; font-size:13px; }
     .account-menu__panel form,.account-menu__panel button { width:100%; }
@@ -177,6 +178,7 @@
     .team-result:hover { transform:translateX(2px); }
     .team-results:not([hidden]) { transform-origin:top center; animation:menu-in .18s cubic-bezier(.2,.8,.2,1) both; }
     @keyframes menu-in { from { opacity:0; transform:translateY(-5px) scale(.99); } to { opacity:1; transform:translateY(0) scale(1); } }
+    @keyframes menu-out { from { opacity:1; transform:translateY(0) scale(1); } to { opacity:0; transform:translateY(-4px) scale(.99); } }
     .team-logo { display:grid; place-items:center; width:36px; height:36px; flex:none; overflow:hidden; }
     .team-logo img { display:block; width:30px; height:30px; object-fit:contain; }
     .team-logo-fallback { color:#a5a5aa; font-size:10px; font-weight:700; letter-spacing:.02em; }
@@ -1498,17 +1500,46 @@
     const accountMenu = document.querySelector('details.account-menu');
     if (accountMenu) {
       const accountSummary = accountMenu.querySelector('summary');
+      const accountPanel = accountMenu.querySelector('.account-menu__panel');
+      let accountCloseTimer = null;
+      const finishAccountMenuClose = (restoreFocus = false) => {
+        if (accountCloseTimer !== null) window.clearTimeout(accountCloseTimer);
+        accountCloseTimer = null;
+        accountMenu.classList.remove('is-closing');
+        accountMenu.open = false;
+        if (restoreFocus) accountSummary.focus();
+      };
+      const closeAccountMenu = ({ restoreFocus = false } = {}) => {
+        if (!accountMenu.open || accountMenu.classList.contains('is-closing')) return;
+        if (!accountPanel || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          finishAccountMenuClose(restoreFocus);
+          return;
+        }
+        accountMenu.classList.add('is-closing');
+        const finish = event => {
+          if (event && (event.target !== accountPanel || event.animationName !== 'menu-out')) return;
+          accountPanel.removeEventListener('animationend', finish);
+          finishAccountMenuClose(restoreFocus);
+        };
+        accountPanel.addEventListener('animationend', finish);
+        accountCloseTimer = window.setTimeout(() => finishAccountMenuClose(restoreFocus), 220);
+      };
+      accountSummary.addEventListener('click', event => {
+        if (!accountMenu.open || accountMenu.classList.contains('is-closing')) return;
+        event.preventDefault();
+        closeAccountMenu();
+      });
       accountMenu.addEventListener('toggle', () => {
+        if (accountMenu.open) accountMenu.classList.remove('is-closing');
         accountSummary.setAttribute('aria-expanded', String(accountMenu.open));
       });
       accountMenu.addEventListener('keydown', event => {
         if (event.key !== 'Escape' || !accountMenu.open) return;
         event.preventDefault();
-        accountMenu.open = false;
-        accountSummary.focus();
+        closeAccountMenu({ restoreFocus: true });
       });
       document.addEventListener('click', event => {
-        if (accountMenu.open && !accountMenu.contains(event.target)) accountMenu.open = false;
+        if (accountMenu.open && !accountMenu.contains(event.target)) closeAccountMenu();
       });
     }
 

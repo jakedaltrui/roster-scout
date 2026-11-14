@@ -1492,7 +1492,18 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
         self.assertIn("product-card-in", product_css)
         self.assertIn("product-dialog-in", product_css)
         self.assertIn(".account-menu[open] .account-menu__panel", product_css)
+        self.assertIn(".account-menu.is-closing .account-menu__panel", product_css)
+        self.assertIn("@keyframes product-menu-out", product_css)
         self.assertIn("@media (prefers-reduced-motion: reduce)", product_css)
+
+        product_shell = os.path.join(
+            os.path.dirname(__file__), "..", "static", "product_shell.js"
+        )
+        with open(product_shell, encoding="utf-8") as handle:
+            product_shell_script = handle.read()
+        self.assertIn('menu.classList.add("is-closing")', product_shell_script)
+        self.assertIn('event.animationName !== "product-menu-out"', product_shell_script)
+        self.assertIn('matchMedia("(prefers-reduced-motion: reduce)")', product_shell_script)
 
         homepage = os.path.join(
             os.path.dirname(__file__), "..", "templates", "index.html"
@@ -1501,6 +1512,8 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
             homepage_template = handle.read()
         self.assertNotIn("Use your school email to continue.", homepage_template)
         self.assertIn("@keyframes auth-content-in", homepage_template)
+        self.assertIn("@keyframes menu-out", homepage_template)
+        self.assertIn("accountMenu.classList.add('is-closing')", homepage_template)
         self.assertIn("void nextState.offsetWidth", homepage_template)
 
         auth_error = os.path.join(
