@@ -2,7 +2,7 @@
 
 ## What This Is
 
-Roster Scout is a Flask application for college-baseball scouting. Its v2.0 codebase now includes a login-gated organization workspace where customers can generate, review, refresh, and download persistent opponent reports. The remaining milestone work expands the NCAA intelligence, builds the complete workbook, and adds embedded Power BI analytics.
+Roster Scout is a Flask application for college-baseball scouting. Its public polished homepage lets a coach choose an opponent before a passwordless school-email handoff; verified staff then generate, review, refresh, and download shared persistent reports in a minimal portal. The remaining milestone work expands the NCAA intelligence, builds the complete workbook, and adds embedded Power BI analytics.
 
 Each report is an immutable, dated snapshot of the source data available when it was generated. Organizations can retain consecutive snapshots, explicitly refresh a report into a new version, review an opponent-branded dashboard, and download the complete underlying report as an Excel workbook.
 
@@ -32,8 +32,8 @@ A baseball staff can reliably turn fragmented opponent data into a trustworthy, 
 - ✓ The request path applies bounded input validation, per-client rate limits, browser-capacity protection, and consistent error responses — existing
 - ✓ Durable jobs publish immutable organization-owned snapshots with section status, provenance, source identifiers, collection times, and canonical player identity — Phase 1
 - ✓ Published snapshot facts provide one versioned canonical boundary for downstream Excel and Power BI consumers without duplicating source truth — Phase 1
-- ✓ Customers authenticate before using Roster Scout and access reports only through explicit organization membership — Phase 2
-- ✓ Organization administrators invite and manage members without treating an `.edu` domain as authorization — Phase 2
+- ✓ Visitors can select an opponent publicly; report generation and delivery require a secure authenticated school session — Phase 02.1
+- ✓ Provider-verified `.edu` roots and ordinary school subdomains join one shared school organization, with exact aliases and invitations for exceptions — Phase 02.1
 - ✓ Saved reports expose dated immutable snapshots, and explicit refresh creates a linked successor without changing prior evidence — Phase 2
 
 ### Active
@@ -45,8 +45,8 @@ A baseball staff can reliably turn fragmented opponent data into a trustworthy, 
 
 ### Out of Scope
 
-- Anonymous access to Roster Scout or opponent reports — v2.0 is account- and organization-gated
-- Automatic organization membership based only on an email domain — a verified address authenticates a user but does not authorize report access
+- Anonymous report generation, workbook delivery, saved history, refresh, or dashboards — only the team selector is public
+- Automatic membership from unverified, malformed, lookalike, or non-`.edu` domains — only a provider-verified institutional address may auto-join
 - Editing historical snapshots in place — refresh always creates a new version so prior game-preparation evidence remains reproducible
 - Live in-game scoring, pitch tracking, or play-by-play streaming — this milestone analyzes published NCAA roster and statistics data
 - A native mobile application — the responsive web experience remains the delivery surface
@@ -55,7 +55,7 @@ A baseball staff can reliably turn fragmented opponent data into a trustworthy, 
 
 ## Context
 
-- Phase 2 adds passwordless/federated identity boundaries, explicit organization membership, administration, saved report creation, status, refresh, retry, history, and exact historical workbook delivery. The legacy selector and two-sheet workbook remain compatibility surfaces while production identity provisioning stays an explicit launch gate.
+- Phase 02.1 restores the original homepage as the primary interface, adds passwordless authentication only at generation, maps verified school domains to shared organizations, and keeps a minimal saved-report/history/refresh/download portal. Production identity provisioning stays an explicit launch gate.
 - NCAA places the live statistics boundary behind terms acceptance and Akamai verification. The existing Browserless sticky residential workflow is proven for representative D1, D2, and D3 teams and must remain the acquisition path until a safer official alternative exists.
 - The current normalizer extracts NCAA player IDs to merge batting and pitching rows, then discards those IDs from the public record. It also parses several raw values needed for advanced metrics without retaining all of them in workbook output.
 - Power BI customer embedding uses the app-owns-data model. End users do not need Power BI licenses, but production embedding requires paid Embedded, Premium, or Fabric capacity plus an embedding identity and Power BI workspace.
@@ -80,9 +80,9 @@ A baseball staff can reliably turn fragmented opponent data into a trustworthy, 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | Make the branded web dashboard the primary review surface and keep Excel as a complete companion download | Embedded analytics and portable scouting files solve different customer jobs | — Pending |
-| Gate all Roster Scout use behind authentication | Saved customer reports and Power BI embed tokens require an accountable security boundary | ✓ Phase 2 implemented a default-deny route gate and opaque server sessions |
+| Authenticate only at report generation | Coaches should evaluate and select an opponent before friction, while customer reports and downloads still require an accountable boundary | ✓ Phase 02.1 keeps the homepage/catalog public and protects generation, delivery, history, refresh, and downloads |
 | Model customers as organizations with shared reports | Coaching and scouting staffs collaborate on the same opponents | ✓ Phase 2 implemented canonical memberships and a shared report library |
-| Use verified institutional domains for the default organization membership | The simple school workflow should connect staff who control addresses at the same `.edu` institution while rejecting lookalikes and non-school domains | ⚠ Supersedes the Phase 2 invitation-first default; Phase 02.1 adds strict root/alias mapping and keeps invitations secondary |
+| Use verified institutional domains for the default organization membership | The simple school workflow should connect staff who control addresses at the same `.edu` institution while rejecting lookalikes and non-school domains | ✓ Phase 02.1 adds strict root/alias mapping, provenance, transfer handling, and secondary exact invitations |
 | Support passwordless email and federated school/work identities | Customers may use `.edu`, athletics, vendor, or personal addresses across Microsoft and Google ecosystems | ✓ Phase 2 implemented the provider-neutral WorkOS boundary; live provider setup remains a deployment gate |
 | Keep pricing and billing out of the corrective flow | The authentication and shared-report experience must be validated before choosing plan structure or subscription ownership | — Open product decision after Phase 02.1 |
 | Preserve report snapshots and make refresh create a linked new version | Teams may prepare for the same opponent on consecutive days and need the original evidence | ✓ Phase 1 established immutable predecessor-aware snapshots; Phase 2 adds the customer refresh workflow |
@@ -107,4 +107,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-13 after Phase 2 completion*
+*Last updated: 2026-11-13 after corrective Phase 02.1 completion*

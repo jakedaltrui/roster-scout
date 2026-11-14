@@ -1803,6 +1803,45 @@ class Phase2IdentityDeploymentConfigTests(unittest.TestCase):
             self.assertIn(f"| `{name}` |", runbook)
 
 
+class Phase21ReleaseValidatorContractTests(unittest.TestCase):
+    @staticmethod
+    def _load_validator():
+        import importlib.util
+
+        path = PROJECT_ROOT / "scripts" / "validate_phase21_release.py"
+        spec = importlib.util.spec_from_file_location(
+            "validate_phase21_release_contract", path
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_corrective_gate_covers_journey_domain_browser_and_full_regression(self):
+        validator = self._load_validator()
+        self.assertEqual(validator.EXPECTED_MIGRATION_HEAD, "0022")
+        manifest = validator.release_command_manifest(
+            sys.executable,
+            diff_base="fa18b73",
+        )
+        serialized = repr(manifest)
+        for required in (
+            "tests.test_phase21_release.Phase21CustomerJourneyTests",
+            "InstitutionalDomainMembershipTests",
+            "CrossOrganizationDenialTests",
+            "tests/js/home_flow.test.mjs",
+            "tests/js/download_tracking.test.mjs",
+            "tests/js/report_status.test.mjs",
+            "unittest', 'discover",
+            "alembic', 'downgrade', 'base",
+            "alembic', 'check",
+            "scripts/validate_ncaa_catalog.py",
+            "docker', 'compose', 'config",
+            "git', 'diff', '--check",
+        ):
+            self.assertIn(required, serialized)
+        self.assertNotIn("fly deploy", serialized)
+
+
 class Phase2ReleaseValidatorContractTests(unittest.TestCase):
     @staticmethod
     def _load_validator():

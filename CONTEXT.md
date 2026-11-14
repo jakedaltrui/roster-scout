@@ -4,11 +4,13 @@ This is a minimal ICM system map. The repository is small enough that this file 
 
 ## Runtime flow
 
-1. `templates/index.html` loads the exact current-season NCAA selector from `GET /api/teams`, then sends `team`, `division`, and `season_team_id` to `POST /scrape`. JUCO remains free text. The unlisted `GET /demo` route renders `templates/demo.html` and serves its video from `static/demo/`; the main page does not link to it.
-2. `app.py` validates the request and dispatches selected D1/D2/D3 IDs to the deterministic NCAA workflow or JUCO to its existing workflow in `roster_scraper.py`. Name matching remains available only for older API clients.
-3. The NCAA workflow resolves baseballr-maintained team/season IDs and checks its successful-result cache under a per-team file lock. Concurrent workbook requests sharing the same machine/cache reuse the first successful collection. The hosted deployment opens batting and pitching in one Browserless sticky residential browser, accepts NCAA's terms in that browser, and requires `#stat_grid` before parsing. Cleanup explicitly sends CDP `Browser.close` before releasing capacity; upstream Browserless 429s return the retryable busy response. The Site Unblocker HTTP workflow and a dedicated local Patchright profile remain fallback options for other deployments. NCAA failures are returned consistently for D1, D2, and D3; there is no D1-only external stats fallback.
-4. `roster_scraper.py` normalizes player rows and splits hitters from pitchers.
-5. `app.py` creates an in-memory `.xlsx` with Hitters and Pitchers worksheets and returns it as a browser download.
+1. `templates/index.html` is public and loads the exact current-season NCAA selector from `GET /api/teams`. It sends `team`, `division`, and `season_team_id` to `POST /scrape`; JUCO remains free text. The unlisted `GET /demo` route renders `templates/demo.html` and serves its video from `static/demo/`; the main page does not link to it.
+2. `POST /scrape` requires an authenticated session and same-origin CSRF token. If the visitor is anonymous, `static/home_flow.js` stores only a bounded, non-identifying selector payload and sends them to passwordless school-email sign-in. The exact callback target is `/?resume=download`; a verified session consumes the payload once and automatically resumes the request.
+3. Verified `.edu` identities resolve locally to an organization through `OrganizationDomain`: an exact reviewed alias wins, otherwise ordinary subdomains fold to the registrable institutional `.edu` root. Non-`.edu`, malformed, IDNA-invalid, and suffix-lookalike domains never grant membership. Membership provenance distinguishes verified-domain access from invitation access.
+4. `app.py` revalidates the exact team catalog selection and durably accepts or reuses the organization-owned report/job before any external collection. It dispatches the durable job best-effort, then runs the compatibility workbook workflow so the original immediate `.xlsx` download remains available. The response includes the saved-report URL for the minimal report portal.
+5. The NCAA workflow resolves baseballr-maintained team/season IDs and checks its successful-result cache under a per-team file lock. Concurrent workbook requests sharing the same machine/cache reuse the first successful collection. The hosted deployment opens batting and pitching in one Browserless sticky residential browser, accepts NCAA's terms in that browser, and requires `#stat_grid` before parsing. Cleanup explicitly sends CDP `Browser.close` before releasing capacity; upstream Browserless 429s return the retryable busy response. The Site Unblocker HTTP workflow and a dedicated local Patchright profile remain fallback options for other deployments. NCAA failures are returned consistently for D1, D2, and D3; there is no D1-only external stats fallback.
+6. `roster_scraper.py` normalizes player rows and splits hitters from pitchers. `app.py` creates the in-memory Hitters/Pitchers workbook and returns it as a browser download; the acknowledgement endpoint records a successful download exactly once.
+7. Authenticated users can open the minimal saved-report portal for organization-shared reports, immutable snapshot history, explicit refresh, and exact historical downloads. Primary navigation is limited to New report, Saved reports, and Account; organization administration remains available only through protected direct routes.
 
 ## Universes
 
@@ -21,6 +23,9 @@ This is a minimal ICM system map. The repository is small enough that this file 
 
 | Change | Hits | Does not automatically hit |
 |---|---|---|
+| Homepage sign-in/resume behavior | `templates/index.html`, `static/home_flow.js`, auth routes, and `/scrape` authorization | NCAA source adapters |
+| School-domain organization resolution | identity services, `OrganizationDomain`, membership provenance, migration tests, and tenant-isolation tests | Homepage visual design |
+| Saved-report portal navigation | report-library templates/routes and authorization services | Public selector behavior |
 | Form fields or JSON response names | `templates/index.html` and `/scrape` in `app.py` | Scraper source adapters |
 | Product demo page or video | `templates/demo.html`, `static/demo/`, and `/demo` in `app.py` | Main-page navigation and scraper behavior |
 | NCAA team selector or catalog validation | `/api/teams`, selector helpers in `roster_scraper.py`, and `scripts/validate_ncaa_catalog.py` | Excel formatting |
@@ -36,12 +41,12 @@ This is a minimal ICM system map. The repository is small enough that this file 
 
 Run from the repository root:
 
-1. `python3 -m py_compile app.py roster_scraper.py scripts/live_ncaa_smoke.py scripts/validate_ncaa_catalog.py`
+1. `uv run python -m py_compile app.py roster_scraper.py scripts/live_ncaa_smoke.py scripts/validate_ncaa_catalog.py scripts/validate_phase21_release.py`
 2. Confirm `templates/index.html` and `templates/demo.html` exist because `app.py` renders both templates.
-3. Run `python3 -m unittest discover -s tests -v`; tests use local NCAA fixtures and inspect the generated workbook response.
+3. With the disposable local PostgreSQL test database running, run `PHASE2_DESTRUCTIVE_DATABASE=local-disposable DATABASE_URL=postgresql+psycopg://roster_scout:roster_scout@127.0.0.1:5432/roster_scout_test uv run python scripts/validate_phase21_release.py`. This is the authoritative Phase 2.1 gate and includes migrations, the complete customer story, Python and Node regressions, catalog checks, deployment contracts, compilation, and diff hygiene.
 4. Optionally run `python3 scripts/live_ncaa_smoke.py` for the external NCAA boundary; it can fail when Akamai rejects the current IP/browser.
 5. Run `python3 scripts/validate_ncaa_catalog.py` to validate every current-season D1/D2/D3 selector record in one pass.
-6. Confirm `git diff --check` passes.
+6. Confirm `git diff --check` passes. The corrective gate does not deploy and does not authorize production launch.
 
 External boundaries not represented in this tree: hosting-provider configuration,
 proxy account/credentials, and upstream sports websites/Akamai policy. The

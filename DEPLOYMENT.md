@@ -94,9 +94,13 @@ signed proof, and bounded timestamps for at most the proof lifetime.
 
 Roster Scout uses WorkOS AuthKit as a replaceable managed identity boundary.
 The application owns canonical accounts, organization memberships, and opaque
-server sessions; WorkOS organization, domain, and JIT claims never authorize a
-Roster Scout organization. Local and automated verification use the injected
-fake adapter and do not contact a WorkOS workspace.
+server sessions. Provider organization, domain, and JIT claims never authorize
+a Roster Scout organization. After subject linking, only the provider-verified
+email address enters the local institutional-domain resolver: an exact `.edu`
+alias wins, otherwise an ordinary subdomain folds into its last-two-label
+institutional root. Malformed, lookalike, and non-`.edu` addresses never create
+automatic membership. Local and automated verification use the injected fake
+adapter and do not contact a WorkOS workspace.
 
 Configure these names only through an untracked local environment or the
 hosting provider's secret store:
@@ -136,6 +140,10 @@ can resolve the token and issue one signed, one-time local state before the
 callback. Run the same readiness and route tests before any live IdP smoke. Do
 not reuse production keys or cookie passwords in staging.
 
+The resulting entry shape is `/auth/start?invitation_token=...`; the token is
+consumed into signed, one-time local state and is never accepted as direct
+organization authority.
+
 Phase 2 records two deliberately separate readiness states:
 
 - `code_verified` means deterministic fake/emulator-backed authentication,
@@ -147,33 +155,38 @@ Phase 2 records two deliberately separate readiness states:
   `https://roster-scout.fly.dev/auth/start`, configures passwordless email plus
   Google and Microsoft, and completes a real customer OIDC or SAML smoke test.
 
-Before recording `production_auth_verified`, also disable provider-side domain
-or JIT membership as an authorization source, verify outbound passwordless
-email, and perform the invitation smoke from the provider-sent
-`accept_invitation_url`. The first Roster Scout request must be
-`/auth/start?invitation_token=...`; it must then complete the stateful
-`/auth/callback` and accept only the exact-email local invitation. Test
-local-first logout during a provider failure and confirm a user without an
-explicit local invitation sees no organization reports. A green
+Before recording `production_auth_verified`, verify outbound passwordless
+email and confirm provider organization/JIT claims remain ignored. Complete a
+live `.edu` smoke in which `coach@school.edu` and
+`assistant@athletics.school.edu` reach the same local organization, while a
+lookalike and a non-`.edu` address gain no automatic access. Also verify the
+exact invitation exception path, local-first logout during provider failure,
+and the public-select → sign-in → resumed-download journey. A green
 `code_verified` result never implies that these live checks passed.
 
-Run the complete deterministic Phase 2 gate from the repository root against
+Run the complete deterministic corrective Phase 2.1 gate from the repository root against
 the disposable PostgreSQL database:
 
 ```bash
 PHASE2_DESTRUCTIVE_DATABASE=local-disposable \
   DATABASE_URL=postgresql+psycopg://roster_scout:roster_scout@127.0.0.1:5432/roster_scout_test \
-  .venv/bin/python scripts/validate_phase2_release.py
+  .venv/bin/python scripts/validate_phase21_release.py
 ```
 
-Only after every focused Phase 2 story/security/download/429 test, both Node
-state machines, the revision `0021` lifecycle, full Python and Node suites,
+The earlier `scripts/validate_phase2_release.py` remains the lower-level Phase
+2 identity, organization, report-library, and deployment contract. Phase 2.1's
+validator extends that release surface with the restored homepage journey and
+school-domain authorization model.
+
+Only after the full public-select/sign-in/resume/download/shared-portal story,
+domain and tenant security tests, all three Node state machines, the revision `0022` lifecycle, full Python and Node suites,
 catalog, workbook, configuration, compilation, template, and diff checks pass
-does the command emit `code_verified=true`. Without separate reviewed live
-evidence it also emits `production_auth_verified=false`, so production launch
-remains blocked even though deterministic Phase 2 code completion succeeds.
-In other words, production launch remains blocked until the separate live
-authentication evidence is complete.
+does the corrective gate pass. Production launch remains blocked until the
+separate live authentication evidence is complete and the user explicitly
+approves deployment.
+
+In release-state terms, `production launch remains blocked` until those live
+checks and that explicit approval are recorded.
 
 The separate live evidence requires an operator-owned WorkOS production workspace,
 confirmed billing, installed secrets, verified dashboard
@@ -182,8 +195,9 @@ redirect/sign-out/initiate-login URIs, the exact User Invitation URL
 Microsoft, and one real customer OIDC or SAML connection. It must also confirm
 the provider-sent invitation traversed token-bearing `/auth/start`, signed
 local state issuance, and `/auth/callback` into the exact-email local
-membership; provider domain/JIT membership is disabled as authorization; and
-an uninvited account cannot open reports. No validator creates a workspace,
+membership; provider domain/JIT claims remain ignored as authorization; the
+verified institutional email resolver is exercised separately; and a foreign
+organization cannot open reports. No validator creates a workspace,
 sends real email, configures a customer IdP, deploys the app, or creates a
 billable resource.
 

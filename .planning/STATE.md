@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
-status: planning
-stopped_at: Phase 02.1 corrective audit and plans ready
-last_updated: "2026-11-14T03:10:42.491Z"
+status: complete
+stopped_at: Phase 02.1 corrective release gate passed; stopped before Phase 3
+last_updated: "2026-11-14T03:46:14Z"
 last_activity: 2026-11-13
 progress:
   total_phases: 6
-  completed_phases: 2
-  total_plans: 57
-  completed_plans: 57
-  percent: 33
+  completed_phases: 3
+  total_plans: 61
+  completed_plans: 61
+  percent: 50
 ---
 
 # Project State
@@ -21,22 +21,22 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-11-13)
 
 **Core value:** A baseball staff can reliably turn fragmented opponent data into a trustworthy, reusable scouting report with interactive analysis and a portable Excel download.
-**Current focus:** Phase 02.1 — restore public homepage and school-domain sign-in flow
+**Current focus:** Phase 02.1 complete; awaiting direction before Phase 3 or deployment
 
 ## Current Position
 
-Phase: 02.1 (restore-public-homepage-and-school-domain-sign-in-flow) — PLANNED
-Plan: 0 of 4
-Status: Ready to execute corrective plans
+Phase: 02.1 (restore-public-homepage-and-school-domain-sign-in-flow) — COMPLETE
+Plan: 4 of 4
+Status: Corrective release gate passed; production unchanged
 Last activity: 2026-11-13
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 57
+- Total plans completed: 61
 - Average duration: 43m
 - Total execution time: 41h 18m
 
@@ -45,6 +45,7 @@ Progress: [░░░░░░░░░░] 0%
 |---|---:|---:|---:|
 | 1. Canonical Snapshot Foundation | 41 | 36h 36m | 54m |
 | 2. Identity, Organizations, and Report Library | 16 | 4h 42m | 18m |
+| 02.1 Restore public homepage and school-domain sign-in flow | 4 | corrective | - |
 
 **Plan History:**
 | Phase | Plan | Duration | Tasks | Files |
@@ -76,6 +77,7 @@ Progress: [░░░░░░░░░░] 0%
 ### Roadmap Evolution
 
 - Phase 02.1 inserted after Phase 2: Restore public homepage and school-domain sign-in flow (URGENT)
+- Phase 02.1 completed with the public homepage restored, school-domain authorization verified, and the report portal reduced to its essential customer flow.
 
 ### Decisions
 

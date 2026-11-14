@@ -8,7 +8,7 @@ Roster Scout v2.0 is delivered in five dependency-ordered slices. The roadmap fi
 
 - [x] **Phase 1: Canonical Snapshot Foundation** - Persist provenance-rich immutable snapshots through durable report jobs. (completed 2026-11-11)
 - [x] **Phase 2: Identity, Organizations, and Report Library** - Gate Roster Scout behind passwordless organization access and versioned report workflows. (completed 2026-11-13)
-- [ ] **Phase 02.1: Restore public homepage and school-domain sign-in flow** - Reestablish the polished homepage as the primary product, authenticate at generation, auto-join verified school domains, and keep the portal minimal. (INSERTED)
+- [x] **Phase 02.1: Restore public homepage and school-domain sign-in flow** - Reestablish the polished homepage as the primary product, authenticate at generation, auto-join verified school domains, and keep the portal minimal. (INSERTED)
 - [ ] **Phase 3: Detailed NCAA Intelligence** - Add fielding, advanced metrics, situational splits, career history, and game logs.
 - [ ] **Phase 4: Detailed Excel Report** - Deliver the exact detailed snapshot as a branded ten-sheet workbook.
 - [ ] **Phase 5: Embedded Opponent Dashboard** - Securely embed the opponent-branded Power BI report and harden production delivery.
@@ -267,10 +267,10 @@ Plans:
 
 Plans:
 
-- [ ] 02.1-01: Add verified institutional-domain organization resolution and membership provenance.
-- [ ] 02.1-02: Restore the public homepage and automatic passwordless sign-in resume.
-- [ ] 02.1-03: Save homepage requests and simplify the portal around reports, history, refresh, and downloads.
-- [ ] 02.1-04: Run corrective browser, visual, security, migration, and regression release verification.
+- [x] 02.1-01: Add verified institutional-domain organization resolution and membership provenance.
+- [x] 02.1-02: Restore the public homepage and automatic passwordless sign-in resume.
+- [x] 02.1-03: Save homepage requests and simplify the portal around reports, history, refresh, and downloads.
+- [x] 02.1-04: Run corrective browser, visual, security, migration, and regression release verification.
 
 ### Phase 3: Detailed NCAA Intelligence
 
@@ -351,7 +351,7 @@ Plans:
 |---|---:|---|---|
 | 1. Canonical Snapshot Foundation | 41/41 | Complete | 2026-11-11 |
 | 2. Identity, Organizations, and Report Library | 16/16 | Complete   | 2026-11-13 |
-| 02.1 Restore public homepage and school-domain sign-in flow | 0/4 | Planned | - |
+| 02.1 Restore public homepage and school-domain sign-in flow | 4/4 | Complete | 2026-11-13 |
 | 3. Detailed NCAA Intelligence | 0/4 | Not started | - |
 | 4. Detailed Excel Report | 0/3 | Not started | - |
 | 5. Embedded Opponent Dashboard | 0/4 | Not started | - |
