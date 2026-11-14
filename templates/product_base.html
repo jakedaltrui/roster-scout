@@ -5,6 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <meta name="csrf-token" content="{{ csrf_token() }}">
+  <script>
+    try {
+      document.documentElement.dataset.theme = localStorage.getItem('roster-scout-theme') === 'dark' ? 'dark' : 'light';
+    } catch (_) { document.documentElement.dataset.theme = 'light'; }
+  </script>
   <title>{% block title %}Roster Scout{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -27,7 +32,7 @@
       </nav>
       <div class="product-actions">
         <details class="account-menu">
-          <summary aria-label="Open account menu">Account</summary>
+          <summary aria-label="Open account menu"><span class="product-account-avatar" aria-hidden="true">{{ account_email[0]|upper if account_email else '•' }}</span><span>Account</span></summary>
           <div class="account-menu__panel">
             <nav class="mobile-account-nav" aria-label="Mobile navigation">
               <a href="/">New report</a>

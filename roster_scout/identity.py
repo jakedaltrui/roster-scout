@@ -122,6 +122,23 @@ class IdentityProvider(Protocol):
 
     def exchange_code(self, *, code: str) -> VerifiedIdentity: ...
 
+    def send_magic_auth(
+        self,
+        *,
+        email: str,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> datetime: ...
+
+    def verify_magic_auth(
+        self,
+        *,
+        email: str,
+        code: str,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> VerifiedIdentity: ...
+
     def resolve_invitation_token(
         self, *, invitation_token: str
     ) -> ProviderInvitationReference: ...
@@ -194,6 +211,8 @@ class FakeIdentityProvider:
             str, tuple[ProviderInvitation, str, str]
         ] = {}
         self.invitation_resolution_calls: list[str] = []
+        self.magic_auth_sends: list[str] = []
+        self.magic_auth_verifications: list[tuple[str, str]] = []
 
     def authorization_url(
         self,
@@ -210,6 +229,48 @@ class FakeIdentityProvider:
         if self._failure is not None:
             raise self._failure
         return self._identities[code]
+
+    def send_magic_auth(
+        self,
+        *,
+        email: str,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> datetime:
+        if self._failure is not None:
+            raise self._failure
+        self.magic_auth_sends.append(email.strip().casefold())
+        return datetime.now(UTC) + timedelta(minutes=10)
+
+    def verify_magic_auth(
+        self,
+        *,
+        email: str,
+        code: str,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> VerifiedIdentity:
+        if self._failure is not None:
+            raise self._failure
+        normalized_email = email.strip().casefold()
+        self.magic_auth_verifications.append((normalized_email, code))
+        identity = self._identities.get(code)
+        if identity is None and code == "123456":
+            subject = hashlib.sha256(normalized_email.encode("utf-8")).hexdigest()
+            identity = VerifiedIdentity(
+                issuer="https://identity.example.test",
+                subject=f"local-{subject}",
+                provider_user_id=f"local-{subject}",
+                email=normalized_email,
+                email_verified=True,
+                linking_approved=False,
+                sealed_session=f"local-session-{subject}",
+            )
+        if identity is None:
+            raise IdentityFailure("invalid_identity_response")
+        if identity.email.strip().casefold() != normalized_email:
+            raise IdentityFailure("invalid_identity_response")
+        return identity
 
     def resolve_invitation_token(
         self, *, invitation_token: str
@@ -346,38 +407,82 @@ class WorkOSIdentityProvider:
     def exchange_code(self, *, code: str) -> VerifiedIdentity:
         try:
             response = self._client.user_management.authenticate_with_code(code=code)
-            user = response.user
-            from workos.session import seal_session_from_auth_response
-
-            sealed_session = seal_session_from_auth_response(
-                access_token=response.access_token,
-                refresh_token=response.refresh_token,
-                user=user.to_dict(),
-                impersonator=(
-                    response.impersonator.to_dict()
-                    if getattr(response.impersonator, "to_dict", None)
-                    else response.impersonator
-                ),
-                cookie_password=self._cookie_password,
-            )
-            return VerifiedIdentity(
-                issuer=self._issuer,
-                subject=user.id,
-                provider_user_id=user.id,
-                email=user.email,
-                email_verified=bool(user.email_verified),
-                linking_approved=False,
-                sealed_session=sealed_session,
-                provider_organization_id=(
-                    str(response.organization_id)
-                    if getattr(response, "organization_id", None)
-                    else None
-                ),
-            )
+            return self._identity_from_authentication(response)
         except IdentityFailure:
             raise
         except Exception as exc:
             raise IdentityFailure(_provider_failure_category(exc)) from None
+
+    def send_magic_auth(
+        self,
+        *,
+        email: str,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> datetime:
+        try:
+            response = self._client.user_management.create_magic_auth(
+                email=email,
+                ip_address=ip_address,
+                user_agent=user_agent,
+            )
+            expires_at = response.expires_at
+            if not isinstance(expires_at, datetime):
+                raise ValueError("invalid Magic Auth expiry")
+            return expires_at
+        except Exception as exc:
+            raise IdentityFailure(_provider_failure_category(exc)) from None
+
+    def verify_magic_auth(
+        self,
+        *,
+        email: str,
+        code: str,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> VerifiedIdentity:
+        try:
+            response = self._client.user_management.authenticate_with_magic_auth(
+                email=email,
+                code=code,
+                ip_address=ip_address,
+                user_agent=user_agent,
+            )
+            return self._identity_from_authentication(response)
+        except IdentityFailure:
+            raise
+        except Exception as exc:
+            raise IdentityFailure(_provider_failure_category(exc)) from None
+
+    def _identity_from_authentication(self, response) -> VerifiedIdentity:
+        user = response.user
+        from workos.session import seal_session_from_auth_response
+
+        sealed_session = seal_session_from_auth_response(
+            access_token=response.access_token,
+            refresh_token=response.refresh_token,
+            user=user.to_dict(),
+            impersonator=(
+                response.impersonator.to_dict()
+                if getattr(response.impersonator, "to_dict", None)
+                else response.impersonator
+            ),
+            cookie_password=self._cookie_password,
+        )
+        return VerifiedIdentity(
+            issuer=self._issuer,
+            subject=user.id,
+            provider_user_id=user.id,
+            email=user.email,
+            email_verified=bool(user.email_verified),
+            linking_approved=False,
+            sealed_session=sealed_session,
+            provider_organization_id=(
+                str(response.organization_id)
+                if getattr(response, "organization_id", None)
+                else None
+            ),
+        )
 
     def resolve_invitation_token(
         self, *, invitation_token: str
@@ -564,6 +669,20 @@ class ConsumedAuthTransaction:
     return_path: str
 
 
+@dataclass(frozen=True)
+class MagicAuthTransactionStart:
+    challenge: str = field(repr=False)
+    expires_at: datetime
+    return_path: str
+
+
+@dataclass(frozen=True)
+class PendingMagicAuthTransaction:
+    transaction_id: uuid.UUID
+    normalized_email: str = field(repr=False)
+    return_path: str
+
+
 def _utc_now() -> datetime:
     return datetime.now(UTC)
 
@@ -606,6 +725,41 @@ def begin_auth_transaction(
     session.flush()
     return AuthTransactionStart(
         state=state,
+        expires_at=expires_at,
+        return_path=row.return_path,
+    )
+
+
+def begin_magic_auth_transaction(
+    session,
+    *,
+    normalized_email: str,
+    return_path: str = "/",
+    now: datetime | None = None,
+) -> MagicAuthTransactionStart:
+    """Persist one opaque inline-auth challenge without exposing its email."""
+    current = now or _utc_now()
+    if (
+        not isinstance(normalized_email, str)
+        or not normalized_email
+        or len(normalized_email) > 320
+        or normalized_email != normalized_email.strip().casefold()
+    ):
+        raise IdentityFailure("invalid_identity_response")
+    challenge = secrets.token_urlsafe(32)
+    expires_at = current + AUTH_TRANSACTION_LIFETIME
+    row = AuthTransaction(
+        state_digest=_state_digest(challenge),
+        return_path=_safe_return_path(return_path),
+        auth_method="magic_auth",
+        normalized_email=normalized_email,
+        created_at=current,
+        expires_at=expires_at,
+    )
+    session.add(row)
+    session.flush()
+    return MagicAuthTransactionStart(
+        challenge=challenge,
         expires_at=expires_at,
         return_path=row.return_path,
     )
@@ -671,7 +825,7 @@ def check_auth_request_limit(
     now=None,
 ):
     """Advance one shared auth window and return retry seconds, or zero."""
-    if scope not in {"start", "callback"}:
+    if scope not in {"start", "callback", "magic_start", "magic_verify"}:
         raise ValueError("invalid auth limit scope")
     if (
         not isinstance(client_digest, str)
@@ -747,6 +901,62 @@ def consume_auth_transaction(
     return ConsumedAuthTransaction(
         transaction_id=row.id,
         invitation_id=row.invitation_id,
+        return_path=row.return_path,
+    )
+
+
+def get_magic_auth_transaction(
+    session,
+    *,
+    challenge: str,
+    now: datetime | None = None,
+) -> PendingMagicAuthTransaction:
+    """Load an unconsumed inline-auth challenge for one provider verification."""
+    current = now or _utc_now()
+    try:
+        digest = _state_digest(challenge)
+    except (AttributeError, UnicodeEncodeError):
+        raise IdentityFailure("invalid_auth_state") from None
+    row = session.scalar(
+        select(AuthTransaction).where(AuthTransaction.state_digest == digest)
+    )
+    if (
+        row is None
+        or row.auth_method != "magic_auth"
+        or row.normalized_email is None
+        or row.consumed_at is not None
+        or current >= row.expires_at
+    ):
+        raise IdentityFailure("invalid_auth_state")
+    return PendingMagicAuthTransaction(
+        transaction_id=row.id,
+        normalized_email=row.normalized_email,
+        return_path=row.return_path,
+    )
+
+
+def consume_magic_auth_transaction(
+    session,
+    *,
+    transaction_id: uuid.UUID,
+    now: datetime | None = None,
+) -> PendingMagicAuthTransaction:
+    """Consume a successfully verified inline-auth challenge exactly once."""
+    current = now or _utc_now()
+    row = session.get(AuthTransaction, transaction_id, with_for_update=True)
+    if (
+        row is None
+        or row.auth_method != "magic_auth"
+        or row.normalized_email is None
+        or row.consumed_at is not None
+        or current >= row.expires_at
+    ):
+        raise IdentityFailure("invalid_auth_state", audit_worthy=True)
+    row.consumed_at = current
+    session.flush()
+    return PendingMagicAuthTransaction(
+        transaction_id=row.id,
+        normalized_email=row.normalized_email,
         return_path=row.return_path,
     )
 

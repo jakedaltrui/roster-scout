@@ -1786,8 +1786,7 @@ class Phase2IdentityDeploymentConfigTests(unittest.TestCase):
         self.assertIn("billing", runbook)
         self.assertIn("redirect", runbook)
         self.assertIn("passwordless email", runbook)
-        self.assertIn("Google", runbook)
-        self.assertIn("Microsoft", runbook)
+        self.assertIn("six-digit Magic Auth", runbook)
         self.assertIn("OIDC", runbook)
         self.assertIn("SAML", runbook)
         self.assertIn("fly secrets list", runbook)
@@ -1818,7 +1817,7 @@ class Phase21ReleaseValidatorContractTests(unittest.TestCase):
 
     def test_corrective_gate_covers_journey_domain_browser_and_full_regression(self):
         validator = self._load_validator()
-        self.assertEqual(validator.EXPECTED_MIGRATION_HEAD, "0022")
+        self.assertEqual(validator.EXPECTED_MIGRATION_HEAD, "0023")
         manifest = validator.release_command_manifest(
             sys.executable,
             diff_base="fa18b73",
@@ -2055,9 +2054,7 @@ class Phase2ReleaseValidatorContractTests(unittest.TestCase):
             "production launch remains blocked",
             "WorkOS production workspace",
             "billing",
-            "live passwordless email",
-            "Google",
-            "Microsoft",
+            "live six-digit Magic Auth email",
             "customer OIDC or SAML",
         ):
             self.assertIn(required, runbook)

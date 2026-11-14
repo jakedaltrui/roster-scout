@@ -404,6 +404,8 @@ class UntrustedScopeInputTests(_TenantIsolationCase):
             "auth.login",
             "auth.start",
             "auth.callback",
+            "auth.magic_start",
+            "auth.magic_verify",
             "auth.error",
         }
         actual = {

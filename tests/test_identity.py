@@ -60,27 +60,128 @@ class PasswordlessBoundaryTests(_PostgreSQLIdentityCase):
         app_module.app.extensions["roster_scout_auth_session_factory"] = self.Session
         return app_module.app.test_client()
 
-    def test_login_page_hands_off_without_local_credentials(self):
+    def test_login_route_returns_to_inline_homepage_auth(self):
         from roster_scout.identity import FakeIdentityProvider
 
         response = self._auth_client(FakeIdentityProvider()).get("/login")
 
-        self.assertEqual(response.status_code, 200)
-        body = response.get_data(as_text=True)
-        self.assertIn("Sign in to Roster Scout", body)
-        self.assertIn(
-            "Continue with your school email",
-            body,
+        self.assertEqual(response.status_code, 302)
+        location = urlsplit(response.headers["Location"])
+        self.assertEqual(location.path, "/")
+        self.assertEqual(location.fragment, "builder")
+        self.assertEqual(
+            parse_qs(location.query),
+            {"sign_in": ["1"], "return_to": ["/organizations/none"]},
         )
-        self.assertIn("Continue with school email", body)
-        self.assertIn(
-            "No password to remember.",
-            body,
+
+    def test_inline_magic_auth_requires_edu_and_creates_school_session(self):
+        from roster_scout.identity import FakeIdentityProvider, VerifiedIdentity
+        from roster_scout.models import AccountSession, OrganizationDomain
+        from roster_scout.sessions import SESSION_COOKIE_NAME
+
+        identity = VerifiedIdentity(
+            issuer="https://identity.example.test",
+            subject="magic-subject",
+            provider_user_id="magic-user",
+            email="coach@athletics.school.edu",
+            email_verified=True,
+            linking_approved=False,
+            sealed_session="sealed-magic-session",
         )
-        self.assertIn('href="#main-content"', body)
-        self.assertNotIn('type="password"', body)
-        self.assertNotIn('type="email"', body)
-        self.assertNotIn('name="email"', body)
+        provider = FakeIdentityProvider(identities={"654321": identity})
+        client = self._auth_client(provider)
+        headers = {
+            "Origin": "http://localhost",
+            "Sec-Fetch-Site": "same-origin",
+        }
+
+        rejected = client.post(
+            "/auth/magic/start",
+            json={"email": "coach@example.com", "return_to": "/reports"},
+            headers=headers,
+        )
+        self.assertEqual(rejected.status_code, 400)
+        self.assertEqual(rejected.get_json(), {"error": "school_email_required"})
+
+        started = client.post(
+            "/auth/magic/start",
+            json={
+                "email": "Coach@Athletics.School.edu",
+                "return_to": "/?resume=download",
+            },
+            headers=headers,
+        )
+        self.assertEqual(started.status_code, 200)
+        challenge = started.get_json()["challenge"]
+        self.assertEqual(provider.magic_auth_sends, ["coach@athletics.school.edu"])
+
+        verified = client.post(
+            "/auth/magic/verify",
+            json={"challenge": challenge, "code": "654321"},
+            headers=headers,
+        )
+        self.assertEqual(verified.status_code, 200)
+        self.assertEqual(verified.get_json()["return_to"], "/?resume=download")
+        self.assertTrue(verified.get_json()["csrf_token"])
+        self.assertIn(SESSION_COOKIE_NAME, verified.headers["Set-Cookie"])
+
+        with self.Session() as session:
+            route = session.scalar(select(OrganizationDomain))
+            account_session = session.scalar(select(AccountSession))
+        self.assertEqual(route.domain, "school.edu")
+        self.assertEqual(route.root_domain, "school.edu")
+        self.assertEqual(
+            account_session.active_organization_id,
+            route.organization_id,
+        )
+        from itsdangerous import URLSafeTimedSerializer
+
+        signed_csrf = URLSafeTimedSerializer(
+            client.application.secret_key,
+            salt="wtf-csrf-token",
+        ).loads(verified.get_json()["csrf_token"])
+        self.assertEqual(signed_csrf, account_session.csrf_secret)
+
+    def test_inline_magic_auth_rejects_cross_site_and_preserves_retry(self):
+        from roster_scout.identity import FakeIdentityProvider, VerifiedIdentity
+
+        identity = VerifiedIdentity(
+            issuer="https://identity.example.test",
+            subject="retry-subject",
+            provider_user_id="retry-user",
+            email="coach@school.edu",
+            email_verified=True,
+            linking_approved=False,
+            sealed_session="sealed-retry-session",
+        )
+        provider = FakeIdentityProvider(identities={"654321": identity})
+        client = self._auth_client(provider)
+        denied = client.post(
+            "/auth/magic/start",
+            json={"email": "coach@school.edu", "return_to": "/reports"},
+            headers={"Origin": "https://attacker.example"},
+        )
+        self.assertEqual(denied.get_json(), {"error": "request_rejected"})
+
+        headers = {"Origin": "http://localhost", "Sec-Fetch-Site": "same-origin"}
+        started = client.post(
+            "/auth/magic/start",
+            json={"email": "coach@school.edu", "return_to": "/reports"},
+            headers=headers,
+        )
+        challenge = started.get_json()["challenge"]
+        wrong = client.post(
+            "/auth/magic/verify",
+            json={"challenge": challenge, "code": "000000"},
+            headers=headers,
+        )
+        self.assertEqual(wrong.get_json(), {"error": "invalid_code"})
+        retry = client.post(
+            "/auth/magic/verify",
+            json={"challenge": challenge, "code": "654321"},
+            headers=headers,
+        )
+        self.assertEqual(retry.status_code, 200)
 
     def test_start_creates_state_and_preserves_only_allowlisted_return_path(self):
         from roster_scout.identity import FakeIdentityProvider
@@ -992,6 +1093,8 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
                 ("/api/teams", ("GET",)),
                 ("/auth/callback", ("GET",)),
                 ("/auth/error", ("GET",)),
+                ("/auth/magic/start", ("POST",)),
+                ("/auth/magic/verify", ("POST",)),
                 ("/auth/start", ("GET",)),
                 ("/demo", ("GET",)),
                 ("/healthz", ("GET",)),
@@ -1040,6 +1143,8 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
                 "auth.login",
                 "auth.start",
                 "auth.callback",
+                "auth.magic_start",
+                "auth.magic_verify",
                 "auth.error",
             }),
         )
@@ -1079,9 +1184,12 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
             {"error": "authentication_required"},
         )
 
-        for path in ("/login", "/auth/error", "/demo", "/healthz"):
+        for path in ("/auth/error", "/demo", "/healthz"):
             with self.subTest(path=path):
                 self.assertNotEqual(self.client.get(path).status_code, 302)
+        login = self.client.get("/login")
+        self.assertEqual(login.status_code, 302)
+        self.assertTrue(login.headers["Location"].startswith("/?sign_in=1&"))
 
     def test_callback_adds_verified_school_membership_and_selects_when_needed(self):
         from roster_scout.identity import FakeIdentityProvider
@@ -1570,6 +1678,64 @@ class EnterpriseSsoAuthorizationTests(_PostgreSQLIdentityCase):
             PROVIDER_INVITATION_TIMEOUT_SECONDS,
         )
         self.assertLess(PROVIDER_INVITATION_TIMEOUT_SECONDS, 120)
+
+    def test_workos_magic_auth_sends_and_verifies_six_digit_code(self):
+        from roster_scout.identity import WorkOSIdentityProvider
+
+        user = SimpleNamespace(
+            id="user_magic",
+            email="coach@school.edu",
+            email_verified=True,
+            to_dict=lambda: {
+                "id": "user_magic",
+                "email": "coach@school.edu",
+                "email_verified": True,
+            },
+        )
+        auth_response = SimpleNamespace(
+            user=user,
+            access_token="synthetic-access-token",
+            refresh_token="synthetic-refresh-token",
+            impersonator=None,
+            organization_id=None,
+        )
+
+        class _UserManagement:
+            def create_magic_auth(self, **kwargs):
+                self.send_kwargs = kwargs
+                return SimpleNamespace(expires_at=self_now + timedelta(minutes=10))
+
+            def authenticate_with_magic_auth(self, **kwargs):
+                self.verify_kwargs = kwargs
+                return auth_response
+
+        self_now = self.now
+        client = SimpleNamespace(user_management=_UserManagement())
+        provider = WorkOSIdentityProvider(
+            api_key="synthetic-api-key",
+            client_id="synthetic-client-id",
+            redirect_uri="https://app.example.test/auth/callback",
+            cookie_password=urlsafe_b64encode(b"0" * 32).decode("ascii"),
+            client=client,
+        )
+
+        expiry = provider.send_magic_auth(
+            email="coach@school.edu",
+            ip_address="192.0.2.1",
+            user_agent="Roster Scout test",
+        )
+        identity = provider.verify_magic_auth(
+            email="coach@school.edu",
+            code="654321",
+            ip_address="192.0.2.1",
+            user_agent="Roster Scout test",
+        )
+
+        self.assertEqual(expiry, self_now + timedelta(minutes=10))
+        self.assertEqual(client.user_management.send_kwargs["email"], "coach@school.edu")
+        self.assertEqual(client.user_management.verify_kwargs["code"], "654321")
+        self.assertEqual(identity.email, "coach@school.edu")
+        self.assertTrue(identity.email_verified)
 
 
 class SecretRedactionTests(_PostgreSQLIdentityCase):

@@ -419,6 +419,13 @@ class AuthTransaction(UUIDPrimaryKey, Base):
     return_path: Mapped[str] = mapped_column(
         String(500), nullable=False, default="/", server_default="/"
     )
+    auth_method: Mapped[str] = mapped_column(
+        String(24),
+        nullable=False,
+        default="authorization_code",
+        server_default="authorization_code",
+    )
+    normalized_email: Mapped[str | None] = mapped_column(String(320))
     created_at: Mapped[object] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -433,6 +440,11 @@ class AuthTransaction(UUIDPrimaryKey, Base):
         CheckConstraint(
             "expires_at > created_at",
             name="ck_auth_transactions_expiry",
+        ),
+        CheckConstraint(
+            "(auth_method = 'authorization_code' AND normalized_email IS NULL) OR "
+            "(auth_method = 'magic_auth' AND normalized_email IS NOT NULL)",
+            name="ck_auth_transactions_method",
         ),
         Index("ix_auth_transactions_expires_at", "expires_at"),
     )

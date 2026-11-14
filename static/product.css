@@ -292,3 +292,83 @@ th, td { padding: 12px; border-bottom: 1px solid var(--border); text-align: left
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
 }
+
+/* Shared Roster Scout shell: the portal is an extension of the homepage. */
+:root {
+  --accent: #20211f;
+  --accent-ink: #ffffff;
+  --ready-fg: #4d504b;
+  --ready-bg: #ecece8;
+}
+
+body { background: #f6f6f3; -webkit-font-smoothing: antialiased; }
+
+.product-header {
+  top: 14px;
+  height: 64px;
+  border: 0;
+  background: transparent;
+  backdrop-filter: none;
+}
+
+.product-header__inner {
+  width: min(calc(100% - 11%), 1280px);
+  padding: 0 12px 0 10px;
+  border: 1px solid rgba(32, 33, 31, .12);
+  border-radius: 999px;
+  background: rgba(255, 255, 253, .82);
+  box-shadow: 0 14px 38px rgba(25, 25, 20, .1), inset 0 1px 0 rgba(255, 255, 255, .9);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.product-brand { gap: 4px; font-size: 19px; font-weight: 700; letter-spacing: -.045em; }
+.product-brand__mark { width: 40px; height: 40px; border: 0; border-radius: 0; }
+.product-brand__mark img { width: 40px; height: 40px; }
+.product-nav a { padding: 0 12px; color: #676a65; font-size: 11px; border-radius: 999px; }
+.product-nav a:hover { color: #20211f; background: rgba(0, 0, 0, .055); }
+.product-nav a[aria-current="page"], .mobile-account-nav a[aria-current="page"] { color: #20211f; box-shadow: none; background: rgba(0, 0, 0, .055); }
+.account-menu summary { gap: 7px; min-height: 44px; padding: 0 11px 0 7px; border-radius: 999px; color: #31332f; font-size: 11px; }
+.account-menu summary:hover { background: rgba(0, 0, 0, .055); }
+.product-account-avatar { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; color: #fff; background: #20211f; font-size: 11px; font-weight: 800; }
+.account-menu__panel { top: calc(100% + 10px); border-radius: 18px; }
+
+.product-main { width: min(calc(100% - 11%), 1280px); padding: 72px 0 80px; }
+.product-main h1 { margin-bottom: 34px; font-size: clamp(34px, 4vw, 52px); letter-spacing: -.055em; }
+.button { border-radius: 11px; transition: background .22s, transform .22s cubic-bezier(.2,.8,.2,1); }
+.button:hover { transform: translateY(-1px); }
+.button--primary { border-color: #20211f; background: #20211f; color: #fff; }
+.button--primary:hover { background: #41433f; }
+.member-cards li, .empty-state, .banner, table { border-radius: 18px; }
+.desktop-table { border: 1px solid var(--border); border-radius: 18px; background: var(--surface); }
+.status-chip--ready, .status-chip[data-state="ready"] { color: #4d504b; background: #ecece8; }
+
+:root[data-theme="dark"] {
+  --accent: #f0f0ee;
+  --accent-ink: #171719;
+  --ready-fg: #d0d0ce;
+  --ready-bg: #303033;
+}
+:root[data-theme="dark"] body { background: #09090b; }
+:root[data-theme="dark"] .product-header__inner {
+  border-color: #262629;
+  background: rgba(18, 18, 20, .78);
+  box-shadow: 0 14px 38px rgba(0, 0, 0, .22), inset 0 1px 0 rgba(255, 255, 255, .08);
+}
+:root[data-theme="dark"] .product-nav a { color: #a3a3a7; }
+:root[data-theme="dark"] .product-nav a:hover,
+:root[data-theme="dark"] .product-nav a[aria-current="page"] { color: #f3f3f1; background: rgba(255, 255, 255, .08); }
+:root[data-theme="dark"] .account-menu summary { color: #d7d7d5; }
+:root[data-theme="dark"] .account-menu summary:hover { color: #fff; background: rgba(255, 255, 255, .08); }
+:root[data-theme="dark"] .product-account-avatar { color: #171719; background: #ededeb; }
+:root[data-theme="dark"] .button--primary { border-color: #f0f0ee; background: #f0f0ee; color: #161618; }
+:root[data-theme="dark"] .button--primary:hover { background: #d5d5d3; }
+:root[data-theme="dark"] .status-chip--ready,
+:root[data-theme="dark"] .status-chip[data-state="ready"] { color: #d0d0ce; background: #303033; }
+
+@media (max-width: 767px) {
+  .product-header { top: 10px; height: 56px; }
+  .product-header__inner { width: calc(100% - 40px); padding-right: 8px; }
+  .product-main { width: calc(100% - 40px); padding-top: 54px; }
+  .account-menu summary > span:last-child { display: none; }
+}

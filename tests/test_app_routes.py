@@ -81,11 +81,15 @@ class DownloadEventContractTests(unittest.TestCase):
 
     def test_home_flow_prompts_and_resumes_with_csrf(self):
         self.assertIn("static', filename='home_flow.js", self.source)
-        self.assertIn("%2F%3Fresume%3Ddownload", self.source)
+        self.assertIn("/auth/magic/start", self.source)
+        self.assertIn("/auth/magic/verify", self.source)
+        self.assertIn("autocomplete=\"one-time-code\"", self.source)
+        self.assertIn("beginInlineAuth", self.source)
         self.assertIn("createPendingReportStore", self.source)
         self.assertIn("pendingReportStore.consume()", self.source)
         self.assertIn("'X-CSRFToken': csrfToken", self.source)
         self.assertIn("data.error === 'authentication_required'", self.source)
+        self.assertNotIn("window.location.assign('/login", self.source)
         self.assertNotRegex(
             self.source,
             r"(?i)(?:download|stat sheet).{0,30}(?:saved|save complete)",

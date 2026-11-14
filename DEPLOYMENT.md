@@ -93,6 +93,8 @@ signed proof, and bounded timestamps for at most the proof lifetime.
 ### Phase 2 managed identity readiness
 
 Roster Scout uses WorkOS AuthKit as a replaceable managed identity boundary.
+The customer-facing path is passwordless email verification with a six-digit
+Magic Auth code entered inside the existing report-builder card.
 The application owns canonical accounts, organization memberships, and opaque
 server sessions. Provider organization, domain, and JIT claims never authorize
 a Roster Scout organization. After subject linking, only the provider-verified
@@ -152,11 +154,12 @@ Phase 2 records two deliberately separate readiness states:
 - `production_auth_verified` is set only after an operator provisions the
   production WorkOS workspace, confirms billing, installs secrets, registers
   the exact OAuth redirect URL, sets the User Invitation URL to
-  `https://roster-scout.fly.dev/auth/start`, configures passwordless email plus
-  Google and Microsoft, and completes a real customer OIDC or SAML smoke test.
+  `https://roster-scout.fly.dev/auth/start`, enables WorkOS Magic Auth email
+  codes, and completes a real customer OIDC or SAML smoke test when enterprise
+  SSO is introduced.
 
-Before recording `production_auth_verified`, verify outbound passwordless
-email and confirm provider organization/JIT claims remain ignored. Complete a
+Before recording `production_auth_verified`, verify outbound six-digit Magic
+Auth email delivery and confirm provider organization/JIT claims remain ignored. Complete a
 live `.edu` smoke in which `coach@school.edu` and
 `assistant@athletics.school.edu` reach the same local organization, while a
 lookalike and a non-`.edu` address gain no automatic access. Also verify the
@@ -174,12 +177,13 @@ PHASE2_DESTRUCTIVE_DATABASE=local-disposable \
 ```
 
 The earlier `scripts/validate_phase2_release.py` remains the lower-level Phase
-2 identity, organization, report-library, and deployment contract. Phase 2.1's
-validator extends that release surface with the restored homepage journey and
-school-domain authorization model.
+2 identity, organization, report-library, and deployment contract, including
+its revision `0022` lifecycle. Phase 2.1's validator extends that release
+surface with the restored homepage journey, the revision `0023` lifecycle, and
+the school-domain authorization model.
 
 Only after the full public-select/sign-in/resume/download/shared-portal story,
-domain and tenant security tests, all three Node state machines, the revision `0022` lifecycle, full Python and Node suites,
+domain and tenant security tests, all three Node state machines, the revision `0023` lifecycle, full Python and Node suites,
 catalog, workbook, configuration, compilation, template, and diff checks pass
 does the corrective gate pass. Production launch remains blocked until the
 separate live authentication evidence is complete and the user explicitly
@@ -191,8 +195,8 @@ checks and that explicit approval are recorded.
 The separate live evidence requires an operator-owned WorkOS production workspace,
 confirmed billing, installed secrets, verified dashboard
 redirect/sign-out/initiate-login URIs, the exact User Invitation URL
-`https://roster-scout.fly.dev/auth/start`, live passwordless email, Google,
-Microsoft, and one real customer OIDC or SAML connection. It must also confirm
+`https://roster-scout.fly.dev/auth/start`, live six-digit Magic Auth email,
+and one real customer OIDC or SAML connection if SSO is enabled. It must also confirm
 the provider-sent invitation traversed token-bearing `/auth/start`, signed
 local state issuance, and `/auth/callback` into the exact-email local
 membership; provider domain/JIT claims remain ignored as authorization; the

@@ -47,8 +47,11 @@
     .header-nav { display:flex; align-items:center; gap:2px; }
     .header-nav a { padding:9px 12px; border-radius:999px; color:#a3a3a7; font-size:11px; font-weight:600; text-decoration:none; transition:color .2s,background-color .2s; }
     .header-nav a:hover { color:#f3f3f1; background:rgba(255,255,255,.08); }
-    .account-link { padding:9px 12px; border-radius:999px; color:#d7d7d5; font-size:11px; font-weight:700; text-decoration:none; white-space:nowrap; transition:color .2s,background-color .2s; }
+    .account-link { display:inline-flex; align-items:center; gap:7px; padding:7px 11px 7px 7px; border-radius:999px; color:#d7d7d5; font-size:11px; font-weight:700; text-decoration:none; white-space:nowrap; transition:color .2s,background-color .2s; }
     .account-link:hover { color:#fff; background:rgba(255,255,255,.08); }
+    .account-avatar { display:grid; place-items:center; width:28px; height:28px; border:1px solid #3a3a3e; border-radius:50%; color:#a8a8ac; background:#242426; font-size:11px; }
+    .account-avatar svg { width:15px; height:15px; }
+    .account-avatar[data-signed-in="true"] { color:#171719; background:#ededeb; border-color:#ededeb; font-weight:800; }
     .hero { display:grid; grid-template-columns:minmax(0,1fr) minmax(400px, 510px); gap:8%; align-items:center; min-height:calc(100vh - 78px); padding:65px 0 85px; }
     .intro { max-width:630px; }
     .eyebrow { display:flex; align-items:center; gap:11px; color:#536f5f; font-size:11px; font-weight:700; letter-spacing:.15em; text-transform:uppercase; }
@@ -75,7 +78,7 @@
     .div-btn:hover { border-color:#7c9a86; color:var(--green); }
     .div-btn.active { color:white; background:var(--green); border-color:var(--green); }
     .combobox { position:relative; }
-    input[type=text] { width:100%; height:50px; border:1px solid #cfd9ce; border-radius:3px; background:#fff; padding:0 14px; color:var(--ink); outline:none; font-size:14px; }
+    input[type=text],input[type=email] { width:100%; height:50px; border:1px solid #cfd9ce; border-radius:3px; background:#fff; padding:0 14px; color:var(--ink); outline:none; font-size:14px; }
     input::placeholder { color:#a0aaa1; } input:focus { border-color:#547c62; box-shadow:0 0 0 3px rgba(84,124,98,.12); } input:disabled { background:#f6f7f3; }
     input[aria-invalid=true] { border-color:#b75e53; }
     .team-results { position:absolute; z-index:10; top:calc(100% + 5px); left:0; right:0; max-height:230px; overflow:auto; background:white; border:1px solid #d7dfd5; border-radius:3px; padding:5px; box-shadow:0 12px 28px rgba(31,54,37,.12); }
@@ -94,6 +97,22 @@
     .card-foot { margin-top:21px; display:flex; align-items:center; justify-content:center; gap:8px; color:#89968d; font-size:11px; }
     .card-foot svg { flex:none; }
     .state { display:none; } .state.active { display:block; }
+    .auth-state { min-height:350px; }
+    .auth-context { display:flex; align-items:center; gap:10px; margin:0 0 25px; padding:11px 12px; border:1px solid #303034; border-radius:12px; background:#111113; color:#b8b8bc; font-size:12px; }
+    .auth-context svg { flex:none; width:17px; height:17px; color:#8d8d92; }
+    .auth-form { display:grid; gap:16px; }
+    .auth-form .field { margin:0; }
+    .auth-form input { border-radius:10px; background:#111113; color:#f4f4f3; border-color:#39393d; transition:border-color .25s,box-shadow .25s; }
+    .auth-form input:focus { border-color:#8e8e93; box-shadow:0 0 0 3px rgba(255,255,255,.07); }
+    .auth-error { min-height:19px; margin:-6px 0 0; color:#e2a09a; font-size:12px; line-height:1.55; }
+    .auth-trust { margin:18px 0 0; color:#89898e; font-size:12px; line-height:1.55; }
+    .auth-back { display:inline-flex; align-items:center; gap:6px; margin:0 0 22px; padding:0; border:0; color:#929297; background:transparent; font-size:11px; font-weight:700; }
+    .auth-back:hover { color:#f0f0ee; }
+    .auth-code-input { height:64px !important; text-align:center; font-size:25px !important; font-weight:700; letter-spacing:.42em; padding-left:calc(14px + .42em) !important; font-variant-numeric:tabular-nums; }
+    .auth-code-actions { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .auth-text-button { min-height:44px; padding:0; border:0; color:#aaaab0; background:transparent; font-size:11px; font-weight:700; text-decoration:underline; text-underline-offset:3px; }
+    .auth-text-button:hover { color:#f0f0ee; }
+    .auth-dev-note { margin:2px 0 0; color:#8d8d92; font-size:11px; text-align:center; }
     .state-center { text-align:center; padding:25px 0 0; }
     .state-center .state-title { margin-top:20px; }
     .status-icon { width:48px; height:48px; margin:0 auto; border-radius:50%; display:grid; place-items:center; color:var(--green); background:#eaf1e9; }
@@ -288,6 +307,13 @@
     html[data-theme="light"] .header-nav a:hover { color:#20211f; background:rgba(0,0,0,.055); }
     html[data-theme="light"] .account-link { color:#31332f; }
     html[data-theme="light"] .account-link:hover { background:rgba(0,0,0,.055); }
+    html[data-theme="light"] .account-avatar { color:#676a65; background:#f0f0ed; border-color:#dedfd9; }
+    html[data-theme="light"] .account-avatar[data-signed-in="true"] { color:#fff; background:#20211f; border-color:#20211f; }
+    html[data-theme="light"] .auth-context, html[data-theme="light"] .auth-form input { color:#20211f; background:#f7f7f4; border-color:#dedfd9; }
+    html[data-theme="light"] .auth-context svg { color:#747770; }
+    html[data-theme="light"] .auth-form input:focus { border-color:#6f716c; box-shadow:0 0 0 3px rgba(32,33,31,.08); }
+    html[data-theme="light"] .auth-back, html[data-theme="light"] .auth-text-button { color:#696c66; }
+    html[data-theme="light"] .auth-back:hover, html[data-theme="light"] .auth-text-button:hover { color:#20211f; }
     html[data-theme="light"] h1 em { color:#8b8d88; }
     html[data-theme="light"] .intro-copy { color:#6f726f; }
     html[data-theme="light"] .card { background:#fff; border-color:#e3e4df; box-shadow:0 24px 70px rgba(25,25,20,.07); }
@@ -477,7 +503,7 @@
       <a class="brand" href="#top" aria-label="Roster Scout home"><img class="brand-mark" src="{{ url_for('static', filename='brand/roster-scout-dog-outlined.png') }}" width="42" height="42" alt="" /><span class="brand-name">roster scout</span></a>
       <div class="header-actions">
         <nav class="header-nav" aria-label="Page sections"><a href="#output">What you get</a><a href="#how-it-works">How it works</a><a href="#questions">Questions</a></nav>
-        {% if signed_in %}<a class="account-link" href="/reports">Saved reports</a>{% else %}<a class="account-link" href="/login?return_to=/reports">Sign in</a>{% endif %}
+        <a class="account-link" id="account-link" href="{% if signed_in %}/reports{% else %}#builder{% endif %}" data-signed-in="{{ 'true' if signed_in else 'false' }}"><span class="account-avatar" id="account-avatar" data-signed-in="{{ 'true' if signed_in else 'false' }}" aria-hidden="true">{% if signed_in and account_initial %}{{ account_initial }}{% else %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M5.5 20c.7-4 3-6 6.5-6s5.8 2 6.5 6"/></svg>{% endif %}</span><span id="account-label">{% if signed_in %}Saved reports{% else %}Sign in{% endif %}</span></a>
         <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Switch to dark mode" title="Switch to dark mode"><svg class="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.9 13.1A9 9 0 0 1 10.9 3.1 9 9 0 1 0 20.9 13.1Z" /></svg><svg class="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" /></svg></button>
       </div>
     </header>
@@ -496,6 +522,30 @@
             <div class="field"><span class="field-label" id="division-label">Division</span><div class="div-toggle" role="group" aria-labelledby="division-label"><button type="button" class="div-btn active" data-div="d1" aria-pressed="true">D1</button><button type="button" class="div-btn" data-div="d2" aria-pressed="false">D2</button><button type="button" class="div-btn" data-div="d3" aria-pressed="false">D3</button></div></div>
             <div class="field" id="ncaa-team-field"><label for="team-combobox">School</label><div class="combobox" id="team-combobox-wrap"><input type="text" id="team-combobox" name="team" placeholder="Loading D1 teams…" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="team-results" aria-expanded="false" aria-describedby="catalog-hint" disabled /><div id="team-results" class="team-results" role="listbox" hidden></div></div><p class="hint" id="catalog-hint" aria-live="polite">Loading the current NCAA catalog…</p></div>
             <button type="submit" class="btn btn-primary" id="submit-btn"><span class="arrow-button-label">Download Roster Stat Sheet</span><span class="arrow-button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><g class="download-arrow"><path d="M12 4v11" /><path d="m7.5 10.5 4.5 4.5 4.5-4.5" /></g><path class="download-tray" d="M5 19h14" /></svg></span></button>
+          </form>
+        </div>
+        <div id="state-auth-email" class="state auth-state" aria-labelledby="auth-email-title">
+          <button class="auth-back" type="button" data-auth-back><span aria-hidden="true">←</span> Back</button>
+          <h2 class="card-title" id="auth-email-title">Continue with your school email.</h2>
+          <p class="card-sub">We’ll send you a six-digit code. No password required.</p>
+          <div class="auth-context" id="auth-team-context"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 20h16M6 20V9l6-4 6 4v11M9 12h.01M12 12h.01M15 12h.01M9 16h.01M12 16h.01M15 16h.01"/></svg><span id="auth-team-name">Saved reports</span></div>
+          <form class="auth-form" id="auth-email-form" novalidate>
+            <div class="field"><label for="auth-email">School email</label><input id="auth-email" type="email" autocomplete="email" inputmode="email" placeholder="coach@school.edu" aria-describedby="auth-email-error auth-trust" required /></div>
+            <p class="auth-error" id="auth-email-error" role="alert"></p>
+            <button class="btn btn-primary" id="auth-email-submit" type="submit">Email me a code</button>
+          </form>
+          <p class="auth-trust" id="auth-trust">Use your school email to continue. No password required. Reports are securely shared with verified staff at your school.</p>
+        </div>
+        <div id="state-auth-code" class="state auth-state" aria-labelledby="auth-code-title">
+          <button class="auth-back" type="button" id="auth-change-email"><span aria-hidden="true">←</span> Change email</button>
+          <h2 class="card-title" id="auth-code-title">Check your email.</h2>
+          <p class="card-sub">Enter the six-digit code sent to <strong id="auth-code-email"></strong>.</p>
+          <form class="auth-form" id="auth-code-form" novalidate>
+            <div class="field"><label for="auth-code">Verification code</label><input class="auth-code-input" id="auth-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" aria-describedby="auth-code-error" required /></div>
+            <p class="auth-error" id="auth-code-error" role="alert"></p>
+            <button class="btn btn-primary" id="auth-code-submit" type="submit">Verify and continue</button>
+            <div class="auth-code-actions"><button class="auth-text-button" id="auth-resend" type="button">Send a new code</button><span class="hint" id="auth-expiry">Code expires in 10 minutes</span></div>
+            <p class="auth-dev-note" id="auth-dev-note" hidden></p>
           </form>
         </div>
         <div id="state-loading" class="state state-center" role="status" aria-live="polite"><div class="loading-orbit" aria-hidden="true"><span class="loading-orbit-core"></span></div><div class="loading-team" id="loading-team"></div><h2 class="state-title">Getting your roster.</h2><p class="loading-sub">We’re putting your stat sheet together. The steps below illustrate the process.</p><div class="loading-viewport" tabindex="0" aria-label="Stat Sheet preparation steps"><ol class="loading-progress"><li class="loading-step is-complete"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Team selected</span><span class="sr-only"> — complete</span></li><li class="loading-step loading-activity is-current" id="loading-build-step"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Finding the roster</span><span class="sr-only loading-activity-status"> — in progress</span></li><li class="loading-step loading-activity"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Gathering season stats</span><span class="sr-only loading-activity-status"></span></li><li class="loading-step loading-activity"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Organizing player records</span><span class="sr-only loading-activity-status"></span></li><li class="loading-step loading-activity"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Building your Stat Sheet</span><span class="sr-only loading-activity-status"></span></li><li class="loading-step loading-activity" id="loading-download-step"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Preparing your download</span><span class="sr-only loading-activity-status" id="loading-download-status"> — waiting</span></li></ol></div><p class="hint">Keep this page open until your download starts.</p></div>
@@ -879,7 +929,7 @@
         revealObserver.observe(group.root);
       });
     }
-    const STATES = ['form', 'loading', 'success', 'error'];
+    const STATES = ['form', 'auth-email', 'auth-code', 'loading', 'success', 'error'];
     const guideDescriptions = {
       division: {
         title: 'Find a team.',
@@ -1274,6 +1324,7 @@
     function resetForm() {
       show('form');
       document.getElementById('submit-btn').disabled = false;
+      pendingAuthIntent = null;
     }
 
     function downloadFile(url, filename) {
@@ -1313,8 +1364,176 @@
       storage: browserSessionStorage,
       now: () => Date.now(),
     });
-    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
-    const authenticatedHeaders = csrfToken ? { 'X-CSRFToken': csrfToken } : {};
+    let csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+    let authenticatedHeaders = csrfToken ? { 'X-CSRFToken': csrfToken } : {};
+    let signedIn = {{ 'true' if signed_in else 'false' }};
+    let pendingAuthIntent = null;
+    let magicAuthChallenge = '';
+    let magicAuthEmail = '';
+
+    const accountLink = document.getElementById('account-link');
+    const accountAvatar = document.getElementById('account-avatar');
+    const accountLabel = document.getElementById('account-label');
+    const authEmailInput = document.getElementById('auth-email');
+    const authEmailError = document.getElementById('auth-email-error');
+    const authCodeInput = document.getElementById('auth-code');
+    const authCodeError = document.getElementById('auth-code-error');
+    const authEmailSubmit = document.getElementById('auth-email-submit');
+    const authCodeSubmit = document.getElementById('auth-code-submit');
+
+    function setAuthBusy(button, busy, busyLabel, readyLabel) {
+      button.disabled = busy;
+      button.textContent = busy ? busyLabel : readyLabel;
+    }
+
+    function beginInlineAuth({ returnTo, selection = null }) {
+      pendingAuthIntent = { returnTo, selection };
+      document.getElementById('auth-team-name').textContent = selection
+        ? `Continue with ${selection.display_name}`
+        : 'Sign in to view saved reports';
+      authEmailError.textContent = '';
+      authCodeError.textContent = '';
+      show('auth-email');
+      document.getElementById('builder').scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'center' });
+      window.setTimeout(() => authEmailInput.focus(), reducedMotion ? 0 : 260);
+    }
+
+    function finishInlineAuth(data) {
+      signedIn = true;
+      csrfToken = data.csrf_token;
+      authenticatedHeaders = { 'X-CSRFToken': csrfToken };
+      accountLink.href = '/reports';
+      accountLink.dataset.signedIn = 'true';
+      accountAvatar.dataset.signedIn = 'true';
+      accountAvatar.replaceChildren(document.createTextNode(data.account_initial || '•'));
+      accountLabel.textContent = 'Saved reports';
+
+      const intent = pendingAuthIntent;
+      pendingAuthIntent = null;
+      if (intent?.selection) {
+        show('form');
+        document.getElementById('scout-form').requestSubmit();
+      } else {
+        window.location.assign('/reports');
+      }
+    }
+
+    accountLink.addEventListener('click', event => {
+      if (signedIn) return;
+      event.preventDefault();
+      beginInlineAuth({ returnTo: '/reports' });
+    });
+
+    document.querySelectorAll('[data-auth-back]').forEach(button => {
+      button.addEventListener('click', () => {
+        pendingAuthIntent = null;
+        show('form');
+        document.getElementById('submit-btn').disabled = false;
+      });
+    });
+
+    document.getElementById('auth-change-email').addEventListener('click', () => {
+      authCodeError.textContent = '';
+      show('auth-email');
+      window.setTimeout(() => authEmailInput.focus(), reducedMotion ? 0 : 220);
+    });
+
+    async function sendMagicCode() {
+      const email = authEmailInput.value.trim().toLowerCase();
+      authEmailError.textContent = '';
+      if (!/^[^\s@]+@(?:[a-z0-9-]+\.)+edu$/i.test(email)) {
+        authEmailError.textContent = 'Enter a valid school-issued .edu email address.';
+        authEmailInput.setAttribute('aria-invalid', 'true');
+        authEmailInput.focus();
+        return;
+      }
+      authEmailInput.setAttribute('aria-invalid', 'false');
+      setAuthBusy(authEmailSubmit, true, 'Sending code…', 'Email me a code');
+      try {
+        const response = await fetch('/auth/magic/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, return_to: pendingAuthIntent?.returnTo || '/reports' }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const messages = {
+            school_email_required: 'Use a valid school-issued .edu email address.',
+            throttled: 'Too many codes were requested. Wait a few minutes and try again.',
+            identity_unavailable: 'Sign-in is temporarily unavailable. Please try again shortly.',
+          };
+          authEmailError.textContent = messages[data.error] || 'We could not send a code to that address.';
+          return;
+        }
+        magicAuthChallenge = data.challenge;
+        magicAuthEmail = email;
+        document.getElementById('auth-code-email').textContent = email;
+        authCodeInput.value = '';
+        authCodeError.textContent = '';
+        const developmentNote = document.getElementById('auth-dev-note');
+        developmentNote.hidden = !data.development_code;
+        developmentNote.textContent = data.development_code ? `Local preview code: ${data.development_code}` : '';
+        show('auth-code');
+        window.setTimeout(() => authCodeInput.focus(), reducedMotion ? 0 : 260);
+      } catch (_error) {
+        authEmailError.textContent = 'Could not connect to sign-in. Check your connection and try again.';
+      } finally {
+        setAuthBusy(authEmailSubmit, false, 'Sending code…', 'Email me a code');
+      }
+    }
+
+    document.getElementById('auth-email-form').addEventListener('submit', event => {
+      event.preventDefault();
+      sendMagicCode();
+    });
+
+    document.getElementById('auth-resend').addEventListener('click', () => {
+      authEmailInput.value = magicAuthEmail;
+      show('auth-email');
+      sendMagicCode();
+    });
+
+    authCodeInput.addEventListener('input', () => {
+      authCodeInput.value = authCodeInput.value.replace(/\D/g, '').slice(0, 6);
+      authCodeInput.setAttribute('aria-invalid', 'false');
+      authCodeError.textContent = '';
+    });
+
+    document.getElementById('auth-code-form').addEventListener('submit', async event => {
+      event.preventDefault();
+      const code = authCodeInput.value.trim();
+      if (!/^\d{6}$/.test(code)) {
+        authCodeError.textContent = 'Enter the complete six-digit code.';
+        authCodeInput.setAttribute('aria-invalid', 'true');
+        authCodeInput.focus();
+        return;
+      }
+      setAuthBusy(authCodeSubmit, true, 'Verifying…', 'Verify and continue');
+      try {
+        const response = await fetch('/auth/magic/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ challenge: magicAuthChallenge, code }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const messages = {
+            invalid_code: 'That code is not correct. Check the email and try again.',
+            challenge_expired: 'That code has expired. Send yourself a new one.',
+            throttled: 'Too many attempts. Wait a few minutes and request a new code.',
+            identity_unavailable: 'Sign-in is temporarily unavailable. Please try again shortly.',
+          };
+          authCodeError.textContent = messages[data.error] || 'We could not complete sign-in.';
+          authCodeInput.setAttribute('aria-invalid', 'true');
+          return;
+        }
+        finishInlineAuth(data);
+      } catch (_error) {
+        authCodeError.textContent = 'Could not connect to sign-in. Check your connection and try again.';
+      } finally {
+        setAuthBusy(authCodeSubmit, false, 'Verifying…', 'Verify and continue');
+      }
+    });
 
     async function postDownloadAcknowledgement(pending) {
       const response = await fetch('/api/downloads/ack', {
@@ -1355,6 +1574,14 @@
         return;
       }
       if (!team) return;
+
+      if (!signedIn) {
+        beginInlineAuth({
+          returnTo: '/?resume=download',
+          selection: pendingSelection,
+        });
+        return;
+      }
 
       scrapeInFlight = true;
       const runStarted = performance.now();
@@ -1420,8 +1647,11 @@
         if (result.definitiveFailure) {
           const data = await result.response.json().catch(() => ({}));
           if (result.response.status === 401 && data.error === 'authentication_required') {
-            pendingReportStore.save(pendingSelection);
-            window.location.assign('/login?return_to=%2F%3Fresume%3Ddownload');
+            signedIn = false;
+            beginInlineAuth({
+              returnTo: '/?resume=download',
+              selection: pendingSelection,
+            });
             return;
           }
           document.getElementById('error-msg').textContent = data.error || 'Unknown error. Please try again.';
@@ -1457,6 +1687,16 @@
     } else {
       (async () => {
         await loadNcaaTeams(selectedDiv);
+        const signInParams = new URLSearchParams(window.location.search);
+        if (signInParams.get('sign_in') === '1' && !signedIn) {
+          const requestedReturn = signInParams.get('return_to');
+          const returnTo = ['/reports', '/?resume=download'].includes(requestedReturn)
+            ? requestedReturn
+            : '/reports';
+          window.history.replaceState({}, '', '/#builder');
+          beginInlineAuth({ returnTo });
+          return;
+        }
         if (!window.RosterScoutHomeFlow.isResumeLocation(window.location)) return;
 
         const pending = pendingReportStore.consume();

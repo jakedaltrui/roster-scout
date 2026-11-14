@@ -5,21 +5,30 @@ from __future__ import annotations
 import hashlib
 import hmac
 import os
+from urllib.parse import urlencode, urlsplit
 
-from flask import Blueprint, current_app, redirect, render_template, request
+from flask import Blueprint, current_app, jsonify, redirect, render_template, request
 from flask.sessions import SessionInterface, SessionMixin
+from itsdangerous import URLSafeTimedSerializer
 from werkzeug.datastructures import CallbackDict
 
-from .accounts import AccountLinkFailure, link_verified_identity
+from .accounts import (
+    AccountLinkFailure,
+    link_verified_identity,
+    normalize_verified_email,
+)
 from .audit import append_security_audit_event
 from .authorization import list_active_memberships
 from .identity import (
     FakeIdentityProvider,
     IdentityFailure,
     begin_auth_transaction,
+    begin_magic_auth_transaction,
     check_auth_request_limit,
     consume_auth_transaction,
+    consume_magic_auth_transaction,
     exchange_authorization_code,
+    get_magic_auth_transaction,
     resolve_provider_invitation_token,
 )
 from .sessions import (
@@ -33,6 +42,7 @@ from .sessions import (
 from .organizations import (
     OrganizationFailure,
     accept_invitation,
+    institutional_domain_from_verified_email,
     resolve_verified_institutional_membership,
     resolve_provider_invitation_reference,
 )
@@ -51,6 +61,9 @@ _MAX_CALLBACK_VALUE_LENGTH = 512
 _MAX_INVITATION_TOKEN_LENGTH = 2048
 _AUTH_START_REQUEST_LIMIT = 10
 _AUTH_CALLBACK_REQUEST_LIMIT = 20
+_MAGIC_START_REQUEST_LIMIT = 6
+_MAGIC_VERIFY_REQUEST_LIMIT = 20
+_MAX_AUTH_JSON_BYTES = 2048
 
 
 class RosterScoutBrowserSession(CallbackDict, SessionMixin):
@@ -187,13 +200,251 @@ def _record_sign_in_failure(reason: str) -> None:
         current_app.logger.warning("identity_sign_in_audit_failed")
 
 
+def _auth_json_error(category: str, status: int):
+    return jsonify({"error": category}), status
+
+
+def _same_origin_json_request() -> bool:
+    if request.mimetype != "application/json":
+        return False
+    if request.content_length is not None and request.content_length > _MAX_AUTH_JSON_BYTES:
+        return False
+    if len(request.get_data(cache=True)) > _MAX_AUTH_JSON_BYTES:
+        return False
+    if request.headers.get("Sec-Fetch-Site", "").casefold() == "cross-site":
+        return False
+    try:
+        origin = urlsplit(request.headers.get("Origin", ""))
+        origin.port
+    except (TypeError, ValueError):
+        return False
+    if (
+        not origin.hostname
+        or origin.username
+        or origin.password
+        or origin.path
+        or origin.query
+        or origin.fragment
+        or origin.netloc.casefold() != request.host.casefold()
+    ):
+        return False
+    if os.environ.get("FLY_APP_NAME", "").strip():
+        return origin.scheme == "https"
+    return origin.scheme in {"http", "https"}
+
+
+def _request_identity_signals() -> tuple[str | None, str | None]:
+    client_ip = request.remote_addr
+    if os.environ.get("TRUST_FLY_CLIENT_IP") == "1":
+        client_ip = request.headers.get("Fly-Client-IP", client_ip)
+    user_agent = request.headers.get("User-Agent")
+    return client_ip, user_agent[:500] if user_agent else None
+
+
+def _browser_csrf_token(raw_secret: str) -> str:
+    signing_key = current_app.config.get("WTF_CSRF_SECRET_KEY") or current_app.secret_key
+    return URLSafeTimedSerializer(
+        signing_key,
+        salt="wtf-csrf-token",
+    ).dumps(raw_secret)
+
+
+def _finish_verified_identity(identity, *, invitation_id=None):
+    """Create the local account, school membership, and opaque browser session."""
+    with _session_factory().begin() as session:
+        account = link_verified_identity(session, identity)
+        if invitation_id is not None:
+            accept_invitation(
+                session,
+                invitation_id=invitation_id,
+                account_id=account.id,
+            )
+        institutional_resolution = resolve_verified_institutional_membership(
+            session,
+            account_id=account.id,
+        )
+        memberships = list_active_memberships(
+            session,
+            account_id=account.id,
+        )
+        active_organization_id = institutional_resolution.membership.organization_id
+        credential = create_account_session(
+            session,
+            account_id=account.id,
+            active_organization_id=active_organization_id,
+            sealed_provider_state=identity.sealed_session,
+            rotate_cookie_value=request.cookies.get(SESSION_COOKIE_NAME),
+        )
+        append_security_audit_event(
+            session,
+            actor_account_id=account.id,
+            organization_id=active_organization_id,
+            target_type="account",
+            target_id=account.id,
+            action="identity.sign_in",
+            outcome="succeeded",
+            reason="authorized",
+        )
+    return credential, memberships, active_organization_id, account.normalized_email
+
+
 @auth_blueprint.get("/login")
 def login():
     try:
         return_path = _return_path(request.args.get("return_to"))
     except IdentityFailure:
         return _auth_failure(status=400)
-    return render_template("sign_in.html", return_path=return_path)
+    query = urlencode({"sign_in": "1", "return_to": return_path})
+    return redirect(f"/?{query}#builder", code=302)
+
+
+@auth_blueprint.post("/auth/magic/start")
+def magic_start():
+    """Send a six-digit code for an inline, verified institutional sign-in."""
+    if not _same_origin_json_request():
+        return _auth_json_error("request_rejected", 400)
+    try:
+        retry_after = _auth_retry_after(
+            scope="magic_start",
+            limit=_MAGIC_START_REQUEST_LIMIT,
+        )
+    except Exception:
+        current_app.logger.warning("identity_magic_start_limit_failed")
+        return _auth_json_error("identity_unavailable", 503)
+    if retry_after:
+        response = jsonify({"error": "throttled"})
+        response.status_code = 429
+        response.headers["Retry-After"] = str(retry_after)
+        return response
+
+    try:
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict) or set(payload) != {"email", "return_to"}:
+            raise IdentityFailure("invalid_identity_response")
+        return_path = _return_path(payload.get("return_to"))
+        normalized_email = normalize_verified_email(payload.get("email"))
+        institutional_domain_from_verified_email(normalized_email)
+        with _session_factory().begin() as session:
+            transaction = begin_magic_auth_transaction(
+                session,
+                normalized_email=normalized_email,
+                return_path=return_path,
+            )
+        client_ip, user_agent = _request_identity_signals()
+        provider_expiry = _identity_provider().send_magic_auth(
+            email=normalized_email,
+            ip_address=client_ip,
+            user_agent=user_agent,
+        )
+    except (AccountLinkFailure, IdentityFailure, OrganizationFailure) as exc:
+        category = getattr(exc, "category", "invalid_identity_response")
+        if category == "institutional_domain_required":
+            return _auth_json_error("school_email_required", 400)
+        if category == "throttled":
+            return _auth_json_error("throttled", 429)
+        if category == "identity_unavailable":
+            return _auth_json_error("identity_unavailable", 503)
+        return _auth_json_error("invalid_email", 400)
+    except Exception:
+        current_app.logger.warning("identity_magic_start_failed")
+        return _auth_json_error("identity_unavailable", 503)
+
+    expires_at = min(transaction.expires_at, provider_expiry)
+    response_payload = {
+        "challenge": transaction.challenge,
+        "expires_at": expires_at.isoformat(),
+    }
+    if current_app.debug and isinstance(_identity_provider(), FakeIdentityProvider):
+        response_payload["development_code"] = "123456"
+    return jsonify(response_payload)
+
+
+@auth_blueprint.post("/auth/magic/verify")
+def magic_verify():
+    """Verify one Magic Auth code and establish the normal secure session."""
+    if not _same_origin_json_request():
+        return _auth_json_error("request_rejected", 400)
+    try:
+        retry_after = _auth_retry_after(
+            scope="magic_verify",
+            limit=_MAGIC_VERIFY_REQUEST_LIMIT,
+        )
+    except Exception:
+        current_app.logger.warning("identity_magic_verify_limit_failed")
+        return _auth_json_error("identity_unavailable", 503)
+    if retry_after:
+        response = jsonify({"error": "throttled"})
+        response.status_code = 429
+        response.headers["Retry-After"] = str(retry_after)
+        return response
+
+    try:
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict) or set(payload) != {"challenge", "code"}:
+            raise IdentityFailure("invalid_callback")
+        challenge = _bounded_callback_value(payload.get("challenge"))
+        code = payload.get("code")
+        if (
+            not isinstance(code, str)
+            or len(code) != 6
+            or not code.isascii()
+            or not code.isdigit()
+        ):
+            raise IdentityFailure("invalid_callback")
+        with _session_factory().begin() as session:
+            pending = get_magic_auth_transaction(
+                session,
+                challenge=challenge,
+            )
+        client_ip, user_agent = _request_identity_signals()
+        identity = _identity_provider().verify_magic_auth(
+            email=pending.normalized_email,
+            code=code,
+            ip_address=client_ip,
+            user_agent=user_agent,
+        )
+        if (
+            not identity.email_verified
+            or normalize_verified_email(identity.email) != pending.normalized_email
+        ):
+            raise IdentityFailure("invalid_identity_response")
+        with _session_factory().begin() as session:
+            consume_magic_auth_transaction(
+                session,
+                transaction_id=pending.transaction_id,
+            )
+        credential, _memberships, _organization_id, normalized_email = (
+            _finish_verified_identity(identity)
+        )
+    except IdentityFailure as exc:
+        if exc.category == "throttled":
+            return _auth_json_error("throttled", 429)
+        if exc.category == "identity_unavailable":
+            return _auth_json_error("identity_unavailable", 503)
+        if exc.category == "invalid_auth_state":
+            return _auth_json_error("challenge_expired", 400)
+        _record_sign_in_failure("invalid_callback")
+        return _auth_json_error("invalid_code", 400)
+    except (AccountLinkFailure, OrganizationFailure):
+        _record_sign_in_failure("identity_conflict")
+        return _auth_json_error("sign_in_failed", 400)
+    except Exception:
+        current_app.logger.warning("identity_magic_verify_failed")
+        _record_sign_in_failure("identity_unavailable")
+        return _auth_json_error("identity_unavailable", 503)
+
+    response = jsonify({
+        "authenticated": True,
+        "return_to": pending.return_path,
+        "csrf_token": _browser_csrf_token(credential.csrf_secret),
+        "account_initial": normalized_email[0].upper(),
+    })
+    response.set_cookie(
+        SESSION_COOKIE_NAME,
+        credential.cookie_value,
+        **session_cookie_options(),
+    )
+    return response
 
 
 @auth_blueprint.get("/auth/start")

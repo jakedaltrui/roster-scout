@@ -56,6 +56,7 @@ from roster_scout.identity import (
     WorkOSIdentityProvider,
 )
 from roster_scout.jobs import drain_report_dispatch_outbox
+from roster_scout.models import Account
 from roster_scout.organization_routes import register_organization_routes
 from roster_scout.report_routes import (
     register_report_routes,
@@ -660,6 +661,7 @@ def request_too_large(_error):
 @app.route("/")
 def index():
     signed_in = False
+    account_initial = None
     cookie_value = request.cookies.get(SESSION_COOKIE_NAME, "")
     if cookie_value:
         try:
@@ -668,10 +670,17 @@ def index():
                     session,
                     cookie_value=cookie_value,
                 )
+                account = session.get(Account, g.authorization_context.account_id)
+                if account is not None and account.normalized_email:
+                    account_initial = account.normalized_email[0].upper()
             signed_in = True
         except Exception:
             signed_in = False
-    return render_template("index.html", signed_in=signed_in)
+    return render_template(
+        "index.html",
+        signed_in=signed_in,
+        account_initial=account_initial,
+    )
 
 
 @app.route("/demo")
@@ -736,6 +745,8 @@ _PUBLIC_ENDPOINTS = frozenset({
     "auth.login",
     "auth.start",
     "auth.callback",
+    "auth.magic_start",
+    "auth.magic_verify",
     "auth.error",
 })
 _ACCOUNT_ONLY_ENDPOINTS = frozenset({
