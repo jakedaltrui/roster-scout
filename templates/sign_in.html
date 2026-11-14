@@ -39,14 +39,14 @@
   <main id="main-content">
     <div class="brand"><span class="mark" aria-hidden="true"><img src="{{ url_for('static', filename='brand/roster-scout-dog-outlined.png') }}" alt=""></span><span>roster scout</span></div>
     <section class="card" aria-labelledby="sign-in-title">
-      <h1 id="sign-in-title">Sign in to Roster Scout</h1>
-      <p>Use your work email to access your organization’s opponent reports.</p>
+      <h1 id="sign-in-title">Continue with your school email</h1>
+      <p>Sign in once to build, download, and save this opponent report for your staff.</p>
       <form action="{{ url_for('auth.start') }}" method="get" onsubmit="this.querySelector('[data-handoff]').hidden=false">
         <input type="hidden" name="return_to" value="{{ return_path }}">
-        <button type="submit">Continue to sign in</button>
+        <button type="submit">Continue with school email</button>
         <div class="handoff" role="status" aria-live="polite" data-handoff hidden>Opening secure sign-in…</div>
       </form>
-      <p class="note">Passwordless email, Google, Microsoft, and your organization’s SSO may be available.</p>
+      <p class="note">No password to remember. Your verified .edu address securely connects you with your school.</p>
     </section>
   </main>
 </body>

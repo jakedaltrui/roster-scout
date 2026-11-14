@@ -69,12 +69,12 @@ class PasswordlessBoundaryTests(_PostgreSQLIdentityCase):
         body = response.get_data(as_text=True)
         self.assertIn("Sign in to Roster Scout", body)
         self.assertIn(
-            "Use your work email to access your organization’s opponent reports.",
+            "Continue with your school email",
             body,
         )
-        self.assertIn("Continue to sign in", body)
+        self.assertIn("Continue with school email", body)
         self.assertIn(
-            "Passwordless email, Google, Microsoft, and your organization’s SSO may be available.",
+            "No password to remember.",
             body,
         )
         self.assertIn('href="#main-content"', body)
@@ -99,6 +99,15 @@ class PasswordlessBoundaryTests(_PostgreSQLIdentityCase):
             row = session.scalar(select(AuthTransaction))
             self.assertEqual(row.return_path, "/reports")
             self.assertNotEqual(row.state_digest, state)
+
+        resume = client.get(
+            "/auth/start",
+            query_string={"return_to": "/?resume=download"},
+        )
+        self.assertEqual(resume.status_code, 302)
+        with self.Session() as session:
+            return_paths = set(session.scalars(select(AuthTransaction.return_path)))
+        self.assertEqual(return_paths, {"/reports", "/?resume=download"})
 
         unsafe = client.get("/auth/start?return_to=//attacker.example/path")
         self.assertEqual(unsafe.status_code, 400)
@@ -214,6 +223,26 @@ class PasswordlessBoundaryTests(_PostgreSQLIdentityCase):
         self.assertIn("Return to sign in", replay_body)
         self.assertNotIn(state, replay_body)
         self.assertNotIn("browser-code-secret", replay_body)
+
+    def test_callback_honors_only_the_exact_homepage_resume_path(self):
+        from roster_scout.identity import FakeIdentityProvider
+
+        provider = FakeIdentityProvider(
+            identities={"resume-code": self._verified_identity()}
+        )
+        client = self._auth_client(provider)
+        started = client.get(
+            "/auth/start",
+            query_string={"return_to": "/?resume=download"},
+        )
+        state = parse_qs(urlsplit(started.headers["Location"]).query)["state"][0]
+        callback = client.get(
+            "/auth/callback",
+            query_string={"state": state, "code": "resume-code"},
+        )
+        location = urlsplit(callback.headers["Location"])
+        self.assertEqual(location.path, "/")
+        self.assertEqual(location.query, "resume=download")
 
     def test_provider_failure_consumes_state_and_redacts_callback_material(self):
         from roster_scout.identity import FakeIdentityProvider
@@ -1001,6 +1030,9 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
             self.app_module._PUBLIC_ENDPOINTS,
             frozenset({
                 "static",
+                "index",
+                "teams",
+                "team_logo",
                 "healthz",
                 "readyz",
                 "demo",
@@ -1022,20 +1054,20 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
             }),
         )
 
-    def test_unauthenticated_product_and_legacy_routes_fail_before_view_execution(self):
+    def test_homepage_catalog_and_logos_are_public_but_generation_is_protected(self):
         html = self.client.get("/")
-        self.assertEqual(html.status_code, 302)
-        self.assertEqual(urlsplit(html.headers["Location"]).path, "/login")
+        self.assertEqual(html.status_code, 200)
+        self.assertIn(b"Download Roster Stat Sheet", html.data)
+        self.assertIn(b">Sign in<", html.data)
 
-        for method, path, kwargs in (
-            ("get", "/api/teams?division=d1", {}),
-            ("get", "/api/team-logo/1", {}),
-            ("post", "/scrape", {"json": {"team": "Tampa"}}),
-        ):
-            with self.subTest(method=method, path=path):
-                response = getattr(self.client, method)(path, **kwargs)
-                self.assertEqual(response.status_code, 401)
-                self.assertEqual(response.get_json(), {"error": "authentication_required"})
+        catalog = self.client.get("/api/teams?division=d1")
+        self.assertEqual(catalog.status_code, 200)
+        logo = self.client.get("/api/team-logo/not-a-team")
+        self.assertEqual(logo.status_code, 404)
+
+        response = self.client.post("/scrape", json={"team": "Tampa"})
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.get_json(), {"error": "authentication_required"})
 
         acknowledgement = self.client.post(
             "/api/downloads/ack",

@@ -78,6 +78,14 @@ class DownloadEventContractTests(unittest.TestCase):
     def test_success_copy_claims_start_not_filesystem_save(self):
         self.assertIn("Your Stat Sheet download has started.", self.source)
         self.assertNotIn("Your Stat Sheet has downloaded.", self.source)
+
+    def test_home_flow_prompts_and_resumes_with_csrf(self):
+        self.assertIn("static', filename='home_flow.js", self.source)
+        self.assertIn("%2F%3Fresume%3Ddownload", self.source)
+        self.assertIn("createPendingReportStore", self.source)
+        self.assertIn("pendingReportStore.consume()", self.source)
+        self.assertIn("'X-CSRFToken': csrfToken", self.source)
+        self.assertIn("data.error === 'authentication_required'", self.source)
         self.assertNotRegex(
             self.source,
             r"(?i)(?:download|stat sheet).{0,30}(?:saved|save complete)",
@@ -952,6 +960,42 @@ class AuthenticatedSnapshotDownloadAcknowledgementTests(unittest.TestCase):
 
         with self.Session() as session:
             return list(session.scalars(select(ProductUsageEvent)))
+
+    def test_signed_in_homepage_stays_primary_and_scrape_requires_csrf(self):
+        _account_id, _organization_id, credential = self._identity("Homepage")
+        client = self._client(credential)
+
+        homepage = client.get("/")
+        self.assertEqual(homepage.status_code, 200)
+        self.assertIn(b"Download Roster Stat Sheet", homepage.data)
+        self.assertIn(b">Saved reports<", homepage.data)
+        self.assertIn(b'name="csrf-token"', homepage.data)
+
+        payload = {
+            "team": "Tampa",
+            "division": "d2",
+            "season_team_id": "615087",
+            "team_id": "689",
+            "display_name": "Tampa",
+        }
+        rejected = client.post("/scrape", json=payload)
+        self.assertEqual(rejected.status_code, 400)
+        self.assertEqual(rejected.get_json(), {"error": "request_rejected"})
+
+        with (
+            patch.object(app_module, "check_request_limit", return_value=0),
+            patch.object(
+                app_module,
+                "scrape_ncaa_by_id",
+                return_value=([SAMPLE_PLAYER], "Tampa"),
+            ),
+        ):
+            accepted = client.post(
+                "/scrape",
+                json=payload,
+                headers={"X-CSRFToken": self._csrf_token(credential)},
+            )
+        self.assertEqual(accepted.status_code, 200)
 
     def test_valid_recent_proof_and_ambiguous_retry_record_one_canonical_event(self):
         from roster_scout.models import SecurityAuditEvent

@@ -43,6 +43,7 @@ auth_blueprint = Blueprint("auth", __name__)
 _DEFAULT_RETURN_PATH = "/organizations/none"
 _ALLOWED_RETURN_PATHS = frozenset({
     _DEFAULT_RETURN_PATH,
+    "/?resume=download",
     "/organizations/select",
     "/reports",
 })
@@ -356,10 +357,12 @@ def callback():
 
     if not memberships:
         destination = _DEFAULT_RETURN_PATH
+    elif return_path == "/?resume=download" and active_organization_id is not None:
+        destination = return_path
     elif len(memberships) > 1:
         destination = "/organizations/select"
     else:
-        destination = "/reports"
+        destination = return_path if return_path != _DEFAULT_RETURN_PATH else "/reports"
     response = redirect(destination, code=302)
     response.set_cookie(
         SESSION_COOKIE_NAME,

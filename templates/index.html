@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#f6f6f3" />
   <script src="{{ url_for('static', filename='download_tracking.js') }}"></script>
+  <script src="{{ url_for('static', filename='home_flow.js') }}"></script>
+  {% if signed_in %}<meta name="csrf-token" content="{{ csrf_token() }}" />{% endif %}
   <script>
     try {
       document.documentElement.dataset.theme = localStorage.getItem('roster-scout-theme') === 'dark' ? 'dark' : 'light';
@@ -45,6 +47,8 @@
     .header-nav { display:flex; align-items:center; gap:2px; }
     .header-nav a { padding:9px 12px; border-radius:999px; color:#a3a3a7; font-size:11px; font-weight:600; text-decoration:none; transition:color .2s,background-color .2s; }
     .header-nav a:hover { color:#f3f3f1; background:rgba(255,255,255,.08); }
+    .account-link { padding:9px 12px; border-radius:999px; color:#d7d7d5; font-size:11px; font-weight:700; text-decoration:none; white-space:nowrap; transition:color .2s,background-color .2s; }
+    .account-link:hover { color:#fff; background:rgba(255,255,255,.08); }
     .hero { display:grid; grid-template-columns:minmax(0,1fr) minmax(400px, 510px); gap:8%; align-items:center; min-height:calc(100vh - 78px); padding:65px 0 85px; }
     .intro { max-width:630px; }
     .eyebrow { display:flex; align-items:center; gap:11px; color:#536f5f; font-size:11px; font-weight:700; letter-spacing:.15em; text-transform:uppercase; }
@@ -282,6 +286,8 @@
     html[data-theme="light"] .header { border-color:rgba(32,33,31,.12); background:rgba(255,255,253,.82); box-shadow:0 14px 38px rgba(25,25,20,.1),inset 0 1px 0 rgba(255,255,255,.9); }
     html[data-theme="light"] .header-nav a { color:#676a65; }
     html[data-theme="light"] .header-nav a:hover { color:#20211f; background:rgba(0,0,0,.055); }
+    html[data-theme="light"] .account-link { color:#31332f; }
+    html[data-theme="light"] .account-link:hover { background:rgba(0,0,0,.055); }
     html[data-theme="light"] h1 em { color:#8b8d88; }
     html[data-theme="light"] .intro-copy { color:#6f726f; }
     html[data-theme="light"] .card { background:#fff; border-color:#e3e4df; box-shadow:0 24px 70px rgba(25,25,20,.07); }
@@ -467,7 +473,14 @@
 <body id="top">
   <a class="skip-link" href="#main-content">Skip to content</a>
   <div class="shell">
-    <header class="header"><a class="brand" href="#top" aria-label="Roster Scout home"><img class="brand-mark" src="{{ url_for('static', filename='brand/roster-scout-dog-outlined.png') }}" width="42" height="42" alt="" /><span class="brand-name">roster scout</span></a><div class="header-actions"><nav class="header-nav" aria-label="Page sections"><a href="#output">What you get</a><a href="#how-it-works">How it works</a><a href="#questions">Questions</a></nav><button type="button" class="theme-toggle" id="theme-toggle" aria-label="Switch to dark mode" title="Switch to dark mode"><svg class="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.9 13.1A9 9 0 0 1 10.9 3.1 9 9 0 1 0 20.9 13.1Z" /></svg><svg class="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" /></svg></button></div></header>
+    <header class="header">
+      <a class="brand" href="#top" aria-label="Roster Scout home"><img class="brand-mark" src="{{ url_for('static', filename='brand/roster-scout-dog-outlined.png') }}" width="42" height="42" alt="" /><span class="brand-name">roster scout</span></a>
+      <div class="header-actions">
+        <nav class="header-nav" aria-label="Page sections"><a href="#output">What you get</a><a href="#how-it-works">How it works</a><a href="#questions">Questions</a></nav>
+        {% if signed_in %}<a class="account-link" href="/reports">Saved reports</a>{% else %}<a class="account-link" href="/login?return_to=/reports">Sign in</a>{% endif %}
+        <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Switch to dark mode" title="Switch to dark mode"><svg class="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.9 13.1A9 9 0 0 1 10.9 3.1 9 9 0 1 0 20.9 13.1Z" /></svg><svg class="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" /></svg></button>
+      </div>
+    </header>
     <main id="main-content">
       <div class="hero">
       <section class="intro" aria-labelledby="page-title">
@@ -517,7 +530,7 @@
         </div>
       </section>
       <section class="guide" id="how-it-works" aria-labelledby="guide-heading"><div><h2 class="guide-heading" id="guide-heading">How it works.</h2><p class="guide-intro">Find a team and download a clean workbook in three steps.</p></div><div><ol class="how-it-works"><li><button type="button" class="how-button" data-guide="division" aria-pressed="true" aria-controls="guide-detail"><span class="how-number">1</span><span>Find a team</span></button></li><li><button type="button" class="how-button" data-guide="team" aria-pressed="false" aria-controls="guide-detail"><span class="how-number">2</span><span>Review the roster</span></button></li><li><button type="button" class="how-button" data-guide="download" aria-pressed="false" aria-controls="guide-detail"><span class="how-number">3</span><span>Download the file</span></button></li></ol><div class="guide-detail" id="guide-detail" aria-live="polite"><span class="guide-detail-label" id="guide-detail-label">Step 01</span><h3 class="guide-detail-title" id="guide-detail-title">Find a team.</h3><p class="guide-detail-text" id="guide-detail-text">Choose a division, then search for a school.</p><span class="guide-detail-number" id="guide-detail-number" aria-hidden="true">01</span></div></div></section>
-      <section class="faq-section" id="questions" aria-labelledby="faq-heading"><div class="faq-intro"><p class="section-kicker">Quick answers</p><h2 class="faq-heading" id="faq-heading">Know what you’re downloading.</h2><p>No account setup or manual copy-and-paste. Choose a team and Roster Scout builds the workbook.</p></div><div class="faq-list"><details class="faq-item" open><summary>What is included in the workbook?</summary><p>Every download contains a Hitters worksheet and a Pitchers worksheet. Both include player identity fields, while each sheet adds the season statistics relevant to that group.</p></details><details class="faq-item"><summary>Which teams can I search?</summary><p>The selector covers the current NCAA baseball catalog for Division I, Division II, and Division III teams.</p></details><details class="faq-item"><summary>What file type will I receive?</summary><p>Roster Scout creates an .xlsx Excel workbook and names it for the selected team and download date.</p></details><details class="faq-item"><summary>What happens after I click download?</summary><p>The app verifies the selected team, gathers the roster and season statistics, organizes the player records, and prepares the workbook before your browser starts the download.</p></details></div></section>
+      <section class="faq-section" id="questions" aria-labelledby="faq-heading"><div class="faq-intro"><p class="section-kicker">Quick answers</p><h2 class="faq-heading" id="faq-heading">Know what you’re downloading.</h2><p>Choose a team first. When you download, a quick passwordless school-email sign-in keeps the report available to your staff.</p></div><div class="faq-list"><details class="faq-item" open><summary>What is included in the workbook?</summary><p>Every download contains a Hitters worksheet and a Pitchers worksheet. Both include player identity fields, while each sheet adds the season statistics relevant to that group.</p></details><details class="faq-item"><summary>Which teams can I search?</summary><p>The selector covers the current NCAA baseball catalog for Division I, Division II, and Division III teams.</p></details><details class="faq-item"><summary>What file type will I receive?</summary><p>Roster Scout creates an .xlsx Excel workbook and names it for the selected team and download date.</p></details><details class="faq-item"><summary>What happens after I click download?</summary><p>The app verifies the selected team, asks you to sign in if needed, gathers the roster and season statistics, and prepares the workbook before your browser starts the download.</p></details></div></section>
       <section class="final-cta" aria-labelledby="final-heading"><div class="final-copy"><h2 class="final-heading" id="final-heading">Your next opponent is a search away.</h2><p>Choose a division and build the workbook when you need it.</p></div><a class="cta-link" href="#builder">Find a team <span aria-hidden="true">&nbsp;↗</span></a></section>
     </main>
     <footer class="footer"><span>Roster Scout © 2026</span><a href="https://github.com/jakedaltrui/roster-scout" target="_blank" rel="noopener noreferrer">View source on GitHub ↗</a></footer>
@@ -1296,11 +1309,17 @@
       uuidFactory: () => crypto.randomUUID(),
       now: () => Date.now(),
     });
+    const pendingReportStore = window.RosterScoutHomeFlow.createPendingReportStore({
+      storage: browserSessionStorage,
+      now: () => Date.now(),
+    });
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+    const authenticatedHeaders = csrfToken ? { 'X-CSRFToken': csrfToken } : {};
 
     async function postDownloadAcknowledgement(pending) {
       const response = await fetch('/api/downloads/ack', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authenticatedHeaders },
         body: JSON.stringify({
           download_event_id: pending.downloadEventId,
           acknowledgement_proof: pending.acknowledgementProof,
@@ -1321,6 +1340,13 @@
       const team = selectedTeam?.name || '';
       const teamId = selectedTeam?.team_id || '';
       const displayName = selectedTeam?.display_name || team;
+      const pendingSelection = {
+        division: selectedDiv,
+        team,
+        season_team_id: seasonTeamId,
+        team_id: teamId,
+        display_name: displayName,
+      };
 
       if (!team || !seasonTeamId) {
         teamCombobox.setAttribute('aria-invalid', 'true');
@@ -1347,7 +1373,7 @@
           retryPendingAcknowledgement: postDownloadAcknowledgement,
           requestWorkbook: downloadEventId => fetch('/scrape', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...authenticatedHeaders },
             body: JSON.stringify({
               team,
               division: selectedDiv,
@@ -1393,6 +1419,11 @@
 
         if (result.definitiveFailure) {
           const data = await result.response.json().catch(() => ({}));
+          if (result.response.status === 401 && data.error === 'authentication_required') {
+            pendingReportStore.save(pendingSelection);
+            window.location.assign('/login?return_to=%2F%3Fresume%3Ddownload');
+            return;
+          }
           document.getElementById('error-msg').textContent = data.error || 'Unknown error. Please try again.';
           show('error');
           return;
@@ -1424,7 +1455,40 @@
       show('loading');
       startLoadingActivity();
     } else {
-      loadNcaaTeams(selectedDiv);
+      (async () => {
+        await loadNcaaTeams(selectedDiv);
+        if (!window.RosterScoutHomeFlow.isResumeLocation(window.location)) return;
+
+        const pending = pendingReportStore.consume();
+        if (!pending) {
+          catalogHint.textContent = 'Sign-in complete. Choose the team again to start your report.';
+          teamCombobox.focus();
+          return;
+        }
+        if (pending.division !== selectedDiv) {
+          selectedDiv = pending.division;
+          const divisionButtons = [...document.querySelectorAll('.div-btn')];
+          divisionButtons.forEach((button, index) => {
+            const active = button.dataset.div === selectedDiv;
+            button.classList.toggle('active', active);
+            button.setAttribute('aria-pressed', String(active));
+            if (active) button.parentElement.style.setProperty('--division-index', index);
+          });
+          await loadNcaaTeams(selectedDiv);
+        }
+        const restoredTeam = teamCatalog.find(team =>
+          team.season_team_id === pending.season_team_id
+          && team.team_id === pending.team_id
+          && team.name === pending.team
+        );
+        if (!restoredTeam) {
+          catalogHint.textContent = 'That saved team is no longer in the current catalog. Choose a team again.';
+          teamCombobox.focus();
+          return;
+        }
+        selectTeam(restoredTeam);
+        document.getElementById('scout-form').requestSubmit();
+      })();
     }
   </script>
 </body>

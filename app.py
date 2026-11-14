@@ -650,9 +650,19 @@ def request_too_large(_error):
 
 @app.route("/")
 def index():
-    if getattr(g, "authorization_context", None) is not None:
-        return redirect("/reports")
-    return render_template("index.html")
+    signed_in = False
+    cookie_value = request.cookies.get(SESSION_COOKIE_NAME, "")
+    if cookie_value:
+        try:
+            with _auth_session_factory().begin() as session:
+                g.authorization_context = require_context(
+                    session,
+                    cookie_value=cookie_value,
+                )
+            signed_in = True
+        except Exception:
+            signed_in = False
+    return render_template("index.html", signed_in=signed_in)
 
 
 @app.route("/demo")
@@ -707,6 +717,9 @@ register_report_routes(
 
 _PUBLIC_ENDPOINTS = frozenset({
     "static",
+    "index",
+    "teams",
+    "team_logo",
     "healthz",
     "readyz",
     "demo",
