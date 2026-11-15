@@ -1199,6 +1199,31 @@ class InstitutionalDomainMembershipTests(_PostgreSQLOrganizationCase):
             all(item.membership_source == "verified_domain" for item in memberships)
         )
 
+    def test_shared_system_root_keeps_exact_subdomains_in_separate_organizations(self):
+        from roster_scout.organizations import resolve_verified_institutional_membership
+
+        root_account_id = self._account("coach@psu.edu")
+        campus_account_id = self._account("coach@abington.psu.edu")
+
+        with self.Session.begin() as session:
+            root = resolve_verified_institutional_membership(
+                session,
+                account_id=root_account_id,
+                now=self.now,
+            )
+            campus = resolve_verified_institutional_membership(
+                session,
+                account_id=campus_account_id,
+                now=self.now,
+            )
+
+        self.assertNotEqual(
+            root.membership.organization_id,
+            campus.membership.organization_id,
+        )
+        self.assertEqual(root.root_domain, "psu.edu")
+        self.assertEqual(campus.root_domain, "abington.psu.edu")
+
     def test_concurrent_first_join_creates_one_school_organization(self):
         from roster_scout.models import Account, OrganizationDomain
         from roster_scout.organizations import resolve_verified_institutional_membership

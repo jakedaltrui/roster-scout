@@ -26,6 +26,7 @@ from roster_scraper import NcaaError, list_ncaa_teams
 from .audit import append_security_audit_event
 from .authorization import record_scoped_not_found
 from .jobs import drain_report_dispatch_outbox
+from .institution_registry import identity_for_verified_email
 from .models import Account, Organization
 from .reports import (
     CanonicalReportRequest,
@@ -147,10 +148,20 @@ def _shell_context(session, authorization_context):
     )
     if organization is None:
         raise ReportLibraryFailure("not_found")
+    account_email = account.normalized_email if account else None
+    institution = identity_for_verified_email(account_email)
     return {
-        "organization_name": organization.name,
+        "organization_name": (
+            institution.school_name if institution is not None else organization.name
+        ),
         "current_role": authorization_context.role,
-        "account_email": account.normalized_email if account else None,
+        "account_email": account_email,
+        "account_school_name": (
+            institution.school_name if institution is not None else None
+        ),
+        "account_logo_url": (
+            institution.logo_url if institution is not None else None
+        ),
     }
 
 

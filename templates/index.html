@@ -51,6 +51,8 @@
     .account-avatar { display:grid; place-items:center; width:28px; height:28px; border:1px solid #3a3a3e; border-radius:50%; color:#a8a8ac; background:#242426; font-size:11px; }
     .account-avatar svg { width:15px; height:15px; }
     .account-avatar[data-signed-in="true"] { color:#171719; background:#ededeb; border-color:#ededeb; font-weight:800; }
+    .account-avatar.has-logo { overflow:hidden; border-color:#3a3a3e; background:#fff; }
+    .account-avatar.has-logo img { width:21px; height:21px; object-fit:contain; }
     .account-menu { position:relative; }
     .account-menu summary { padding:7px; list-style:none; cursor:pointer; }
     .account-menu summary::-webkit-details-marker { display:none; }
@@ -58,6 +60,7 @@
     .account-menu[open] .account-menu__panel { animation:menu-in .18s cubic-bezier(.2,.8,.2,1) both; }
     .account-menu.is-closing .account-menu__panel { animation:menu-out .16s ease-in both; pointer-events:none; }
     .account-menu[open] summary { color:#fff; background:rgba(255,255,255,.08); }
+    .account-school { margin:0 0 3px; color:#f0f0ee; font-size:13px; font-weight:700; }
     .account-email { margin:0 0 12px; overflow-wrap:anywhere; color:#a1a1a4; font-size:13px; }
     .account-menu__panel form,.account-menu__panel button { width:100%; }
     .account-sign-out { min-height:44px; border:1px solid #303034; border-radius:11px; color:#f0f0ee; background:#202023; font-size:12px; font-weight:700; }
@@ -336,6 +339,7 @@
     html[data-theme="light"] .account-avatar { color:#676a65; background:#f0f0ed; border-color:#dedfd9; }
     html[data-theme="light"] .account-avatar[data-signed-in="true"] { color:#fff; background:#20211f; border-color:#20211f; }
     html[data-theme="light"] .account-menu__panel { border-color:#dedfd9; background:#fff; box-shadow:0 20px 48px rgba(32,33,31,.12); }
+    html[data-theme="light"] .account-school { color:#20211f; }
     html[data-theme="light"] .account-email { color:#6f726c; }
     html[data-theme="light"] .account-sign-out { border-color:#dedfd9; color:#20211f; background:#f7f7f4; }
     html[data-theme="light"] .account-sign-out:hover { background:#eeeeea; }
@@ -539,8 +543,9 @@
         <div class="account-actions" id="signed-in-actions"{% if not signed_in %} hidden{% endif %}>
           <a class="dashboard-link" href="/reports">Dashboard</a>
           <details class="account-menu">
-            <summary aria-label="Open account menu" aria-expanded="false"><span class="account-avatar" id="account-avatar" data-signed-in="true" aria-hidden="true">{{ account_initial or '•' }}</span></summary>
+            <summary aria-label="Open account menu" aria-expanded="false"><span class="account-avatar{% if account_logo_url %} has-logo{% endif %}" id="account-avatar" data-signed-in="true" aria-hidden="true">{% if account_logo_url %}<img src="{{ account_logo_url }}" alt="">{% else %}{{ account_initial or '•' }}{% endif %}</span></summary>
             <div class="account-menu__panel">
+              <p class="account-school" id="account-school"{% if not account_school_name %} hidden{% endif %}>{{ account_school_name or '' }}</p>
               <p class="account-email" id="account-email">{{ account_email or '' }}</p>
               <form action="{{ url_for('auth.logout') }}" method="post">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -1433,6 +1438,7 @@
 
     const accountLink = document.getElementById('account-link');
     const accountAvatar = document.getElementById('account-avatar');
+    const accountSchool = document.getElementById('account-school');
     const accountEmail = document.getElementById('account-email');
     const signedOutActions = document.getElementById('signed-out-actions');
     const signedInActions = document.getElementById('signed-in-actions');
@@ -1477,7 +1483,17 @@
       csrfToken = data.csrf_token;
       authenticatedHeaders = { 'X-CSRFToken': csrfToken };
       accountAvatar.dataset.signedIn = 'true';
-      accountAvatar.replaceChildren(document.createTextNode(data.account_initial || '•'));
+      accountAvatar.classList.toggle('has-logo', Boolean(data.account_logo_url));
+      if (data.account_logo_url) {
+        const logo = document.createElement('img');
+        logo.src = data.account_logo_url;
+        logo.alt = '';
+        accountAvatar.replaceChildren(logo);
+      } else {
+        accountAvatar.replaceChildren(document.createTextNode(data.account_initial || '•'));
+      }
+      accountSchool.textContent = data.account_school_name || '';
+      accountSchool.hidden = !data.account_school_name;
       accountEmail.textContent = data.account_email || magicAuthEmail;
       signedOutActions.hidden = true;
       signedInActions.hidden = false;

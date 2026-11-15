@@ -31,6 +31,7 @@ from .identity import (
     get_magic_auth_transaction,
     resolve_provider_invitation_token,
 )
+from .institution_registry import identity_for_verified_email
 from .sessions import (
     SESSION_COOKIE_NAME,
     complete_provider_logout,
@@ -433,12 +434,19 @@ def magic_verify():
         _record_sign_in_failure("identity_unavailable")
         return _auth_json_error("identity_unavailable", 503)
 
+    institution = identity_for_verified_email(normalized_email)
     response = jsonify({
         "authenticated": True,
         "return_to": pending.return_path,
         "csrf_token": _browser_csrf_token(credential.csrf_secret),
         "account_initial": normalized_email[0].upper(),
         "account_email": normalized_email,
+        "account_school_name": (
+            institution.school_name if institution is not None else None
+        ),
+        "account_logo_url": (
+            institution.logo_url if institution is not None else None
+        ),
     })
     response.set_cookie(
         SESSION_COOKIE_NAME,

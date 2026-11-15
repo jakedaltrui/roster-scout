@@ -452,6 +452,11 @@ class WorkOSIdentityProvider:
         except IdentityFailure:
             raise
         except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "workos_magic_auth_verify_failed exception_type=%s status_code=%s",
+                type(exc).__name__,
+                getattr(exc, "status_code", None),
+            )
             raise IdentityFailure(_provider_failure_category(exc)) from None
 
     def _identity_from_authentication(self, response) -> VerifiedIdentity:

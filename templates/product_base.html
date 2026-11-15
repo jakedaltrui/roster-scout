@@ -1,5 +1,8 @@
 <!doctype html>
 <html lang="en">
+{% set account_identity = institution_identity(account_email) if account_email else none %}
+{% set resolved_account_logo = (account_logo_url|default(none)) or (account_identity.logo_url if account_identity else none) %}
+{% set resolved_school_name = (account_school_name|default(none)) or (account_identity.school_name if account_identity else none) %}
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -35,9 +38,9 @@
             <a class="product-dashboard-link" href="/reports">Dashboard</a>
           {% endif %}
           <details class="account-menu">
-            <summary aria-label="Open account menu" aria-expanded="false"><span class="product-account-avatar" aria-hidden="true">{{ account_email[0]|upper }}</span></summary>
+            <summary aria-label="Open account menu" aria-expanded="false"><span class="product-account-avatar{% if resolved_account_logo %} product-account-avatar--logo{% endif %}" aria-hidden="true">{% if resolved_account_logo %}<img src="{{ resolved_account_logo }}" alt="">{% else %}{{ account_email[0]|upper }}{% endif %}</span></summary>
             <div class="account-menu__panel">
-              {% if organization_name %}<p class="account-organization">{{ organization_name }}</p>{% endif %}
+              {% if resolved_school_name or organization_name %}<p class="account-organization">{{ resolved_school_name or organization_name }}</p>{% endif %}
               <p class="account-email">{{ account_email }}</p>
               <form action="{{ url_for('auth.logout') }}" method="post">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

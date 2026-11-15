@@ -98,11 +98,13 @@ Magic Auth code entered inside the existing report-builder card.
 The application owns canonical accounts, organization memberships, and opaque
 server sessions. Provider organization, domain, and JIT claims never authorize
 a Roster Scout organization. After subject linking, only the provider-verified
-email address enters the local institutional-domain resolver: an exact `.edu`
-alias wins, otherwise an ordinary subdomain folds into its last-two-label
-institutional root. Malformed, lookalike, and non-`.edu` addresses never create
-automatic membership. Local and automated verification use the injected fake
-adapter and do not contact a WorkOS workspace.
+email address enters the local institutional-domain resolver. The checked-in
+NCAA directory registry personalizes only `.edu` roots that map to one baseball
+school; ordinary subdomains fold into that root. A root shared by multiple NCAA
+programs remains neutral and keeps each exact verified subdomain isolated as a
+separate tenant boundary. Malformed, lookalike, and non-`.edu` addresses never
+create automatic membership. Local and automated verification use the injected
+fake adapter and do not contact a WorkOS workspace.
 
 Configure these names only through an untracked local environment or the
 hosting provider's secret store:
@@ -112,7 +114,8 @@ hosting provider's secret store:
 - `WORKOS_API_KEY`
 - `WORKOS_CLIENT_ID`
 - `WORKOS_REDIRECT_URI` — the exact HTTPS `/auth/callback` URL
-- `WORKOS_COOKIE_PASSWORD` — shared high-entropy sealed-session key
+- `WORKOS_COOKIE_PASSWORD` — one padded URL-safe Base64 Fernet key encoding
+  exactly 32 random bytes (for example, the output of `Fernet.generate_key()`)
 
 A hosted runtime with missing or incomplete identity configuration sets the
 authentication boundary to unavailable and fails customer product access

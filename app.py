@@ -60,6 +60,7 @@ from roster_scout.identity import (
     WorkOSIdentityProvider,
 )
 from roster_scout.jobs import drain_report_dispatch_outbox
+from roster_scout.institution_registry import identity_for_verified_email
 from roster_scout.models import Account
 from roster_scout.organization_routes import register_organization_routes
 from roster_scout.report_routes import (
@@ -88,6 +89,7 @@ from roster_scraper import (
 
 
 app = Flask(__name__)
+app.jinja_env.globals["institution_identity"] = identity_for_verified_email
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024
 app.config["WTF_CSRF_CHECK_DEFAULT"] = False
 app.config["WTF_CSRF_TIME_LIMIT"] = 3600
@@ -138,6 +140,15 @@ def _valid_identity_redirect_uri(value: str, *, hosted: bool) -> bool:
     )
 
 
+def _valid_workos_cookie_password(value: str) -> bool:
+    """Require the 32-byte URL-safe base64 key used by WorkOS session sealing."""
+    try:
+        decoded = base64.b64decode(value, altchars=b"-_", validate=True)
+    except (binascii.Error, ValueError, UnicodeEncodeError):
+        return False
+    return len(decoded) == 32
+
+
 def _identity_configuration():
     """Return provider, CSRF signing key, and deterministic readiness status."""
     hosted = bool(os.environ.get("FLY_APP_NAME", "").strip())
@@ -163,6 +174,7 @@ def _identity_configuration():
         mode == "workos"
         and session_secret
         and all(workos_values.values())
+        and _valid_workos_cookie_password(workos_values["cookie_password"])
         and _valid_identity_redirect_uri(
             workos_values["redirect_uri"],
             hosted=hosted,
@@ -681,6 +693,8 @@ def _public_shell_context():
     signed_in = False
     account_initial = None
     account_email = None
+    account_school_name = None
+    account_logo_url = None
     cookie_value = request.cookies.get(SESSION_COOKIE_NAME, "")
     if cookie_value:
         try:
@@ -693,6 +707,10 @@ def _public_shell_context():
                 if account is not None and account.normalized_email:
                     account_email = account.normalized_email
                     account_initial = account.normalized_email[0].upper()
+                    identity = identity_for_verified_email(account_email)
+                    if identity is not None:
+                        account_school_name = identity.school_name
+                        account_logo_url = identity.logo_url
             signed_in = True
         except Exception:
             signed_in = False
@@ -700,6 +718,8 @@ def _public_shell_context():
         "signed_in": signed_in,
         "account_initial": account_initial,
         "account_email": account_email,
+        "account_school_name": account_school_name,
+        "account_logo_url": account_logo_url,
     }
 
 

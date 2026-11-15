@@ -25,6 +25,10 @@ from .models import (
     OrganizationInvitation,
     OrganizationMembership,
 )
+from .institution_registry import (
+    identity_for_domain,
+    organization_routing_domain,
+)
 from .sessions import clear_active_organization_sessions
 
 
@@ -130,8 +134,10 @@ def resolve_verified_institutional_membership(
 ) -> InstitutionalMembershipResolution:
     """Route a verified .edu account to its shared local organization.
 
-    Exact aliases win over the default last-two-label root mapping. The caller
-    must already have verified the address through the identity provider.
+    Exact aliases win over the default last-two-label root mapping. Reviewed
+    shared university-system roots keep exact verified subdomains isolated.
+    The caller must already have verified the address through the identity
+    provider.
     """
     account_id = _canonical_uuid(account_id)
     now = _utc_datetime(now or datetime.now(UTC))
@@ -141,17 +147,18 @@ def resolve_verified_institutional_membership(
     verified_domain, root_domain = institutional_domain_from_verified_email(
         account.normalized_email
     )
+    routing_domain = organization_routing_domain(verified_domain, root_domain)
 
-    _lock_institutional_root(session, root_domain)
+    _lock_institutional_root(session, routing_domain)
     domain_route = session.scalar(
         select(OrganizationDomain)
         .where(OrganizationDomain.domain == verified_domain)
         .with_for_update()
     )
-    if domain_route is None and verified_domain != root_domain:
+    if domain_route is None and verified_domain != routing_domain:
         domain_route = session.scalar(
             select(OrganizationDomain)
-            .where(OrganizationDomain.domain == root_domain)
+            .where(OrganizationDomain.domain == routing_domain)
             .with_for_update()
         )
 
@@ -178,13 +185,16 @@ def resolve_verified_institutional_membership(
                 raise OrganizationFailure("organization_unavailable")
         else:
             organization_created = True
-            organization = Organization(name=root_domain)
+            identity = identity_for_domain(routing_domain)
+            organization = Organization(
+                name=identity.school_name if identity is not None else routing_domain
+            )
             session.add(organization)
             session.flush()
         domain_route = OrganizationDomain(
             organization_id=organization.id,
-            domain=root_domain,
-            root_domain=root_domain,
+            domain=routing_domain,
+            root_domain=routing_domain,
             is_primary=True,
         )
         session.add(domain_route)
@@ -209,6 +219,12 @@ def resolve_verified_institutional_membership(
         )
         if organization is None:
             raise OrganizationFailure("organization_unavailable")
+        identity = identity_for_domain(routing_domain)
+        if identity is not None and organization.name in {
+            root_domain,
+            routing_domain,
+        }:
+            organization.name = identity.school_name
 
     prior_memberships = list(
         session.scalars(
@@ -291,7 +307,7 @@ def resolve_verified_institutional_membership(
     return InstitutionalMembershipResolution(
         membership=membership,
         verified_domain=verified_domain,
-        root_domain=root_domain,
+        root_domain=routing_domain,
         organization_created=organization_created,
     )
 
