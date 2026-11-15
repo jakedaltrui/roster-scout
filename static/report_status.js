@@ -223,5 +223,5 @@
     });
   }
 
-  return { createReportStatusPoller, enhanceReportStatus };
+  return { createReportStatusPoller, enhanceReportStatus, validStatusView };
 });

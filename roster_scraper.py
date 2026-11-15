@@ -2285,6 +2285,18 @@ def _normalize_ncaa_players(batting: list[dict], pitching: list[dict]) -> list[d
     return players
 
 
+def normalize_ncaa_players(
+    batting: list[dict], pitching: list[dict]
+) -> list[dict]:
+    """Return the canonical player rows used by the immediate workbook flow.
+
+    Durable report artifacts retain the exact batting and pitching source rows.
+    Exposing this normalization boundary lets those stored rows pass through the
+    same merge, derived-stat, and identity behavior as a homepage download.
+    """
+    return _normalize_ncaa_players(batting, pitching)
+
+
 def _source_rows(
     section: str,
     source_url: str,

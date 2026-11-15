@@ -8,6 +8,7 @@ import zipfile
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 from botocore.exceptions import ClientError
@@ -17,6 +18,67 @@ from tests.test_report_jobs import PostgreSQLJobTestCase as _PostgreSQLJobTestCa
 
 
 class ArtifactStorageUnitTests(unittest.TestCase):
+    def test_saved_source_rows_use_the_homepage_normalization_and_split(self):
+        from roster_scout.artifacts import _workbook_rows_from_source_records
+
+        batting = [{
+            "Player": "Taylor Two-Way",
+            "Jersey": "12",
+            "Pos": "OF/RHP",
+            "Yr": "Jr",
+            "BA": ".321",
+            "OBPct": ".411",
+            "SlgPct": ".544",
+            "AB": "81",
+            "H": "26",
+            "2B": "7",
+            "HR": "5",
+            "RBI": "22",
+            "R": "19",
+            "BB": "14",
+            "K": "17",
+            "SB": "8",
+            "_player_id": "9001",
+        }]
+        pitching = [{
+            "Player": "Taylor Two-Way",
+            "Jersey": "12",
+            "Pos": "OF/RHP",
+            "Yr": "Jr",
+            "ERA": "2.45",
+            "WHIP": "1.10",
+            "W": "4",
+            "L": "1",
+            "SV": "2",
+            "IP": "33.0",
+            "H": "28",
+            "ER": "9",
+            "BB": "8",
+            "SO": "41",
+            "_player_id": "9001",
+        }]
+
+        records = [
+            SimpleNamespace(
+                section="batting",
+                source_player_id="9001",
+                raw_values=batting[0],
+            ),
+            SimpleNamespace(
+                section="pitching",
+                source_player_id="9001",
+                raw_values=pitching[0],
+            ),
+        ]
+        hitters, pitchers = _workbook_rows_from_source_records(records)
+
+        self.assertEqual(hitters[0]["Name"], "Taylor Two-Way")
+        self.assertEqual(hitters[0]["AVG"], ".321")
+        self.assertEqual(hitters[0]["HR"], "5")
+        self.assertEqual(pitchers[0]["Name"], "Taylor Two-Way")
+        self.assertEqual(pitchers[0]["ERA"], "2.45")
+        self.assertEqual(pitchers[0]["SO"], "41")
+
     def test_object_keys_are_tenant_scoped_and_reject_traversal(self):
         from roster_scout.artifacts import (
             ArtifactStorageError,
@@ -114,6 +176,7 @@ class ArtifactStorageUnitTests(unittest.TestCase):
             organization_id=uuid.uuid4(),
             report_id=uuid.uuid4(),
             snapshot_id=uuid.uuid4(),
+            source_team_id="test-team",
             team_name="Formula Safety",
             season_year=2026,
             published_at=datetime(2026, 11, 14, 16, 0, tzinfo=UTC),
@@ -133,6 +196,38 @@ class ArtifactStorageUnitTests(unittest.TestCase):
         self.assertNotIn(b"<hyperlinks", worksheet_xml)
         self.assertIn(b"=1+1", shared_strings)
         self.assertIn(b"https://example.invalid", shared_strings)
+
+    def test_saved_report_uses_the_exact_homepage_workbook_renderer(self):
+        import app as app_module
+        from roster_scout.artifacts import SnapshotWorkbookSource, build_snapshot_workbook
+        from roster_scout.workbooks import workbook_branding
+
+        published_at = datetime(2026, 11, 14, 16, 0, tzinfo=UTC)
+        hitters = ({"Name": "Alex Example", "AVG": ".321", "HR": "7"},)
+        pitchers = ({"Name": "Pat Pitcher", "ERA": "2.45", "SO": "31"},)
+        source = SnapshotWorkbookSource(
+            organization_id=uuid.uuid4(),
+            report_id=uuid.uuid4(),
+            snapshot_id=uuid.uuid4(),
+            source_team_id="test-team",
+            team_name="Parity University",
+            season_year=2026,
+            published_at=published_at,
+            hitters=hitters,
+            pitchers=pitchers,
+        )
+        branding = workbook_branding(
+            school_name=source.team_name,
+            generated_on=published_at.date(),
+            team_id=source.source_team_id,
+        )
+
+        self.assertEqual(
+            build_snapshot_workbook(source),
+            app_module._create_workbook(
+                list(hitters), list(pitchers), branding=branding
+            ).getvalue(),
+        )
 
 
 class ArtifactLifecycleTests(_PostgreSQLJobTestCase):

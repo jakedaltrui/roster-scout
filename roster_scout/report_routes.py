@@ -239,6 +239,13 @@ def _selected_catalog_team():
     )
 
 
+def _create_report_json_error(error, status):
+    """Return the bounded async-create error contract when JSON is requested."""
+    if request.accept_mimetypes.best == "application/json":
+        return jsonify(error=error), status
+    return None
+
+
 def _fallback_catalog():
     teams = []
     for division in ("d1", "d2", "d3"):
@@ -658,7 +665,7 @@ def download_snapshot_artifact(report_id, snapshot_id, artifact_id):
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         ),
         as_attachment=True,
-        download_name="roster-scout-snapshot.xlsx",
+        download_name="roster-scout-report.xlsx",
         max_age=0,
     )
     response.headers["Cache-Control"] = "no-store"
@@ -728,6 +735,9 @@ def create_report():
             safe_action_id = _canonical_action_id(submitted_action_id)
         except (ValueError, TypeError, AttributeError):
             safe_action_id = str(uuid.uuid4())
+        json_error = _create_report_json_error(_SELECTOR_ERROR, 400)
+        if json_error is not None:
+            return json_error
         return _render_create_report(
             shell=shell,
             status=400,
@@ -749,6 +759,9 @@ def create_report():
                 idempotency_key=action_id,
             )
     except ReportAcceptanceFailure:
+        json_error = _create_report_json_error(_SERVICE_ERROR, 403)
+        if json_error is not None:
+            return json_error
         return _render_create_report(
             shell=shell,
             status=403,
@@ -760,6 +773,9 @@ def create_report():
             fallback_mode=fallback_mode,
         )
     except (SQLAlchemyError, RuntimeError, ValueError):
+        json_error = _create_report_json_error(_SERVICE_ERROR, 503)
+        if json_error is not None:
+            return json_error
         return _render_create_report(
             shell=shell,
             status=503,
@@ -786,6 +802,11 @@ def create_report():
     destination = f"/reports/{accepted.report_id}"
     if not accepted.created_report:
         destination += "?notice=active"
+    if request.accept_mimetypes.best == "application/json":
+        return jsonify(
+            report_url=destination,
+            status_url=f"/reports/{accepted.report_id}/status",
+        ), 202
     return redirect(destination, code=303)
 
 

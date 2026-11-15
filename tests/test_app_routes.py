@@ -79,6 +79,14 @@ class DownloadEventContractTests(unittest.TestCase):
         self.assertIn("Your Stat Sheet download has started.", self.source)
         self.assertNotIn("Your Stat Sheet has downloaded.", self.source)
 
+    def test_loading_headline_tracks_progress_without_explainer_copy(self):
+        self.assertIn('id="loading-headline"', self.source)
+        self.assertIn("const loadingHeadlines = [", self.source)
+        self.assertIn("Calling the bullpen for data.", self.source)
+        self.assertIn("Giving the workbook its final polish.", self.source)
+        self.assertNotIn("The steps below illustrate the process.", self.source)
+        self.assertNotIn("Getting your roster.", self.source)
+
     def test_home_flow_prompts_and_resumes_with_csrf(self):
         self.assertIn("static', filename='home_flow.js", self.source)
         self.assertIn("/auth/magic/start", self.source)

@@ -147,3 +147,10 @@ test("module is a safe no-op when progressive enhancement target is absent", () 
   assert.equal(typeof loadModule().enhanceReportStatus, "function");
   assert.equal(loadModule().enhanceReportStatus(null), null);
 });
+
+test("async report creation can validate the bounded status contract", () => {
+  const { validStatusView } = loadModule();
+  assert.equal(validStatusView(queued), true);
+  assert.equal(validStatusView({ ...queued, terminal: "false" }), false);
+  assert.equal(validStatusView({ ...queued, sections: null }), false);
+});

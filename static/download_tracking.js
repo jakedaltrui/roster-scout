@@ -532,12 +532,12 @@
         event.preventDefault();
         const button = form.querySelector('button[type="submit"]');
         const status = form.querySelector("[data-download-status]");
-        const originalLabel = button ? button.textContent : "Download snapshot";
+        const originalLabel = button ? button.textContent : "Download workbook";
         if (button) {
           button.disabled = true;
           button.textContent = "Preparing download…";
         }
-        if (status) status.textContent = "Preparing your saved snapshot…";
+        if (status) status.textContent = "Preparing your saved workbook…";
         try {
           const result = await runAuthenticatedSnapshotDownload({
             tracker,
@@ -551,7 +551,7 @@
               const objectUrl = windowObject.URL.createObjectURL(blob);
               const anchor = documentObject.createElement("a");
               anchor.href = objectUrl;
-              anchor.download = "roster-scout-snapshot.xlsx";
+              anchor.download = "roster-scout-report.xlsx";
               anchor.hidden = true;
               documentObject.body.appendChild(anchor);
               anchor.click();

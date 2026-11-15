@@ -15,6 +15,12 @@
   const backLink = document.getElementById("back-to-reports");
   const submitStatus = document.getElementById("submit-status");
   const divisionGroup = document.querySelector(".division-group");
+  const loadingPanel = document.getElementById("report-loading");
+  const loadingTeam = document.getElementById("report-loading-team");
+  const loadingTitle = document.getElementById("report-loading-title");
+  const loadingProgress = document.getElementById("report-loading-progress");
+  const loadingViewport = document.getElementById("report-loading-viewport");
+  const loadingSteps = Array.from(document.querySelectorAll("[data-loading-step]"));
   const divisionButtons = Array.from(
     document.querySelectorAll(".division-button")
   );
@@ -26,6 +32,90 @@
   let selectedTeam = null;
   let catalogYear = null;
   let submitting = false;
+  let loadingTimer = null;
+
+  const loadingHeadlines = [
+    "Opponent locked in.",
+    "Calling the bullpen for data.",
+    "Rounding up the season numbers.",
+    "Getting every player into position.",
+    "Giving the workbook its final polish.",
+    "Putting this report in the books.",
+  ];
+
+  function updateLoadingStage(index) {
+    const bounded = Math.max(0, Math.min(index, loadingSteps.length - 1));
+    loadingSteps.forEach((step, position) => {
+      step.classList.toggle("is-current", position === bounded);
+      step.classList.toggle("is-complete", position < bounded);
+      const status = step.querySelector("[data-loading-status]");
+      if (status) {
+        status.textContent = position < bounded
+          ? " — complete"
+          : position === bounded ? " — in progress" : "";
+      }
+    });
+    if (loadingTitle) loadingTitle.textContent = loadingHeadlines[bounded];
+    const active = loadingSteps[bounded];
+    if (active && loadingProgress && loadingViewport) {
+      loadingProgress.style.setProperty("--activity-top", `${active.offsetTop}px`);
+      loadingProgress.style.setProperty("--activity-height", `${active.offsetHeight}px`);
+      const top = Math.max(
+        0,
+        active.offsetTop - (loadingViewport.clientHeight - active.offsetHeight) / 2
+      );
+      loadingViewport.scrollTo({
+        top,
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "auto"
+          : "smooth",
+      });
+    }
+  }
+
+  function beginLoading(teamName) {
+    form.classList.add("is-loading");
+    loadingPanel?.setAttribute("aria-hidden", "false");
+    if (loadingTeam) loadingTeam.textContent = teamName;
+    if (loadingProgress && loadingViewport && loadingSteps.length) {
+      const finalStep = loadingSteps[loadingSteps.length - 1];
+      const padding = Math.max(
+        8,
+        (loadingViewport.clientHeight - finalStep.offsetHeight) / 2
+      );
+      loadingProgress.style.paddingBottom = `${padding}px`;
+      loadingProgress.style.setProperty(
+        "--connector-bottom",
+        `${padding + finalStep.offsetHeight / 2}px`
+      );
+      loadingProgress.classList.add("is-running");
+    }
+    updateLoadingStage(1);
+    let stage = 1;
+    const advance = () => {
+      if (stage >= loadingSteps.length - 2) return;
+      loadingTimer = window.setTimeout(() => {
+        stage += 1;
+        updateLoadingStage(stage);
+        advance();
+      }, 5200);
+    };
+    advance();
+  }
+
+  function restoreForm(message) {
+    window.clearTimeout(loadingTimer);
+    loadingTimer = null;
+    submitting = false;
+    form.classList.remove("is-loading");
+    loadingPanel?.setAttribute("aria-hidden", "true");
+    loadingProgress?.classList.remove("is-running");
+    submitButton.disabled = false;
+    backLink.removeAttribute("aria-disabled");
+    backLink.removeAttribute("tabindex");
+    submitStatus.textContent = message;
+    submitStatus.focus?.();
+  }
 
   function updateDivisionThumb() {
     const selectedIndex = Math.max(0, divisionButtons.findIndex(
@@ -259,13 +349,12 @@
     loadCatalog(divisionInput.value);
   });
 
-  form.addEventListener("submit", (event) => {
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
     if (submitting) {
-      event.preventDefault();
       return;
     }
     if (!selectedTeam || !seasonTeamInput.value) {
-      event.preventDefault();
       combobox.setAttribute("aria-invalid", "true");
       catalogStatus.textContent = "Choose an NCAA team from the list.";
       combobox.focus();
@@ -275,8 +364,63 @@
     submitButton.disabled = true;
     backLink.setAttribute("aria-disabled", "true");
     backLink.setAttribute("tabindex", "-1");
-    backLink.addEventListener("click", (clickEvent) => clickEvent.preventDefault());
-    submitStatus.textContent = "Accepting report request…";
+    submitStatus.textContent = "";
+    beginLoading(teamLabel(selectedTeam));
+
+    try {
+      const response = await fetch(form.action, {
+        method: "POST",
+        body: new FormData(form),
+        credentials: "same-origin",
+        headers: { Accept: "application/json" },
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.report_url || !payload.status_url) {
+        throw new Error(payload.error || "We couldn’t start that report. Try again.");
+      }
+      const statusApi = window.RosterScoutReportStatus;
+      if (!statusApi?.createReportStatusPoller) {
+        window.location.assign(payload.report_url);
+        return;
+      }
+      const poller = statusApi.createReportStatusPoller({
+        async fetchStatus() {
+          const statusResponse = await fetch(payload.status_url, {
+            credentials: "same-origin",
+            headers: { Accept: "application/json" },
+          });
+          const status = await statusResponse.json();
+          if (!statusResponse.ok || !statusApi.validStatusView(status)) {
+            throw new Error("status unavailable");
+          }
+          return status;
+        },
+        render(view) {
+          if (view.transient_error && loadingTitle) {
+            loadingTitle.textContent = "Still tracking down the numbers.";
+          }
+        },
+        announce(copy) {
+          if (loadingPanel) loadingPanel.setAttribute("aria-label", copy);
+        },
+        terminalReached(view) {
+          window.clearTimeout(loadingTimer);
+          if (view.state === "failed") {
+            if (loadingTitle) loadingTitle.textContent = "That run needs another look.";
+            window.setTimeout(() => window.location.assign(payload.report_url), 650);
+            return;
+          }
+          updateLoadingStage(loadingSteps.length - 1);
+          window.setTimeout(() => window.location.assign(payload.report_url), 700);
+        },
+      });
+      document.addEventListener("visibilitychange", () => {
+        void poller.visibilityChanged();
+      });
+      await poller.start();
+    } catch (error) {
+      restoreForm(error.message || "We couldn’t start that report. Try again.");
+    }
   });
 
   const errorSummary = document.getElementById("form-errors");

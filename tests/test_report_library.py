@@ -481,19 +481,19 @@ class SnapshotHistoryTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         for value in (
             b"History Hawks",
-            b"Latest snapshot",
+            b"Latest report",
             b"Ready",
             b"Active build",
             b"Collecting",
             b"remains available while this refresh runs",
             b"View refresh status",
-            b"Snapshot history",
+            b"Saved versions",
             b"Batting",
             b"Pitching",
         ):
             self.assertIn(value, response.data)
         self.assertLess(
-            response.data.index(b"Latest snapshot"),
+            response.data.index(b"Latest report"),
             response.data.index(b"Active build"),
         )
         self.assertIn(b'data-report-status-url=', response.data)
@@ -597,7 +597,7 @@ class SnapshotHistoryTests(unittest.TestCase):
         self.assertEqual(second.data.count(b'data-snapshot-row="desktop"'), 2)
         self.assertIn(b"Next", first.data)
         self.assertIn(b"Previous", second.data)
-        self.assertIn(b"Showing 1\xe2\x80\x9325 of 27 snapshots", first.data)
+        self.assertIn(b"Showing 1\xe2\x80\x9325 of 27 versions", first.data)
 
     def test_partial_snapshot_keeps_ready_sections_and_names_unavailable_sections(self):
         from roster_scout.models import ReportSection, ReportSnapshot
@@ -651,7 +651,7 @@ class SnapshotHistoryTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"Some data is unavailable in this snapshot.", response.data)
+        self.assertIn(b"Some data is unavailable in this report.", response.data)
         self.assertIn(
             b"You can still review the saved sections. Unavailable:",
             response.data,
@@ -1040,7 +1040,7 @@ class FailedBuildRetryTests(unittest.TestCase):
         detail = client.get(f"/reports/{first_report_id}")
         self.assertIn(b"Download unavailable", detail.data)
         self.assertIn(
-            b"Roster Scout will not rebuild a historical snapshot with newer data.",
+            b"Roster Scout will not replace a historical version with newer data.",
             detail.data,
         )
 
@@ -1152,10 +1152,10 @@ class RefreshLineageTests(unittest.TestCase):
         self.assertEqual(confirmation.status_code, 200)
         for value in (
             b"Refresh Refresh Ravens?",
-            b"This collects live NCAA data and creates a new snapshot.",
+            b"This collects live NCAA data and saves a new report version.",
             b"will stay unchanged",
             b"Start live refresh",
-            b"Keep current snapshot",
+            b"Keep current report",
         ):
             self.assertIn(value, confirmation.data)
 
@@ -1755,6 +1755,9 @@ class ReportAcceptanceIdempotencyTests(unittest.TestCase):
         self.assertIn("Dashboard</a> / New report", body)
         self.assertIn("Create report", body)
         self.assertIn("report_form.js", body)
+        self.assertIn("report_status.js", body)
+        self.assertIn('id="report-loading"', body)
+        self.assertIn("Keep this page open. We’ll take you to the finished report automatically.", body)
         self.assertIn('id="create-report-submit"', body)
         self.assertIn("disabled", body)
 
@@ -1767,6 +1770,9 @@ class ReportAcceptanceIdempotencyTests(unittest.TestCase):
         self.assertIn("End", source)
         self.assertIn("Escape", source)
         self.assertIn("textContent", source)
+        self.assertIn('headers: { Accept: "application/json" }', source)
+        self.assertIn("createReportStatusPoller", source)
+        self.assertIn("terminalReached", source)
         self.assertNotIn("innerHTML", source)
 
     def test_typed_only_stale_and_tampered_selector_values_write_nothing(self):
@@ -1877,6 +1883,35 @@ class ReportAcceptanceIdempotencyTests(unittest.TestCase):
         self.assertEqual(job.organization_id, organization_id)
         self.assertEqual(job.requested_by_account_id, account_id)
         self.assertGreaterEqual(dispatch.call_count, 1)
+
+    def test_async_create_returns_poll_and_report_urls_without_redirecting(self):
+        organization_id, account_id, _membership_id = self._member()
+        client, credential = self._route_client(organization_id, account_id)
+        dispatch = Mock()
+        self.app_module.app.extensions["roster_scout_report_dispatch"] = dispatch
+
+        with patch(
+            "roster_scout.report_routes.list_ncaa_teams",
+            return_value=self._catalog(),
+        ):
+            response = client.post(
+                "/reports/new",
+                data={
+                    "csrf_token": self._csrf_token(credential),
+                    "division": "d1",
+                    "team_name": "State University",
+                    "season_team_id": "67890",
+                    "idempotency_key": str(uuid.uuid4()),
+                },
+                headers={"Accept": "application/json"},
+            )
+
+        self.assertEqual(response.status_code, 202)
+        payload = response.get_json()
+        self.assertRegex(payload["report_url"], r"^/reports/[0-9a-f-]{36}$")
+        self.assertEqual(payload["status_url"], payload["report_url"] + "/status")
+        self.assertEqual(self._counts()["reports"], 1)
+        self.assertEqual(self._counts()["jobs"], 1)
 
     def test_create_report_post_requires_csrf(self):
         organization_id, account_id, _membership_id = self._member()

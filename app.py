@@ -22,7 +22,7 @@ from urllib.parse import urlsplit
 import idna
 import requests
 import xlsxwriter
-from PIL import Image, ImageDraw, UnidentifiedImageError
+from PIL import Image, UnidentifiedImageError
 from sqlalchemy.exc import SQLAlchemyError
 from flask import Flask, g, jsonify, redirect, render_template, request, send_file
 from flask_wtf import CSRFProtect
@@ -53,6 +53,11 @@ from roster_scout.evidence import (
 from roster_scout.usage import (
     record_authenticated_workbook_download_served,
     record_workbook_download_served,
+)
+from roster_scout.workbooks import (
+    create_workbook as create_canonical_workbook,
+    load_ncaa_logo_png,
+    logo_palette as canonical_logo_palette,
 )
 from roster_scout.identity import (
     FakeIdentityProvider,
@@ -1075,34 +1080,7 @@ def acknowledge_workbook_download():
 
 @lru_cache(maxsize=1024)
 def _ncaa_logo_png(team_id):
-    url = f"https://web2.ncaa.org/ncaa_style/img/All_Logos/sm/{team_id}.gif"
-    response = requests.get(url, timeout=8, stream=True)
-    content = bytearray()
-    try:
-        response.raise_for_status()
-        for chunk in response.iter_content(16384):
-            content.extend(chunk)
-            if len(content) > 256_000:
-                raise ValueError("Logo is too large")
-    finally:
-        response.close()
-    image = Image.open(io.BytesIO(content))
-    if image.width * image.height > 1_000_000:
-        raise ValueError("Logo dimensions are too large")
-    image = image.convert("RGBA")
-    # Remove only the near-white region connected to the outside edge, so
-    # white details enclosed inside the actual school mark remain intact.
-    for x in range(image.width):
-        for y in (0, image.height - 1):
-            if min(image.getpixel((x, y))[:3]) >= 245:
-                ImageDraw.floodfill(image, (x, y), (255, 255, 255, 0), thresh=25)
-    for y in range(image.height):
-        for x in (0, image.width - 1):
-            if min(image.getpixel((x, y))[:3]) >= 245 and image.getpixel((x, y))[3]:
-                ImageDraw.floodfill(image, (x, y), (255, 255, 255, 0), thresh=25)
-    output = io.BytesIO()
-    image.save(output, format="PNG")
-    return output.getvalue()
+    return load_ncaa_logo_png(team_id)
 
 
 @app.route("/api/team-logo/<team_id>")
@@ -1293,87 +1271,9 @@ def _excel_value(header: str, value):
     return text
 
 
-def _rgb_to_hex(rgb: tuple[int, int, int]) -> str:
-    return "#{:02X}{:02X}{:02X}".format(*rgb)
-
-
-def _mix_rgb(
-    first: tuple[int, int, int],
-    second: tuple[int, int, int],
-    second_weight: float,
-) -> tuple[int, int, int]:
-    return tuple(
-        round(a * (1 - second_weight) + b * second_weight)
-        for a, b in zip(first, second)
-    )
-
-
-def _relative_luminance(rgb: tuple[int, int, int]) -> float:
-    channels = []
-    for channel in rgb:
-        value = channel / 255
-        channels.append(value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4)
-    return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
-
-
-def _contrast_ratio(first: tuple[int, int, int], second: tuple[int, int, int]) -> float:
-    light, dark = sorted((_relative_luminance(first), _relative_luminance(second)), reverse=True)
-    return (light + 0.05) / (dark + 0.05)
-
-
 def _logo_palette(logo_png: bytes | None) -> dict[str, str]:
     """Extract a readable workbook palette from the visible colors in a logo."""
-    if not logo_png:
-        return dict(_DEFAULT_PALETTE)
-    try:
-        image = Image.open(io.BytesIO(logo_png)).convert("RGBA")
-        image.thumbnail((160, 160), Image.Resampling.LANCZOS)
-        image_pixels = image.get_flattened_data() if hasattr(image, "get_flattened_data") else image.getdata()
-        opaque_pixels = [
-            pixel[:3]
-            for pixel in image_pixels
-            if pixel[3] >= 96 and not all(channel >= 245 for channel in pixel[:3])
-        ]
-        if not opaque_pixels:
-            return dict(_DEFAULT_PALETTE)
-
-        sample = Image.new("RGB", (len(opaque_pixels), 1))
-        sample.putdata(opaque_pixels)
-        quantized = sample.quantize(colors=12, method=Image.Quantize.MEDIANCUT)
-        palette = quantized.getpalette()
-        candidates = []
-        for count, index in quantized.getcolors() or []:
-            rgb = tuple(palette[index * 3:index * 3 + 3])
-            brightness = sum(rgb) / (3 * 255)
-            saturation = (max(rgb) - min(rgb)) / 255
-            if brightness > 0.96:
-                continue
-            score = count * (0.65 + 1.8 * saturation)
-            candidates.append((score, count, rgb))
-        if not candidates:
-            return dict(_DEFAULT_PALETTE)
-
-        candidates.sort(reverse=True)
-        primary = candidates[0][2]
-        accent = next(
-            (
-                rgb for _, _, rgb in candidates[1:]
-                if sum((a - b) ** 2 for a, b in zip(primary, rgb)) ** 0.5 >= 70
-            ),
-            _mix_rgb(primary, (255, 255, 255), 0.38),
-        )
-        white = (255, 255, 255)
-        dark_text = (24, 32, 42)
-        primary_text = white if _contrast_ratio(primary, white) >= _contrast_ratio(primary, dark_text) else dark_text
-        return {
-            "primary": _rgb_to_hex(primary),
-            "primary_text": _rgb_to_hex(primary_text),
-            "accent": _rgb_to_hex(accent),
-            "band": _rgb_to_hex(_mix_rgb(primary, white, 0.93)),
-            "border": _rgb_to_hex(_mix_rgb(primary, white, 0.82)),
-        }
-    except (OSError, ValueError, TypeError):
-        return dict(_DEFAULT_PALETTE)
+    return canonical_logo_palette(logo_png)
 
 
 def _ncaa_workbook_branding(body: dict, team_label: str) -> dict:
@@ -1599,24 +1499,7 @@ def _create_workbook(
     branding: dict | None = None,
 ) -> io.BytesIO:
     """Build the two-tab Roster Scout workbook entirely in memory."""
-    output = io.BytesIO()
-    workbook = xlsxwriter.Workbook(output, {
-        "in_memory": True,
-        "strings_to_formulas": False,
-        "strings_to_urls": False,
-    })
-    school_name = (branding or {}).get("school_name", "Axis Baseball")
-    workbook.set_properties({
-        "title": f"{school_name} Baseball Roster Scout",
-        "subject": "Baseball roster and season statistics",
-        "author": "Axis Baseball",
-        "company": "Axis Baseball",
-    })
-    _write_worksheet(workbook, "Hitters", hitters, HITTER_HEADERS, branding=branding)
-    _write_worksheet(workbook, "Pitchers", pitchers, PITCHER_HEADERS, branding=branding)
-    workbook.close()
-    output.seek(0)
-    return output
+    return create_canonical_workbook(hitters, pitchers, branding=branding)
 
 
 if __name__ == "__main__":

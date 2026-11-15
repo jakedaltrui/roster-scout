@@ -54,6 +54,34 @@
   .report-back:hover { border-color: transparent; background: transparent; color: #20211f; }
   .button[disabled], .button[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
   .submit-status { min-height: 0; margin: -8px 0 0; color: var(--muted); font-size: 12px; text-align: center; }
+  .report-form-content { transition: opacity .24s ease, transform .32s cubic-bezier(.22, 1, .36, 1); }
+  .report-form.is-loading .report-form-content { display: none; }
+  .report-loading { display: none; min-height: 500px; padding: 4px 0 0; text-align: center; }
+  .report-form.is-loading .report-loading { display: block; animation: report-page-in .42s cubic-bezier(.22, 1, .36, 1) both; }
+  .report-loading__orbit { position: relative; display: grid; place-items: center; width: 52px; height: 52px; margin: 0 auto 18px; color: #30332e; }
+  .report-loading__orbit::before, .report-loading__orbit::after { position: absolute; inset: 0; border: 1px solid #dedfd9; border-radius: 50%; content: ""; }
+  .report-loading__orbit::after { border-color: transparent; border-top-color: currentColor; border-right-color: currentColor; animation: report-orbit-spin 1.45s linear infinite; }
+  .report-loading__core { width: 10px; height: 10px; border-radius: 3px; background: currentColor; transform: rotate(45deg); animation: report-orbit-core 2.4s ease-in-out infinite; }
+  .report-loading__team { display: inline-block; margin: 0; padding: 8px 12px; border-radius: 999px; color: #444740; background: #f0f1ed; font-size: 12px; font-weight: 600; }
+  .report-loading__title { margin: 18px 0 8px; font: 600 28px/1.15 "DM Sans", sans-serif; letter-spacing: -.045em; }
+  .report-loading__sub { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
+  .report-loading__viewport { max-height: 200px; margin: 25px 0 20px; padding: 0 16px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; -webkit-mask-image: linear-gradient(to bottom, transparent, #000 12px, #000 calc(100% - 12px), transparent); mask-image: linear-gradient(to bottom, transparent, #000 12px, #000 calc(100% - 12px), transparent); }
+  .report-loading__viewport::-webkit-scrollbar { display: none; }
+  .report-loading__progress { position: relative; isolation: isolate; margin: 0; padding: 8px 0; list-style: none; text-align: left; }
+  .report-loading__progress::before { position: absolute; z-index: -1; top: 26px; bottom: var(--connector-bottom, 26px); left: 13px; width: 1px; background: #e1e2dd; content: ""; }
+  .report-loading__progress::after { position: absolute; z-index: -1; top: var(--activity-top, 56px); right: 0; left: -8px; height: var(--activity-height, 56px); border-radius: 11px; background: #f4f5f2; opacity: 0; transition: top .82s cubic-bezier(.22, 1, .36, 1), height .82s cubic-bezier(.22, 1, .36, 1), opacity .35s ease; content: ""; }
+  .report-loading__progress.is-running::after { opacity: 1; }
+  .report-loading__step { position: relative; display: flex; align-items: center; min-height: 56px; gap: 14px; padding-right: 12px; border-radius: 11px; color: #92958e; font-size: 13px; font-weight: 600; transition: color .45s ease; }
+  .report-loading__step.is-complete { color: #777b73; }
+  .report-loading__step.is-current { color: #20211f; }
+  .report-loading__icon { position: relative; z-index: 1; display: grid; flex: none; place-items: center; width: 28px; height: 28px; border: 1px solid #d2d4ce; border-radius: 50%; color: inherit; background: #fff; }
+  .report-loading__icon svg { grid-area: 1 / 1; width: 15px; height: 15px; opacity: 0; }
+  .report-loading__icon::after { grid-area: 1 / 1; width: 8px; height: 8px; border-radius: 50%; background: currentColor; opacity: 0; content: ""; }
+  .report-loading__step.is-current .report-loading__icon { border-color: #333630; }
+  .report-loading__step.is-current .report-loading__icon::after { opacity: 1; animation: report-loading-pulse 1.6s ease-in-out infinite; }
+  .report-loading__step.is-complete .report-loading__icon { border-color: #c8cbc3; background: #f0f1ed; }
+  .report-loading__step.is-complete .report-loading__icon svg { opacity: 1; }
+  .report-loading__hint { margin: 0; color: var(--muted); font-size: 12px; }
   :root[data-theme="dark"] .report-form { border-color: #28282b; background: #171719; box-shadow: 0 24px 70px rgba(0, 0, 0, .25); }
   :root[data-theme="dark"] .report-card-sub { color: #a1a1a5; }
   :root[data-theme="dark"] .report-form__label { color: #c9c9ca; }
@@ -75,6 +103,20 @@
   :root[data-theme="dark"] .report-submit:not(:disabled):hover { background: #d5d5d3; }
   :root[data-theme="dark"] .report-submit__icon { color: #f0f0ee; background: #18181a; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08); }
   :root[data-theme="dark"] .report-back:hover { color: #f0f0ee; }
+  :root[data-theme="dark"] .report-loading__orbit { color: #ededeb; }
+  :root[data-theme="dark"] .report-loading__orbit::before { border-color: #404044; }
+  :root[data-theme="dark"] .report-loading__team { color: #dededc; background: #303033; }
+  :root[data-theme="dark"] .report-loading__progress::before { background: #3c3c40; }
+  :root[data-theme="dark"] .report-loading__progress::after { background: #252528; }
+  :root[data-theme="dark"] .report-loading__step { color: #8c8c90; }
+  :root[data-theme="dark"] .report-loading__step.is-complete { color: #b8b8bb; }
+  :root[data-theme="dark"] .report-loading__step.is-current { color: #f0f0ee; }
+  :root[data-theme="dark"] .report-loading__icon { border-color: #49494d; background: #171719; }
+  :root[data-theme="dark"] .report-loading__step.is-complete .report-loading__icon { border-color: #66666b; background: #343437; }
+  :root[data-theme="dark"] .report-loading__step.is-current .report-loading__icon { border-color: #ececea; }
+  @keyframes report-orbit-spin { to { transform: rotate(360deg); } }
+  @keyframes report-orbit-core { 0%, 100% { transform: rotate(45deg) scale(.72); opacity: .55; } 50% { transform: rotate(225deg) scale(1); opacity: 1; } }
+  @keyframes report-loading-pulse { 0%, 100% { transform: scale(.72); opacity: .55; } 50% { transform: scale(1); opacity: 1; } }
   @keyframes report-page-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
   @media (prefers-reduced-motion: no-preference) {
     .report-card-title, .report-card-sub { animation: report-page-in .48s .36s cubic-bezier(.22, 1, .36, 1) both; }
@@ -108,6 +150,7 @@
     <input id="season-team-id" type="hidden" name="season_team_id" value="{{ season_team_id }}">
     <input type="hidden" name="idempotency_key" value="{{ idempotency_key }}">
 
+    <div id="report-form-content" class="report-form-content">
     <h2 class="report-card-title">Find an opponent.</h2>
     <p class="report-card-sub">Choose a division, then select a school to create a report.</p>
     <div class="report-form-fields">
@@ -167,7 +210,26 @@
       </div>
     </noscript>
     </div>
+    </div>
+    <div id="report-loading" class="report-loading" role="status" aria-live="polite" aria-hidden="true">
+      <div class="report-loading__orbit" aria-hidden="true"><span class="report-loading__core"></span></div>
+      <div id="report-loading-team" class="report-loading__team"></div>
+      <h2 id="report-loading-title" class="report-loading__title">Calling the bullpen for data.</h2>
+      <p class="report-loading__sub">We’re putting your stat sheet together.</p>
+      <div id="report-loading-viewport" class="report-loading__viewport" tabindex="0" aria-label="Stat Sheet preparation steps">
+        <ol id="report-loading-progress" class="report-loading__progress">
+          {% for label in ("Team selected", "Finding the roster", "Gathering season stats", "Organizing player records", "Building your Stat Sheet", "Saving your report") %}
+            <li class="report-loading__step{% if loop.first %} is-complete{% endif %}" data-loading-step>
+              <span class="report-loading__icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span>
+              <span>{{ label }}</span><span class="visually-hidden" data-loading-status></span>
+            </li>
+          {% endfor %}
+        </ol>
+      </div>
+      <p class="report-loading__hint">Keep this page open. We’ll take you to the finished report automatically.</p>
+    </div>
   </form>
 </section>
+<script src="{{ url_for('static', filename='report_status.js') }}" defer></script>
 <script src="{{ url_for('static', filename='report_form.js') }}" defer></script>
 {% endblock %}

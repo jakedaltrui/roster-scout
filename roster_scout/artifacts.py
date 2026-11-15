@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import io
 import os
 import re
 import uuid
@@ -12,12 +11,11 @@ from hashlib import sha256
 from pathlib import Path
 
 import boto3
-import xlsxwriter
 from botocore.config import Config
 from botocore.exceptions import ClientError
 from sqlalchemy import and_, or_, select
 
-from roster_scraper import HITTER_HEADERS, PITCHER_HEADERS
+from roster_scraper import normalize_ncaa_players, split_roster
 
 from .database import session_advisory_lock
 from .models import (
@@ -29,6 +27,7 @@ from .models import (
     Team,
     TeamSeason,
 )
+from .workbooks import create_workbook, workbook_branding
 
 
 ARTIFACT_SCHEMA_VERSION = "basic-xlsx-v1"
@@ -36,14 +35,6 @@ MAX_ARTIFACT_BYTES = 25 * 1024 * 1024
 DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_STALE_AFTER = timedelta(minutes=15)
 DEFAULT_RETRY_DELAY = timedelta(seconds=30)
-
-_INTEGER_COLUMNS = {
-    "#", "AB", "H", "2B", "HR", "RBI", "R", "BB", "SO", "SB",
-    "W", "L", "SV", "ER",
-}
-_THREE_DECIMAL_COLUMNS = {"AVG", "OBP", "SLG"}
-_TWO_DECIMAL_COLUMNS = {"ERA", "WHIP"}
-
 
 class ArtifactStorageConfigurationError(RuntimeError):
     """Raised when durable artifact storage is absent or unsafe."""
@@ -298,11 +289,28 @@ class SnapshotWorkbookSource:
     organization_id: uuid.UUID
     report_id: uuid.UUID
     snapshot_id: uuid.UUID
+    source_team_id: str
     team_name: str
     season_year: int
     published_at: datetime
     hitters: tuple[dict, ...]
     pitchers: tuple[dict, ...]
+
+
+def _workbook_rows_from_source_records(rows):
+    """Normalize immutable NCAA evidence through the homepage row pipeline."""
+    batting_rows = []
+    pitching_rows = []
+    for source in rows:
+        raw = dict(source.raw_values)
+        raw["_player_id"] = source.source_player_id or ""
+        raw["_player_url"] = raw.get("player_url", "")
+        if source.section == "batting":
+            batting_rows.append(raw)
+        elif source.section == "pitching":
+            pitching_rows.append(raw)
+    players = normalize_ncaa_players(batting_rows, pitching_rows)
+    return split_roster(players)
 
 
 def load_snapshot_workbook_source(session, snapshot_id):
@@ -325,139 +333,32 @@ def load_snapshot_workbook_source(session, snapshot_id):
         )
         .order_by(SourceRecord.section, SourceRecord.row_ordinal)
     ))
-    hitters = tuple(dict(row.raw_values) for row in rows if row.section == "batting")
-    pitchers = tuple(dict(row.raw_values) for row in rows if row.section == "pitching")
+    hitters, pitchers = _workbook_rows_from_source_records(rows)
     return SnapshotWorkbookSource(
         organization_id=snapshot.organization_id,
         report_id=report.id,
         snapshot_id=snapshot.id,
+        source_team_id=team.source_team_id,
         team_name=team.name,
         season_year=season.year,
         published_at=snapshot.published_at,
-        hitters=hitters,
-        pitchers=pitchers,
+        hitters=tuple(hitters),
+        pitchers=tuple(pitchers),
     )
-
-
-def _excel_value(header, value):
-    if value is None or value == "":
-        return ""
-    text = str(value).strip()
-    try:
-        if header in _INTEGER_COLUMNS and re.fullmatch(r"-?\d+", text):
-            return int(text)
-        if header in _THREE_DECIMAL_COLUMNS | _TWO_DECIMAL_COLUMNS:
-            return float(text)
-    except ValueError:
-        pass
-    return text
-
-
-def _write_sheet(workbook, title, rows, headers, source):
-    worksheet = workbook.add_worksheet(title)
-    worksheet.hide_gridlines(2)
-    worksheet.freeze_panes(3, 0)
-    worksheet.set_zoom(90)
-    title_format = workbook.add_format({
-        "bold": True,
-        "font_name": "Arial",
-        "font_size": 16,
-        "font_color": "#20211F",
-        "align": "left",
-    })
-    subtitle_format = workbook.add_format({
-        "font_name": "Arial",
-        "font_size": 10,
-        "font_color": "#6F726C",
-        "align": "left",
-    })
-    header_format = workbook.add_format({
-        "bold": True,
-        "font_name": "Arial",
-        "font_size": 10,
-        "font_color": "#FFFFFF",
-        "bg_color": "#20211F",
-        "align": "left",
-        "valign": "vcenter",
-        "bottom": 2,
-        "bottom_color": "#8A8D87",
-    })
-    body_properties = {
-        "font_name": "Arial",
-        "font_size": 10,
-        "font_color": "#20211F",
-        "align": "left",
-        "valign": "vcenter",
-        "bottom": 1,
-        "bottom_color": "#E3E4DF",
-    }
-    body = workbook.add_format(body_properties)
-    integer = workbook.add_format({**body_properties, "num_format": "0"})
-    three = workbook.add_format({**body_properties, "num_format": "0.000"})
-    two = workbook.add_format({**body_properties, "num_format": "0.00"})
-
-    worksheet.merge_range(0, 0, 0, len(headers) - 1, source.team_name, title_format)
-    collected = source.published_at.astimezone(UTC).strftime("%b %d, %Y %H:%M UTC")
-    worksheet.merge_range(
-        1,
-        0,
-        1,
-        len(headers) - 1,
-        f"{source.season_year} season · snapshot published {collected}",
-        subtitle_format,
-    )
-    worksheet.set_row(2, 26)
-    for column, header in enumerate(headers):
-        worksheet.write(2, column, header, header_format)
-        width = 24 if header == "Name" else 13 if header in {"Position", "Class"} else 10
-        worksheet.set_column(column, column, width)
-    for row_index, row in enumerate(rows, start=3):
-        worksheet.set_row(row_index, 21)
-        for column, header in enumerate(headers):
-            value = _excel_value(header, row.get(header, ""))
-            cell_format = body
-            if isinstance(value, int):
-                cell_format = integer
-            elif isinstance(value, float) and header in _THREE_DECIMAL_COLUMNS:
-                cell_format = three
-            elif isinstance(value, float):
-                cell_format = two
-            worksheet.write(row_index, column, value, cell_format)
-    if rows:
-        worksheet.add_table(2, 0, 2 + len(rows), len(headers) - 1, {
-            "columns": [
-                {"header": header, "header_format": header_format}
-                for header in headers
-            ],
-            "style": None,
-            "banded_rows": False,
-            "name": f"Snapshot{title}Table",
-        })
-    else:
-        worksheet.autofilter(2, 0, 2, len(headers) - 1)
-    worksheet.set_landscape()
-    worksheet.fit_to_pages(1, 0)
-    worksheet.repeat_rows(2, 2)
 
 
 def build_snapshot_workbook(source):
-    output = io.BytesIO()
-    workbook = xlsxwriter.Workbook(output, {
-        "in_memory": True,
-        "strings_to_formulas": False,
-        "strings_to_urls": False,
-    })
-    workbook.set_properties({
-        "title": f"{source.team_name} {source.season_year} Roster Scout snapshot",
-        "subject": "Immutable baseball roster and season statistics",
-        "author": "Roster Scout",
-        "company": "Roster Scout",
-        "created": source.published_at,
-    })
-    _write_sheet(workbook, "Hitters", source.hitters, HITTER_HEADERS, source)
-    _write_sheet(workbook, "Pitchers", source.pitchers, PITCHER_HEADERS, source)
-    workbook.close()
-    payload = output.getvalue()
+    """Build a saved version with the exact homepage workbook renderer."""
+    branding = workbook_branding(
+        school_name=source.team_name,
+        generated_on=source.published_at.date(),
+        team_id=source.source_team_id,
+    )
+    payload = create_workbook(
+        list(source.hitters),
+        list(source.pitchers),
+        branding=branding,
+    ).getvalue()
     if not payload or len(payload) > MAX_ARTIFACT_BYTES:
         raise ArtifactStorageError("generated artifact is invalid")
     return payload
