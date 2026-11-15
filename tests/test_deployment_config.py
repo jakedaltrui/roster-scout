@@ -981,6 +981,30 @@ class ProcessHealthCheckTests(unittest.TestCase):
         self.assertEqual(service["checks"][0]["path"], "/readyz")
         self.assertEqual(self.fly["mounts"][0]["processes"], ["app"])
 
+    def test_background_entrypoints_import_from_outside_project_root(self):
+        environ = os.environ.copy()
+        environ.pop("PYTHONPATH", None)
+        with tempfile.TemporaryDirectory() as outside_project:
+            for relative_path in (
+                "scripts/run_worker.py",
+                "scripts/run_scheduler.py",
+            ):
+                script_path = PROJECT_ROOT / relative_path
+                command = (
+                    "import runpy; "
+                    f"runpy.run_path({str(script_path)!r}, "
+                    "run_name='entrypoint_contract')"
+                )
+                completed = subprocess.run(
+                    [sys.executable, "-c", command],
+                    cwd=outside_project,
+                    env=environ,
+                    capture_output=True,
+                    text=True,
+                )
+                with self.subTest(entrypoint=relative_path):
+                    self.assertEqual(completed.returncode, 0, completed.stderr)
+
 
 class IndependentPurgeConfigTests(unittest.TestCase):
     @classmethod

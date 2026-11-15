@@ -9,6 +9,12 @@ import sys
 import threading
 from dataclasses import dataclass
 from datetime import timedelta
+from pathlib import Path
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 
 LOGGER = logging.getLogger("roster_scout.scheduler")
