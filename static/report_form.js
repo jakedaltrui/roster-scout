@@ -187,7 +187,6 @@
   function clearSelection() {
     selectedTeam = null;
     seasonTeamInput.value = "";
-    submitButton.disabled = true;
   }
 
   function initials(label) {

@@ -1763,12 +1763,18 @@ class ReportAcceptanceIdempotencyTests(unittest.TestCase):
         self.assertIn("report_status.js", body)
         self.assertIn('id="report-loading"', body)
         self.assertIn("Keep this page open. We’ll take you to the finished report automatically.", body)
-        self.assertIn('id="create-report-submit"', body)
+        self.assertIn(
+            '<button id="create-report-submit" class="report-submit" type="submit">',
+            body,
+        )
         self.assertIn('class="report-submit__download-arrow"', body)
         self.assertIn('class="report-submit__download-tray"', body)
         self.assertIn("hover .report-submit__download-arrow", body)
         self.assertIn("hover .report-submit__download-tray", body)
-        self.assertIn("disabled", body)
+        self.assertNotIn(
+            '<button id="create-report-submit" class="report-submit" type="submit" disabled>',
+            body,
+        )
         self.assertNotIn('id="exact-selection"', body)
 
         from pathlib import Path
@@ -1786,6 +1792,11 @@ class ReportAcceptanceIdempotencyTests(unittest.TestCase):
         self.assertIn("const LOADING_STAGE_MOTION_MS = 820;", source)
         self.assertIn("transitionLoadingHeadline(loadingHeadlines[bounded], immediate);", source)
         self.assertIn('window.matchMedia("(prefers-reduced-motion: reduce)").matches', source)
+        clear_selection = source.split("function clearSelection()", 1)[1].split(
+            "function initials", 1
+        )[0]
+        self.assertNotIn("submitButton.disabled", clear_selection)
+        self.assertEqual(source.count("submitButton.disabled = true;"), 1)
         self.assertNotIn("innerHTML", source)
         self.assertNotIn("exactSelection", source)
 
