@@ -231,7 +231,7 @@ class SharedLibraryTests(unittest.TestCase):
         self.assertNotIn(b">Members<", member_html.data)
         self.assertIn(b">New report<", admin_html.data)
         self.assertIn(b">Dashboard<", member_html.data)
-        self.assertIn(b"Share with North Valley Baseball", admin_html.data)
+        self.assertIn(b"Share with North Valley Baseball staff", admin_html.data)
         self.assertIn(b'id="share-organization-dialog"', admin_html.data)
         self.assertIn(b'name="return_to" value="/reports"', admin_html.data)
         self.assertNotIn(b'id="share-organization-dialog"', member_html.data)
@@ -1779,6 +1779,9 @@ class ReportAcceptanceIdempotencyTests(unittest.TestCase):
         self.assertIn('headers: { Accept: "application/json" }', source)
         self.assertIn("createReportStatusPoller", source)
         self.assertIn("terminalReached", source)
+        self.assertIn("const LOADING_STAGE_MOTION_MS = 820;", source)
+        self.assertIn("transitionLoadingHeadline(loadingHeadlines[bounded], immediate);", source)
+        self.assertIn('window.matchMedia("(prefers-reduced-motion: reduce)").matches', source)
         self.assertNotIn("innerHTML", source)
         self.assertNotIn("exactSelection", source)
 

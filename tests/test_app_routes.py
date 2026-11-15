@@ -84,6 +84,9 @@ class DownloadEventContractTests(unittest.TestCase):
         self.assertIn("const loadingHeadlines = [", self.source)
         self.assertIn("Calling the bullpen for data.", self.source)
         self.assertIn("Giving the workbook its final polish.", self.source)
+        self.assertIn("const LOADING_STAGE_MOTION_MS = 820;", self.source)
+        self.assertIn("transitionLoadingHeadline(loadingHeadlines[index], firstStage);", self.source)
+        self.assertIn("if (immediate || reducedMotion", self.source)
         self.assertNotIn("The steps below illustrate the process.", self.source)
         self.assertNotIn("Getting your roster.", self.source)
 

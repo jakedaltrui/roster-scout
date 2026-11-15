@@ -1291,7 +1291,11 @@
     let loadingActivityTimer = null;
     let loadingHandoffTimer = null;
     let loadingScrollFrame = null;
+    let loadingHeadlineSwapTimer = null;
+    let loadingHeadlineAnimation = null;
     let updateLoadingStage = () => {};
+    const LOADING_STAGE_MOTION_MS = 820;
+    const LOADING_HEADLINE_EXIT_MS = 180;
     const loadingHeadlines = [
       'Calling the bullpen for data.',
       'Rounding up the season numbers.',
@@ -1299,10 +1303,46 @@
       'Giving the workbook its final polish.',
       'Sending your stat sheet home.',
     ];
+    function stopLoadingHeadlineTransition() {
+      clearTimeout(loadingHeadlineSwapTimer);
+      loadingHeadlineSwapTimer = null;
+      loadingHeadlineAnimation?.cancel();
+      loadingHeadlineAnimation = null;
+    }
+    function transitionLoadingHeadline(copy, immediate = false) {
+      const headline = document.getElementById('loading-headline');
+      stopLoadingHeadlineTransition();
+      if (immediate || reducedMotion || typeof headline.animate !== 'function') {
+        headline.textContent = copy;
+        return;
+      }
+      if (headline.textContent === copy) return;
+      loadingHeadlineAnimation = headline.animate([
+        { opacity:1, transform:'translateY(0)' },
+        { opacity:0, transform:'translateY(-6px)' },
+      ], {
+        duration:LOADING_HEADLINE_EXIT_MS,
+        easing:'ease-in',
+        fill:'forwards',
+      });
+      loadingHeadlineSwapTimer = setTimeout(() => {
+        headline.textContent = copy;
+        loadingHeadlineAnimation = headline.animate([
+          { opacity:0, transform:'translateY(6px)' },
+          { opacity:1, transform:'translateY(0)' },
+        ], {
+          duration:LOADING_STAGE_MOTION_MS - LOADING_HEADLINE_EXIT_MS,
+          easing:'cubic-bezier(.22,1,.36,1)',
+          fill:'both',
+        });
+        loadingHeadlineSwapTimer = null;
+      }, LOADING_HEADLINE_EXIT_MS);
+    }
     function stopLoadingActivity() {
       clearTimeout(loadingActivityTimer);
       clearTimeout(loadingHandoffTimer);
       cancelAnimationFrame(loadingScrollFrame);
+      stopLoadingHeadlineTransition();
       loadingScrollFrame = null;
       document.querySelector('.loading-progress').classList.remove('activity-running');
       loadingActivityTimer = null;
@@ -1342,7 +1382,7 @@
         const from = viewport.scrollTop;
         const started = performance.now();
         function scrollFrame(now) {
-          const progress = Math.min((now - started) / 820, 1);
+          const progress = Math.min((now - started) / LOADING_STAGE_MOTION_MS, 1);
           // Follow the same soft easing as the moving highlight.
           let low = 0, high = 1, curve = progress;
           for (let i = 0; i < 12; i++) {
@@ -1365,13 +1405,14 @@
       });
       updateLoadingStage = index => {
         if (index <= current) return;
+        const firstStage = current < 0;
         current = index;
         steps.forEach((step, position) => {
           step.classList.toggle('is-current', position === index);
           step.classList.toggle('is-complete', position < index);
           step.querySelector('.loading-activity-status').textContent = position < index ? ' — step shown' : position === index ? ' — in progress' : '';
         });
-        document.getElementById('loading-headline').textContent = loadingHeadlines[index];
+        transitionLoadingHeadline(loadingHeadlines[index], firstStage);
         moveHighlight(index);
       };
       updateLoadingStage(0);

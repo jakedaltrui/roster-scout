@@ -32,6 +32,11 @@
   let catalogYear = null;
   let submitting = false;
   let loadingTimer = null;
+  let loadingHeadlineSwapTimer = null;
+  let loadingHeadlineAnimation = null;
+
+  const LOADING_STAGE_MOTION_MS = 820;
+  const LOADING_HEADLINE_EXIT_MS = 180;
 
   const loadingHeadlines = [
     "Opponent locked in.",
@@ -42,7 +47,51 @@
     "Putting this report in the books.",
   ];
 
-  function updateLoadingStage(index) {
+  function stopLoadingHeadlineTransition() {
+    window.clearTimeout(loadingHeadlineSwapTimer);
+    loadingHeadlineSwapTimer = null;
+    loadingHeadlineAnimation?.cancel();
+    loadingHeadlineAnimation = null;
+  }
+
+  function transitionLoadingHeadline(copy, immediate = false) {
+    if (!loadingTitle) return;
+    stopLoadingHeadlineTransition();
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (immediate || reducedMotion || typeof loadingTitle.animate !== "function") {
+      loadingTitle.textContent = copy;
+      return;
+    }
+    if (loadingTitle.textContent === copy) return;
+    loadingHeadlineAnimation = loadingTitle.animate(
+      [
+        { opacity: 1, transform: "translateY(0)" },
+        { opacity: 0, transform: "translateY(-6px)" },
+      ],
+      {
+        duration: LOADING_HEADLINE_EXIT_MS,
+        easing: "ease-in",
+        fill: "forwards",
+      }
+    );
+    loadingHeadlineSwapTimer = window.setTimeout(() => {
+      loadingTitle.textContent = copy;
+      loadingHeadlineAnimation = loadingTitle.animate(
+        [
+          { opacity: 0, transform: "translateY(6px)" },
+          { opacity: 1, transform: "translateY(0)" },
+        ],
+        {
+          duration: LOADING_STAGE_MOTION_MS - LOADING_HEADLINE_EXIT_MS,
+          easing: "cubic-bezier(.22,1,.36,1)",
+          fill: "both",
+        }
+      );
+      loadingHeadlineSwapTimer = null;
+    }, LOADING_HEADLINE_EXIT_MS);
+  }
+
+  function updateLoadingStage(index, { immediate = false } = {}) {
     const bounded = Math.max(0, Math.min(index, loadingSteps.length - 1));
     loadingSteps.forEach((step, position) => {
       step.classList.toggle("is-current", position === bounded);
@@ -54,7 +103,7 @@
           : position === bounded ? " — in progress" : "";
       }
     });
-    if (loadingTitle) loadingTitle.textContent = loadingHeadlines[bounded];
+    transitionLoadingHeadline(loadingHeadlines[bounded], immediate);
     const active = loadingSteps[bounded];
     if (active && loadingProgress && loadingViewport) {
       loadingProgress.style.setProperty("--activity-top", `${active.offsetTop}px`);
@@ -89,7 +138,7 @@
       );
       loadingProgress.classList.add("is-running");
     }
-    updateLoadingStage(1);
+    updateLoadingStage(1, { immediate: true });
     let stage = 1;
     const advance = () => {
       if (stage >= loadingSteps.length - 2) return;
@@ -104,6 +153,7 @@
 
   function restoreForm(message) {
     window.clearTimeout(loadingTimer);
+    stopLoadingHeadlineTransition();
     loadingTimer = null;
     submitting = false;
     form.classList.remove("is-loading");
@@ -392,7 +442,7 @@
         },
         render(view) {
           if (view.transient_error && loadingTitle) {
-            loadingTitle.textContent = "Still tracking down the numbers.";
+            transitionLoadingHeadline("Still tracking down the numbers.");
           }
         },
         announce(copy) {
@@ -401,12 +451,18 @@
         terminalReached(view) {
           window.clearTimeout(loadingTimer);
           if (view.state === "failed") {
-            if (loadingTitle) loadingTitle.textContent = "That run needs another look.";
-            window.setTimeout(() => window.location.assign(payload.report_url), 650);
+            transitionLoadingHeadline("That run needs another look.");
+            window.setTimeout(
+              () => window.location.assign(payload.report_url),
+              LOADING_STAGE_MOTION_MS
+            );
             return;
           }
           updateLoadingStage(loadingSteps.length - 1);
-          window.setTimeout(() => window.location.assign(payload.report_url), 700);
+          window.setTimeout(
+            () => window.location.assign(payload.report_url),
+            LOADING_STAGE_MOTION_MS
+          );
         },
       });
       document.addEventListener("visibilitychange", () => {
