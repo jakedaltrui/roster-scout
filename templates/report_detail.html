@@ -1,5 +1,17 @@
 {% extends "product_base.html" %}
 
+{% macro workbook_download_button() -%}
+  <button class="button download-workbook-button" type="submit">
+    <span class="download-workbook-button__label" data-download-label>Download workbook</span>
+    <span class="download-workbook-button__icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <g class="download-workbook-button__arrow"><path d="M12 4v11"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/></g>
+        <path class="download-workbook-button__tray" d="M5 19h14"/>
+      </svg>
+    </span>
+  </button>
+{%- endmacro %}
+
 {% block title %}{% if report_detail %}{{ report_detail.opponent_name }}{% else %}Report{% endif %} · Roster Scout{% endblock %}
 {% block page_title %}{% if report_detail %}{{ report_detail.opponent_name }}{% else %}Opponent report{% endif %}{% endblock %}
 
@@ -35,6 +47,22 @@
     .history-pagination p { margin: 0; color: var(--muted); }
     .inline-action { margin-top: 12px; }
     .unavailable-copy { max-width: 38rem; color: var(--muted); font-size: 14px; }
+    .download-workbook-button { position: relative; isolation: isolate; display: grid; grid-template-columns: minmax(0, 1fr) 42px; align-items: center; min-width: 210px; min-height: 52px; gap: 10px; overflow: hidden; padding: 5px 5px 5px 18px; border: 0; color: #fff; background: #20211f; text-align: center; }
+    .download-workbook-button::before { position: absolute; z-index: 0; top: -55%; bottom: -55%; left: -38%; width: 28%; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .32), transparent); transform: skewX(-18deg) translateX(-180%); transition: transform .65s var(--motion-emphasized); content: ""; pointer-events: none; }
+    .download-workbook-button__label, .download-workbook-button__icon { position: relative; z-index: 1; }
+    .download-workbook-button__label { transition: transform .28s var(--motion-emphasized); }
+    .download-workbook-button__icon { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 9px; color: #20211f; background: #fff; transition: transform .35s var(--motion-emphasized), background-color .2s; }
+    .download-workbook-button__icon svg { width: 19px; height: 19px; overflow: visible; }
+    .download-workbook-button__arrow { transform: rotate(-90deg); transform-origin: 12px 12px; transition: transform .45s var(--motion-emphasized); }
+    .download-workbook-button__tray { opacity: 0; stroke-dasharray: 16; stroke-dashoffset: 16; transition: opacity .2s .08s, stroke-dashoffset .38s .08s var(--motion-emphasized); }
+    .download-workbook-button:hover::before { transform: skewX(-18deg) translateX(560%); }
+    .download-workbook-button:hover .download-workbook-button__label { transform: translateX(3px); }
+    .download-workbook-button:hover .download-workbook-button__icon { transform: scale(1.04); }
+    .download-workbook-button:hover .download-workbook-button__arrow { transform: rotate(0); }
+    .download-workbook-button:hover .download-workbook-button__tray { opacity: 1; stroke-dashoffset: 0; }
+    :root[data-theme="dark"] .download-workbook-button { color: #171719; background: #ededeb; }
+    :root[data-theme="dark"] .download-workbook-button::before { background: linear-gradient(90deg, transparent, rgba(0, 0, 0, .12), transparent); }
+    :root[data-theme="dark"] .download-workbook-button__icon { color: #f0f0ee; background: #18181a; }
     @media (max-width: 767px) {
       .report-actions { justify-content: stretch; margin: -12px 0 24px; }
       .report-actions .button { width: 100%; }
@@ -42,6 +70,11 @@
       .history-table { display: none; }
       .history-cards { display: grid; gap: 12px; padding: 0; list-style: none; }
       .history-cards li { padding: 16px; border: 1px solid var(--border); border-radius: 10px; }
+      .download-workbook-button { width: 100%; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .download-workbook-button__arrow { transform: none; }
+      .download-workbook-button__tray { opacity: 1; stroke-dashoffset: 0; }
     }
   </style>
   <script src="{{ url_for('static', filename='report_status.js') }}" defer></script>
@@ -128,7 +161,7 @@
           {% if report_detail.latest_snapshot.artifact_id %}
             <form class="inline-action" method="post" data-authenticated-snapshot-download action="{{ url_for('reports.download_snapshot_artifact', report_id=report_detail.id, snapshot_id=report_detail.latest_snapshot.id, artifact_id=report_detail.latest_snapshot.artifact_id) }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button class="button" type="submit">Download workbook</button>
+              {{ workbook_download_button() }}
               <p class="download-status" role="status" aria-live="polite" tabindex="-1" data-download-status></p>
             </form>
           {% else %}
@@ -202,7 +235,7 @@
                       {% if snapshot.artifact_id %}
                         <form method="post" data-authenticated-snapshot-download action="{{ url_for('reports.download_snapshot_artifact', report_id=report_detail.id, snapshot_id=snapshot.id, artifact_id=snapshot.artifact_id) }}">
                           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                          <button class="button button--secondary" type="submit">Download workbook</button>
+                          {{ workbook_download_button() }}
                           <p class="download-status" role="status" aria-live="polite" tabindex="-1" data-download-status></p>
                         </form>
                       {% else %}
@@ -225,7 +258,7 @@
                 {% if snapshot.artifact_id %}
                   <form method="post" data-authenticated-snapshot-download action="{{ url_for('reports.download_snapshot_artifact', report_id=report_detail.id, snapshot_id=snapshot.id, artifact_id=snapshot.artifact_id) }}">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button class="button button--secondary" type="submit">Download workbook</button>
+                    {{ workbook_download_button() }}
                     <p class="download-status" role="status" aria-live="polite" tabindex="-1" data-download-status></p>
                   </form>
                 {% else %}

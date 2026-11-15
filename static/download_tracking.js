@@ -531,11 +531,18 @@
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
         const button = form.querySelector('button[type="submit"]');
+        const label = button && button.querySelector("[data-download-label]");
         const status = form.querySelector("[data-download-status]");
-        const originalLabel = button ? button.textContent : "Download workbook";
+        const originalLabel = label
+          ? label.textContent
+          : button ? button.textContent : "Download workbook";
+        const setButtonLabel = (value) => {
+          if (label) label.textContent = value;
+          else if (button) button.textContent = value;
+        };
         if (button) {
           button.disabled = true;
-          button.textContent = "Preparing download…";
+          setButtonLabel("Preparing download…");
         }
         if (status) status.textContent = "Preparing your saved workbook…";
         try {
@@ -578,7 +585,7 @@
         } finally {
           if (button) {
             button.disabled = false;
-            button.textContent = originalLabel;
+            setButtonLabel(originalLabel);
           }
         }
       });

@@ -231,6 +231,11 @@ class SharedLibraryTests(unittest.TestCase):
         self.assertNotIn(b">Members<", member_html.data)
         self.assertIn(b">New report<", admin_html.data)
         self.assertIn(b">Dashboard<", member_html.data)
+        self.assertIn(b"Share with North Valley Baseball", admin_html.data)
+        self.assertIn(b'id="share-organization-dialog"', admin_html.data)
+        self.assertIn(b'name="return_to" value="/reports"', admin_html.data)
+        self.assertNotIn(b'id="share-organization-dialog"', member_html.data)
+        self.assertIn(b"Shared with North Valley Baseball", member_html.data)
 
     def test_library_run_age_uses_hours_then_days_then_weeks(self):
         from roster_scout.reports import _relative_run_age
@@ -1760,6 +1765,7 @@ class ReportAcceptanceIdempotencyTests(unittest.TestCase):
         self.assertIn("Keep this page open. We’ll take you to the finished report automatically.", body)
         self.assertIn('id="create-report-submit"', body)
         self.assertIn("disabled", body)
+        self.assertNotIn('id="exact-selection"', body)
 
         from pathlib import Path
 
@@ -1774,6 +1780,7 @@ class ReportAcceptanceIdempotencyTests(unittest.TestCase):
         self.assertIn("createReportStatusPoller", source)
         self.assertIn("terminalReached", source)
         self.assertNotIn("innerHTML", source)
+        self.assertNotIn("exactSelection", source)
 
     def test_typed_only_stale_and_tampered_selector_values_write_nothing(self):
         organization_id, account_id, _membership_id = self._member()

@@ -165,6 +165,11 @@ a { color: inherit; }
 
 .account-organization { margin: 0; overflow-wrap: anywhere; font-size: 14px; font-weight: 600; }
 .account-email { margin: 2px 0 12px; overflow-wrap: anywhere; color: var(--muted); font-size: 13px; }
+.account-identity { display: flex; align-items: center; gap: 11px; margin-bottom: 12px; }
+.account-identity__copy { min-width: 0; }
+.account-identity .account-email { margin-bottom: 0; }
+.account-school-logo { display: grid; flex: 0 0 36px; place-items: center; width: 36px; height: 36px; overflow: hidden; }
+.account-school-logo img { display: block; width: 30px; height: 30px; object-fit: contain; }
 
 .product-main {
   width: min(calc(100% - 32px), 1200px);
@@ -333,8 +338,6 @@ body { background: #f6f6f3; -webkit-font-smoothing: antialiased; }
 .account-menu summary:hover { background: rgba(0, 0, 0, .055); }
 .product-account-avatar { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; color: #fff; background: #20211f; font-size: 11px; font-weight: 800; }
 .product-account-avatar svg { width: 15px; height: 15px; }
-.product-account-avatar--logo { overflow: hidden; border: 1px solid #dedfd9; background: #fff; }
-.product-account-avatar--logo img { width: 21px; height: 21px; object-fit: contain; }
 .product-account-avatar--signed-out { border: 1px solid #dedfd9; color: #676a65; background: #f0f0ed; }
 .account-menu__panel { top: calc(100% + 10px); border-radius: 18px; }
 .theme-toggle { display: grid; flex: none; place-items: center; width: 42px; height: 42px; padding: 0; border: 1px solid #deded9; border-radius: 50%; color: #41443f; background: transparent; cursor: pointer; transition: background-color .2s, border-color .2s, color .2s, transform .2s; }
@@ -373,7 +376,6 @@ body { background: #f6f6f3; -webkit-font-smoothing: antialiased; }
 :root[data-theme="dark"] .account-menu summary { color: #d7d7d5; }
 :root[data-theme="dark"] .account-menu summary:hover { color: #fff; background: rgba(255, 255, 255, .08); }
 :root[data-theme="dark"] .product-account-avatar { color: #171719; background: #ededeb; }
-:root[data-theme="dark"] .product-account-avatar--logo { border-color: #3a3a3e; background: #fff; }
 :root[data-theme="dark"] .product-account-avatar--signed-out { border-color: #3a3a3e; color: #a8a8ac; background: #242426; }
 :root[data-theme="dark"] .theme-toggle { border-color: #3a3a3e; color: #e8e8e6; }
 :root[data-theme="dark"] .theme-toggle:hover { background: #242426; }

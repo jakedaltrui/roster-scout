@@ -400,6 +400,7 @@ def invite():
     context = _admin_context()
     if context is None:
         return _permission_denied()
+    return_to_reports = request.form.get("return_to") == "/reports"
 
     try:
         with _session_factory().begin() as session:
@@ -416,6 +417,8 @@ def invite():
             expires_at = invitation.expires_at
     except OrganizationFailure as exc:
         if exc.category == "invitation_exists":
+            if return_to_reports:
+                return redirect("/reports?notice=invitation_exists", code=303)
             return _render_members(
                 context,
                 status=409,
@@ -424,6 +427,8 @@ def invite():
             )
         if exc.category == "forbidden":
             return _permission_denied()
+        if return_to_reports:
+            return redirect("/reports?notice=invitation_invalid", code=303)
         return _render_members(
             context,
             status=400,
@@ -438,6 +443,8 @@ def invite():
             logger=current_app.logger,
         )
     except OrganizationFailure:
+        if return_to_reports:
+            return redirect("/reports?notice=invitation_unavailable", code=303)
         return _render_members(
             context,
             status=503,
@@ -447,6 +454,9 @@ def invite():
             ),
             banner_error=True,
         )
+
+    if return_to_reports:
+        return redirect("/reports?notice=invitation_sent", code=303)
 
     expiry = expires_at.astimezone(UTC).strftime("%b %-d, %Y at %-I:%M %p UTC")
     return _render_members(

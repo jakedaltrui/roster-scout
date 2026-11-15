@@ -9,7 +9,6 @@
   const combobox = document.getElementById("team-combobox");
   const results = document.getElementById("team-results");
   const catalogStatus = document.getElementById("catalog-status");
-  const exactSelection = document.getElementById("exact-selection");
   const retryButton = document.getElementById("catalog-retry");
   const submitButton = document.getElementById("create-report-submit");
   const backLink = document.getElementById("back-to-reports");
@@ -138,8 +137,6 @@
   function clearSelection() {
     selectedTeam = null;
     seasonTeamInput.value = "";
-    exactSelection.hidden = true;
-    exactSelection.textContent = "";
     submitButton.disabled = true;
   }
 
@@ -246,8 +243,6 @@
     combobox.setAttribute("aria-invalid", "false");
     seasonTeamInput.value = seasonTeamId;
     submitButton.disabled = false;
-    exactSelection.textContent = `${teamLabel(team)} · ${divisionInput.value.toUpperCase()} · ${catalogYear || team.year}`;
-    exactSelection.hidden = false;
     catalogStatus.textContent = "";
     closeResults();
   }

@@ -87,6 +87,19 @@ class DownloadEventContractTests(unittest.TestCase):
         self.assertNotIn("The steps below illustrate the process.", self.source)
         self.assertNotIn("Getting your roster.", self.source)
 
+    def test_signed_in_avatar_keeps_initial_and_moves_school_logo_into_menu(self):
+        self.assertIn(
+            'id="account-avatar" data-signed-in="true" aria-hidden="true">{{ account_initial',
+            self.source,
+        )
+        self.assertIn('id="account-school-logo"', self.source)
+        self.assertIn('id="account-school-logo-image"', self.source)
+        self.assertIn(
+            "accountAvatar.replaceChildren(document.createTextNode(data.account_initial",
+            self.source,
+        )
+        self.assertNotIn("accountAvatar.classList.toggle('has-logo'", self.source)
+
     def test_home_flow_prompts_and_resumes_with_csrf(self):
         self.assertIn("static', filename='home_flow.js", self.source)
         self.assertIn("/auth/magic/start", self.source)
@@ -1294,6 +1307,10 @@ class AuthenticatedSnapshotDownloadAcknowledgementTests(unittest.TestCase):
             source = handle.read()
         self.assertIn("download_tracking.js", source)
         self.assertEqual(source.count("data-authenticated-snapshot-download"), 3)
+        self.assertEqual(source.count("{{ workbook_download_button() }}"), 3)
+        self.assertIn("data-download-label", source)
+        self.assertIn("download-workbook-button__arrow", source)
+        self.assertIn("download-workbook-button__tray", source)
         self.assertNotIn("Download saved", source)
         self.assertNotIn("Snapshot saved to your device", source)
 

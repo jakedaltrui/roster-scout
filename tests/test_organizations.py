@@ -1672,6 +1672,53 @@ class OrganizationInvitationRouteTests(_PostgreSQLOrganizationCase):
         self.assertEqual(revoked.status_code, 200)
         self.assertIn("Invitation revoked.", revoked.get_data(as_text=True))
 
+    def test_dashboard_invite_returns_to_reports_without_weakening_admin_check(self):
+        credential, _, _ = self._credential(email="admin@example.edu")
+        self._set_cookie(credential)
+
+        created = self.client.post(
+            "/organization/invitations",
+            data={
+                "csrf_token": self._csrf_token(credential),
+                "email": "assistant@example.edu",
+                "role": "member",
+                "return_to": "/reports",
+            },
+        )
+        self.assertEqual(created.status_code, 303)
+        self.assertEqual(created.headers["Location"], "/reports?notice=invitation_sent")
+
+        duplicate = self.client.post(
+            "/organization/invitations",
+            data={
+                "csrf_token": self._csrf_token(credential),
+                "email": "assistant@example.edu",
+                "role": "member",
+                "return_to": "/reports",
+            },
+        )
+        self.assertEqual(duplicate.status_code, 303)
+        self.assertEqual(
+            duplicate.headers["Location"],
+            "/reports?notice=invitation_exists",
+        )
+
+        member_credential, _, _ = self._credential(
+            email="member@example.edu",
+            role="member",
+        )
+        self._set_cookie(member_credential)
+        denied = self.client.post(
+            "/organization/invitations",
+            data={
+                "csrf_token": self._csrf_token(member_credential),
+                "email": "other@example.edu",
+                "role": "member",
+                "return_to": "/reports",
+            },
+        )
+        self.assertEqual(denied.status_code, 403)
+
     def test_invalid_form_focuses_fixed_summary_without_echoing_secrets(self):
         credential, _, _ = self._credential(email="admin@example.edu")
         self._set_cookie(credential)

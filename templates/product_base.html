@@ -38,10 +38,15 @@
             <a class="product-dashboard-link" href="/reports">Dashboard</a>
           {% endif %}
           <details class="account-menu">
-            <summary aria-label="Open account menu" aria-expanded="false"><span class="product-account-avatar{% if resolved_account_logo %} product-account-avatar--logo{% endif %}" aria-hidden="true">{% if resolved_account_logo %}<img src="{{ resolved_account_logo }}" alt="">{% else %}{{ account_email[0]|upper }}{% endif %}</span></summary>
+            <summary aria-label="Open account menu" aria-expanded="false"><span class="product-account-avatar" aria-hidden="true">{{ account_email[0]|upper }}</span></summary>
             <div class="account-menu__panel">
-              {% if resolved_school_name or organization_name %}<p class="account-organization">{{ resolved_school_name or organization_name }}</p>{% endif %}
-              <p class="account-email">{{ account_email }}</p>
+              <div class="account-identity">
+                {% if resolved_account_logo %}<span class="account-school-logo" aria-hidden="true"><img src="{{ resolved_account_logo }}" alt="" width="30" height="30" referrerpolicy="no-referrer"></span>{% endif %}
+                <div class="account-identity__copy">
+                  {% if resolved_school_name or organization_name %}<p class="account-organization">{{ resolved_school_name or organization_name }}</p>{% endif %}
+                  <p class="account-email">{{ account_email }}</p>
+                </div>
+              </div>
               <form action="{{ url_for('auth.logout') }}" method="post">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button class="button button--quiet" type="submit" aria-label="Sign out" data-pending-label="Signing out…">Sign out</button>
