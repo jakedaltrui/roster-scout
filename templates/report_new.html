@@ -41,10 +41,14 @@
   .report-submit:not(:disabled):active { transform: translateY(1px) scale(.975); transition-duration: .11s; }
   .report-submit__label { position: relative; z-index: 1; justify-self: center; transition: transform .4s cubic-bezier(.22, 1, .36, 1), letter-spacing .4s cubic-bezier(.22, 1, .36, 1); }
   .report-submit__icon { position: relative; z-index: 1; display: grid; place-items: center; width: 42px; height: 42px; overflow: hidden; border-radius: 9px; color: #20211f; background: #fff; box-shadow: inset 0 0 0 1px rgba(32, 33, 31, .1); transition: transform .4s cubic-bezier(.22, 1, .36, 1); }
-  .report-submit__icon svg { width: 21px; height: 21px; transition: transform .4s cubic-bezier(.22, 1, .36, 1); }
+  .report-submit__icon svg { position: absolute; width: 21px; height: 21px; overflow: visible; }
+  .report-submit__download-arrow { transform-box: fill-box; transform-origin: center; transform: rotate(-90deg); transition: transform .48s cubic-bezier(.22, 1, .36, 1); }
+  .report-submit__download-tray { opacity: 0; stroke-dasharray: 14; stroke-dashoffset: 14; transition: stroke-dashoffset .38s .08s cubic-bezier(.22, 1, .36, 1), opacity .16s .06s ease; }
   .report-submit:not(:disabled):hover .report-submit__label { transform: translateX(5px); letter-spacing: .015em; }
   .report-submit:not(:disabled):hover .report-submit__icon { transform: scale(1.04); }
-  .report-submit:not(:disabled):hover .report-submit__icon svg { transform: translateX(2px); }
+  .report-submit:not(:disabled):hover .report-submit__download-arrow { transform: translateY(1px) rotate(0); }
+  .report-submit:not(:disabled):hover .report-submit__download-tray { opacity: 1; stroke-dashoffset: 0; }
+  .report-submit:not(:disabled):active .report-submit__icon { transform: scale(.94); }
   .report-submit:disabled { opacity: .5; cursor: not-allowed; }
   .report-back { width: 100%; min-height: 42px; border: 0; background: transparent; color: #6f726c; }
   .report-back:hover { border-color: transparent; background: transparent; color: #20211f; }
@@ -183,7 +187,7 @@
       {% if error %}<p id="team-error" class="field-error">{{ error }}</p>{% endif %}
     </div>
 
-    <button id="create-report-submit" class="report-submit" type="submit" disabled><span class="report-submit__label">Create report</span><span class="report-submit__icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m14 7 5 5-5 5"/></svg></span></button>
+    <button id="create-report-submit" class="report-submit" type="submit" disabled><span class="report-submit__label">Create report</span><span class="report-submit__icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><g class="report-submit__download-arrow"><path d="M12 4v11"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/></g><path class="report-submit__download-tray" d="M5 19h14"/></svg></span></button>
     <a id="back-to-reports" class="button report-back" href="/reports">Back to reports</a>
     <p id="submit-status" class="submit-status" role="status" aria-live="polite"></p>
     <noscript>

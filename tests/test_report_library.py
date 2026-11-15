@@ -1764,6 +1764,10 @@ class ReportAcceptanceIdempotencyTests(unittest.TestCase):
         self.assertIn('id="report-loading"', body)
         self.assertIn("Keep this page open. We’ll take you to the finished report automatically.", body)
         self.assertIn('id="create-report-submit"', body)
+        self.assertIn('class="report-submit__download-arrow"', body)
+        self.assertIn('class="report-submit__download-tray"', body)
+        self.assertIn("hover .report-submit__download-arrow", body)
+        self.assertIn("hover .report-submit__download-tray", body)
         self.assertIn("disabled", body)
         self.assertNotIn('id="exact-selection"', body)
 
