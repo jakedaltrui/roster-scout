@@ -1,8 +1,8 @@
 {% extends "product_base.html" %}
 
-{% macro workbook_download_button() -%}
-  <button class="button download-workbook-button" type="submit">
-    <span class="download-workbook-button__label" data-download-label>Download workbook</span>
+{% macro workbook_download_button(label="Download workbook", compact=false) -%}
+  <button class="button button--download download-workbook-button{% if compact %} download-workbook-button--compact{% endif %}" type="submit">
+    <span class="download-workbook-button__label" data-download-label>{{ label }}</span>
     <span class="download-workbook-button__icon" aria-hidden="true">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <g class="download-workbook-button__arrow"><path d="M12 4v11"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/></g>
@@ -15,268 +15,73 @@
 {% block title %}{% if report_detail %}{{ report_detail.opponent_name }}{% else %}Report{% endif %} · Roster Scout{% endblock %}
 {% block page_title %}{% if report_detail %}{{ report_detail.opponent_name }}{% else %}Opponent report{% endif %}{% endblock %}
 
-{% block breadcrumbs %}
-  <nav class="breadcrumbs" aria-label="Breadcrumb">
-    <a href="/reports">Saved reports</a> <span aria-hidden="true">/</span>
-    <span aria-current="page">Report</span>
-  </nav>
-{% endblock %}
-
 {% block head %}
   <script defer src="{{ url_for('static', filename='download_tracking.js') }}"></script>
   <style>
-    .report-heading { margin: -24px 0 28px; color: var(--muted); }
-    .report-grid { display: grid; gap: 24px; }
-    .report-panel { padding: 24px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
-    .report-panel--latest { border-width: 2px; box-shadow: 0 16px 32px rgb(32 33 31 / .06); }
-    .report-panel--active { padding: 16px 24px; }
-    .report-panel h2, .report-panel h3, .report-panel p { margin-top: 0; }
-    .report-panel__heading { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
-    .snapshot-meta { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 16px 0; color: var(--muted); font-size: 14px; }
-    .section-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 0; list-style: none; }
-    .section-list li { padding: 12px; border: 1px solid var(--border); border-radius: 10px; }
-    .section-list strong, .section-list span { display: block; }
-    .section-list span { color: var(--muted); font-size: 14px; }
-    .status-note { min-height: 24px; color: var(--muted); }
-    .history-cards { display: none; }
-    .report-actions { display: flex; justify-content: flex-end; margin: -62px 0 28px; }
-    .refresh-confirmation { width: min(calc(100% - 32px), 480px); max-height: calc(100vh - 32px); overflow: auto; padding: 24px; border: 1px solid var(--border); border-radius: 12px; color: var(--ink); background: var(--surface); }
-    .refresh-confirmation::backdrop { background: rgb(0 0 0 / 0.35); }
-    .refresh-confirmation__actions, .history-pagination { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
-    .history-pagination { justify-content: space-between; margin-top: 16px; }
-    .history-pagination p { margin: 0; color: var(--muted); }
-    .inline-action { margin-top: 12px; }
-    .unavailable-copy { max-width: 38rem; color: var(--muted); font-size: 14px; }
-    .download-workbook-button { position: relative; isolation: isolate; display: grid; grid-template-columns: minmax(0, 1fr) 42px; align-items: center; min-width: 210px; min-height: 52px; gap: 10px; overflow: hidden; padding: 5px 5px 5px 18px; border: 0; color: #fff; background: #20211f; text-align: center; }
-    .download-workbook-button::before { position: absolute; z-index: 0; top: -55%; bottom: -55%; left: -38%; width: 28%; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .32), transparent); transform: skewX(-18deg) translateX(-180%); transition: transform .65s var(--motion-emphasized); content: ""; pointer-events: none; }
-    .download-workbook-button__label, .download-workbook-button__icon { position: relative; z-index: 1; }
-    .download-workbook-button__label { transition: transform .28s var(--motion-emphasized); }
-    .download-workbook-button__icon { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 9px; color: #20211f; background: #fff; transition: transform .35s var(--motion-emphasized), background-color .2s; }
-    .download-workbook-button__icon svg { width: 19px; height: 19px; overflow: visible; }
-    .download-workbook-button__arrow { transform: rotate(-90deg); transform-origin: 12px 12px; transition: transform .45s var(--motion-emphasized); }
-    .download-workbook-button__tray { opacity: 0; stroke-dasharray: 16; stroke-dashoffset: 16; transition: opacity .2s .08s, stroke-dashoffset .38s .08s var(--motion-emphasized); }
-    .download-workbook-button:hover::before { transform: skewX(-18deg) translateX(560%); }
-    .download-workbook-button:hover .download-workbook-button__label { transform: translateX(3px); }
-    .download-workbook-button:hover .download-workbook-button__icon { transform: scale(1.04); }
-    .download-workbook-button:hover .download-workbook-button__arrow { transform: rotate(0); }
-    .download-workbook-button:hover .download-workbook-button__tray { opacity: 1; stroke-dashoffset: 0; }
-    :root[data-theme="dark"] .download-workbook-button { color: #171719; background: #ededeb; }
-    :root[data-theme="dark"] .download-workbook-button::before { background: linear-gradient(90deg, transparent, rgba(0, 0, 0, .12), transparent); }
-    :root[data-theme="dark"] .download-workbook-button__icon { color: #f0f0ee; background: #18181a; }
-    @media (max-width: 767px) {
-      .report-actions { justify-content: stretch; margin: -12px 0 24px; }
-      .report-actions .button { width: 100%; }
-      .section-list { grid-template-columns: 1fr; }
-      .history-table { display: none; }
-      .history-cards { display: grid; gap: 12px; padding: 0; list-style: none; }
-      .history-cards li { padding: 16px; border: 1px solid var(--border); border-radius: 10px; }
-      .download-workbook-button { width: 100%; }
-    }
-    @media (prefers-reduced-motion: reduce) {
-      .download-workbook-button__arrow { transform: none; }
-      .download-workbook-button__tray { opacity: 1; stroke-dashoffset: 0; }
-    }
+    .report-intro{display:flex;align-items:center;justify-content:space-between;gap:20px;margin:-24px 0 28px}.report-heading{margin:0;color:var(--muted);font-size:14px;font-weight:600;letter-spacing:.015em}.report-grid{display:grid;gap:20px}.report-panel{padding:clamp(22px,3vw,32px);border:1px solid var(--border);border-radius:20px;background:var(--surface)}.report-panel--latest{border-color:color-mix(in srgb,var(--ink) 16%,var(--border));box-shadow:0 20px 55px rgb(32 33 31/.07)}.report-panel h2,.report-panel h3,.report-panel p{margin-top:0}.report-panel__heading{display:flex;align-items:flex-start;justify-content:space-between;gap:18px}.report-panel__heading h2{margin-bottom:6px;font-size:clamp(21px,2.5vw,26px);letter-spacing:-.035em}.report-panel__heading p{max-width:44rem;margin-bottom:0;color:var(--muted)}.report-eyebrow{margin:0 0 7px!important;color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.11em;text-transform:uppercase}.report-panel .status-chip{flex:none;margin-left:0}.report-panel .status-chip[data-state="ready"]{color:#35613c;background:#e7f2e8}
+    .snapshot-meta{display:flex;flex-wrap:wrap;gap:7px 20px;margin:20px 0 0;color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}.snapshot-meta span{display:inline-flex;align-items:center;gap:6px}.snapshot-meta span+span::before{width:3px;height:3px;margin-right:8px;border-radius:50%;background:currentColor;opacity:.55;content:""}.report-readiness{display:flex;flex-wrap:wrap;gap:10px 18px;margin:26px 0 0;padding:18px 0 0;border-top:1px solid var(--border);list-style:none}.report-readiness li{display:flex;align-items:center;gap:8px;min-width:145px;color:var(--muted);font-size:13px}.report-readiness strong{color:var(--ink);font-size:14px}.section-state-dot{width:8px;height:8px;border-radius:50%;background:var(--border);box-shadow:0 0 0 4px color-mix(in srgb,var(--border) 45%,transparent)}.report-readiness li[data-section-state="ready"] .section-state-dot,.report-readiness li[data-section-state="complete"] .section-state-dot{background:#5f9267;box-shadow:0 0 0 4px rgb(95 146 103/.13)}.report-readiness li[data-section-state="unavailable"] .section-state-dot,.report-readiness li[data-section-state="failed"] .section-state-dot{background:var(--danger);box-shadow:0 0 0 4px color-mix(in srgb,var(--danger) 13%,transparent)}.report-primary-action{display:flex;align-items:flex-start;gap:14px;margin-top:26px}.report-primary-action form{margin:0}.report-primary-action .download-status{align-self:center;max-width:30rem;margin:8px 0 0}.unavailable-copy{max-width:38rem;margin:24px 0 0;color:var(--muted);font-size:14px}
+    .button.button--download.download-workbook-button{position:relative;isolation:isolate;display:grid;grid-template-columns:minmax(0,1fr) 42px;align-items:center;min-width:230px;min-height:52px;gap:10px;overflow:hidden;padding:5px 5px 5px 18px;border:0;color:#fff;background:#20211f;text-align:center}.download-workbook-button::before{position:absolute;z-index:0;top:-55%;bottom:-55%;left:-38%;width:28%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.32),transparent);transform:skewX(-18deg) translateX(-180%);transition:transform .65s var(--motion-emphasized);content:"";pointer-events:none}.download-workbook-button__label,.download-workbook-button__icon{position:relative;z-index:1}.download-workbook-button__label{white-space:nowrap;transition:transform .28s var(--motion-emphasized)}.download-workbook-button__icon{display:grid;place-items:center;width:42px;height:42px;border-radius:9px;color:#20211f;background:#fff;transition:transform .35s var(--motion-emphasized),background-color .2s}.download-workbook-button__icon svg{width:19px;height:19px;overflow:visible}.download-workbook-button__arrow{transform:rotate(-90deg);transform-origin:12px 12px;transition:transform .45s var(--motion-emphasized)}.download-workbook-button__tray{opacity:0;stroke-dasharray:16;stroke-dashoffset:16;transition:opacity .2s .08s,stroke-dashoffset .38s .08s var(--motion-emphasized)}.button.button--download.download-workbook-button:hover:not(:disabled){color:#fff;background:#41433f}.download-workbook-button:hover:not(:disabled)::before{transform:skewX(-18deg) translateX(560%)}.download-workbook-button:hover:not(:disabled) .download-workbook-button__label{transform:translateX(3px)}.download-workbook-button:hover:not(:disabled) .download-workbook-button__icon{transform:scale(1.04)}.download-workbook-button:hover:not(:disabled) .download-workbook-button__arrow{transform:rotate(0)}.download-workbook-button:hover:not(:disabled) .download-workbook-button__tray{opacity:1;stroke-dashoffset:0}.button.button--download.download-workbook-button:disabled{color:#fff;background:#20211f;opacity:.72}.download-workbook-button--compact{grid-template-columns:minmax(0,1fr) 34px!important;min-width:148px!important;min-height:44px!important;padding:4px 4px 4px 14px!important}.download-workbook-button--compact .download-workbook-button__icon{width:34px;height:34px;border-radius:8px}.download-workbook-button--compact .download-workbook-button__icon svg{width:17px;height:17px}
+    .report-panel--active{position:relative;overflow:hidden;border-color:color-mix(in srgb,var(--active-fg) 28%,var(--border));background:color-mix(in srgb,var(--active-bg) 28%,var(--surface))}.refresh-state{display:grid;grid-template-columns:44px minmax(0,1fr) auto;align-items:start;gap:14px}.refresh-state__spinner{display:grid;place-items:center;width:44px;height:44px;border:1px solid color-mix(in srgb,var(--active-fg) 22%,var(--border));border-radius:14px;background:var(--surface)}.refresh-state__spinner::before{width:18px;height:18px;border:2px solid color-mix(in srgb,var(--active-fg) 22%,transparent);border-top-color:var(--active-fg);border-radius:50%;content:"";animation:report-spin .85s linear infinite}.refresh-state h2{margin:0 0 4px;font-size:20px;letter-spacing:-.025em}.refresh-state [data-status-message]{margin:0;color:var(--muted);font-size:14px}.refresh-progress{height:3px;margin:20px 0 16px 58px;overflow:hidden;border-radius:999px;background:color-mix(in srgb,var(--active-fg) 14%,transparent)}.refresh-progress span{display:block;width:38%;height:100%;border-radius:inherit;background:var(--active-fg);animation:report-progress 1.8s var(--motion-emphasized) infinite}.refresh-safety{margin:0 0 0 58px;color:var(--muted);font-size:13px}.refresh-sections{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0 0 58px;padding:0;list-style:none}.refresh-sections li{display:inline-flex;align-items:center;gap:6px;padding:6px 9px;border:1px solid color-mix(in srgb,var(--active-fg) 18%,var(--border));border-radius:999px;background:color-mix(in srgb,var(--surface) 84%,transparent);font-size:12px}.refresh-sections li strong{font-weight:650}.refresh-sections li span{color:var(--muted)}.status-note{min-height:0;margin:12px 0 0 58px;color:var(--muted);font-size:13px}[data-status-sections].is-refreshing{animation:report-status-soft-in .35s var(--motion-standard) both}
+    .history-heading{display:flex;align-items:end;justify-content:space-between;gap:16px;margin-bottom:6px}.history-heading h2{margin-bottom:0;font-size:20px;letter-spacing:-.025em}.history-heading p{margin:0;color:var(--muted);font-size:13px}.version-list{margin:22px 0 0;padding:0;border-top:1px solid var(--border);list-style:none}.version-row{display:grid;grid-template-columns:minmax(180px,1.2fr) minmax(180px,1fr) auto;align-items:center;gap:20px;padding:18px 0;border-bottom:1px solid var(--border)}.version-row:last-child{border-bottom:0;padding-bottom:0}.version-row__date{display:flex;align-items:center;flex-wrap:wrap;gap:8px;font-size:14px;font-weight:650;font-variant-numeric:tabular-nums}.version-row__meta{margin:4px 0 0;color:var(--muted);font-size:12px}.version-row__state{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px}.version-row__action{min-width:148px}.version-row__action form{margin:0}.version-row__action .download-status{max-width:180px;margin:6px 0 0;font-size:12px}.history-pagination{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin-top:20px}.history-pagination p{margin:0;color:var(--muted);font-size:13px}.build-attempts{display:grid;gap:12px;margin:18px 0 0;padding:0;list-style:none}.build-attempts li{padding:16px;border:1px solid var(--border);border-radius:14px}.build-attempts span{display:block;margin-top:4px;color:var(--muted);font-size:13px}.inline-action{margin-top:12px}.refresh-confirmation{width:min(calc(100% - 32px),480px);max-height:calc(100vh - 32px);overflow:auto;padding:24px;border:1px solid var(--border);border-radius:18px;color:var(--ink);background:var(--surface)}.refresh-confirmation::backdrop{background:rgb(0 0 0/.35)}.refresh-confirmation__actions{display:flex;flex-wrap:wrap;align-items:center;gap:12px}
+    :root[data-theme="dark"] .report-panel--latest{box-shadow:0 20px 55px rgb(0 0 0/.2)}:root[data-theme="dark"] .report-panel .status-chip[data-state="ready"]{color:#b9dabe;background:#29392d}:root[data-theme="dark"] .button.button--download.download-workbook-button{color:#171719;background:#ededeb}:root[data-theme="dark"] .button.button--download.download-workbook-button:hover:not(:disabled){color:#171719;background:#d5d5d3}:root[data-theme="dark"] .button.button--download.download-workbook-button:disabled{color:#171719;background:#ededeb}:root[data-theme="dark"] .download-workbook-button::before{background:linear-gradient(90deg,transparent,rgba(0,0,0,.12),transparent)}:root[data-theme="dark"] .download-workbook-button__icon{color:#f0f0ee;background:#18181a}
+    @keyframes report-spin{to{transform:rotate(360deg)}}@keyframes report-progress{0%{transform:translateX(-115%)}55%,100%{transform:translateX(300%)}}@keyframes report-status-soft-in{from{opacity:.45;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}
+    @media(max-width:767px){.report-intro{align-items:stretch;flex-direction:column;margin-top:-18px}.report-intro .button{width:100%}.report-panel__heading{align-items:flex-start}.snapshot-meta{display:grid;gap:5px}.snapshot-meta span+span::before{display:none}.report-primary-action,.report-primary-action form,.download-workbook-button{width:100%}.report-primary-action{display:block}.refresh-state{grid-template-columns:44px minmax(0,1fr)}.refresh-state>.status-chip{grid-column:2;justify-self:start}.refresh-progress,.refresh-safety,.refresh-sections,.status-note{margin-left:0}.version-row{grid-template-columns:1fr;gap:12px}.version-row__action,.version-row__action form,.version-row__action .download-workbook-button{width:100%}.download-workbook-button--compact{width:100%!important}}
+    @media(prefers-reduced-motion:reduce){.download-workbook-button__arrow{transform:none}.download-workbook-button__tray{opacity:1;stroke-dashoffset:0}.refresh-state__spinner::before{animation:none}.refresh-progress span{width:65%;animation:none}}
   </style>
   <script src="{{ url_for('static', filename='report_status.js') }}" defer></script>
 {% endblock %}
 
 {% block content %}
   {% if load_error %}
-    <div class="banner banner--error" role="alert">
-      <h2>We couldn’t load this report</h2>
-      <p>The report service is temporarily unavailable. Your saved report versions are still safe.</p>
-      <a class="button" href="{{ request.path }}">Try again</a>
-    </div>
+    <div class="banner banner--error" role="alert"><h2>We couldn’t load this report</h2><p>The report service is temporarily unavailable. Your saved report versions are still safe.</p><a class="button" href="{{ request.path }}">Try again</a></div>
   {% else %}
-    <p class="report-heading">{{ report_detail.division }} · {{ report_detail.season_year }} season</p>
-    <div class="report-actions" aria-label="Report actions">
-      {% if report_detail.active_build %}
-        <a class="button button--secondary" href="#active-build-heading">View refresh status</a>
-      {% else %}
-        <a class="button button--primary" href="{{ url_for('reports.refresh_report', report_id=report_detail.id) }}">Refresh report</a>
-      {% endif %}
+    <div class="report-intro">
+      <p class="report-heading">{{ report_detail.division }} · {{ report_detail.season_year }} season</p>
+      {% if not report_detail.active_build %}<a class="button button--secondary" href="{{ url_for('reports.refresh_report', report_id=report_detail.id) }}">Refresh report</a>{% endif %}
     </div>
-    {% if request.args.get('notice') == 'refresh_started' %}
-      <div class="banner" role="status">Live refresh started. Your saved report versions remain unchanged.</div>
-    {% elif request.args.get('notice') == 'retry_started' %}
-      <div class="banner" role="status">Retry accepted. The failed attempt remains in build history.</div>
-    {% elif request.args.get('notice') == 'active' %}
-      <div class="banner" role="status">A refresh is already in progress.</div>
-    {% endif %}
+    {% if request.args.get('notice') == 'refresh_started' %}<div class="banner" role="status">Refresh started. Your current workbook stays available while the new one is prepared.</div>{% elif request.args.get('notice') == 'retry_started' %}<div class="banner" role="status">Retry started. Your current workbook is unchanged.</div>{% elif request.args.get('notice') == 'active' %}<div class="banner" role="status">A refresh is already in progress.</div>{% endif %}
     {% if retry_error %}<div class="banner banner--error" role="alert">{{ retry_error }}</div>{% endif %}
     {% if refresh_confirmation %}
       <dialog class="refresh-confirmation" open data-modal data-auto-modal aria-labelledby="refresh-title" aria-describedby="refresh-description">
         <h2 id="refresh-title">Refresh {{ report_detail.opponent_name }}?</h2>
-        <p id="refresh-description">{% if report_detail.latest_snapshot %}This collects live NCAA data and saves a new report version. Your {{ report_detail.latest_snapshot.published_at.strftime("%b %-d, %Y · %-I:%M %p") }} UTC version will stay unchanged.{% else %}This starts a new live collection. Failed attempts will remain in the build history.{% endif %}</p>
+        <p id="refresh-description">{% if report_detail.latest_snapshot %}Roster Scout will collect current NCAA data and prepare a new workbook. Your {{ report_detail.latest_snapshot.published_at.strftime("%b %-d, %Y · %-I:%M %p") }} UTC version will remain available.{% else %}Roster Scout will collect current NCAA data and prepare the first saved workbook.{% endif %}</p>
         {% if refresh_error %}<div class="banner banner--error" role="alert">{{ refresh_error }}</div>{% endif %}
         <form method="post" action="{{ url_for('reports.refresh_report', report_id=report_detail.id) }}">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <input type="hidden" name="idempotency_key" value="{{ refresh_action_id }}">
-          <div class="refresh-confirmation__actions">
-            <button class="button button--primary" type="submit" data-pending-label="Starting refresh…">Start live refresh</button>
-            <a class="button button--secondary" href="{{ url_for('reports.detail', report_id=report_detail.id) }}" data-dialog-close autofocus>Keep current report</a>
-          </div>
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="idempotency_key" value="{{ refresh_action_id }}">
+          <div class="refresh-confirmation__actions"><button class="button button--primary" type="submit" data-pending-label="Starting refresh…">Start refresh</button><a class="button button--secondary" href="{{ url_for('reports.detail', report_id=report_detail.id) }}" data-dialog-close autofocus>Keep current report</a></div>
         </form>
       </dialog>
     {% endif %}
     <div class="report-grid">
-      <section class="report-panel report-panel--latest" aria-labelledby="latest-snapshot-heading">
+      {% if report_detail.latest_snapshot or not report_detail.active_build %}<section class="report-panel report-panel--latest" aria-labelledby="latest-snapshot-heading">
         <div class="report-panel__heading">
-          <div>
-            <h2 id="latest-snapshot-heading">Latest report</h2>
-            {% if report_detail.latest_snapshot %}
-              <p>Your newest saved report remains available until you choose to refresh it.</p>
-            {% else %}
-              <p>No saved report is available yet.</p>
-            {% endif %}
-          </div>
-          {% if report_detail.latest_snapshot %}
-            <span class="status-chip" data-state="{{ report_detail.latest_snapshot.status }}">{{ report_detail.latest_snapshot.status|title }}</span>
-          {% endif %}
+          <div><p class="report-eyebrow">Current workbook</p><h2 id="latest-snapshot-heading">{% if report_detail.latest_snapshot %}Ready for your staff{% else %}Preparing your first report{% endif %}</h2>{% if report_detail.latest_snapshot %}<p>The latest roster and season statistics are saved and ready to download.</p>{% else %}<p>Your workbook will appear here as soon as the first run finishes.</p>{% endif %}</div>
+          {% if report_detail.latest_snapshot %}<span class="status-chip" data-state="{{ report_detail.latest_snapshot.status }}">{{ report_detail.latest_snapshot.status|title }}</span>{% endif %}
         </div>
         {% if report_detail.latest_snapshot %}
-          <div class="snapshot-meta">
-            <span>Published <time datetime="{{ report_detail.latest_snapshot.published_at.isoformat() }}">{{ report_detail.latest_snapshot.published_at.strftime("%b %-d, %Y · %-I:%M %p") }} UTC</time></span>
-            {% if report_detail.latest_snapshot.source_collected_at %}
-              <span>Source collected <time datetime="{{ report_detail.latest_snapshot.source_collected_at.isoformat() }}">{{ report_detail.latest_snapshot.source_collected_at.strftime("%b %-d · %-I:%M %p") }} UTC</time></span>
-            {% endif %}
-            <span>{% if report_detail.latest_snapshot.predecessor_published_at %}Refresh of <time datetime="{{ report_detail.latest_snapshot.predecessor_published_at.isoformat() }}">{{ report_detail.latest_snapshot.predecessor_published_at.strftime("%b %-d, %Y · %-I:%M %p") }} UTC</time>{% else %}First version{% endif %}</span>
-          </div>
-          {% if report_detail.latest_snapshot.status == "partial" %}
-            <div class="banner banner--warning" role="status">
-              <strong>Some data is unavailable in this report.</strong>
-              <p>You can still review the saved sections. Unavailable:
-                {% set unavailable = namespace(first=true) %}
-                {% for section in report_detail.latest_sections if section.state in ("Unavailable", "Failed") %}{% if not unavailable.first %}, {% endif %}{{ section.name }}{% set unavailable.first = false %}{% endfor %}.
-              </p>
-            </div>
-          {% endif %}
-          {% if report_detail.latest_sections %}
-            <ul class="section-list" aria-label="Latest report sections">
-              {% for section in report_detail.latest_sections %}
-                <li><strong>{{ section.name }}</strong><span>{{ section.state }}{% if section.explanation %} · {{ section.explanation }}{% endif %}</span></li>
-              {% endfor %}
-            </ul>
-          {% endif %}
-          {% if report_detail.latest_snapshot.artifact_id %}
-            <form class="inline-action" method="post" data-authenticated-snapshot-download action="{{ url_for('reports.download_snapshot_artifact', report_id=report_detail.id, snapshot_id=report_detail.latest_snapshot.id, artifact_id=report_detail.latest_snapshot.artifact_id) }}">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              {{ workbook_download_button() }}
-              <p class="download-status" role="status" aria-live="polite" tabindex="-1" data-download-status></p>
-            </form>
-          {% else %}
-            <p class="unavailable-copy"><strong>Download unavailable.</strong> No workbook was saved for this report version. Roster Scout will not replace a historical version with newer data.</p>
-          {% endif %}
+          <div class="snapshot-meta"><span>Updated <time datetime="{{ report_detail.latest_snapshot.published_at.isoformat() }}">{{ report_detail.latest_snapshot.published_at.strftime("%b %-d, %Y · %-I:%M %p") }} UTC</time></span>{% if report_detail.latest_snapshot.source_collected_at %}<span>Data collected <time datetime="{{ report_detail.latest_snapshot.source_collected_at.isoformat() }}">{{ report_detail.latest_snapshot.source_collected_at.strftime("%b %-d · %-I:%M %p") }} UTC</time></span>{% endif %}</div>
+          {% if report_detail.latest_snapshot.status == "partial" %}<div class="banner banner--warning" role="status"><strong>Some data is unavailable.</strong><p>The saved workbook is still available. Missing: {% set unavailable=namespace(first=true) %}{% for section in report_detail.latest_sections if section.state in ("Unavailable","Failed") %}{% if not unavailable.first %}, {% endif %}{{ section.name }}{% set unavailable.first=false %}{% endfor %}.</p></div>{% endif %}
+          {% if report_detail.latest_sections %}<ul class="report-readiness" aria-label="Workbook contents">{% for section in report_detail.latest_sections %}<li data-section-state="{{ section.state|lower }}"><span class="section-state-dot" aria-hidden="true"></span><strong>{{ section.name }}</strong><span>{{ section.state }}{% if section.explanation %} · {{ section.explanation }}{% endif %}</span></li>{% endfor %}</ul>{% endif %}
+          {% if report_detail.latest_snapshot.artifact_id %}<div class="report-primary-action"><form method="post" data-authenticated-snapshot-download action="{{ url_for('reports.download_snapshot_artifact',report_id=report_detail.id,snapshot_id=report_detail.latest_snapshot.id,artifact_id=report_detail.latest_snapshot.artifact_id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{{ workbook_download_button() }}<p class="download-status" role="status" aria-live="polite" tabindex="-1" data-download-status></p></form></div>{% else %}<p class="unavailable-copy"><strong>Download unavailable.</strong> This version did not produce a saved workbook and will not be replaced with newer data.</p>{% endif %}
         {% endif %}
-      </section>
-
+      </section>{% endif %}
       {% if report_detail.active_build %}
-        <section class="report-panel report-panel--active" aria-labelledby="active-build-heading"
-                 data-report-status-root
-                 data-report-status-url="{{ url_for('reports.detail_status', report_id=report_detail.id) }}">
-          <div class="report-panel__heading">
-            <div>
-              <h2 id="active-build-heading">Active build</h2>
-              <p data-status-message>{{ report_detail.active_build.message }}</p>
-            </div>
-            <span class="status-chip" data-state="{{ report_detail.active_build.state }}" data-status-heading>{{ report_detail.active_build.heading }}</span>
-          </div>
-          {% if report_detail.latest_snapshot %}
-            <p>Your {{ report_detail.latest_snapshot.published_at.strftime("%-I:%M %p") }} UTC report remains available while this refresh runs.</p>
-          {% endif %}
-          <ul class="section-list" data-status-sections aria-label="Refresh sections">
-            {% for section in report_detail.active_build.sections %}
-              <li><strong>{{ section.name }}</strong><span>{{ section.state }}{% if section.explanation %} · {{ section.explanation }}{% endif %}</span></li>
-            {% endfor %}
-          </ul>
-          <p class="status-note" data-status-note></p>
-          <button class="button" type="button" data-status-check hidden>Check status</button>
-          <p class="visually-hidden" aria-live="polite" aria-atomic="true" data-status-live></p>
+        <section class="report-panel report-panel--active" aria-labelledby="active-build-heading" aria-busy="true" data-report-status-root data-report-status-url="{{ url_for('reports.detail_status',report_id=report_detail.id) }}">
+          <div class="refresh-state"><span class="refresh-state__spinner" aria-hidden="true"></span><div><p class="report-eyebrow">Refreshing report</p><h2 id="active-build-heading">New workbook in progress</h2><p data-status-message>{{ report_detail.active_build.message }}</p></div><span class="status-chip" data-state="{{ report_detail.active_build.state }}" data-status-heading>{{ report_detail.active_build.heading }}</span></div>
+          <div class="refresh-progress" aria-hidden="true"><span></span></div>{% if report_detail.latest_snapshot %}<p class="refresh-safety">Your current workbook stays available while this refresh runs.</p>{% endif %}
+          <ul class="refresh-sections" data-status-sections aria-label="Refresh progress">{% for section in report_detail.active_build.sections %}<li><strong>{{ section.name }}</strong><span>{{ section.state }}</span></li>{% endfor %}</ul>
+          <p class="status-note" data-status-note></p><button class="button button--secondary" type="button" data-status-check hidden>Check status</button><p class="visually-hidden" aria-live="polite" aria-atomic="true" data-status-live></p>
         </section>
       {% endif %}
-
       {% if report_detail.failed_builds %}
-        <section class="report-panel" aria-labelledby="build-attempts-heading">
-          <h2 id="build-attempts-heading">Build attempts</h2>
-          <ul class="section-list">
-            {% for build in report_detail.failed_builds %}
-              <li>
-                <strong>{{ build.heading }}</strong>
-                <span><time datetime="{{ build.updated_at.isoformat() }}">{{ build.updated_at.strftime("%b %-d, %Y · %-I:%M %p") }} UTC</time> · {{ build.message }}</span>
-                {% if not report_detail.active_build and retry_action_id %}
-                  <form class="inline-action" method="post" action="{{ url_for('reports.retry_report', report_id=report_detail.id, failed_job_id=build.id) }}">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <input type="hidden" name="idempotency_key" value="{{ retry_action_id }}">
-                    <button class="button button--primary" type="submit" data-pending-label="Accepting retry…">Retry build</button>
-                  </form>
-                {% endif %}
-              </li>
-            {% endfor %}
-          </ul>
-        </section>
+        <section class="report-panel" aria-labelledby="build-attempts-heading"><p class="report-eyebrow">Needs attention</p><h2 id="build-attempts-heading">Recent attempts</h2><ul class="build-attempts">{% for build in report_detail.failed_builds %}<li><strong>{{ build.heading }}</strong><span><time datetime="{{ build.updated_at.isoformat() }}">{{ build.updated_at.strftime("%b %-d, %Y · %-I:%M %p") }} UTC</time> · {{ build.message }}</span>{% if not report_detail.active_build and retry_action_id %}<form class="inline-action" method="post" action="{{ url_for('reports.retry_report',report_id=report_detail.id,failed_job_id=build.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="idempotency_key" value="{{ retry_action_id }}"><button class="button button--secondary" type="submit" data-pending-label="Starting retry…">Try again</button></form>{% endif %}</li>{% endfor %}</ul></section>
       {% endif %}
-
       <section class="report-panel" aria-labelledby="snapshot-history-heading">
-        <h2 id="snapshot-history-heading">Saved versions</h2>
+        <div class="history-heading"><div><p class="report-eyebrow">Archive</p><h2 id="snapshot-history-heading">Report history</h2></div>{% if report_detail.history %}<p>{{ report_detail.history_total_count }} saved {% if report_detail.history_total_count == 1 %}version{% else %}versions{% endif %}</p>{% endif %}</div>
         {% if report_detail.history %}
-          <div class="desktop-table history-table">
-            <table>
-              <caption class="visually-hidden">Saved report versions for {{ report_detail.opponent_name }}</caption>
-              <thead><tr><th scope="col">Saved</th><th scope="col">Status</th><th scope="col">Source freshness</th><th scope="col">Predecessor</th><th scope="col">Artifact</th><th scope="col">Action</th></tr></thead>
-              <tbody>
-                {% for snapshot in report_detail.history %}
-                  <tr data-snapshot-row="desktop">
-                    <th scope="row"><time datetime="{{ snapshot.published_at.isoformat() }}">{{ snapshot.published_at.strftime("%b %-d, %Y · %-I:%M %p") }} UTC</time>{% if snapshot.id == report_detail.latest_snapshot.id %} <span class="status-chip status-chip--ready">Latest</span>{% endif %}</th>
-                    <td><span class="status-chip" data-state="{{ snapshot.status }}">{{ snapshot.status|title }}</span></td>
-                    <td>{% if snapshot.source_collected_at %}<time datetime="{{ snapshot.source_collected_at.isoformat() }}">{{ snapshot.source_collected_at.strftime("%b %-d, %Y · %-I:%M %p") }} UTC</time>{% else %}Not recorded{% endif %}</td>
-                    <td>{% if snapshot.predecessor_published_at %}Refresh of <time datetime="{{ snapshot.predecessor_published_at.isoformat() }}">{{ snapshot.predecessor_published_at.strftime("%b %-d, %Y · %-I:%M %p") }} UTC</time>{% else %}First version{% endif %}</td>
-                    <td>{% if snapshot.artifact_available %}Workbook ready{% else %}Download unavailable{% endif %}</td>
-                    <td>
-                      {% if snapshot.artifact_id %}
-                        <form method="post" data-authenticated-snapshot-download action="{{ url_for('reports.download_snapshot_artifact', report_id=report_detail.id, snapshot_id=snapshot.id, artifact_id=snapshot.artifact_id) }}">
-                          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                          {{ workbook_download_button() }}
-                          <p class="download-status" role="status" aria-live="polite" tabindex="-1" data-download-status></p>
-                        </form>
-                      {% else %}
-                        <span class="unavailable-copy">No workbook was saved for this report version. Roster Scout will not replace a historical version with newer data.</span>
-                      {% endif %}
-                    </td>
-                  </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-          <ul class="history-cards" aria-label="Saved report versions">
-            {% for snapshot in report_detail.history %}
-              <li data-snapshot-row="mobile">
-                <strong>{{ snapshot.published_at.strftime("%b %-d, %Y · %-I:%M %p") }} UTC{% if snapshot.id == report_detail.latest_snapshot.id %} · Latest{% endif %}</strong>
-                <p>Status: {{ snapshot.status|title }}</p>
-                <p>Source freshness: {% if snapshot.source_collected_at %}{{ snapshot.source_collected_at.strftime("%b %-d, %Y · %-I:%M %p") }} UTC{% else %}Not recorded{% endif %}</p>
-                <p>Previous version: {% if snapshot.predecessor_published_at %}{{ snapshot.predecessor_published_at.strftime("%b %-d, %Y · %-I:%M %p") }} UTC{% else %}First version{% endif %}</p>
-                <p>Download: {% if snapshot.artifact_available %}Workbook ready{% else %}Unavailable{% endif %}</p>
-                {% if snapshot.artifact_id %}
-                  <form method="post" data-authenticated-snapshot-download action="{{ url_for('reports.download_snapshot_artifact', report_id=report_detail.id, snapshot_id=snapshot.id, artifact_id=snapshot.artifact_id) }}">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    {{ workbook_download_button() }}
-                    <p class="download-status" role="status" aria-live="polite" tabindex="-1" data-download-status></p>
-                  </form>
-                {% else %}
-                  <p class="unavailable-copy">No workbook was saved for this report version. Roster Scout will not replace a historical version with newer data.</p>
-                {% endif %}
-              </li>
-            {% endfor %}
-          </ul>
-          <nav class="history-pagination" aria-label="Saved report version pages">
-            <p>Showing {{ ((report_detail.history_page - 1) * 25) + 1 }}–{{ [report_detail.history_page * 25, report_detail.history_total_count]|min }} of {{ report_detail.history_total_count }} versions</p>
-            <div>
-              {% if report_detail.history_previous_page %}<a class="button button--secondary" href="{{ url_for('reports.detail', report_id=report_detail.id, history_page=report_detail.history_previous_page) }}">Previous</a>{% endif %}
-              {% if report_detail.history_next_page %}<a class="button button--secondary" href="{{ url_for('reports.detail', report_id=report_detail.id, history_page=report_detail.history_next_page) }}">Next</a>{% endif %}
-            </div>
-          </nav>
-        {% else %}
-          <p>No report versions have been saved yet.</p>
-        {% endif %}
+          <ol class="version-list" aria-label="Saved report versions for {{ report_detail.opponent_name }}">{% for snapshot in report_detail.history %}<li class="version-row" data-snapshot-row><div><div class="version-row__date"><time datetime="{{ snapshot.published_at.isoformat() }}">{{ snapshot.published_at.strftime("%b %-d, %Y · %-I:%M %p") }} UTC</time>{% if snapshot.id == report_detail.latest_snapshot.id %}<span class="status-chip status-chip--ready">Current</span>{% endif %}</div><p class="version-row__meta">{% if snapshot.source_collected_at %}Data collected {{ snapshot.source_collected_at.strftime("%b %-d · %-I:%M %p") }} UTC{% else %}Collection time not recorded{% endif %}</p></div><div class="version-row__state"><span class="status-chip" data-state="{{ snapshot.status }}">{{ snapshot.status|title }}</span><span>{% if snapshot.artifact_available %}Workbook ready{% else %}No workbook{% endif %}</span></div><div class="version-row__action">{% if snapshot.artifact_id %}<form method="post" data-authenticated-snapshot-download action="{{ url_for('reports.download_snapshot_artifact',report_id=report_detail.id,snapshot_id=snapshot.id,artifact_id=snapshot.artifact_id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{{ workbook_download_button("Download",true) }}<p class="download-status" role="status" aria-live="polite" tabindex="-1" data-download-status></p></form>{% else %}<span class="unavailable-copy">Unavailable</span>{% endif %}</div></li>{% endfor %}</ol>
+          <nav class="history-pagination" aria-label="Saved report version pages"><p>Showing {{ ((report_detail.history_page-1)*25)+1 }}–{{ [report_detail.history_page*25,report_detail.history_total_count]|min }} of {{ report_detail.history_total_count }} versions</p><div>{% if report_detail.history_previous_page %}<a class="button button--secondary" href="{{ url_for('reports.detail',report_id=report_detail.id,history_page=report_detail.history_previous_page) }}">Previous</a>{% endif %}{% if report_detail.history_next_page %}<a class="button button--secondary" href="{{ url_for('reports.detail',report_id=report_detail.id,history_page=report_detail.history_next_page) }}">Next</a>{% endif %}</div></nav>
+        {% else %}<p class="empty-copy">Completed reports will appear here automatically.</p>{% endif %}
       </section>
     </div>
   {% endif %}

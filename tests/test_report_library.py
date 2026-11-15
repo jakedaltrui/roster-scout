@@ -486,25 +486,27 @@ class SnapshotHistoryTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         for value in (
             b"History Hawks",
-            b"Latest report",
+            b"Current workbook",
+            b"Ready for your staff",
             b"Ready",
-            b"Active build",
+            b"Refreshing report",
+            b"New workbook in progress",
             b"Collecting",
-            b"remains available while this refresh runs",
-            b"View refresh status",
-            b"Saved versions",
+            b"current workbook stays available while this refresh runs",
+            b"Report history",
             b"Batting",
             b"Pitching",
         ):
             self.assertIn(value, response.data)
         self.assertLess(
-            response.data.index(b"Latest report"),
-            response.data.index(b"Active build"),
+            response.data.index(b"Current workbook"),
+            response.data.index(b"Refreshing report"),
         )
         self.assertIn(b'data-report-status-url=', response.data)
         self.assertIn(b'aria-live="polite"', response.data)
         self.assertNotIn(str(organization_id).encode(), response.data)
         self.assertNotIn(b">Refresh report<", response.data)
+        self.assertNotIn(b">View refresh status<", response.data)
 
         from roster_scout.models import SecurityAuditEvent
 
@@ -597,9 +599,8 @@ class SnapshotHistoryTests(unittest.TestCase):
 
         self.assertEqual(first.status_code, 200)
         self.assertEqual(second.status_code, 200)
-        self.assertEqual(first.data.count(b'data-snapshot-row="desktop"'), 25)
-        self.assertEqual(first.data.count(b'data-snapshot-row="mobile"'), 25)
-        self.assertEqual(second.data.count(b'data-snapshot-row="desktop"'), 2)
+        self.assertEqual(first.data.count(b"data-snapshot-row"), 25)
+        self.assertEqual(second.data.count(b"data-snapshot-row"), 2)
         self.assertIn(b"Next", first.data)
         self.assertIn(b"Previous", second.data)
         self.assertIn(b"Showing 1\xe2\x80\x9325 of 27 versions", first.data)
@@ -656,11 +657,8 @@ class SnapshotHistoryTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"Some data is unavailable in this report.", response.data)
-        self.assertIn(
-            b"You can still review the saved sections. Unavailable:",
-            response.data,
-        )
+        self.assertIn(b"Some data is unavailable.", response.data)
+        self.assertIn(b"The saved workbook is still available. Missing:", response.data)
         self.assertIn(b"Batting", response.data)
         self.assertIn(b"Ready", response.data)
         self.assertIn(b"Fielding", response.data)
@@ -842,7 +840,7 @@ class FailedBuildRetryTests(unittest.TestCase):
         ):
             self.assertIn(safe_copy, detail.data)
         self.assertNotIn(b"secret upstream exception", detail.data)
-        self.assertIn(b"Retry build", detail.data)
+        self.assertIn(b"Try again", detail.data)
 
         rejected = client.post(
             f"/reports/{report_id}/builds/{failed_ids[-1]}/retry",
@@ -1044,10 +1042,7 @@ class FailedBuildRetryTests(unittest.TestCase):
         reader.assert_not_called()
         detail = client.get(f"/reports/{first_report_id}")
         self.assertIn(b"Download unavailable", detail.data)
-        self.assertIn(
-            b"Roster Scout will not replace a historical version with newer data.",
-            detail.data,
-        )
+        self.assertIn(b"will not be replaced with newer data", detail.data)
 
     def test_storage_failure_is_sanitized_and_issues_no_receipt_or_audit(self):
         from roster_scout.models import ProductUsageEvent, SecurityAuditEvent
@@ -1157,9 +1152,9 @@ class RefreshLineageTests(unittest.TestCase):
         self.assertEqual(confirmation.status_code, 200)
         for value in (
             b"Refresh Refresh Ravens?",
-            b"This collects live NCAA data and saves a new report version.",
-            b"will stay unchanged",
-            b"Start live refresh",
+            b"collect current NCAA data and prepare a new workbook",
+            b"will remain available",
+            b"Start refresh",
             b"Keep current report",
         ):
             self.assertIn(value, confirmation.data)

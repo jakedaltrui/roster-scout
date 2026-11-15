@@ -8,6 +8,7 @@ const {
   STORAGE_KEY,
   createPendingReportStore,
   isResumeLocation,
+  normalizeVerificationCode,
 } = require("../../static/home_flow.js");
 
 const SELECTION = {
@@ -65,4 +66,12 @@ test("only the exact resume location is accepted", () => {
   assert.equal(isResumeLocation({ pathname: "/", search: "?resume=download&next=https://evil.test" }), false);
   assert.equal(isResumeLocation({ pathname: "//evil.test", search: "?resume=download" }), false);
   assert.equal(isResumeLocation({ pathname: "/reports", search: "?resume=download" }), false);
+});
+
+test("verification codes accept full mobile paste and one-time-code autofill values", () => {
+  assert.equal(normalizeVerificationCode("123456"), "123456");
+  assert.equal(normalizeVerificationCode("123 456"), "123456");
+  assert.equal(normalizeVerificationCode("Code: 987-654"), "987654");
+  assert.equal(normalizeVerificationCode("123456789"), "123456");
+  assert.equal(normalizeVerificationCode(null), "");
 });

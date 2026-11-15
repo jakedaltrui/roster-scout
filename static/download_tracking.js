@@ -576,7 +576,12 @@
             }
             throw new Error("The saved workbook could not be prepared.");
           }
-          if (status) status.textContent = "Download started.";
+          if (status) {
+            status.textContent = "Download started.";
+            windowObject.setTimeout(() => {
+              if (status.textContent === "Download started.") status.textContent = "";
+            }, 4000);
+          }
         } catch (_error) {
           if (status) {
             status.textContent = "Download couldn’t start. Try again. If it keeps happening, contact support.";

@@ -12,6 +12,10 @@
   const MAX_AGE_MS = 15 * 60 * 1000;
   const ALLOWED_DIVISIONS = new Set(["d1", "d2", "d3"]);
 
+  function normalizeVerificationCode(value) {
+    return String(value ?? "").replace(/\D/g, "").slice(0, 6);
+  }
+
   function validText(value, maximum) {
     return typeof value === "string"
       && value.length > 0
@@ -120,5 +124,6 @@
     canonicalSelection,
     createPendingReportStore,
     isResumeLocation,
+    normalizeVerificationCode,
   };
 });

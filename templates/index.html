@@ -123,7 +123,7 @@
     .auth-back { display:inline-flex; align-items:center; gap:6px; margin:0 0 22px; padding:0; border:0; color:#929297; background:transparent; font-size:11px; font-weight:700; }
     .auth-back:hover { color:#f0f0ee; }
     .auth-code-control { position:relative; display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:clamp(6px,2vw,9px); width:100%; }
-    .auth-code-input { position:absolute; z-index:2; inset:0; width:100%; height:100% !important; margin:0; padding:0 !important; border:0 !important; opacity:.01; color:transparent; background:transparent !important; caret-color:transparent; }
+    .auth-code-input { position:absolute; z-index:2; inset:0; width:100%; height:100% !important; margin:0; padding:0 !important; border:0 !important; color:transparent; -webkit-text-fill-color:transparent; background:transparent !important; caret-color:transparent; cursor:text; -webkit-user-select:text; user-select:text; }
     .auth-code-input:focus { box-shadow:none; }
     .auth-code-box { display:grid; place-items:center; aspect-ratio:1/1.08; min-width:0; border:1px solid #20211f; border-radius:12px; color:#20211f; background:#fff; font-size:clamp(20px,5vw,25px); font-weight:700; font-variant-numeric:tabular-nums; transition:border-color .2s,background-color .2s,box-shadow .2s,transform .2s cubic-bezier(.2,.8,.2,1); }
     .auth-code-box.is-filled { border-color:#20211f; background:#fff; }
@@ -600,7 +600,7 @@
             <div class="field">
               <label for="auth-code">Verification code</label>
               <div class="auth-code-control" id="auth-code-control" data-invalid="false">
-                <input class="auth-code-input" id="auth-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" aria-describedby="auth-code-error" required />
+                <input class="auth-code-input" id="auth-code" type="text" inputmode="numeric" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" enterkeyhint="done" maxlength="6" pattern="[0-9]{6}" aria-describedby="auth-code-error" required />
                 <span class="auth-code-box" data-auth-code-digit aria-hidden="true"></span>
                 <span class="auth-code-box" data-auth-code-digit aria-hidden="true"></span>
                 <span class="auth-code-box" data-auth-code-digit aria-hidden="true"></span>
@@ -1695,12 +1695,23 @@
       sendMagicCode();
     });
 
-    authCodeInput.addEventListener('input', () => {
-      authCodeInput.value = authCodeInput.value.replace(/\D/g, '').slice(0, 6);
+    function updateAuthCode(value) {
+      authCodeInput.value = window.RosterScoutHomeFlow.normalizeVerificationCode(value);
       authCodeInput.setAttribute('aria-invalid', 'false');
       authCodeControl.dataset.invalid = 'false';
       authCodeError.textContent = '';
       renderAuthCode();
+    }
+
+    authCodeInput.addEventListener('input', () => {
+      updateAuthCode(authCodeInput.value);
+    });
+
+    authCodeInput.addEventListener('paste', event => {
+      const pastedText = event.clipboardData?.getData('text');
+      if (typeof pastedText !== 'string') return;
+      event.preventDefault();
+      updateAuthCode(pastedText);
     });
 
     document.getElementById('auth-code-form').addEventListener('submit', async event => {

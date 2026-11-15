@@ -358,7 +358,7 @@ class Phase2ReleaseStoryTests(_Phase2ReleaseCase):
             )
         self.assertEqual(first_refresh.job_id, duplicate_refresh.job_id)
         active_detail = member_client.get(f"/reports/{accepted.report_id}")
-        self.assertIn(b"Latest report", active_detail.data)
+        self.assertIn(b"Current workbook", active_detail.data)
         self.assertIn(b"Queued", active_detail.data)
 
         with self.Session.begin() as session:
@@ -369,7 +369,7 @@ class Phase2ReleaseStoryTests(_Phase2ReleaseCase):
             failed_job.finished_at = self.now + timedelta(minutes=1)
         failed_detail = member_client.get(f"/reports/{accepted.report_id}")
         self.assertIn(b"NCAA source unavailable", failed_detail.data)
-        self.assertIn(b"Latest report", failed_detail.data)
+        self.assertIn(b"Current workbook", failed_detail.data)
         with self.Session.begin() as session:
             retry = accept_authorized_report_retry(
                 session,

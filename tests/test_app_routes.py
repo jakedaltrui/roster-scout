@@ -108,6 +108,9 @@ class DownloadEventContractTests(unittest.TestCase):
         self.assertIn("/auth/magic/start", self.source)
         self.assertIn("/auth/magic/verify", self.source)
         self.assertIn("autocomplete=\"one-time-code\"", self.source)
+        self.assertIn("inputmode=\"numeric\"", self.source)
+        self.assertIn("authCodeInput.addEventListener('paste'", self.source)
+        self.assertIn("normalizeVerificationCode", self.source)
         self.assertEqual(self.source.count("data-auth-code-digit"), 7)
         self.assertIn('class="auth-code-control"', self.source)
         self.assertIn("renderAuthCode", self.source)
@@ -1309,13 +1312,22 @@ class AuthenticatedSnapshotDownloadAcknowledgementTests(unittest.TestCase):
         with open(template, encoding="utf-8") as handle:
             source = handle.read()
         self.assertIn("download_tracking.js", source)
-        self.assertEqual(source.count("data-authenticated-snapshot-download"), 3)
-        self.assertEqual(source.count("{{ workbook_download_button() }}"), 3)
+        self.assertEqual(source.count("data-authenticated-snapshot-download"), 2)
+        self.assertEqual(source.count("{{ workbook_download_button"), 2)
         self.assertIn("data-download-label", source)
         self.assertIn("download-workbook-button__arrow", source)
         self.assertIn("download-workbook-button__tray", source)
+        self.assertIn("button--download", source)
         self.assertNotIn("Download saved", source)
         self.assertNotIn("Snapshot saved to your device", source)
+
+        product_base = os.path.join(
+            os.path.dirname(__file__), "..", "templates", "product_base.html"
+        )
+        with open(product_base, encoding="utf-8") as handle:
+            shell = handle.read()
+        self.assertIn('rel="icon"', shell)
+        self.assertIn("brand/roster-scout-dog-outlined.png", shell)
 
 
 class NativeWorkbookDatabaseOptionalTests(unittest.TestCase):

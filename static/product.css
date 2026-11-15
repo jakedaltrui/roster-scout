@@ -326,8 +326,12 @@ body { background: #f6f6f3; -webkit-font-smoothing: antialiased; }
 }
 
 .product-brand { gap: 4px; font-size: 19px; font-weight: 700; letter-spacing: -.045em; }
-.product-brand__mark { width: 40px; height: 40px; border: 0; border-radius: 0; }
-.product-brand__mark img { width: 40px; height: 40px; }
+.product-brand__mark { width: 40px; height: 40px; border: 0; border-radius: 0; transition: transform .38s var(--motion-emphasized); }
+.product-brand__mark img { width: 40px; height: 40px; transition: transform .38s var(--motion-emphasized); }
+.product-brand > span:last-child { transition: transform .3s var(--motion-emphasized), letter-spacing .3s var(--motion-emphasized); }
+.product-brand:hover .product-brand__mark { transform: translateY(-1px) rotate(-3deg); }
+.product-brand:hover .product-brand__mark img { transform: scale(1.045); }
+.product-brand:hover > span:last-child { letter-spacing: -.035em; transform: translateX(2px); }
 .product-dashboard-link,
 .product-sign-in { padding: 0 12px; border-radius: 999px; color: #31332f; font-size: 11px; }
 .product-sign-in { gap: 7px; padding-left: 7px; }
@@ -652,6 +656,12 @@ form[aria-busy="true"] .button[disabled]::after {
   .button:hover,
   .division-button:hover,
   .team-option:hover {
+    transform: none !important;
+  }
+
+  .product-brand:hover .product-brand__mark,
+  .product-brand:hover .product-brand__mark img,
+  .product-brand:hover > span:last-child {
     transform: none !important;
   }
 }

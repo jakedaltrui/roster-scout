@@ -1336,6 +1336,10 @@ class Phase1ReleaseDiffHygieneTests(unittest.TestCase):
 
 
 class Phase1ReleaseValidatorContractTests(unittest.TestCase):
+    def test_ci_fetches_the_audited_release_history(self):
+        workflow = (PROJECT_ROOT / ".github" / "workflows" / "ci.yml").read_text()
+        self.assertEqual(workflow.count("fetch-depth: 0"), 2)
+
     def test_manifest_names_every_plan_14_through_21_regression_class(self):
         from scripts.validate_phase1_release import GAP_REGRESSION_TESTS
 
