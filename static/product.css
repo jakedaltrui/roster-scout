@@ -175,6 +175,7 @@ a { color: inherit; }
 .account-menu-action {
   display: flex;
   align-items: center;
+  justify-content: center;
   width: 100%;
   min-height: 44px;
   gap: 10px;
@@ -184,7 +185,7 @@ a { color: inherit; }
   color: var(--ink);
   background: transparent;
   font: 650 12px/1.4 "DM Sans", system-ui, sans-serif;
-  text-align: left;
+  text-align: center;
   cursor: pointer;
   transition: color var(--motion-control), background-color var(--motion-control), border-color var(--motion-control), transform var(--motion-control) var(--motion-standard);
 }
