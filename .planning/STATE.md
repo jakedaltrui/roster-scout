@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
-status: Corrective release gate passed; production unchanged
-stopped_at: Phase 3 context gathered
-last_updated: "2026-11-16T03:49:47.187Z"
-last_activity: 2026-11-13
+status: executing
+stopped_at: Completed 03-01-PLAN.md
+last_updated: "2026-11-16T05:52:58.032Z"
+last_activity: 2026-11-16
 progress:
   total_phases: 6
   completed_phases: 3
-  total_plans: 61
-  completed_plans: 61
+  total_plans: 70
+  completed_plans: 62
   percent: 50
 ---
 
@@ -21,16 +21,16 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-11-13)
 
 **Core value:** A baseball staff can reliably turn fragmented opponent data into a trustworthy, reusable scouting report with interactive analysis and a portable Excel download.
-**Current focus:** Phase 02.1 complete; awaiting direction before Phase 3 or deployment
+**Current focus:** Phase 03 — detailed-ncaa-intelligence
 
 ## Current Position
 
-Phase: 02.1 (restore-public-homepage-and-school-domain-sign-in-flow) — COMPLETE
-Plan: 4 of 4
-Status: Corrective release gate passed; production unchanged
-Last activity: 2026-11-13
+Phase: 03 (detailed-ncaa-intelligence) — EXECUTING
+Plan: 2 of 9
+Status: Ready to execute
+Last activity: 2026-11-16
 
-Progress: [██████████] 100%
+Progress: [█████████░] 89%
 
 ## Performance Metrics
 
@@ -239,6 +239,10 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 02]: Phase 2 deterministic completion reports code_verified independently from production_auth_verified; production launch stays blocked without reviewed live WorkOS evidence.
 - [Phase 02]: Phase 2 committed diff hygiene audits from the parent of the first Phase 2 implementation commit.
 - [Phase 02]: The Phase 2 release gate preserves deployment topology and never provisions, deploys, or contacts production identity resources.
+- [Phase 03]: Preserve legacy AVG/ERA publication beside the ncaa-detailed-1.0 metric stream.
+- [Phase 03]: Require one verified exact definition/season/division NCAA constant set before wOBA or FIP can be available.
+- [Phase 03]: Keep constant methodologies global while metric values remain tenant-scoped to snapshots.
+- [Phase 03]: Serialize constant references so verified methodologies become immutable once used.
 
 ### Pending Todos
 
@@ -294,9 +298,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 02 P16 | 30min | 2 tasks | 7 files |
 | Phase 02 P10 | 11 min | 2 tasks | 5 files |
 | Phase 02 P11 | 29min | 2 tasks | 8 files |
+| Phase 03 P01 | 45min | 3 tasks | 10 files |
 
 ## Session Continuity
 
-Last session: 2026-11-16T03:49:47.169Z
-Stopped at: Phase 3 context gathered
-Resume file: .planning/phases/03-detailed-ncaa-intelligence/03-CONTEXT.md
+Last session: 2026-11-16T05:52:58.021Z
+Stopped at: Completed 03-01-PLAN.md
+Resume file: None

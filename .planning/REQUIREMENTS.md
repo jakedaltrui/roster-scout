@@ -52,13 +52,13 @@
 
 ### Detailed Statistics
 
-- [ ] **STAT-01**: Hitter season facts include the available NCAA counting statistics needed to report PA, AVG, OBP, SLG, OPS, ISO, BB%, K%, BABIP, singles, and total bases.
-- [ ] **STAT-02**: Pitcher season facts include the available NCAA counting statistics needed to report ERA, WHIP, K/9, BB/9, H/9, HR/9, K/BB, K%, BB%, BABIP allowed, and FIP.
+- [x] **STAT-01**: Hitter season facts include the available NCAA counting statistics needed to report PA, AVG, OBP, SLG, OPS, ISO, BB%, K%, BABIP, singles, and total bases.
+- [x] **STAT-02**: Pitcher season facts include the available NCAA counting statistics needed to report ERA, WHIP, K/9, BB/9, H/9, HR/9, K/BB, K%, BB%, BABIP allowed, and FIP.
 - [ ] **STAT-03**: Fielding facts include games/starts when available, PO, A, E, total chances, double plays, fielding percentage, and available catcher PB/SBA/CSB values.
-- [ ] **STAT-04**: Every derived metric handles a zero or unavailable denominator explicitly without emitting infinity or a misleading zero.
-- [ ] **STAT-05**: wOBA uses a versioned NCAA season/division weight set and is unavailable with an explanatory reason when no verified weight set exists.
-- [ ] **STAT-06**: FIP uses a versioned NCAA season/division constant and is unavailable with an explanatory reason when no verified constant exists.
-- [ ] **STAT-07**: Metric definitions and formulas are available in report methodology metadata.
+- [x] **STAT-04**: Every derived metric handles a zero or unavailable denominator explicitly without emitting infinity or a misleading zero.
+- [x] **STAT-05**: wOBA uses a versioned NCAA season/division weight set and is unavailable with an explanatory reason when no verified weight set exists.
+- [x] **STAT-06**: FIP uses a versioned NCAA season/division constant and is unavailable with an explanatory reason when no verified constant exists.
+- [x] **STAT-07**: Metric definitions and formulas are available in report methodology metadata.
 - [ ] **STAT-08**: Representative D1, D2, and D3 fixtures produce the same metric schema and classification behavior.
 
 ### Split Statistics
