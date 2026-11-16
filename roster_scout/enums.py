@@ -2,7 +2,15 @@
 
 SNAPSHOT_STATUSES = ("draft", "ready", "partial", "failed")
 PUBLISHED_SNAPSHOT_STATUSES = ("ready", "partial")
-SECTION_STATUSES = ("pending", "complete", "unavailable", "failed")
+SECTION_STATUSES = ("pending", "complete", "partial", "unavailable", "failed")
+METRIC_STATUSES = (
+    "available",
+    "missing_input",
+    "undefined_denominator",
+    "unavailable_source",
+    "unavailable_constant",
+    "incompatible_input",
+)
 IDENTITY_STATUSES = ("authoritative", "fallback", "unresolved", "conflict")
 JOB_STATUSES = (
     "queued",

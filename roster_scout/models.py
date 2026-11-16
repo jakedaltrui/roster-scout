@@ -28,6 +28,7 @@ from .enums import (
     ARTIFACT_TYPES,
     IDENTITY_STATUSES,
     JOB_STATUSES,
+    METRIC_STATUSES,
     SECTION_STATUSES,
     SNAPSHOT_STATUSES,
 )
@@ -769,10 +770,24 @@ class BattingFact(UUIDPrimaryKey, Base):
     snapshot_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     player_team_season_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     source_record_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    games: Mapped[int | None] = mapped_column(Integer)
+    games_started: Mapped[int | None] = mapped_column(Integer)
+    plate_appearances: Mapped[int | None] = mapped_column(Integer)
     at_bats: Mapped[int | None] = mapped_column(Integer)
+    runs: Mapped[int | None] = mapped_column(Integer)
     hits: Mapped[int | None] = mapped_column(Integer)
+    doubles: Mapped[int | None] = mapped_column(Integer)
+    triples: Mapped[int | None] = mapped_column(Integer)
+    home_runs: Mapped[int | None] = mapped_column(Integer)
+    runs_batted_in: Mapped[int | None] = mapped_column(Integer)
     walks: Mapped[int | None] = mapped_column(Integer)
+    hit_by_pitch: Mapped[int | None] = mapped_column(Integer)
     strikeouts: Mapped[int | None] = mapped_column(Integer)
+    sacrifice_flies: Mapped[int | None] = mapped_column(Integer)
+    sacrifice_hits: Mapped[int | None] = mapped_column(Integer)
+    stolen_bases: Mapped[int | None] = mapped_column(Integer)
+    caught_stealing: Mapped[int | None] = mapped_column(Integer)
+    total_bases: Mapped[int | None] = mapped_column(Integer)
     __table_args__ = (
         ForeignKeyConstraint(
             ["snapshot_id", "organization_id"], ["report_snapshots.id", "report_snapshots.organization_id"],
@@ -805,6 +820,28 @@ class BattingFact(UUIDPrimaryKey, Base):
             "strikeouts IS NULL OR strikeouts >= 0",
             name="ck_batting_facts_strikeouts_nonnegative",
         ),
+        *(
+            CheckConstraint(
+                f"{column} IS NULL OR {column} >= 0",
+                name=f"ck_batting_facts_{column}_nonnegative",
+            )
+            for column in (
+                "games",
+                "games_started",
+                "plate_appearances",
+                "runs",
+                "doubles",
+                "triples",
+                "home_runs",
+                "runs_batted_in",
+                "hit_by_pitch",
+                "sacrifice_flies",
+                "sacrifice_hits",
+                "stolen_bases",
+                "caught_stealing",
+                "total_bases",
+            )
+        ),
     )
 
 
@@ -814,11 +851,19 @@ class PitchingFact(UUIDPrimaryKey, Base):
     snapshot_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     player_team_season_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     source_record_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    appearances: Mapped[int | None] = mapped_column(Integer)
+    games_started: Mapped[int | None] = mapped_column(Integer)
     innings_outs: Mapped[int | None] = mapped_column(Integer)
     hits_allowed: Mapped[int | None] = mapped_column(Integer)
+    runs_allowed: Mapped[int | None] = mapped_column(Integer)
     earned_runs: Mapped[int | None] = mapped_column(Integer)
     walks: Mapped[int | None] = mapped_column(Integer)
     strikeouts: Mapped[int | None] = mapped_column(Integer)
+    home_runs_allowed: Mapped[int | None] = mapped_column(Integer)
+    hit_batters: Mapped[int | None] = mapped_column(Integer)
+    batters_faced: Mapped[int | None] = mapped_column(Integer)
+    opponent_at_bats: Mapped[int | None] = mapped_column(Integer)
+    opponent_sacrifice_flies: Mapped[int | None] = mapped_column(Integer)
     __table_args__ = (
         ForeignKeyConstraint(
             ["snapshot_id", "organization_id"], ["report_snapshots.id", "report_snapshots.organization_id"],
@@ -858,6 +903,22 @@ class PitchingFact(UUIDPrimaryKey, Base):
             "strikeouts IS NULL OR strikeouts >= 0",
             name="ck_pitching_facts_strikeouts_nonnegative",
         ),
+        *(
+            CheckConstraint(
+                f"{column} IS NULL OR {column} >= 0",
+                name=f"ck_pitching_facts_{column}_nonnegative",
+            )
+            for column in (
+                "appearances",
+                "games_started",
+                "runs_allowed",
+                "home_runs_allowed",
+                "hit_batters",
+                "batters_faced",
+                "opponent_at_bats",
+                "opponent_sacrifice_flies",
+            )
+        ),
     )
 
 
@@ -870,6 +931,81 @@ class MetricDefinition(UUIDPrimaryKey, Timestamped, Base):
     __table_args__ = (UniqueConstraint("code", "version", name="uq_metric_definitions_code_version"),)
 
 
+class MetricConstantSet(UUIDPrimaryKey, Timestamped, Base):
+    __tablename__ = "metric_constant_sets"
+    metric_definition_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(
+            "metric_definitions.id",
+            name="fk_metric_constant_sets_definition",
+        ),
+        nullable=False,
+    )
+    metric_code: Mapped[str] = mapped_column(String(16), nullable=False)
+    version: Mapped[str] = mapped_column(String(100), nullable=False)
+    season_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("seasons.id", name="fk_metric_constant_sets_season"),
+        nullable=False,
+    )
+    division: Mapped[str] = mapped_column(String(16), nullable=False)
+    constant_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    values_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    methodology: Mapped[str] = mapped_column(Text, nullable=False)
+    source_url: Mapped[str] = mapped_column(Text, nullable=False)
+    source_identifier: Mapped[str] = mapped_column(String(200), nullable=False)
+    collected_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=False)
+    payload_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    verification_status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="pending", server_default="pending"
+    )
+    verified_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
+    verified_by_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("accounts.id", name="fk_metric_constant_sets_verifier")
+    )
+    __table_args__ = (
+        UniqueConstraint(
+            "metric_definition_id",
+            "season_id",
+            "division",
+            "version",
+            name="uq_metric_constant_sets_definition_season_division_version",
+        ),
+        UniqueConstraint(
+            "id",
+            "metric_definition_id",
+            name="uq_metric_constant_sets_id_definition",
+        ),
+        CheckConstraint(
+            _allowed("metric_code", ("woba", "fip")),
+            name="ck_metric_constant_sets_metric_code",
+        ),
+        CheckConstraint(
+            _allowed("verification_status", ("pending", "verified", "rejected")),
+            name="ck_metric_constant_sets_verification_status",
+        ),
+        CheckConstraint(
+            "char_length(payload_sha256) = 64",
+            name="ck_metric_constant_sets_sha256_length",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(values_json) = 'object'",
+            name="ck_metric_constant_sets_values_object",
+        ),
+        CheckConstraint(
+            "(verification_status = 'verified' AND verified_at IS NOT NULL) OR "
+            "(verification_status <> 'verified' AND verified_at IS NULL "
+            "AND verified_by_account_id IS NULL)",
+            name="ck_metric_constant_sets_verified_fields",
+        ),
+        {
+            "info": {
+                "database_triggers": (
+                    "trg_metric_constant_sets_append_only",
+                )
+            }
+        },
+    )
+
+
 class MetricValue(UUIDPrimaryKey, Base):
     __tablename__ = "metric_values"
     organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
@@ -878,6 +1014,18 @@ class MetricValue(UUIDPrimaryKey, Base):
     player_team_season_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     value: Mapped[object | None] = mapped_column(Numeric(20, 8))
     unavailable_reason: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="available", server_default="available"
+    )
+    reason_code: Mapped[str | None] = mapped_column(String(100))
+    inputs_json: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    sample_json: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    scope: Mapped[str | None] = mapped_column(String(64))
+    constant_set_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     __table_args__ = (
         ForeignKeyConstraint(
             ["snapshot_id", "organization_id"], ["report_snapshots.id", "report_snapshots.organization_id"],
@@ -888,7 +1036,39 @@ class MetricValue(UUIDPrimaryKey, Base):
             ["player_team_seasons.id", "player_team_seasons.snapshot_id", "player_team_seasons.organization_id"],
             name="fk_metric_values_player_snapshot_organization",
         ),
-        CheckConstraint("value IS NOT NULL OR unavailable_reason IS NOT NULL", name="ck_metric_values_value_or_reason"),
+        ForeignKeyConstraint(
+            ["constant_set_id", "metric_definition_id"],
+            ["metric_constant_sets.id", "metric_constant_sets.metric_definition_id"],
+            name="fk_metric_values_constant_definition",
+        ),
+        CheckConstraint(
+            _allowed("status", METRIC_STATUSES),
+            name="ck_metric_values_status",
+        ),
+        CheckConstraint(
+            "(status = 'available' AND value IS NOT NULL AND reason_code IS NULL) OR "
+            "(status <> 'available' AND value IS NULL AND reason_code IS NOT NULL) OR "
+            "(value IS NULL AND unavailable_reason IS NOT NULL "
+            "AND reason_code IS NULL)",
+            name="ck_metric_values_value_status_reason",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(inputs_json) = 'object'",
+            name="ck_metric_values_inputs_object",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(sample_json) = 'object'",
+            name="ck_metric_values_sample_object",
+        ),
+        CheckConstraint(
+            "scope IS NULL OR char_length(scope) > 0",
+            name="ck_metric_values_scope_nonempty",
+        ),
+        CheckConstraint(
+            "(status = 'unavailable_constant' AND constant_set_id IS NULL) OR "
+            "status <> 'unavailable_constant'",
+            name="ck_metric_values_unavailable_constant_reference",
+        ),
     )
 
 

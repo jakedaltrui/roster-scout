@@ -331,7 +331,7 @@ class MethodologyPersistenceTests(unittest.TestCase):
             / "versions"
             / "0025_detailed_ncaa_intelligence.py"
         ).read_text(encoding="utf-8")
-        self.assertNotIn("INSERT INTO metric_constant_sets", migration.upper())
+        self.assertNotIn("INSERT INTO METRIC_CONSTANT_SETS", migration.upper())
 
     def test_database_preflight_rejects_unsafe_targets_without_disclosure(self):
         script = PROJECT_ROOT / "scripts" / "prepare_phase3_test_database.py"

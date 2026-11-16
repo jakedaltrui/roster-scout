@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 import hashlib
 import re
 
 from roster_scraper import NcaaCollection, NcaaSourceRow
+
+from .metrics import MetricResult, calculate_metric
 
 
 METRIC_DEFINITION_VERSION = "ncaa-1.0"
@@ -54,6 +56,7 @@ class CanonicalFact:
     identity_key: str
     source_record: tuple[str, int]
     values: dict
+    detailed_values: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -63,6 +66,11 @@ class MetricLineage:
     value: Decimal | None
     provenance: str
     definition_version: str = METRIC_DEFINITION_VERSION
+    status: str = "available"
+    reason_code: str | None = None
+    inputs: dict = field(default_factory=dict)
+    sample: dict = field(default_factory=dict)
+    constant_set_version: str | None = None
 
 
 @dataclass(frozen=True)
@@ -71,6 +79,7 @@ class CanonicalCollection:
     players: tuple[CanonicalPlayer, ...]
     facts: tuple[CanonicalFact, ...]
     metrics: tuple[MetricLineage, ...]
+    detailed_metrics: tuple[MetricLineage, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)
@@ -287,6 +296,25 @@ def _metric(identity_key: str, row: NcaaSourceRow, code: str, aliases, calculate
     return MetricLineage(identity_key, code, calculated(), "calculated")
 
 
+def _detailed_metric_lineage(
+    identity_key: str,
+    code: str,
+    result: MetricResult,
+) -> MetricLineage:
+    return MetricLineage(
+        identity_key=identity_key,
+        code=code,
+        value=result.value,
+        provenance="calculated" if result.status == "available" else "unavailable",
+        definition_version=result.definition_version,
+        status=result.status,
+        reason_code=result.reason_code,
+        inputs=result.inputs,
+        sample=result.sample,
+        constant_set_version=result.constant_set_version,
+    )
+
+
 def canonicalize_ncaa_collection(collection: NcaaCollection) -> CanonicalCollection:
     source_records = []
     category_ids = {
@@ -314,6 +342,7 @@ def canonicalize_ncaa_collection(collection: NcaaCollection) -> CanonicalCollect
     players = []
     facts = []
     metrics = []
+    detailed_metrics = []
     for group in _identity_groups(collection):
         rows = group.rows
         source_player_id = next((row.source_player_id for row in rows if row.source_player_id), None)
@@ -332,12 +361,38 @@ def canonicalize_ncaa_collection(collection: NcaaCollection) -> CanonicalCollect
             pitching_source=(pitching.section, pitching.row_ordinal) if pitching else None,
         ))
         if batting:
-            facts.append(CanonicalFact("batting", identity_key, (batting.section, batting.row_ordinal), {
+            batting_values = {
+                "games": _integer(batting, "G", "GP"),
+                "games_started": _integer(batting, "GS"),
+                "plate_appearances": _integer(batting, "PA"),
                 "at_bats": _integer(batting, "AB"),
+                "runs": _integer(batting, "R"),
                 "hits": _integer(batting, "H"),
+                "doubles": _integer(batting, "2B"),
+                "triples": _integer(batting, "3B"),
+                "home_runs": _integer(batting, "HR"),
+                "runs_batted_in": _integer(batting, "RBI"),
                 "walks": _integer(batting, "BB"),
+                "hit_by_pitch": _integer(batting, "HBP"),
                 "strikeouts": _integer(batting, "K", "SO"),
-            }))
+                "sacrifice_flies": _integer(batting, "SF"),
+                "sacrifice_hits": _integer(batting, "SH", "SAC"),
+                "stolen_bases": _integer(batting, "SB"),
+                "caught_stealing": _integer(batting, "CS"),
+                "total_bases": _integer(batting, "TB"),
+            }
+            facts.append(CanonicalFact(
+                "batting",
+                identity_key,
+                (batting.section, batting.row_ordinal),
+                {
+                    "at_bats": batting_values["at_bats"],
+                    "hits": batting_values["hits"],
+                    "walks": batting_values["walks"],
+                    "strikeouts": batting_values["strikeouts"],
+                },
+                batting_values,
+            ))
 
             def calculated_avg():
                 hits = _integer(batting, "H")
@@ -345,22 +400,97 @@ def canonicalize_ncaa_collection(collection: NcaaCollection) -> CanonicalCollect
                 return Decimal(hits) / Decimal(at_bats) if hits is not None and at_bats else None
 
             metrics.append(_metric(identity_key, batting, "AVG", ("BA", "AVG"), calculated_avg))
+            for code in (
+                "pa",
+                "avg",
+                "obp",
+                "slg",
+                "ops",
+                "iso",
+                "batting_bb_pct",
+                "batting_k_pct",
+                "babip",
+                "singles",
+                "total_bases",
+                "woba",
+            ):
+                detailed_metrics.append(_detailed_metric_lineage(
+                    identity_key,
+                    code,
+                    calculate_metric(
+                        code,
+                        batting_values,
+                        season_id=collection.season.season_id,
+                        division=collection.team.division,
+                    ),
+                ))
         if pitching:
-            facts.append(CanonicalFact("pitching", identity_key, (pitching.section, pitching.row_ordinal), {
+            pitching_values = {
+                "appearances": _integer(pitching, "APP", "G"),
+                "games_started": _integer(pitching, "GS"),
                 "innings_outs": innings_to_outs(_raw(pitching, "IP")),
                 "innings_raw": _raw(pitching, "IP"),
                 "hits_allowed": _integer(pitching, "H"),
+                "runs_allowed": _integer(pitching, "R"),
                 "earned_runs": _integer(pitching, "ER"),
                 "walks": _integer(pitching, "BB"),
                 "strikeouts": _integer(pitching, "SO", "K"),
-            }))
+                "home_runs_allowed": _integer(pitching, "HR"),
+                "hit_batters": _integer(pitching, "HBP"),
+                "batters_faced": _integer(pitching, "BF"),
+                "opponent_at_bats": _integer(pitching, "AB", "OAB"),
+                "opponent_sacrifice_flies": _integer(pitching, "SF", "OSF"),
+            }
+            facts.append(CanonicalFact(
+                "pitching",
+                identity_key,
+                (pitching.section, pitching.row_ordinal),
+                {
+                    "innings_outs": pitching_values["innings_outs"],
+                    "innings_raw": pitching_values["innings_raw"],
+                    "hits_allowed": pitching_values["hits_allowed"],
+                    "earned_runs": pitching_values["earned_runs"],
+                    "walks": pitching_values["walks"],
+                    "strikeouts": pitching_values["strikeouts"],
+                },
+                pitching_values,
+            ))
             metrics.append(_metric(identity_key, pitching, "ERA", ("ERA",)))
+            pitching_metric_values = {
+                key: value
+                for key, value in pitching_values.items()
+                if key != "innings_raw"
+            }
+            for code in (
+                "era",
+                "whip",
+                "k_per_9",
+                "bb_per_9",
+                "h_per_9",
+                "hr_per_9",
+                "k_bb",
+                "pitching_k_pct",
+                "pitching_bb_pct",
+                "babip_allowed",
+                "fip",
+            ):
+                detailed_metrics.append(_detailed_metric_lineage(
+                    identity_key,
+                    code,
+                    calculate_metric(
+                        code,
+                        pitching_metric_values,
+                        season_id=collection.season.season_id,
+                        division=collection.team.division,
+                    ),
+                ))
 
     return CanonicalCollection(
         source_records=tuple(source_records),
         players=tuple(players),
         facts=tuple(facts),
         metrics=tuple(metrics),
+        detailed_metrics=tuple(detailed_metrics),
     )
 
 
