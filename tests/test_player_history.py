@@ -284,6 +284,87 @@ class HistoryCompletenessTests(unittest.TestCase):
 
 
 class CollectionBudgetTests(unittest.TestCase):
+    def test_shared_phase3_request_ledger_contract(self):
+        """Named RED sentinel: imports/preflight succeed before one missing contract fails."""
+        from roster_scout import models
+
+        self.assertTrue(
+            hasattr(models, "RequestLedger"),
+            "shared Phase 3 request ledger is not implemented",
+        )
+
+    def test_collection_limits_have_bounded_defaults_and_deterministic_overrides(self):
+        from roster_scout.jobs import load_phase3_collection_limits
+
+        defaults = load_phase3_collection_limits({})
+        self.assertEqual(defaults.navigation_concurrency, 2)
+        self.assertEqual(defaults.live_page_budget, 150)
+        self.assertEqual(defaults.navigation_timeout_seconds, 45)
+        self.assertEqual(defaults.wall_time_seconds, 12 * 60)
+
+        overridden = load_phase3_collection_limits({
+            "PHASE3_NAVIGATION_CONCURRENCY": "1",
+            "PHASE3_LIVE_PAGE_BUDGET": "12",
+            "PHASE3_NAVIGATION_TIMEOUT_SECONDS": "8",
+            "PHASE3_BUILD_WALL_TIME_SECONDS": "90",
+        })
+        self.assertEqual(
+            (
+                overridden.navigation_concurrency,
+                overridden.live_page_budget,
+                overridden.navigation_timeout_seconds,
+                overridden.wall_time_seconds,
+            ),
+            (1, 12, 8, 90),
+        )
+
+        invalid = (
+            ("PHASE3_NAVIGATION_CONCURRENCY", "0"),
+            ("PHASE3_NAVIGATION_CONCURRENCY", "3"),
+            ("PHASE3_LIVE_PAGE_BUDGET", "0"),
+            ("PHASE3_LIVE_PAGE_BUDGET", "501"),
+            ("PHASE3_NAVIGATION_TIMEOUT_SECONDS", "4"),
+            ("PHASE3_NAVIGATION_TIMEOUT_SECONDS", "121"),
+            ("PHASE3_BUILD_WALL_TIME_SECONDS", "59"),
+            ("PHASE3_BUILD_WALL_TIME_SECONDS", "1801"),
+            ("PHASE3_LIVE_PAGE_BUDGET", "email@example.edu"),
+        )
+        for key, value in invalid:
+            with self.subTest(key=key, value=value):
+                with self.assertRaises(ValueError):
+                    load_phase3_collection_limits({key: value})
+
+    def test_one_shared_budget_accounts_for_planned_cache_and_live_outcomes(self):
+        from roster_scout.jobs import CollectionBudget, load_phase3_collection_limits
+
+        budget = CollectionBudget(load_phase3_collection_limits({
+            "PHASE3_LIVE_PAGE_BUDGET": "2",
+        }))
+        first = budget.plan("fielding", "ncaa:fielding:123")
+        second = budget.plan("player_history", "ncaa:player:456:batting")
+        third = budget.plan("game_logs", "ncaa:player:456:pitching")
+        budget.settle(first, outcome="cache_hit")
+        budget.settle(second, outcome="live_complete")
+        budget.settle(third, outcome="live_complete")
+
+        self.assertEqual(budget.cache_count, 1)
+        self.assertEqual(budget.live_count, 2)
+        self.assertEqual(budget.remaining, 0)
+        with self.assertRaisesRegex(ValueError, "request_budget_exhausted"):
+            budget.settle(
+                budget.plan("splits", "ncaa:split:789"),
+                outcome="live_complete",
+            )
+
+        for unsafe in (
+            "https://stats.ncaa.org/path?token=secret",
+            "player@example.edu",
+            "authorization: bearer secret",
+        ):
+            with self.subTest(unsafe=unsafe):
+                with self.assertRaises(ValueError):
+                    budget.plan("fielding", unsafe)
+
     def test_one_request_per_stable_player_type_and_no_per_season_refetch(self):
         from roster_scraper import plan_ncaa_player_detail_requests
 
