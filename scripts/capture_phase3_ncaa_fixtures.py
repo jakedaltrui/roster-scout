@@ -31,6 +31,7 @@ if str(PROJECT_ROOT) not in sys.path:
 FIXTURE_ROOT = (PROJECT_ROOT / "tests" / "fixtures" / "ncaa_detail").resolve()
 NCAA_ORIGIN = "https://stats.ncaa.org"
 SANITIZER_VERSION = "phase3-ncaa-split-sanitizer-1"
+CONTROL_CONTRACT_VERSION = "ncaa-split-controls-v1"
 PREFLIGHT_FAILURE = "phase3_browserless_unavailable"
 CAPTURE_FAILURE = "phase3_ncaa_capture_unavailable"
 INVALID_FAILURE = "phase3_capture_invalid"
@@ -74,14 +75,23 @@ _LABEL_PATTERNS = {
         r"\bvs\.?\s*(?:rhb|right[- ]handed batters?|right[- ]handed hitters?)\b",
         r"\bversus\s+right[- ]handed (?:batters?|hitters?)\b",
     ),
-    "runners_on": (r"\brunners?\s+on\b", r"\bmen\s+on\b"),
+    "runners_on": (
+        r"\brunners?\s+on\b",
+        r"\bmen\s+on\b",
+        r"\bhits?[- ]ab\s+with\s+runners?\s+o(?:b|n)\b",
+    ),
     "bases_empty": (r"\bbases?\s+empty\b", r"\bno\s+runners?\s+on\b"),
     "bases_loaded": (r"\bbases?\s+loaded\b",),
     "runners_in_scoring_position": (
         r"\brunners?\s+in\s+scoring\s+position\b",
         r"\brisp\b",
+        r"\b(?:h|hits?)[- ]ab\s+scorepos\b",
     ),
-    "two_outs": (r"\b(?:two|2)\s+outs?\b", r"\bwith\s+(?:two|2)\s+outs?\b"),
+    "two_outs": (
+        r"\b(?:two|2)\s+outs?\b",
+        r"\bwith\s+(?:two|2)\s+outs?\b",
+        r"\bw2outs?\b",
+    ),
 }
 
 _SAFE_STATUS = {"candidate", "source_not_published", "source_identifier_not_found"}
@@ -257,6 +267,7 @@ def _render_controls_section(
     stat_type: str,
     source_path: str,
     observations: list[dict],
+    source_stat_category_id: str | None = None,
 ) -> str:
     attrs = {
         "data-division": f"d{division}",
@@ -265,6 +276,10 @@ def _render_controls_section(
         "data-source-path": source_path,
         "data-stat-type": stat_type,
     }
+    if source_stat_category_id is not None:
+        attrs["data-source-stat-category-id"] = _numeric(
+            source_stat_category_id, "source stat category ID"
+        )
     attr_text = " ".join(
         f'{key}="{html_module.escape(value, quote=True)}"'
         for key, value in sorted(attrs.items())
@@ -329,6 +344,7 @@ def build_fixture_manifest(
     season_team_id: str,
     captured_at: str,
     controls_sha256: str,
+    control_sources: list[dict],
     observations: list[dict],
 ) -> dict:
     safe_observations = []
@@ -347,13 +363,40 @@ def build_fixture_manifest(
             "canonical_label": label,
             "identifier": identifier,
             "source_path": _safe_source_path(item["source_path"]),
+            "source_stat_category_id": _numeric(
+                item["source_stat_category_id"], "source stat category ID"
+            ),
             "stat_type": stat_type,
             "status": status,
         })
     if not re.fullmatch(r"[0-9a-f]{64}", controls_sha256):
         raise ValueError("controls checksum is invalid")
+    safe_sources = []
+    seen_types = set()
+    for source in control_sources:
+        stat_type = source.get("stat_type")
+        headers = source.get("normalized_headers")
+        if stat_type not in CANONICAL_LABELS or stat_type in seen_types:
+            raise ValueError("control source type is invalid")
+        if not isinstance(headers, list) or not headers or not all(
+            isinstance(value, str) and value and len(value) <= 40 for value in headers
+        ):
+            raise ValueError("control source headers are invalid")
+        seen_types.add(stat_type)
+        safe_sources.append({
+            "normalized_headers": headers,
+            "source_path": _safe_source_path(source["source_path"]),
+            "source_stat_category_id": _numeric(
+                source["source_stat_category_id"], "source stat category ID"
+            ),
+            "stat_type": stat_type,
+        })
+    if seen_types != set(CANONICAL_LABELS):
+        raise ValueError("control source types are incomplete")
     return {
         "captured_at": captured_at,
+        "control_contract_version": CONTROL_CONTRACT_VERSION,
+        "control_sources": sorted(safe_sources, key=lambda item: item["stat_type"]),
         "controls_sha256": controls_sha256,
         "division": f"d{str(division).lower().removeprefix('d')}",
         "observations": sorted(
@@ -364,6 +407,31 @@ def build_fixture_manifest(
         "season_id": _numeric(season_id, "season ID"),
         "season_team_id": _numeric(season_team_id, "season team ID"),
     }
+
+
+def _normalized_base_headers(raw_html: str, stat_type: str) -> list[str]:
+    import roster_scraper as rs
+
+    if stat_type not in rs.NCAA_CORE_HEADER_SIGNATURES:
+        raise CaptureUnavailable(CAPTURE_FAILURE)
+    soup = BeautifulSoup(raw_html, "html.parser")
+    table = soup.select_one("#stat_grid")
+    if table is None:
+        raise CaptureUnavailable(CAPTURE_FAILURE)
+    header_rows = table.select("thead tr")
+    header_row = header_rows[-1] if header_rows else table.find("tr")
+    if header_row is None:
+        raise CaptureUnavailable(CAPTURE_FAILURE)
+    headers = [
+        re.sub(r"\s+", " ", cell.get_text(" ", strip=True)).casefold()
+        for cell in header_row.find_all(["th", "td"], recursive=False)
+    ]
+    required = rs.NCAA_CORE_HEADER_SIGNATURES[stat_type]["required_headers"]
+    if any(headers.count(value) != 1 for value in required):
+        raise CaptureUnavailable(CAPTURE_FAILURE)
+    if any(not value or len(value) > 40 for value in headers):
+        raise CaptureUnavailable(CAPTURE_FAILURE)
+    return headers
 
 
 def _season_categories(season_id: str) -> dict[str, str]:
@@ -484,6 +552,7 @@ def _capture_control_bundle(request: CaptureRequest) -> dict:
     captured_at = datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
     sections = []
     observations = []
+    control_sources = []
     source_path = f"/teams/{request.season_team_id}/season_to_date_stats"
     for stat_type in ("batting", "pitching"):
         found = discover_split_controls(
@@ -493,7 +562,17 @@ def _capture_control_bundle(request: CaptureRequest) -> dict:
             stat_type=stat_type,
         )
         for item in found:
-            observations.append({**item, "source_path": source_path})
+            observations.append({
+                **item,
+                "source_path": source_path,
+                "source_stat_category_id": categories[stat_type],
+            })
+        control_sources.append({
+            "normalized_headers": _normalized_base_headers(pages[stat_type], stat_type),
+            "source_path": source_path,
+            "source_stat_category_id": categories[stat_type],
+            "stat_type": stat_type,
+        })
         sections.append(_render_controls_section(
             season_id=request.season_id,
             season_team_id=request.season_team_id,
@@ -501,6 +580,7 @@ def _capture_control_bundle(request: CaptureRequest) -> dict:
             stat_type=stat_type,
             source_path=source_path,
             observations=found,
+            source_stat_category_id=categories[stat_type],
         ))
     controls = (
         f'<split-controls data-captured-at="{captured_at}" '
@@ -517,6 +597,7 @@ def _capture_control_bundle(request: CaptureRequest) -> dict:
         season_team_id=request.season_team_id,
         captured_at=captured_at,
         controls_sha256=checksum,
+        control_sources=control_sources,
         observations=observations,
     )
     manifest_text = json.dumps(manifest, indent=2, sort_keys=True) + "\n"

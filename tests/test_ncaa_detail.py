@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from decimal import Decimal
+import hashlib
 import importlib
 import importlib.util
 import json
@@ -341,12 +342,27 @@ class FixtureCaptureSafetyTests(unittest.TestCase):
             season_team_id="614606",
             captured_at="2026-11-16T00:00:00Z",
             controls_sha256="a" * 64,
+            control_sources=[
+                {
+                    "normalized_headers": ["player", "ab", "h"],
+                    "source_path": "/teams/614606/season_to_date_stats",
+                    "source_stat_category_id": "15867",
+                    "stat_type": "batting",
+                },
+                {
+                    "normalized_headers": ["player", "ip", "era"],
+                    "source_path": "/teams/614606/season_to_date_stats",
+                    "source_stat_category_id": "15868",
+                    "stat_type": "pitching",
+                },
+            ],
             observations=[{
                 "stat_type": "batting",
                 "canonical_label": "vs_lhp",
                 "status": "candidate",
                 "identifier": "991",
                 "source_path": "/teams/614606/season_to_date_stats",
+                "source_stat_category_id": "15867",
                 "raw_html": "must-not-survive",
                 "token": "must-not-survive",
             }],
@@ -357,13 +373,17 @@ class FixtureCaptureSafetyTests(unittest.TestCase):
         self.assertEqual(
             set(manifest),
             {
-                "captured_at", "controls_sha256", "division", "observations",
-                "sanitizer_version", "season_id", "season_team_id",
+                "captured_at", "control_contract_version", "control_sources",
+                "controls_sha256", "division", "observations", "sanitizer_version",
+                "season_id", "season_team_id",
             },
         )
         self.assertEqual(
             set(manifest["observations"][0]),
-            {"canonical_label", "identifier", "source_path", "stat_type", "status"},
+            {
+                "canonical_label", "identifier", "source_path",
+                "source_stat_category_id", "stat_type", "status",
+            },
         )
 
     def test_preflight_without_configuration_has_one_fixed_safe_failure(self):
@@ -383,6 +403,157 @@ class FixtureCaptureSafetyTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(result.stdout, "")
         self.assertEqual(result.stderr.strip(), "phase3_browserless_unavailable")
+
+
+class SplitDiscoveryTests(unittest.TestCase):
+    """Live controls remain candidates until their exact source contract matches."""
+
+    REPRESENTATIVES = {
+        "d1": "614606",
+        "d2": "615087",
+        "d3": "615349",
+    }
+    REQUIRED_HEADERS = {
+        "batting": {"player", "ab", "h"},
+        "pitching": {"player", "ip", "era"},
+    }
+
+    @staticmethod
+    def _load(division: str):
+        fixture_dir = FIXTURES / division
+        controls = (fixture_dir / "split_controls.html").read_text(encoding="utf-8")
+        manifest = json.loads(
+            (fixture_dir / "fixture_manifest.json").read_text(encoding="utf-8")
+        )
+        return manifest, controls
+
+    def _validate_contract(self, manifest: dict, controls: str, division: str) -> None:
+        api = FixtureCaptureSafetyTests.capture_api()
+        self.assertEqual(manifest["control_contract_version"], api.CONTROL_CONTRACT_VERSION)
+        self.assertEqual(manifest["sanitizer_version"], api.SANITIZER_VERSION)
+        self.assertEqual(manifest["division"], division)
+        self.assertEqual(manifest["season_id"], "17040")
+        self.assertEqual(manifest["season_team_id"], self.REPRESENTATIVES[division])
+        self.assertRegex(manifest["captured_at"], r"^2026-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
+        self.assertEqual(
+            manifest["controls_sha256"],
+            hashlib.sha256(controls.encode("utf-8")).hexdigest(),
+        )
+
+        sources = {item["stat_type"]: item for item in manifest["control_sources"]}
+        self.assertEqual(set(sources), set(self.REQUIRED_HEADERS))
+        for stat_type, required in self.REQUIRED_HEADERS.items():
+            source = sources[stat_type]
+            self.assertTrue(source["source_stat_category_id"].isdigit())
+            self.assertEqual(
+                source["source_path"],
+                f"/teams/{self.REPRESENTATIVES[division]}/season_to_date_stats",
+            )
+            headers = source["normalized_headers"]
+            self.assertTrue(required <= set(headers))
+            self.assertTrue(all(headers.count(value) == 1 for value in required))
+
+        expected = {
+            (stat_type, label)
+            for stat_type, labels in api.CANONICAL_LABELS.items()
+            for label in labels
+        }
+        observations = {
+            (item["stat_type"], item["canonical_label"]): item
+            for item in manifest["observations"]
+        }
+        self.assertEqual(set(observations), expected)
+        self.assertEqual(len(manifest["observations"]), len(expected))
+
+        soup = __import__("bs4", fromlist=["BeautifulSoup"]).BeautifulSoup(
+            controls, "html.parser"
+        )
+        root = soup.find("split-controls")
+        self.assertIsNotNone(root)
+        self.assertEqual(root.get("data-sanitizer-version"), api.SANITIZER_VERSION)
+        sections = {item.get("data-stat-type"): item for item in root.find_all("section")}
+        self.assertEqual(set(sections), set(self.REQUIRED_HEADERS))
+        for stat_type, section in sections.items():
+            self.assertEqual(section.get("data-season-id"), "17040")
+            self.assertEqual(section.get("data-season-team-id"), self.REPRESENTATIVES[division])
+            self.assertEqual(
+                section.get("data-source-stat-category-id"),
+                sources[stat_type]["source_stat_category_id"],
+            )
+            controls_by_label = {
+                item.get("data-canonical-label"): item
+                for item in section.find_all("control", recursive=False)
+            }
+            self.assertEqual(set(controls_by_label), set(api.CANONICAL_LABELS[stat_type]))
+            for label, control in controls_by_label.items():
+                observed = observations[(stat_type, label)]
+                self.assertEqual(control.get("data-status"), observed["status"])
+                self.assertEqual(control.get("data-identifier"), observed["identifier"])
+                self.assertEqual(
+                    observed["source_stat_category_id"],
+                    sources[stat_type]["source_stat_category_id"],
+                )
+                if observed["status"] == "candidate":
+                    self.assertRegex(observed["identifier"], r"^\d+$")
+                else:
+                    self.assertIn(
+                        observed["status"],
+                        {"source_not_published", "source_identifier_not_found"},
+                    )
+                    self.assertIsNone(observed["identifier"])
+
+    def test_current_d1_d2_d3_control_contracts(self):
+        for division in self.REPRESENTATIVES:
+            with self.subTest(division=division):
+                self._validate_contract(*self._load(division), division)
+
+    def test_rejects_stale_wrong_type_wrong_season_and_wrong_header_candidates(self):
+        manifest, controls = self._load("d1")
+        mutations = []
+
+        stale = json.loads(json.dumps(manifest))
+        stale["observations"][0]["identifier"] = "999999"
+        mutations.append(("stale_identifier", stale, controls))
+
+        wrong_type = json.loads(json.dumps(manifest))
+        wrong_type["observations"][0]["stat_type"] = "pitching"
+        mutations.append(("wrong_type", wrong_type, controls))
+
+        wrong_season = json.loads(json.dumps(manifest))
+        wrong_season["season_id"] = "16999"
+        mutations.append(("wrong_season", wrong_season, controls))
+
+        wrong_header = json.loads(json.dumps(manifest))
+        wrong_header["control_sources"][0]["normalized_headers"] = [
+            "athlete" if value == "player" else value
+            for value in wrong_header["control_sources"][0]["normalized_headers"]
+        ]
+        mutations.append(("wrong_header", wrong_header, controls))
+
+        for label, changed_manifest, changed_controls in mutations:
+            with self.subTest(label=label), self.assertRaises(AssertionError):
+                self._validate_contract(changed_manifest, changed_controls, "d1")
+
+    def test_production_does_not_hard_code_discovered_split_ids(self):
+        root = Path(__file__).parents[1]
+        production = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in (
+                root / "roster_scraper.py",
+                root / "roster_scout" / "ncaa_detail.py",
+                root / "scripts" / "capture_phase3_ncaa_fixtures.py",
+            )
+        )
+        for label in {
+            item
+            for labels in FixtureCaptureSafetyTests.capture_api().CANONICAL_LABELS.values()
+            for item in labels
+        }:
+            with self.subTest(label=label):
+                self.assertNotRegex(
+                    production,
+                    rf"[\"']{label}[\"']\s*:\s*[\"']?\d+",
+                )
 
 
 class FieldingPublicationTests(
