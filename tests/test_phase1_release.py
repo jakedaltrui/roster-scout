@@ -202,6 +202,9 @@ class Phase1ReleaseTests(unittest.TestCase):
                     "pitching_category_id": team_season.pitching_stat_category_id,
                 },
                 "sections": {section.section for section in sections},
+                "section_statuses": {
+                    section.section: section.status for section in sections
+                },
                 "sections_complete": all(
                     section.critical and section.status == "complete"
                     for section in sections
@@ -316,13 +319,15 @@ class Phase1ReleaseTests(unittest.TestCase):
         })
         return release
 
-    def _assert_complete_release(self, division, release):
+    def _assert_core_complete_release(self, division, release):
         source = TEAMS[division]
-        self.assertEqual(release["job_status"], "ready")
-        self.assertEqual(release["snapshot_status"], "ready")
+        self.assertEqual(release["job_status"], "partial")
+        self.assertEqual(release["snapshot_status"], "partial")
         self.assertEqual(release["snapshot_count"], 1)
-        self.assertEqual(release["sections"], {"batting", "pitching"})
-        self.assertTrue(release["sections_complete"])
+        self.assertTrue({"batting", "pitching"} <= release["sections"])
+        self.assertEqual(release["section_statuses"]["batting"], "complete")
+        self.assertEqual(release["section_statuses"]["pitching"], "complete")
+        self.assertFalse(release["sections_complete"])
         self.assertEqual(release["provenance"]["organization_id"], release["organization_id"])
         self.assertEqual(release["provenance"]["team_id"], source["team_id"])
         self.assertEqual(release["provenance"]["season_id"], source["season_id"])
@@ -330,8 +335,11 @@ class Phase1ReleaseTests(unittest.TestCase):
         self.assertEqual(release["provenance"]["division"], source["division"])
         self.assertEqual(release["provenance"]["batting_category_id"], SEASON["batting_id"])
         self.assertEqual(release["provenance"]["pitching_category_id"], SEASON["pitching_id"])
-        self.assertEqual(set(release["per_section"]), {"batting", "pitching"})
-        for counts in release["per_section"].values():
+        self.assertTrue(
+            {"batting", "pitching"} <= set(release["per_section"])
+        )
+        for section in ("batting", "pitching"):
+            counts = release["per_section"][section]
             self.assertGreater(counts["declared"], 0)
             self.assertEqual(counts["declared"], counts["sources"])
             self.assertEqual(counts["declared"], counts["facts"])
@@ -348,8 +356,8 @@ class Phase1ReleaseTests(unittest.TestCase):
         self.assertEqual(release["collector_calls"], 1)
 
     def test_representative_d1_happy_path(self):
-        """A reconciled durable D1 job publishes one auditable ready snapshot."""
-        self._assert_complete_release(
+        """A reconciled D1 job publishes auditable core data and truthful gaps."""
+        self._assert_core_complete_release(
             1, self._publish_division_via_reconciled_dispatch(1)
         )
 
@@ -357,7 +365,7 @@ class Phase1ReleaseTests(unittest.TestCase):
         for division in (2, 3):
             with self.subTest(division=division):
                 clean_database(self.database_url)
-                self._assert_complete_release(
+                self._assert_core_complete_release(
                     division,
                     self._publish_division_via_reconciled_dispatch(division),
                 )
@@ -552,7 +560,7 @@ class Phase1ReleaseTests(unittest.TestCase):
 
         collector = Mock(side_effect=AssertionError("recovery collected twice"))
         snapshot = run_report_job(self.Session, job.id, collector=collector)
-        self.assertEqual(snapshot.status, "ready")
+        self.assertEqual(snapshot.status, "partial")
         collector.assert_not_called()
         release = self._release_state(job.id, organization_id, snapshot.id)
         self.assertEqual(release["source_fingerprints"], original_sources)

@@ -1886,7 +1886,7 @@ class PerSectionRecoveryTests(PostgreSQLJobTestCase):
                 ),
             )
 
-        self.assertEqual(snapshot.status, "ready")
+        self.assertEqual(snapshot.status, "partial")
         self.assertEqual(collect.call_count, 2)
         self.assertEqual(
             [call.kwargs["section_names"] for call in collect.call_args_list],
@@ -2812,7 +2812,7 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
                 scraper, "_fetch_ncaa_pages", return_value=pages
             ):
                 snapshot = self._run_real_collector(job)
-            self.assertEqual(snapshot.status, "ready")
+            self.assertEqual(snapshot.status, "partial")
             with self.Session() as session:
                 stored_section = session.scalar(select(ReportSection).where(
                     ReportSection.snapshot_id == snapshot.id,
