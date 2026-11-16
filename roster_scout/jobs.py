@@ -1406,6 +1406,7 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
         NcaaAccessError,
         NcaaError,
         _NcaaFailureEvidenceError,
+        _find_ncaa_season,
         collect_ncaa_by_id,
     )
     from .canonical import to_collected_sections
@@ -1440,11 +1441,15 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
                 session.get(ReportSnapshot, snapshot_id),
                 stored,
             )
-        missing_core = frozenset({"batting", "pitching"} - matching.keys())
-        fielding_missing = "fielding" not in matching
         season_team_id = team_season.source_season_team_id
         division = team_season.division
         year = season.year
+        discovered_fielding_id = str(
+            _find_ncaa_season(year).get("fielding_id") or ""
+        ).strip()
+        fielding_requested = discovered_fielding_id.isdigit()
+        missing_core = frozenset({"batting", "pitching"} - matching.keys())
+        fielding_missing = fielding_requested and "fielding" not in matching
         source_team_id = team.source_team_id
         source_season_id = season.source_season_id
 
@@ -1454,12 +1459,19 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
     fetched = []
     if missing_core:
         try:
+            collection_kwargs = {
+                "division": division,
+                "year": year,
+                "force_refresh": True,
+            }
+            if (
+                fielding_requested
+                or missing_core != frozenset({"batting", "pitching"})
+            ):
+                collection_kwargs["section_names"] = missing_core
             collection = collect_ncaa_by_id(
                 season_team_id,
-                division=division,
-                year=year,
-                force_refresh=True,
-                section_names=missing_core,
+                **collection_kwargs,
             )
         except _NcaaFailureEvidenceError as exc:
             category = exc.evidence.failure_category
@@ -1505,7 +1517,7 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
                 source_season_id=source_season_id,
                 source_season_team_id=season_team_id,
             ))
-        except (NcaaAccessError, NcaaError):
+        except (NcaaAccessError, NcaaError, ValueError):
             fetched.append(CollectedSection.supplemental_failure(
                 "fielding",
                 status="unavailable",
