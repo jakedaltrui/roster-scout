@@ -17,6 +17,7 @@ from usage_limits import BrowserCapacityExceeded
 from .database import session_advisory_lock
 from .models import (
     BattingFact,
+    FieldingFact,
     MetricConstantSet,
     MetricDefinition,
     MetricValue,
@@ -116,6 +117,36 @@ class CollectedSection:
             critical=critical,
             status="failed",
             failure_category=category,
+            collected_at=_utcnow(),
+        )
+
+    @classmethod
+    def supplemental_failure(
+        cls,
+        name,
+        *,
+        status,
+        category,
+        collected_at,
+        source_url=None,
+        source_team_id=None,
+        source_season_id=None,
+        source_season_team_id=None,
+        source_stat_category_id=None,
+    ):
+        if status not in {"failed", "unavailable", "partial"}:
+            raise ValueError("supplemental failure status is invalid")
+        return cls(
+            name=name,
+            critical=False,
+            status=status,
+            failure_category=category,
+            collected_at=collected_at,
+            source_url=source_url,
+            source_team_id=source_team_id,
+            source_season_id=source_season_id,
+            source_season_team_id=source_season_team_id,
+            source_stat_category_id=source_stat_category_id,
         )
 
 
@@ -491,18 +522,35 @@ def _matching_cached_sections(session, job, cached):
         "batting": team_season.batting_stat_category_id,
         "pitching": team_season.pitching_stat_category_id,
     }
-    return {
-        key.section: section
-        for key, section in cached.items()
-        if key.job_id == job.id
-        and key.section in expected_categories
-        and key.source_team_id == team.source_team_id
-        and key.source_season_id == season.source_season_id
-        and key.source_season_team_id == team_season.source_season_team_id
-        and key.source_stat_category_id == expected_categories[key.section]
-        and key.schema_version == SCHEMA_VERSION
-        and key.parser_version == PARSER_VERSION
-    }
+    matched = {}
+    for key, section in cached.items():
+        common_match = (
+            key.job_id == job.id
+            and key.source_team_id == team.source_team_id
+            and key.source_season_id == season.source_season_id
+            and key.source_season_team_id == team_season.source_season_team_id
+            and key.schema_version == SCHEMA_VERSION
+            and key.parser_version == PARSER_VERSION
+        )
+        if not common_match:
+            continue
+        if key.section in expected_categories:
+            if key.source_stat_category_id == expected_categories[key.section]:
+                matched[key.section] = section
+            continue
+        if key.section == "fielding" and key.source_stat_category_id:
+            from .ncaa_detail import build_fielding_url
+
+            try:
+                expected_url = build_fielding_url(
+                    team_season.source_season_team_id,
+                    key.source_stat_category_id,
+                )
+            except ValueError:
+                continue
+            if key.source_url == expected_url:
+                matched[key.section] = section
+    return matched
 
 
 def _reconstruct_cached_sections(session, snapshot, matching):
@@ -811,6 +859,14 @@ def _persist_canonical(session, job, snapshot, sections):
             year=season.year,
             batting_category_id=team_season.batting_stat_category_id or "unknown",
             pitching_category_id=team_season.pitching_stat_category_id or "unknown",
+            fielding_category_id=next(
+                (
+                    item.source_stat_category_id
+                    for item in complete
+                    if item.name == "fielding"
+                ),
+                None,
+            ),
         ),
         metadata=NcaaCollectionMetadata(
             collected_at=collected_at,
@@ -949,7 +1005,7 @@ def _persist_canonical(session, job, snapshot, sections):
                 source_record_id=source.id,
                 **fact.detailed_values,
             ))
-        else:
+        elif fact.section == "pitching":
             values = dict(fact.detailed_values)
             values.pop("innings_raw", None)
             session.add(PitchingFact(
@@ -959,6 +1015,16 @@ def _persist_canonical(session, job, snapshot, sections):
                 source_record_id=source.id,
                 **values,
             ))
+        elif fact.section == "fielding":
+            session.add(FieldingFact(
+                organization_id=job.organization_id,
+                snapshot_id=snapshot.id,
+                player_team_season_id=identity.id,
+                source_record_id=source.id,
+                **dict(fact.detailed_values),
+            ))
+        else:
+            raise DeterministicJobError("schema_validation")
 
     for metric in canonical.metrics:
         version = f"{metric.definition_version}:{metric.provenance}"
@@ -1338,6 +1404,7 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
     """Collect live NCAA sections or reuse only same-job version-matched evidence."""
     from roster_scraper import (
         NcaaAccessError,
+        NcaaError,
         _NcaaFailureEvidenceError,
         collect_ncaa_by_id,
     )
@@ -1350,6 +1417,7 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
             raise DeterministicJobError("schema_validation", "Report job does not exist.")
         report = session.get(Report, job.report_id)
         team_season = session.get(TeamSeason, report.team_season_id)
+        team = session.get(Team, team_season.team_id)
         season = session.get(Season, team_season.season_id)
         snapshot_id = job.result_snapshot_id
 
@@ -1372,36 +1440,81 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
                 session.get(ReportSnapshot, snapshot_id),
                 stored,
             )
-        missing = frozenset({"batting", "pitching"} - matching.keys())
+        missing_core = frozenset({"batting", "pitching"} - matching.keys())
+        fielding_missing = "fielding" not in matching
         season_team_id = team_season.source_season_team_id
         division = team_season.division
         year = season.year
+        source_team_id = team.source_team_id
+        source_season_id = season.source_season_id
 
-    if not missing:
+    if not missing_core and not fielding_missing:
         return reconstructed
 
-    try:
-        collection_kwargs = {
-            "division": division,
-            "year": year,
-            "force_refresh": True,
-        }
-        if missing != frozenset({"batting", "pitching"}):
-            collection_kwargs["section_names"] = missing
-        collection = collect_ncaa_by_id(season_team_id, **collection_kwargs)
-    except _NcaaFailureEvidenceError as exc:
-        category = exc.evidence.failure_category
-        error_type = (
-            DeterministicJobError
-            if category == "schema_validation"
-            else RetryableJobError
-        )
-        raise error_type(category, evidence=exc.evidence) from None
-    except NcaaAccessError as exc:
-        raise RetryableJobError("source_blocked") from exc
-    fetched = to_collected_sections(collection)
-    if {section.name for section in fetched} != set(missing):
-        raise DeterministicJobError("schema_validation")
+    fetched = []
+    if missing_core:
+        try:
+            collection = collect_ncaa_by_id(
+                season_team_id,
+                division=division,
+                year=year,
+                force_refresh=True,
+                section_names=missing_core,
+            )
+        except _NcaaFailureEvidenceError as exc:
+            category = exc.evidence.failure_category
+            error_type = (
+                DeterministicJobError
+                if category == "schema_validation"
+                else RetryableJobError
+            )
+            raise error_type(category, evidence=exc.evidence) from None
+        except NcaaAccessError as exc:
+            raise RetryableJobError("source_blocked") from exc
+        core_fetched = to_collected_sections(collection)
+        if {section.name for section in core_fetched} != set(missing_core):
+            raise DeterministicJobError("schema_validation")
+        fetched.extend(core_fetched)
+
+    if fielding_missing:
+        try:
+            fielding_collection = collect_ncaa_by_id(
+                season_team_id,
+                division=division,
+                year=year,
+                force_refresh=True,
+                section_names=frozenset({"fielding"}),
+            )
+            fielding_sections = to_collected_sections(fielding_collection)
+            if {section.name for section in fielding_sections} != {"fielding"}:
+                raise DeterministicJobError("schema_validation")
+            fetched.extend(fielding_sections)
+        except _NcaaFailureEvidenceError as exc:
+            evidence = exc.evidence
+            fetched.append(CollectedSection.supplemental_failure(
+                "fielding",
+                status=(
+                    "failed"
+                    if evidence.failure_category == "schema_validation"
+                    else "unavailable"
+                ),
+                category=evidence.failure_category,
+                collected_at=evidence.collected_at,
+                source_url=evidence.source_url,
+                source_team_id=source_team_id,
+                source_season_id=source_season_id,
+                source_season_team_id=season_team_id,
+            ))
+        except (NcaaAccessError, NcaaError):
+            fetched.append(CollectedSection.supplemental_failure(
+                "fielding",
+                status="unavailable",
+                category="source_unavailable",
+                collected_at=_utcnow(),
+                source_team_id=source_team_id,
+                source_season_id=source_season_id,
+                source_season_team_id=season_team_id,
+            ))
     return tuple(sorted(
         (*reconstructed, *fetched), key=lambda section: section.name
     ))

@@ -50,6 +50,7 @@ SNAPSHOT_CHILD_TABLES = (
     "source_records",
     "batting_facts",
     "pitching_facts",
+    "fielding_facts",
     "metric_values",
 )
 

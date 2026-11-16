@@ -230,5 +230,221 @@ class FieldingTests(unittest.TestCase):
                 self.assertFalse(any(value in text for value in forbidden))
 
 
+class FieldingPublicationTests(
+    __import__("tests.test_report_jobs", fromlist=["PostgreSQLJobTestCase"])
+    .PostgreSQLJobTestCase
+):
+    """PostgreSQL contracts for evidence-first fielding publication."""
+
+    @staticmethod
+    def _sections(*, fielding_status="complete"):
+        from datetime import UTC, datetime
+        from roster_scout.jobs import CollectedSection, PARSER_VERSION
+
+        collected_at = datetime.now(UTC)
+        core = tuple(
+            CollectedSection(
+                name=name,
+                critical=True,
+                rows=(),
+                verified_empty=True,
+                source_url=f"https://stats.ncaa.org/{name}",
+                source_team_id="234",
+                source_season_id="17040",
+                source_season_team_id="614606",
+                source_stat_category_id=category,
+                collected_at=collected_at,
+                parser_version=PARSER_VERSION,
+                schema_version="schema-1",
+            )
+            for name, category in (("batting", "15867"), ("pitching", "15868"))
+        )
+        if fielding_status != "complete":
+            return (*core, CollectedSection.supplemental_failure(
+                "fielding",
+                status=fielding_status,
+                category="source_blocked",
+                collected_at=collected_at,
+                source_url=(
+                    "https://stats.ncaa.org/teams/614606/season_to_date_stats"
+                    "?year_stat_category_id=15869"
+                ),
+                source_team_id="234",
+                source_season_id="17040",
+                source_season_team_id="614606",
+                source_stat_category_id="15869",
+            ))
+
+        parsed = fielding_api().parse_fielding_page(
+            fixture("d1"),
+            source_url=(
+                "https://stats.ncaa.org/teams/614606/season_to_date_stats"
+                "?year_stat_category_id=15869"
+            ),
+            stat_category_id="15869",
+            collected_at=collected_at,
+        )
+        return (*core, CollectedSection(
+            name="fielding",
+            critical=False,
+            rows=tuple({
+                **dict(row.raw_values),
+                "_player_id": row.source_player_id,
+                "_player_url": row.player_url,
+                "_payload_sha256": row.payload_sha256,
+            } for row in parsed.rows),
+            source_url=parsed.source_url,
+            source_team_id="234",
+            source_season_id="17040",
+            source_season_team_id="614606",
+            source_stat_category_id=parsed.stat_category_id,
+            collected_at=parsed.collected_at,
+            parser_version=PARSER_VERSION,
+            schema_version="schema-1",
+        ))
+
+    def test_complete_fielding_persists_exact_evidence_and_publishes_ready(self):
+        from sqlalchemy import func, select
+        from roster_scout.jobs import accept_report_job, run_report_job
+        from roster_scout.models import FieldingFact, ReportSection, SourceRecord
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session, organization_id, report_id, "fielding-complete", dispatch=None
+        )
+        snapshot = run_report_job(
+            self.Session,
+            job.id,
+            collector=lambda *_args, **_kwargs: self._sections(),
+        )
+        self.assertEqual(snapshot.status, "ready")
+        with self.Session() as session:
+            section = session.scalar(select(ReportSection).where(
+                ReportSection.snapshot_id == snapshot.id,
+                ReportSection.section == "fielding",
+            ))
+            self.assertEqual((section.status, section.row_count), ("complete", 2))
+            self.assertEqual(session.scalar(
+                select(func.count()).select_from(SourceRecord).where(
+                    SourceRecord.snapshot_id == snapshot.id,
+                    SourceRecord.section == "fielding",
+                )
+            ), 2)
+            facts = list(session.scalars(select(FieldingFact).where(
+                FieldingFact.snapshot_id == snapshot.id
+            )))
+            self.assertEqual(len(facts), 2)
+            self.assertEqual(facts[0].putouts, 121)
+            self.assertIsNone(facts[1].passed_balls)
+
+    def test_unavailable_fielding_publishes_truthful_partial(self):
+        from sqlalchemy import func, select
+        from roster_scout.jobs import accept_report_job, run_report_job
+        from roster_scout.models import FieldingFact, ReportSection, SourceRecord
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session, organization_id, report_id, "fielding-unavailable", dispatch=None
+        )
+        snapshot = run_report_job(
+            self.Session,
+            job.id,
+            collector=lambda *_args, **_kwargs: self._sections(
+                fielding_status="unavailable"
+            ),
+        )
+        self.assertEqual(snapshot.status, "partial")
+        with self.Session() as session:
+            section = session.scalar(select(ReportSection).where(
+                ReportSection.snapshot_id == snapshot.id,
+                ReportSection.section == "fielding",
+            ))
+            self.assertEqual(section.status, "unavailable")
+            self.assertEqual(section.failure_category, "source_blocked")
+            self.assertIsNotNone(section.collected_at)
+            self.assertEqual(section.row_count, 0)
+            self.assertFalse(section.verified_empty)
+            self.assertEqual(session.scalar(
+                select(func.count()).select_from(SourceRecord).where(
+                    SourceRecord.snapshot_id == snapshot.id,
+                    SourceRecord.section == "fielding",
+                )
+            ), 0)
+            self.assertEqual(session.scalar(
+                select(func.count()).select_from(FieldingFact).where(
+                    FieldingFact.snapshot_id == snapshot.id
+                )
+            ), 0)
+
+    def test_publication_rejects_fielding_row_count_mismatch(self):
+        from roster_scout.jobs import (
+            _new_or_existing_snapshot,
+            _persist_canonical,
+            _persist_sections,
+            accept_report_job,
+        )
+        from roster_scout.models import ReportJob, ReportSection
+        from roster_scout.snapshots import SnapshotPublicationError, publish_snapshot
+        from sqlalchemy import select
+
+        organization_id, report_id = self.fixture()
+        accepted = accept_report_job(
+            self.Session, organization_id, report_id, "fielding-mismatch", dispatch=None
+        )
+        sections = self._sections()
+        with self.Session.begin() as session:
+            job = session.get(ReportJob, accepted.id)
+            snapshot = _new_or_existing_snapshot(session, job)
+            _persist_sections(session, job, snapshot, sections)
+            _persist_canonical(session, job, snapshot, sections)
+            snapshot_id = snapshot.id
+            fielding = session.scalar(select(ReportSection).where(
+                ReportSection.snapshot_id == snapshot.id,
+                ReportSection.section == "fielding",
+            ))
+            fielding.row_count += 1
+            session.flush()
+            with self.assertRaisesRegex(SnapshotPublicationError, "row count"):
+                publish_snapshot(session, snapshot_id)
+
+    def test_fielding_fact_rejects_cross_snapshot_identity_and_source(self):
+        import uuid
+        from sqlalchemy import select
+        from sqlalchemy.exc import IntegrityError
+        from roster_scout.jobs import accept_report_job, run_report_job
+        from roster_scout.models import FieldingFact, ReportSnapshot
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session, organization_id, report_id, "fielding-owner", dispatch=None
+        )
+        published = run_report_job(
+            self.Session,
+            job.id,
+            collector=lambda *_args, **_kwargs: self._sections(),
+        )
+        with self.Session.begin() as session:
+            source_fact = session.scalar(select(FieldingFact).where(
+                FieldingFact.snapshot_id == published.id
+            ).limit(1))
+            other = ReportSnapshot(
+                organization_id=organization_id,
+                report_id=report_id,
+                schema_version="schema-1",
+            )
+            session.add(other)
+            session.flush()
+            with self.assertRaises(IntegrityError), session.begin_nested():
+                session.add(FieldingFact(
+                    id=uuid.uuid4(),
+                    organization_id=organization_id,
+                    snapshot_id=other.id,
+                    player_team_season_id=source_fact.player_team_season_id,
+                    source_record_id=source_fact.source_record_id,
+                    games=source_fact.games,
+                ))
+                session.flush()
+
+
 if __name__ == "__main__":
     unittest.main()

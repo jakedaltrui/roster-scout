@@ -6,6 +6,7 @@ from sqlalchemy import String, cast, distinct, func, or_, select, text
 
 from .models import (
     BattingFact,
+    FieldingFact,
     MetricConstantSet,
     MetricDefinition,
     MetricValue,
@@ -311,6 +312,89 @@ def publish_snapshot(session, snapshot_id):
         if traced_fact_count != fact_count or traced_source_count != source_count:
             raise SnapshotPublicationError(
                 f"{required} facts are not uniquely linked to snapshot-owned evidence"
+            )
+
+    fielding = by_name.get("fielding")
+    if fielding is not None:
+        fielding_source_count = session.scalar(
+            select(func.count())
+            .select_from(SourceRecord)
+            .where(
+                SourceRecord.snapshot_id == snapshot.id,
+                SourceRecord.organization_id == snapshot.organization_id,
+                SourceRecord.section == "fielding",
+            )
+        )
+        fielding_fact_count = session.scalar(
+            select(func.count())
+            .select_from(FieldingFact)
+            .where(
+                FieldingFact.snapshot_id == snapshot.id,
+                FieldingFact.organization_id == snapshot.organization_id,
+            )
+        )
+        if fielding.status == "complete":
+            if fielding.row_count == 0 and not fielding.verified_empty:
+                raise SnapshotPublicationError(
+                    "fielding has no verified-empty evidence"
+                )
+            if fielding.row_count != fielding_source_count:
+                raise SnapshotPublicationError(
+                    "fielding row count does not match source evidence"
+                )
+            if fielding.row_count != fielding_fact_count:
+                raise SnapshotPublicationError(
+                    "fielding row count does not match typed facts"
+                )
+            traced_fielding = session.execute(
+                select(
+                    func.count(distinct(FieldingFact.id)),
+                    func.count(distinct(FieldingFact.source_record_id)),
+                )
+                .select_from(FieldingFact)
+                .join(
+                    PlayerTeamSeason,
+                    (PlayerTeamSeason.id == FieldingFact.player_team_season_id)
+                    & (PlayerTeamSeason.snapshot_id == FieldingFact.snapshot_id)
+                    & (
+                        PlayerTeamSeason.organization_id
+                        == FieldingFact.organization_id
+                    ),
+                )
+                .join(
+                    SourceRecord,
+                    (SourceRecord.id == FieldingFact.source_record_id)
+                    & (
+                        SourceRecord.player_team_season_id
+                        == FieldingFact.player_team_season_id
+                    )
+                    & (SourceRecord.snapshot_id == FieldingFact.snapshot_id)
+                    & (
+                        SourceRecord.organization_id
+                        == FieldingFact.organization_id
+                    )
+                    & (SourceRecord.section == "fielding"),
+                )
+                .where(
+                    FieldingFact.snapshot_id == snapshot.id,
+                    FieldingFact.organization_id == snapshot.organization_id,
+                    SourceRecord.player_team_season_id.is_not(None),
+                )
+            ).one()
+            if traced_fielding != (fielding_fact_count, fielding_source_count):
+                raise SnapshotPublicationError(
+                    "fielding facts are not uniquely linked to snapshot-owned evidence"
+                )
+        elif (
+            fielding.row_count != 0
+            or fielding.verified_empty
+            or fielding_source_count != 0
+            or fielding_fact_count != 0
+            or not fielding.failure_category
+            or fielding.collected_at is None
+        ):
+            raise SnapshotPublicationError(
+                "incomplete fielding status contains contradictory evidence"
             )
 
     _validate_detailed_metric_lineage(session, snapshot, sections)

@@ -1778,6 +1778,64 @@ class PerSectionRecoveryTests(PostgreSQLJobTestCase):
             team_label="Tampa",
         )
 
+    @staticmethod
+    def fielding_collection(source):
+        from roster_scraper import (
+            NcaaCollection,
+            NcaaCollectionMetadata,
+            NcaaSection,
+            NcaaSeason,
+            NcaaSourceRow,
+            NcaaTeam,
+        )
+
+        collected_at = datetime(2026, 11, 9, 11, 1, tzinfo=UTC)
+        row = NcaaSourceRow(
+            section="fielding",
+            row_ordinal=0,
+            source_url="https://stats.ncaa.org/fielding-new",
+            source_player_id="recovery-player",
+            player_url="https://stats.ncaa.org/players/recovery-player",
+            raw_values={
+                "Player": "Recovery Player",
+                "G": "10",
+                "GS": "9",
+                "PO": "12",
+                "A": "8",
+                "E": "1",
+                "TC": "21",
+                "DP": "2",
+                "FPCT": ".952",
+                "player_url": "https://stats.ncaa.org/players/recovery-player",
+            },
+            payload_sha256="c" * 64,
+        )
+        return NcaaCollection(
+            team=NcaaTeam(
+                team_id=source["team_id"],
+                name="Tampa",
+                season_team_id=source["season_team_id"],
+                division=f"d{source['division']}",
+            ),
+            season=NcaaSeason(
+                season_id=source["season_id"],
+                year=source["year"],
+                batting_category_id=source["batting_id"],
+                pitching_category_id=source["pitching_id"],
+                fielding_category_id="fielding",
+            ),
+            metadata=NcaaCollectionMetadata(collected_at=collected_at),
+            sections=(NcaaSection(
+                name="fielding",
+                source_url="https://stats.ncaa.org/fielding-new",
+                stat_category_id="fielding",
+                html_sha256="c" * 64,
+                rows=(row,),
+            ),),
+            players=(),
+            team_label="Tampa",
+        )
+
     def test_only_missing_section_is_fetched_and_cached_section_stays_exact(self):
         import roster_scraper as rs
         from roster_scout.jobs import collect_ncaa_sections, run_report_job
@@ -1810,8 +1868,15 @@ class PerSectionRecoveryTests(PostgreSQLJobTestCase):
                 )
             ]
 
+        def collect_section(*_args, section_names, **_kwargs):
+            if section_names == frozenset({"pitching"}):
+                return self.pitching_collection(source)
+            if section_names == frozenset({"fielding"}):
+                return self.fielding_collection(source)
+            raise AssertionError(f"unexpected sections: {section_names}")
+
         with patch.object(
-            rs, "collect_ncaa_by_id", return_value=self.pitching_collection(source)
+            rs, "collect_ncaa_by_id", side_effect=collect_section
         ) as collect:
             snapshot = run_report_job(
                 self.Session,
@@ -1822,12 +1887,10 @@ class PerSectionRecoveryTests(PostgreSQLJobTestCase):
             )
 
         self.assertEqual(snapshot.status, "ready")
-        collect.assert_called_once_with(
-            source["season_team_id"],
-            division=source["division"],
-            year=source["year"],
-            force_refresh=True,
-            section_names=frozenset({"pitching"}),
+        self.assertEqual(collect.call_count, 2)
+        self.assertEqual(
+            [call.kwargs["section_names"] for call in collect.call_args_list],
+            [frozenset({"pitching"}), frozenset({"fielding"})],
         )
         with self.Session() as session:
             batting = session.scalar(
@@ -1866,7 +1929,7 @@ class PerSectionRecoveryTests(PostgreSQLJobTestCase):
                         SourceRecord.snapshot_id == snapshot_id
                     )
                 ),
-                2,
+                3,
             )
 
     def test_conflicting_content_cannot_extend_a_complete_section(self):
@@ -2563,6 +2626,7 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
     SEASON_ID = "17040"
     BATTING_ID = "15867"
     PITCHING_ID = "15868"
+    FIELDING_ID = "15869"
 
     def setUp(self):
         super().setUp()
@@ -2584,6 +2648,7 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
             "id": self.SEASON_ID,
             "batting_id": self.BATTING_ID,
             "pitching_id": self.PITCHING_ID,
+            "fielding_id": self.FIELDING_ID,
         }]
 
     def tearDown(self):
@@ -2740,6 +2805,7 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
             pages = {
                 "batting": self._fixture("d2_batting.html"),
                 "pitching": self._fixture("d2_pitching.html"),
+                "fielding": self._fixture("ncaa_detail/d2/fielding.html"),
                 section: self._table(headers),
             }
             with self.subTest(section=section), patch.object(
@@ -2770,6 +2836,9 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
             pages = {
                 "batting": self._fixture(f"d{division}_batting.html"),
                 "pitching": self._fixture(f"d{division}_pitching.html"),
+                "fielding": self._fixture(
+                    f"ncaa_detail/d{division}/fielding.html"
+                ),
             }
             with self.subTest(division=division), patch.object(
                 scraper, "_fetch_ncaa_pages", return_value=pages
