@@ -66,7 +66,7 @@
 - [ ] **SPLT-01**: Batting split facts support vs LHP, vs RHP, runners on, bases empty, bases loaded, runners in scoring position, and two-outs contexts.
 - [ ] **SPLT-02**: Pitching split facts support vs LHB, vs RHB, runners on, bases empty, bases loaded, runners in scoring position, and two-outs contexts when the NCAA source provides them.
 - [ ] **SPLT-03**: Each split record retains canonical split code, display label, season/stat type, source identifier, source URL, and availability status.
-- [ ] **SPLT-04**: Split source identifiers are discovered or validated per season and stat type rather than assumed permanent.
+- [x] **SPLT-04**: Split source identifiers are discovered or validated per season and stat type rather than assumed permanent.
 - [ ] **SPLT-05**: A missing split is displayed as unavailable and never as a zero-stat split.
 
 ### Career and Game Logs

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 03-02-PLAN.md
-last_updated: "2026-11-16T06:27:40.379Z"
+stopped_at: Completed 03-03-PLAN.md
+last_updated: "2026-11-16T07:50:34.555Z"
 last_activity: 2026-11-16
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 70
-  completed_plans: 63
+  completed_plans: 64
   percent: 50
 ---
 
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-11-13)
 ## Current Position
 
 Phase: 03 (detailed-ncaa-intelligence) — EXECUTING
-Plan: 3 of 9
+Plan: 4 of 9
 Status: Ready to execute
 Last activity: 2026-11-16
 
-Progress: [█████████░] 90%
+Progress: [█████████░] 91%
 
 ## Performance Metrics
 
@@ -246,6 +246,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 03]: NCAA fielding URLs are built only from trusted numeric category IDs on the fixed stats.ncaa.org origin.
 - [Phase 03]: Fielding is supplemental when an NCAA build lacks a discovered numeric fielding ID; core batting and pitching remain publishable.
 - [Phase 03]: Fielding publication requires same-snapshot source/fact/row parity and explicit partial status for unavailable supplemental evidence.
+- [Phase 03]: Use the configured Fly runtime only as a secret-consuming in-memory execution boundary; do not deploy capture code or persist remote changes.
+- [Phase 03]: Certify representative batting vs_lhp and pitching vs_lhb grids while retaining discovery evidence for all seven canonical families.
+- [Phase 03]: Map situational H and AB through verified headers and row offsets rather than presentation text or hard-coded split IDs.
 
 ### Pending Todos
 
@@ -303,9 +306,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 02 P11 | 29min | 2 tasks | 8 files |
 | Phase 03 P01 | 45min | 3 tasks | 10 files |
 | Phase 03 P02 | 30 min | 3 tasks | 13 files |
+| Phase 03 P03 | 78m | 3 tasks | 16 files |
 
 ## Session Continuity
 
-Last session: 2026-11-16T06:27:40.371Z
-Stopped at: Completed 03-02-PLAN.md
+Last session: 2026-11-16T07:50:34.542Z
+Stopped at: Completed 03-03-PLAN.md
 Resume file: None
