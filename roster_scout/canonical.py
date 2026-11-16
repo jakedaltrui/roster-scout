@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 import hashlib
 import re
+from types import MappingProxyType
 
 from roster_scraper import NcaaCollection, NcaaSourceRow
 
@@ -48,6 +49,7 @@ class CanonicalPlayer:
     position: str | None
     batting_source: tuple[str, int] | None
     pitching_source: tuple[str, int] | None
+    fielding_source: tuple[str, int] | None = None
 
 
 @dataclass(frozen=True)
@@ -350,6 +352,7 @@ def canonicalize_ncaa_collection(collection: NcaaCollection) -> CanonicalCollect
         first = rows[0]
         batting = next((row for row in rows if row.section == "batting"), None)
         pitching = next((row for row in rows if row.section == "pitching"), None)
+        fielding = next((row for row in rows if row.section == "fielding"), None)
         players.append(CanonicalPlayer(
             identity_key=identity_key,
             identity_status=group.identity_status,
@@ -359,6 +362,7 @@ def canonicalize_ncaa_collection(collection: NcaaCollection) -> CanonicalCollect
             position=_raw(first, "Pos", "Position"),
             batting_source=(batting.section, batting.row_ordinal) if batting else None,
             pitching_source=(pitching.section, pitching.row_ordinal) if pitching else None,
+            fielding_source=(fielding.section, fielding.row_ordinal) if fielding else None,
         ))
         if batting:
             batting_values = {
@@ -424,6 +428,30 @@ def canonicalize_ncaa_collection(collection: NcaaCollection) -> CanonicalCollect
                         division=collection.team.division,
                     ),
                 ))
+        if fielding:
+            fielding_values = MappingProxyType({
+                "games": _integer(fielding, "G"),
+                "games_started": _integer(fielding, "GS"),
+                "putouts": _integer(fielding, "PO"),
+                "assists": _integer(fielding, "A"),
+                "errors": _integer(fielding, "E"),
+                "total_chances": _integer(fielding, "TC"),
+                "double_plays": _integer(fielding, "DP"),
+                "fielding_percentage": _decimal(fielding, "FPCT"),
+                "passed_balls": _integer(fielding, "PB"),
+                "stolen_base_attempts": _integer(fielding, "SBA"),
+                "caught_stealing_by": _integer(fielding, "CSB"),
+            })
+            percentage = fielding_values["fielding_percentage"]
+            if percentage is not None and not Decimal("0") <= percentage <= Decimal("1"):
+                raise ValueError("Fielding percentage must be between zero and one.")
+            facts.append(CanonicalFact(
+                "fielding",
+                identity_key,
+                (fielding.section, fielding.row_ordinal),
+                fielding_values,
+                fielding_values,
+            ))
         if pitching:
             pitching_values = {
                 "appearances": _integer(pitching, "APP", "G"),
@@ -501,7 +529,7 @@ def to_collected_sections(collection: NcaaCollection):
     return tuple(
         CollectedSection(
             name=section.name,
-            critical=True,
+            critical=section.name in {"batting", "pitching"},
             rows=tuple({
                 **row.raw_values,
                 "_player_id": row.source_player_id,

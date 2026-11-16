@@ -922,6 +922,70 @@ class PitchingFact(UUIDPrimaryKey, Base):
     )
 
 
+class FieldingFact(UUIDPrimaryKey, Base):
+    __tablename__ = "fielding_facts"
+    organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    player_team_season_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    source_record_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    games: Mapped[int | None] = mapped_column(Integer)
+    games_started: Mapped[int | None] = mapped_column(Integer)
+    putouts: Mapped[int | None] = mapped_column(Integer)
+    assists: Mapped[int | None] = mapped_column(Integer)
+    errors: Mapped[int | None] = mapped_column(Integer)
+    total_chances: Mapped[int | None] = mapped_column(Integer)
+    double_plays: Mapped[int | None] = mapped_column(Integer)
+    fielding_percentage: Mapped[object | None] = mapped_column(Numeric(6, 5))
+    passed_balls: Mapped[int | None] = mapped_column(Integer)
+    stolen_base_attempts: Mapped[int | None] = mapped_column(Integer)
+    caught_stealing_by: Mapped[int | None] = mapped_column(Integer)
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["snapshot_id", "organization_id"],
+            ["report_snapshots.id", "report_snapshots.organization_id"],
+            name="fk_fielding_facts_snapshot_organization",
+        ),
+        ForeignKeyConstraint(
+            ["player_team_season_id", "snapshot_id", "organization_id"],
+            ["player_team_seasons.id", "player_team_seasons.snapshot_id", "player_team_seasons.organization_id"],
+            name="fk_fielding_facts_player_snapshot_organization",
+        ),
+        ForeignKeyConstraint(
+            ["source_record_id", "player_team_season_id", "snapshot_id", "organization_id"],
+            ["source_records.id", "source_records.player_team_season_id", "source_records.snapshot_id", "source_records.organization_id"],
+            name="fk_fielding_facts_source_identity",
+        ),
+        CheckConstraint(
+            "fielding_percentage IS NULL OR "
+            "(fielding_percentage >= 0 AND fielding_percentage <= 1)",
+            name="ck_fielding_facts_fielding_percentage_range",
+        ),
+        *(
+            CheckConstraint(
+                f"{column} IS NULL OR {column} >= 0",
+                name=f"ck_fielding_facts_{column}_nonnegative",
+            )
+            for column in (
+                "games",
+                "games_started",
+                "putouts",
+                "assists",
+                "errors",
+                "total_chances",
+                "double_plays",
+                "passed_balls",
+                "stolen_base_attempts",
+                "caught_stealing_by",
+            )
+        ),
+        {
+            "info": {
+                "database_triggers": ("trg_fielding_facts_immutable",)
+            }
+        },
+    )
+
+
 class MetricDefinition(UUIDPrimaryKey, Timestamped, Base):
     __tablename__ = "metric_definitions"
     code: Mapped[str] = mapped_column(String(100), nullable=False)

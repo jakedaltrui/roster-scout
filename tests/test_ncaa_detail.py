@@ -8,6 +8,7 @@ import importlib
 import importlib.util
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ncaa_detail"
@@ -144,6 +145,47 @@ class FieldingTests(unittest.TestCase):
             with self.subTest(season_team_id=season_team_id, category_id=category_id):
                 with self.assertRaises(ValueError):
                     build(season_team_id, category_id)
+
+    def test_shared_collector_fetches_discovered_fielding_id_on_fixed_endpoint(self):
+        import roster_scraper as rs
+
+        core_fixtures = Path(__file__).parent / "fixtures"
+        pages = {
+            "batting": (core_fixtures / "d1_batting.html").read_text(encoding="utf-8"),
+            "pitching": (core_fixtures / "d1_pitching.html").read_text(encoding="utf-8"),
+            "fielding": fixture("d1"),
+        }
+        season = {
+            "season": "2026",
+            "id": "17040",
+            "batting_id": "15867",
+            "pitching_id": "15868",
+            "fielding_id": "15869",
+        }
+        team = {
+            "team_id": "234",
+            "team_name": "Florida St.",
+            "division": "1",
+            "year": "2026",
+            "season_id": "17040",
+            "season_team_id": "614606",
+        }
+        with patch.object(rs, "_find_ncaa_season", return_value=season), patch.object(
+            rs, "_fetch_ncaa_pages", return_value=pages
+        ) as fetch:
+            collection = rs._collect_ncaa_team(team, 2026)
+
+        urls = fetch.call_args.args[0]
+        self.assertEqual(
+            urls["fielding"],
+            "https://stats.ncaa.org/teams/614606/season_to_date_stats"
+            "?year_stat_category_id=15869",
+        )
+        self.assertEqual(
+            {section.name for section in collection.sections},
+            {"batting", "pitching", "fielding"},
+        )
+        self.assertEqual(collection.season.fielding_category_id, "15869")
 
     def test_canonical_fielding_fact_is_frozen_and_shares_authoritative_player(self):
         from roster_scraper import NcaaCollection, NcaaCollectionMetadata, NcaaSeason, NcaaTeam

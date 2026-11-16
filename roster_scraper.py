@@ -104,6 +104,7 @@ class NcaaSeason:
     year: int
     batting_category_id: str
     pitching_category_id: str
+    fielding_category_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -2335,24 +2336,57 @@ def _collect_ncaa_team(
         "batting": f"{base_url}?year_stat_category_id={season['batting_id']}",
         "pitching": f"{base_url}?year_stat_category_id={season['pitching_id']}",
     }
+    fielding_category_id = str(season.get("fielding_id") or "").strip()
+    if fielding_category_id:
+        from roster_scout.ncaa_detail import build_fielding_url
+
+        all_urls["fielding"] = build_fielding_url(
+            str(team["season_team_id"]), fielding_category_id
+        )
     selected = frozenset(all_urls) if section_names is None else frozenset(section_names)
     if not selected or not selected <= all_urls.keys():
-        raise NcaaError("NCAA section selection must contain batting or pitching.")
+        raise NcaaError("NCAA section selection contains an unavailable section.")
     urls = {name: all_urls[name] for name in all_urls if name in selected}
     pages = _fetch_ncaa_pages(urls)
     collected_at = datetime.now(timezone.utc)
-    parsed = {"batting": [], "pitching": []}
+    parsed = {"batting": [], "pitching": [], "fielding": []}
     sections = []
-    for name, category_id in (
+    category_pairs = [
         ("batting", season["batting_id"]),
         ("pitching", season["pitching_id"]),
-    ):
+    ]
+    if fielding_category_id:
+        category_pairs.append(("fielding", fielding_category_id))
+    for name, category_id in category_pairs:
         if name not in selected:
             continue
         html = pages.get(name)
         if html is None:
             raise NcaaAccessError(f"NCAA did not return the {name} section.")
         try:
+            if name == "fielding":
+                from roster_scout.ncaa_detail import (
+                    FieldingParseError,
+                    parse_fielding_page,
+                )
+
+                try:
+                    fielding = parse_fielding_page(
+                        html,
+                        source_url=urls[name],
+                        stat_category_id=category_id,
+                        collected_at=collected_at,
+                    )
+                except FieldingParseError as exc:
+                    raise _NcaaFailureEvidenceError(
+                        section=name,
+                        source_url=urls[name],
+                        html=html,
+                        failure_category=exc.category,
+                    ) from None
+                sections.append(fielding.as_ncaa_section())
+                parsed[name] = [dict(row.raw_values) for row in fielding.rows]
+                continue
             parse_result = _parse_ncaa_stat_table_result(html, section=name)
         except NcaaSchemaError:
             raise _NcaaFailureEvidenceError(
@@ -2403,6 +2437,7 @@ def _collect_ncaa_team(
             year=year,
             batting_category_id=season["batting_id"],
             pitching_category_id=season["pitching_id"],
+            fielding_category_id=fielding_category_id or None,
         ),
         metadata=NcaaCollectionMetadata(collected_at=collected_at),
         sections=tuple(sections),

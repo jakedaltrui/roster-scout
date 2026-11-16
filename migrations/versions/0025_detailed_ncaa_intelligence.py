@@ -77,6 +77,65 @@ def upgrade():
     _add_count_columns("pitching_facts", PITCHING_COUNT_COLUMNS)
 
     op.create_table(
+        "fielding_facts",
+        sa.Column("organization_id", sa.Uuid(), nullable=False),
+        sa.Column("snapshot_id", sa.Uuid(), nullable=False),
+        sa.Column("player_team_season_id", sa.Uuid(), nullable=False),
+        sa.Column("source_record_id", sa.Uuid(), nullable=False),
+        sa.Column("games", sa.Integer()),
+        sa.Column("games_started", sa.Integer()),
+        sa.Column("putouts", sa.Integer()),
+        sa.Column("assists", sa.Integer()),
+        sa.Column("errors", sa.Integer()),
+        sa.Column("total_chances", sa.Integer()),
+        sa.Column("double_plays", sa.Integer()),
+        sa.Column("fielding_percentage", sa.Numeric(6, 5)),
+        sa.Column("passed_balls", sa.Integer()),
+        sa.Column("stolen_base_attempts", sa.Integer()),
+        sa.Column("caught_stealing_by", sa.Integer()),
+        sa.Column("id", sa.Uuid(), nullable=False),
+        sa.CheckConstraint(
+            "fielding_percentage IS NULL OR "
+            "(fielding_percentage >= 0 AND fielding_percentage <= 1)",
+            name="ck_fielding_facts_fielding_percentage_range",
+        ),
+        *(
+            sa.CheckConstraint(
+                f"{column} IS NULL OR {column} >= 0",
+                name=f"ck_fielding_facts_{column}_nonnegative",
+            )
+            for column in (
+                "games", "games_started", "putouts", "assists", "errors",
+                "total_chances", "double_plays", "passed_balls",
+                "stolen_base_attempts", "caught_stealing_by",
+            )
+        ),
+        sa.ForeignKeyConstraint(
+            ["snapshot_id", "organization_id"],
+            ["report_snapshots.id", "report_snapshots.organization_id"],
+            name="fk_fielding_facts_snapshot_organization",
+        ),
+        sa.ForeignKeyConstraint(
+            ["player_team_season_id", "snapshot_id", "organization_id"],
+            ["player_team_seasons.id", "player_team_seasons.snapshot_id", "player_team_seasons.organization_id"],
+            name="fk_fielding_facts_player_snapshot_organization",
+        ),
+        sa.ForeignKeyConstraint(
+            ["source_record_id", "player_team_season_id", "snapshot_id", "organization_id"],
+            ["source_records.id", "source_records.player_team_season_id", "source_records.snapshot_id", "source_records.organization_id"],
+            name="fk_fielding_facts_source_identity",
+        ),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.execute(
+        """
+        CREATE TRIGGER trg_fielding_facts_immutable
+        BEFORE INSERT OR UPDATE OR DELETE ON fielding_facts
+        FOR EACH ROW EXECUTE FUNCTION reject_published_snapshot_child_mutation()
+        """
+    )
+
+    op.create_table(
         "metric_constant_sets",
         sa.Column("metric_definition_id", sa.Uuid(), nullable=False),
         sa.Column("metric_code", sa.String(length=16), nullable=False),
@@ -357,6 +416,9 @@ def downgrade():
         "value IS NOT NULL OR unavailable_reason IS NOT NULL",
     )
     op.drop_table("metric_constant_sets")
+
+    op.execute("DROP TRIGGER IF EXISTS trg_fielding_facts_immutable ON fielding_facts")
+    op.drop_table("fielding_facts")
 
     _drop_count_columns("pitching_facts", PITCHING_COUNT_COLUMNS)
     _drop_count_columns("batting_facts", BATTING_COUNT_COLUMNS)
