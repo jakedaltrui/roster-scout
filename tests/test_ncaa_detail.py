@@ -371,6 +371,7 @@ class FixtureCaptureSafetyTests(unittest.TestCase):
         env = dict(os.environ)
         env.pop("BROWSERLESS_TOKEN", None)
         env["NCAA_BROWSER_PROVIDER"] = "browserless"
+        env["PHASE3_ALLOW_FLY_REMOTE"] = "0"
         result = subprocess.run(
             [sys.executable, str(script), "--preflight"],
             cwd=Path(__file__).parents[1],
