@@ -274,7 +274,7 @@ Plans:
 
 ### Phase 3: Detailed NCAA Intelligence
 
-**Goal:** As a baseball staff member, I want each opponent snapshot to contain auditable season, fielding, derived, split, career, and game-level NCAA intelligence or an explicit unavailable state for every section, so that I can trust the report's detail and understand any missing data before using it to prepare for a series.
+**Goal:** As a baseball staff member, I want to open an opponent snapshot containing auditable season, fielding, derived, split, career, and game-level NCAA intelligence or an explicit unavailable state for every section, so that I can trust the report's detail and understand any missing data before using it to prepare for a series.
 **Mode:** mvp
 **UI hint:** no
 **Depends on:** Phase 02.1
