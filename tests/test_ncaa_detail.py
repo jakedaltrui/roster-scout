@@ -619,6 +619,254 @@ class SplitDiscoveryTests(unittest.TestCase):
                 api.certify_result_fixture(changed, **expected)
 
 
+class _SplitContractMixin:
+    REPRESENTATIVES = {
+        "d1": "614606",
+        "d2": "615087",
+        "d3": "615349",
+    }
+    CATEGORY_IDS = {"batting": "15867", "pitching": "15868"}
+    SOURCE_LABELS = {
+        "batting": {
+            "vs_lhp": "vs_lhp",
+            "vs_rhp": "vs_rhp",
+            "runners_on": "runners_on",
+            "bases_empty": "bases_empty",
+            "bases_loaded": "bases_loaded",
+            "risp": "runners_in_scoring_position",
+            "two_outs": "two_outs",
+        },
+        "pitching": {
+            "vs_lhb": "vs_lhb",
+            "vs_rhb": "vs_rhb",
+            "runners_on": "runners_on",
+            "bases_empty": "bases_empty",
+            "bases_loaded": "bases_loaded",
+            "risp": "runners_in_scoring_position",
+            "two_outs": "two_outs",
+        },
+    }
+
+    def manifest(self, division="d1"):
+        return json.loads(
+            (FIXTURES / division / "fixture_manifest.json").read_text(encoding="utf-8")
+        )
+
+    def result_fixture(self, stat_type, division="d1"):
+        return (
+            FIXTURES / division / f"{stat_type}_split_result.html"
+        ).read_text(encoding="utf-8")
+
+    def discovery(self, stat_type, division="d1"):
+        api = fielding_api()
+        controls = (FIXTURES / division / "split_controls.html").read_text(
+            encoding="utf-8"
+        )
+        return api.discover_split_controls(
+            controls,
+            manifest=self.manifest(division),
+            expected_season_id="17040",
+            expected_season_team_id=self.REPRESENTATIVES[division],
+            expected_stat_type=stat_type,
+            expected_source_stat_category_id=self.CATEGORY_IDS[stat_type],
+        )
+
+    def parse_result(self, stat_type, division="d1"):
+        api = fielding_api()
+        discovered = {
+            scope.scope_code: scope for scope in self.discovery(stat_type, division)
+        }
+        representative = "vs_lhp" if stat_type == "batting" else "vs_lhb"
+        return api.parse_split_result(
+            self.result_fixture(stat_type, division),
+            discovered_scope=discovered[representative],
+        )
+
+
+class BattingSplitTests(_SplitContractMixin, unittest.TestCase):
+    CODES = (
+        "vs_lhp", "vs_rhp", "runners_on", "bases_empty",
+        "bases_loaded", "risp", "two_outs",
+    )
+
+    def test_scoped_split_persistence_contract(self):
+        """RED sentinel: import/compile succeeds before the split API exists."""
+        self.assertTrue(
+            hasattr(fielding_api(), "parse_split_result"),
+            "scoped split persistence is not implemented",
+        )
+
+    def test_enumerates_exactly_seven_canonical_batting_codes(self):
+        api = fielding_api()
+        self.assertEqual(api.split_codes("batting"), self.CODES)
+        self.assertEqual(
+            {scope.scope_code for scope in self.discovery("batting")},
+            set(self.CODES),
+        )
+
+    def test_d1_d2_d3_certified_results_preserve_exact_batting_evidence(self):
+        for division, team_id in self.REPRESENTATIVES.items():
+            with self.subTest(division=division):
+                result = self.parse_result("batting", division)
+                fixture_text = self.result_fixture("batting", division)
+                self.assertEqual(result.scope_code, "vs_lhp")
+                self.assertEqual(result.stat_type, "batting")
+                self.assertEqual(result.status, "complete")
+                self.assertEqual(result.source_season_id, "17040")
+                self.assertEqual(result.source_season_team_id, team_id)
+                self.assertEqual(result.source_identifier, "4")
+                self.assertEqual(result.source_stat_category_id, "15867")
+                self.assertEqual(
+                    result.fixture_sha256,
+                    hashlib.sha256(fixture_text.encode("utf-8")).hexdigest(),
+                )
+                self.assertGreater(len(result.rows), 0)
+                self.assertTrue(all(row.at_bats is not None for row in result.rows))
+                self.assertTrue(all(row.hits is not None for row in result.rows))
+                self.assertTrue(all(row.source_player_id for row in result.rows))
+
+    def test_sourced_zero_is_distinct_from_missing_split(self):
+        result = self.parse_result("batting", "d1")
+        zeros = [row for row in result.rows if row.hits == 0]
+        self.assertGreater(len(zeros), 0)
+        self.assertTrue(all(row.at_bats > 0 for row in zeros))
+
+
+class PitchingSplitTests(_SplitContractMixin, unittest.TestCase):
+    CODES = (
+        "vs_lhb", "vs_rhb", "runners_on", "bases_empty",
+        "bases_loaded", "risp", "two_outs",
+    )
+
+    def test_enumerates_exactly_seven_canonical_pitching_codes(self):
+        api = fielding_api()
+        self.assertEqual(api.split_codes("pitching"), self.CODES)
+        self.assertEqual(
+            {scope.scope_code for scope in self.discovery("pitching")},
+            set(self.CODES),
+        )
+
+    def test_d1_d2_d3_certified_results_preserve_exact_pitching_evidence(self):
+        for division, team_id in self.REPRESENTATIVES.items():
+            with self.subTest(division=division):
+                result = self.parse_result("pitching", division)
+                self.assertEqual(result.scope_code, "vs_lhb")
+                self.assertEqual(result.stat_type, "pitching")
+                self.assertEqual(result.status, "complete")
+                self.assertEqual(result.source_season_team_id, team_id)
+                self.assertEqual(result.source_identifier, "19")
+                self.assertEqual(result.source_stat_category_id, "15868")
+                self.assertGreater(len(result.rows), 0)
+                self.assertTrue(all(row.opponent_at_bats is not None for row in result.rows))
+                self.assertTrue(all(row.hits_allowed is not None for row in result.rows))
+
+    def test_one_source_player_can_retain_typed_batting_and_pitching_rows(self):
+        batting = self.parse_result("batting", "d1")
+        pitching = self.parse_result("pitching", "d1")
+        batting_ids = {row.source_player_id for row in batting.rows}
+        pitching_ids = {row.source_player_id for row in pitching.rows}
+        self.assertIn("9698671", batting_ids & pitching_ids)
+        self.assertNotEqual(type(batting.rows[0]), type(pitching.rows[0]))
+
+
+class SplitProvenanceTests(_SplitContractMixin, unittest.TestCase):
+    def test_stale_identifier_is_rejected_before_result_rows_are_returned(self):
+        api = fielding_api()
+        scope = next(
+            item for item in self.discovery("batting") if item.scope_code == "vs_lhp"
+        )
+        stale = replace(scope, source_identifier="999999")
+        with self.assertRaises(api.SplitContractError) as caught:
+            api.parse_split_result(
+                self.result_fixture("batting"),
+                discovered_scope=stale,
+            )
+        self.assertEqual(caught.exception.category, "source_identity_mismatch")
+        self.assertNotIn("999999", str(caught.exception))
+
+    def test_scope_and_typed_fact_models_have_composite_owner_constraints(self):
+        from roster_scout.models import (
+            ScopedBattingFact,
+            ScopedPitchingFact,
+            StatisticScope,
+        )
+
+        scope_constraints = {
+            constraint.name for constraint in StatisticScope.__table__.constraints
+        }
+        self.assertIn("fk_statistic_scopes_snapshot_organization", scope_constraints)
+        self.assertIn("uq_statistic_scopes_snapshot_type_code", scope_constraints)
+        self.assertIn("ck_statistic_scopes_status", scope_constraints)
+        for model, prefix in (
+            (ScopedBattingFact, "scoped_batting_facts"),
+            (ScopedPitchingFact, "scoped_pitching_facts"),
+        ):
+            names = {constraint.name for constraint in model.__table__.constraints}
+            self.assertIn(f"fk_{prefix}_scope_snapshot_organization", names)
+            self.assertIn(f"fk_{prefix}_player_snapshot_organization", names)
+            self.assertIn(f"fk_{prefix}_source_identity", names)
+
+    def test_available_rows_carry_player_source_and_sample_context(self):
+        for stat_type in ("batting", "pitching"):
+            with self.subTest(stat_type=stat_type):
+                result = self.parse_result(stat_type)
+                for row in result.rows:
+                    self.assertRegex(row.source_player_url, r"^https://stats\.ncaa\.org/players/\d+$")
+                    self.assertEqual(row.source_identifier, result.source_identifier)
+                    self.assertEqual(row.sample["at_bats"], row.at_bats)
+                    self.assertNotIn(None, (row.source_player_id, row.source_payload_sha256))
+
+
+class SplitAvailabilityTests(_SplitContractMixin, unittest.TestCase):
+    def unavailable_fixture(self):
+        return (
+            '<split-result data-canonical-label="bases_loaded" '
+            'data-captured-at="2026-11-16T07:39:58Z" data-division="d1" '
+            'data-identifier="16" data-result-contract-version="ncaa-split-result-v1" '
+            'data-season-id="17040" data-season-team-id="614606" '
+            'data-source-path="/teams/614606/season_to_date_stats" '
+            'data-source-payload-sha256="' + "a" * 64 + '" '
+            'data-source-stat-category-id="15867" data-stat-type="batting" '
+            'data-status="unavailable" data-reason="source_not_published"></split-result>'
+        )
+
+    def test_unavailable_scope_has_no_rows_or_synthetic_metric_zero(self):
+        api = fielding_api()
+        scope = next(
+            item
+            for item in self.discovery("batting")
+            if item.scope_code == "bases_loaded"
+        )
+        result = api.parse_split_result(
+            self.unavailable_fixture(),
+            discovered_scope=scope,
+        )
+        self.assertEqual(result.status, "unavailable")
+        self.assertEqual(result.reason, "source_not_published")
+        self.assertEqual(result.rows, ())
+        self.assertEqual(result.metric_results, ())
+
+    def test_absent_grid_is_failed_not_verified_empty_or_zero(self):
+        api = fielding_api()
+        scope = next(
+            item for item in self.discovery("pitching") if item.scope_code == "vs_lhb"
+        )
+        with self.assertRaises(api.SplitContractError) as caught:
+            api.parse_split_result(
+                "<html><body>Access Denied</body></html>",
+                discovered_scope=scope,
+            )
+        self.assertEqual(caught.exception.category, "source_blocked")
+
+    def test_status_vocabulary_is_complete_partial_unavailable_failed(self):
+        from roster_scout.models import SCOPE_STATUSES
+
+        self.assertEqual(
+            tuple(SCOPE_STATUSES),
+            ("complete", "partial", "unavailable", "failed"),
+        )
+
+
 class FieldingPublicationTests(
     __import__("tests.test_report_jobs", fromlist=["PostgreSQLJobTestCase"])
     .PostgreSQLJobTestCase
