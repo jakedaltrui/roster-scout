@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 03-05-PLAN.md
-last_updated: "2026-11-16T09:56:33.487Z"
+stopped_at: Completed 03-09-PLAN.md
+last_updated: "2026-11-16T10:15:14.255Z"
 last_activity: 2026-11-16
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 70
-  completed_plans: 67
+  completed_plans: 68
   percent: 50
 ---
 
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-11-13)
 ## Current Position
 
 Phase: 03 (detailed-ncaa-intelligence) — EXECUTING
-Plan: 7 of 9
+Plan: 8 of 9
 Status: Ready to execute
 Last activity: 2026-11-16
 
-Progress: [██████████] 96%
+Progress: [██████████] 97%
 
 ## Performance Metrics
 
@@ -258,6 +258,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 03]: Historical rows without exact season/team/division identity remain separate evidence but are excluded from career aggregates with explicit reasons. — Prevents name-based transfer merges and makes aggregate completeness auditable.
 - [Phase 03]: Player game logs link only through one exact same-snapshot NCAA contest ID; labels and dates never create or guess a Game. — Preserves the schedule-derived canonical Game universe and tenant/snapshot ownership.
 - [Phase 03]: Malformed linked NCAA count cells remain unavailable rather than being coerced into statistics. — Fail-closed parsing avoids silently inventing player performance.
+- [Phase 03]: Organization identity for player drill reads comes only from the revalidated server authorization context; request UUIDs are selectors, not authority.
+- [Phase 03]: Foreign and mixed player-drill substitutions use one audited snapshot-target 404 so organizations, reports, snapshots, and players are not enumerated.
+- [Phase 03]: Player drill responses expose fixed canonical projections and exclude raw source rows and source URLs.
 
 ### Pending Todos
 
@@ -319,9 +322,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 03 P04 | 21m | 3 tasks | 9 files |
 | Phase 03 P06 | 47min | 3 tasks | 13 files |
 | Phase 03 P05 | 41min | 2 tasks | 11 files |
+| Phase 03 P09 | 15min | 2 tasks | 5 files |
 
 ## Session Continuity
 
-Last session: 2026-11-16T09:56:33.473Z
-Stopped at: Completed 03-05-PLAN.md
+Last session: 2026-11-16T10:15:14.246Z
+Stopped at: Completed 03-09-PLAN.md
 Resume file: None
