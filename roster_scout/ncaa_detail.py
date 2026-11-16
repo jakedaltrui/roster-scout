@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 import html as html_module
 import hashlib
@@ -21,6 +21,7 @@ FIELDING_CONTRACT_VERSION = "ncaa-fielding-v1"
 SPLIT_CONTROL_CONTRACT_VERSION = "ncaa-split-controls-v1"
 SPLIT_RESULT_CONTRACT_VERSION = "ncaa-split-result-v1"
 SPLIT_SCOPE_KIND = "source_split"
+SCHEDULE_CONTRACT_VERSION = "ncaa-schedule-v1"
 SPLIT_CODES = {
     "batting": (
         "vs_lhp", "vs_rhp", "runners_on", "bases_empty",
@@ -108,6 +109,18 @@ class SplitContractError(ValueError):
         super().__init__(message)
 
 
+class ScheduleContractError(ValueError):
+    """Fixed-category rejection for sanitized schedule/conference evidence."""
+
+    def __init__(self, category: str):
+        self.category = category
+        message = {
+            "schema_validation": "NCAA schedule schema validation failed.",
+            "source_identity_mismatch": "NCAA schedule source identity did not match.",
+        }[category]
+        super().__init__(message)
+
+
 @dataclass(frozen=True)
 class DiscoveredSplitScope:
     scope_kind: str
@@ -183,6 +196,64 @@ class ParsedSplitResult:
     collected_at: datetime
     rows: tuple[BattingSplitRow | PitchingSplitRow, ...]
     metric_results: tuple[SplitMetricResult, ...]
+
+
+@dataclass(frozen=True)
+class ScheduleGameEvidence:
+    source_game_id: str | None
+    game_date: date
+    status: str
+    opponent_team_id: str | None
+    opponent_season_team_id: str | None
+    opponent_conference_id: str | None
+    conference_evidence_status: str
+    opponent_identity_status: str
+    doubleheader_ordinal: int
+    result_sha256: str
+    venue: str
+
+
+@dataclass(frozen=True)
+class ScheduleEvidence:
+    source_path: str
+    source_url: str
+    source_payload_sha256: str
+    source_season_id: str
+    source_team_id: str
+    source_season_team_id: str
+    team_conference_id: str
+    division: str
+    schedule_complete: bool
+    collected_at: datetime
+    games: tuple[ScheduleGameEvidence, ...]
+
+    def audited_games(self):
+        from .scopes import AuditedGame
+
+        return tuple(
+            AuditedGame(
+                source_game_id=item.source_game_id,
+                fixture_fallback_key=None,
+                season_id=self.source_season_id,
+                game_date=item.game_date,
+                completed_at=(
+                    datetime.combine(item.game_date, datetime.min.time(), tzinfo=UTC)
+                    if item.status == "completed" else None
+                ),
+                status=item.status,
+                opponent_team_id=item.opponent_team_id,
+                report_team_conference_id=self.team_conference_id,
+                opponent_conference_id=item.opponent_conference_id,
+                conference_evidence_season_id=(
+                    self.source_season_id
+                    if item.conference_evidence_status == "present" else None
+                ),
+                doubleheader_ordinal=item.doubleheader_ordinal,
+                result_checksum=item.result_sha256,
+                venue=item.venue,
+            )
+            for item in self.games
+        )
 
 
 @dataclass(frozen=True)
@@ -789,6 +860,136 @@ def _validate_source_url(source_url: str, stat_category_id: str) -> None:
         or source_url != build_fielding_url(match.group(1), stat_category_id)
     ):
         raise ValueError("fielding source URL is not an allowed NCAA endpoint")
+
+
+def parse_schedule_fixture(
+    html: str,
+    *,
+    expected_season_id: str,
+    expected_team_id: str,
+    expected_season_team_id: str,
+    expected_division: str,
+) -> ScheduleEvidence:
+    """Parse only the sanitized schedule contract emitted by the capture utility."""
+    soup = BeautifulSoup(html, "html.parser")
+    root = soup.find("schedule-evidence")
+    if root is None or soup.find("script") is not None:
+        raise ScheduleContractError("schema_validation")
+    division = str(expected_division).lower().removeprefix("d")
+    expected_path = f"/team/{expected_team_id}/{expected_season_id}"
+    identity = (
+        root.get("data-schedule-contract-version"),
+        root.get("data-season-id"),
+        root.get("data-team-id"),
+        root.get("data-season-team-id"),
+        root.get("data-division"),
+        root.get("data-source-path"),
+    )
+    if identity != (
+        SCHEDULE_CONTRACT_VERSION,
+        expected_season_id,
+        expected_team_id,
+        expected_season_team_id,
+        f"d{division}",
+        expected_path,
+    ):
+        raise ScheduleContractError("source_identity_mismatch")
+    if any(
+        not re.fullmatch(r"\d+", value or "")
+        for value in (
+            expected_season_id, expected_team_id, expected_season_team_id,
+            root.get("data-team-conference-id"),
+        )
+    ):
+        raise ScheduleContractError("schema_validation")
+    payload_sha256 = root.get("data-source-payload-sha256") or ""
+    if not re.fullmatch(r"[0-9a-f]{64}", payload_sha256):
+        raise ScheduleContractError("schema_validation")
+    collected_at = _iso_datetime(root.get("data-captured-at") or "")
+    complete = root.get("data-schedule-complete")
+    if complete not in {"true", "false"}:
+        raise ScheduleContractError("schema_validation")
+    output = []
+    identities = set()
+    for node in root.find_all("game", recursive=False):
+        status = node.get("data-status")
+        if status not in {"completed", "scheduled", "canceled", "postponed", "no_contest"}:
+            raise ScheduleContractError("schema_validation")
+        try:
+            game_date = date.fromisoformat(node.get("data-date") or "")
+            ordinal = int(node.get("data-doubleheader-ordinal") or "")
+        except (TypeError, ValueError) as exc:
+            raise ScheduleContractError("schema_validation") from exc
+        if ordinal < 1:
+            raise ScheduleContractError("schema_validation")
+        source_game_id = node.get("data-source-game-id") or None
+        if source_game_id is not None and not source_game_id.isdigit():
+            raise ScheduleContractError("schema_validation")
+        if status == "completed" and source_game_id is None:
+            raise ScheduleContractError("schema_validation")
+        opponent_status = node.get("data-opponent-identity")
+        conference_status = node.get("data-conference-evidence")
+        if opponent_status not in {"present", "source_absent"}:
+            raise ScheduleContractError("schema_validation")
+        if conference_status not in {"present", "source_absent"}:
+            raise ScheduleContractError("schema_validation")
+        opponent_values = tuple(
+            node.get(name) or None
+            for name in (
+                "data-opponent-team-id", "data-opponent-season-team-id",
+                "data-opponent-conference-id",
+            )
+        )
+        if opponent_status == "present" and any(value is None for value in opponent_values[:2]):
+            raise ScheduleContractError("schema_validation")
+        if opponent_status == "source_absent" and any(value is not None for value in opponent_values[:2]):
+            raise ScheduleContractError("schema_validation")
+        if conference_status == "present" and opponent_values[2] is None:
+            raise ScheduleContractError("schema_validation")
+        if conference_status == "source_absent" and opponent_values[2] is not None:
+            raise ScheduleContractError("schema_validation")
+        if any(value is not None and not value.isdigit() for value in opponent_values):
+            raise ScheduleContractError("schema_validation")
+        result_sha256 = node.get("data-result-sha256") or ""
+        venue = node.get("data-venue") or ""
+        if not re.fullmatch(r"[0-9a-f]{64}", result_sha256) or venue not in {
+            "home", "away", "neutral"
+        }:
+            raise ScheduleContractError("schema_validation")
+        identity = source_game_id or (
+            game_date.isoformat(), opponent_values[1], venue, ordinal, result_sha256
+        )
+        if identity in identities:
+            raise ScheduleContractError("schema_validation")
+        identities.add(identity)
+        output.append(ScheduleGameEvidence(
+            source_game_id=source_game_id,
+            game_date=game_date,
+            status=status,
+            opponent_team_id=opponent_values[0],
+            opponent_season_team_id=opponent_values[1],
+            opponent_conference_id=opponent_values[2],
+            conference_evidence_status=conference_status,
+            opponent_identity_status=opponent_status,
+            doubleheader_ordinal=ordinal,
+            result_sha256=result_sha256,
+            venue=venue,
+        ))
+    if not output:
+        raise ScheduleContractError("schema_validation")
+    return ScheduleEvidence(
+        source_path=expected_path,
+        source_url=f"{NCAA_BASE}{expected_path}",
+        source_payload_sha256=payload_sha256,
+        source_season_id=expected_season_id,
+        source_team_id=expected_team_id,
+        source_season_team_id=expected_season_team_id,
+        team_conference_id=root["data-team-conference-id"],
+        division=f"d{division}",
+        schedule_complete=complete == "true",
+        collected_at=collected_at,
+        games=tuple(output),
+    )
 
 
 def _normalized(value: str) -> str:

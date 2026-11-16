@@ -136,6 +136,149 @@ def upgrade():
     )
 
     op.create_table(
+        "season_conference_evidence",
+        sa.Column("organization_id", sa.Uuid(), nullable=False),
+        sa.Column("snapshot_id", sa.Uuid(), nullable=False),
+        sa.Column("source_record_id", sa.Uuid(), nullable=False),
+        sa.Column("source_season_id", sa.String(length=100), nullable=False),
+        sa.Column("source_team_id", sa.String(length=100), nullable=False),
+        sa.Column("source_season_team_id", sa.String(length=100), nullable=False),
+        sa.Column("conference_id", sa.String(length=100)),
+        sa.Column("evidence_status", sa.String(length=20), nullable=False),
+        sa.Column("collected_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("payload_sha256", sa.String(length=64), nullable=False),
+        sa.Column("id", sa.Uuid(), nullable=False),
+        sa.CheckConstraint(
+            "evidence_status IN ('present', 'source_absent')",
+            name="ck_season_conference_evidence_status",
+        ),
+        sa.CheckConstraint(
+            "(evidence_status = 'present' AND conference_id IS NOT NULL) OR "
+            "(evidence_status = 'source_absent' AND conference_id IS NULL)",
+            name="ck_season_conference_evidence_value_status",
+        ),
+        sa.CheckConstraint(
+            "char_length(payload_sha256) = 64",
+            name="ck_season_conference_evidence_sha256_length",
+        ),
+        sa.ForeignKeyConstraint(
+            ["snapshot_id", "organization_id"],
+            ["report_snapshots.id", "report_snapshots.organization_id"],
+            name="fk_season_conference_evidence_snapshot_organization",
+        ),
+        sa.ForeignKeyConstraint(
+            ["source_record_id", "snapshot_id", "organization_id"],
+            ["source_records.id", "source_records.snapshot_id", "source_records.organization_id"],
+            name="fk_season_conference_evidence_source_owner",
+        ),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint(
+            "id", "snapshot_id", "organization_id",
+            name="uq_season_conference_evidence_snapshot_owner",
+        ),
+        sa.UniqueConstraint(
+            "snapshot_id", "source_season_id", "source_season_team_id",
+            name="uq_season_conference_evidence_team_season",
+        ),
+    )
+    op.execute(
+        """
+        CREATE TRIGGER trg_season_conference_evidence_immutable
+        BEFORE INSERT OR UPDATE OR DELETE ON season_conference_evidence
+        FOR EACH ROW EXECUTE FUNCTION reject_published_snapshot_child_mutation()
+        """
+    )
+
+    op.create_table(
+        "games",
+        sa.Column("organization_id", sa.Uuid(), nullable=False),
+        sa.Column("snapshot_id", sa.Uuid(), nullable=False),
+        sa.Column("source_record_id", sa.Uuid(), nullable=False),
+        sa.Column("source_season_id", sa.String(length=100), nullable=False),
+        sa.Column("game_date", sa.Date(), nullable=False),
+        sa.Column("completed_at", sa.DateTime(timezone=True)),
+        sa.Column("status", sa.String(length=20), nullable=False),
+        sa.Column("result_code", sa.String(length=16)),
+        sa.Column("result_sha256", sa.String(length=64), nullable=False),
+        sa.Column("opponent_team_id", sa.String(length=100)),
+        sa.Column("opponent_season_team_id", sa.String(length=100)),
+        sa.Column("report_team_conference_evidence_id", sa.Uuid()),
+        sa.Column("opponent_conference_evidence_id", sa.Uuid()),
+        sa.Column("doubleheader_ordinal", sa.Integer(), nullable=False),
+        sa.Column("venue", sa.String(length=16), nullable=False),
+        sa.Column("source_game_id", sa.String(length=100)),
+        sa.Column("fixture_fallback_key", sa.String(length=300)),
+        sa.Column("identity_kind", sa.String(length=24), nullable=False),
+        sa.Column(
+            "fixture_test_mode", sa.Boolean(), server_default=sa.text("false"), nullable=False
+        ),
+        sa.Column("id", sa.Uuid(), nullable=False),
+        sa.CheckConstraint(
+            "status IN ('scheduled', 'completed', 'canceled', 'postponed', 'no_contest')",
+            name="ck_games_status",
+        ),
+        sa.CheckConstraint(
+            "venue IN ('home', 'away', 'neutral')", name="ck_games_venue"
+        ),
+        sa.CheckConstraint(
+            "doubleheader_ordinal >= 1", name="ck_games_doubleheader_ordinal_positive"
+        ),
+        sa.CheckConstraint(
+            "char_length(result_sha256) = 64", name="ck_games_result_sha256_length"
+        ),
+        sa.CheckConstraint(
+            "(identity_kind = 'source' AND source_game_id IS NOT NULL "
+            "AND fixture_fallback_key IS NULL AND NOT fixture_test_mode) OR "
+            "(identity_kind = 'fixture_fallback' AND source_game_id IS NULL "
+            "AND fixture_fallback_key IS NOT NULL AND fixture_test_mode)",
+            name="ck_games_identity_contract",
+        ),
+        sa.ForeignKeyConstraint(
+            ["snapshot_id", "organization_id"],
+            ["report_snapshots.id", "report_snapshots.organization_id"],
+            name="fk_games_snapshot_organization",
+        ),
+        sa.ForeignKeyConstraint(
+            ["source_record_id", "snapshot_id", "organization_id"],
+            ["source_records.id", "source_records.snapshot_id", "source_records.organization_id"],
+            name="fk_games_source_owner",
+        ),
+        sa.ForeignKeyConstraint(
+            ["report_team_conference_evidence_id", "snapshot_id", "organization_id"],
+            ["season_conference_evidence.id", "season_conference_evidence.snapshot_id", "season_conference_evidence.organization_id"],
+            name="fk_games_report_conference_owner",
+        ),
+        sa.ForeignKeyConstraint(
+            ["opponent_conference_evidence_id", "snapshot_id", "organization_id"],
+            ["season_conference_evidence.id", "season_conference_evidence.snapshot_id", "season_conference_evidence.organization_id"],
+            name="fk_games_opponent_conference_owner",
+        ),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint(
+            "id", "snapshot_id", "organization_id", name="uq_games_snapshot_owner"
+        ),
+    )
+    op.create_index(
+        "uq_games_snapshot_source_identity", "games",
+        ["organization_id", "snapshot_id", "source_game_id"], unique=True,
+        postgresql_where=sa.text("source_game_id IS NOT NULL"),
+    )
+    op.create_index(
+        "uq_games_snapshot_fixture_identity", "games",
+        ["organization_id", "snapshot_id", "fixture_fallback_key"], unique=True,
+        postgresql_where=sa.text(
+            "source_game_id IS NULL AND identity_kind = 'fixture_fallback'"
+        ),
+    )
+    op.execute(
+        """
+        CREATE TRIGGER trg_games_immutable
+        BEFORE INSERT OR UPDATE OR DELETE ON games
+        FOR EACH ROW EXECUTE FUNCTION reject_published_snapshot_child_mutation()
+        """
+    )
+
+    op.create_table(
         "statistic_scopes",
         sa.Column("organization_id", sa.Uuid(), nullable=False),
         sa.Column("snapshot_id", sa.Uuid(), nullable=False),
@@ -159,13 +302,18 @@ def upgrade():
             server_default=sa.text("'{}'::jsonb"), nullable=False,
         ),
         sa.Column("source_payload_sha256", sa.String(length=64)),
+        sa.Column("schedule_source_record_id", sa.Uuid()),
+        sa.Column("start_date", sa.Date()),
+        sa.Column("end_date", sa.Date()),
+        sa.Column("actual_game_count", sa.Integer()),
+        sa.Column("report_conference_id", sa.String(length=100)),
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.CheckConstraint(
-            "scope_kind IN ('source_split')",
+            "scope_kind IN ('source_split', 'computed_game')",
             name="ck_statistic_scopes_kind",
         ),
         sa.CheckConstraint(
-            "stat_type IN ('batting', 'pitching')",
+            "stat_type IN ('batting', 'pitching', 'fielding')",
             name="ck_statistic_scopes_stat_type",
         ),
         sa.CheckConstraint(
@@ -173,8 +321,10 @@ def upgrade():
             name="ck_statistic_scopes_status",
         ),
         sa.CheckConstraint(
-            "(status IN ('complete', 'partial') AND source_identifier IS NOT NULL) "
-            "OR status IN ('unavailable', 'failed')",
+            "(scope_kind = 'source_split' AND status IN ('complete', 'partial') "
+            "AND source_identifier IS NOT NULL) OR "
+            "(scope_kind = 'computed_game' AND source_identifier IS NULL) OR "
+            "status IN ('unavailable', 'failed')",
             name="ck_statistic_scopes_source_status",
         ),
         sa.CheckConstraint(
@@ -190,10 +340,31 @@ def upgrade():
             "source_payload_sha256 IS NULL OR char_length(source_payload_sha256) = 64",
             name="ck_statistic_scopes_sha256_length",
         ),
+        sa.CheckConstraint(
+            "actual_game_count IS NULL OR actual_game_count >= 0",
+            name="ck_statistic_scopes_game_count_nonnegative",
+        ),
+        sa.CheckConstraint(
+            "scope_kind <> 'computed_game' OR "
+            "(schedule_source_record_id IS NOT NULL AND actual_game_count IS NOT NULL)",
+            name="ck_statistic_scopes_computed_source",
+        ),
+        sa.CheckConstraint(
+            "(actual_game_count IS NULL) OR "
+            "(actual_game_count = 0 AND start_date IS NULL AND end_date IS NULL) OR "
+            "(actual_game_count > 0 AND start_date IS NOT NULL AND end_date IS NOT NULL "
+            "AND start_date <= end_date)",
+            name="ck_statistic_scopes_date_range",
+        ),
         sa.ForeignKeyConstraint(
             ["snapshot_id", "organization_id"],
             ["report_snapshots.id", "report_snapshots.organization_id"],
             name="fk_statistic_scopes_snapshot_organization",
+        ),
+        sa.ForeignKeyConstraint(
+            ["schedule_source_record_id", "snapshot_id", "organization_id"],
+            ["source_records.id", "source_records.snapshot_id", "source_records.organization_id"],
+            name="fk_statistic_scopes_schedule_source_owner",
         ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint(
@@ -213,6 +384,51 @@ def upgrade():
         """
     )
 
+    op.create_table(
+        "statistic_scope_games",
+        sa.Column("organization_id", sa.Uuid(), nullable=False),
+        sa.Column("snapshot_id", sa.Uuid(), nullable=False),
+        sa.Column("statistic_scope_id", sa.Uuid(), nullable=False),
+        sa.Column("game_id", sa.Uuid(), nullable=False),
+        sa.Column("membership_ordinal", sa.Integer(), nullable=False),
+        sa.Column("id", sa.Uuid(), nullable=False),
+        sa.CheckConstraint(
+            "membership_ordinal >= 1",
+            name="ck_statistic_scope_games_ordinal_positive",
+        ),
+        sa.ForeignKeyConstraint(
+            ["snapshot_id", "organization_id"],
+            ["report_snapshots.id", "report_snapshots.organization_id"],
+            name="fk_statistic_scope_games_snapshot_organization",
+        ),
+        sa.ForeignKeyConstraint(
+            ["statistic_scope_id", "snapshot_id", "organization_id"],
+            ["statistic_scopes.id", "statistic_scopes.snapshot_id", "statistic_scopes.organization_id"],
+            name="fk_statistic_scope_games_scope_owner",
+        ),
+        sa.ForeignKeyConstraint(
+            ["game_id", "snapshot_id", "organization_id"],
+            ["games.id", "games.snapshot_id", "games.organization_id"],
+            name="fk_statistic_scope_games_game_owner",
+        ),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint(
+            "statistic_scope_id", "game_id",
+            name="uq_statistic_scope_games_scope_game",
+        ),
+        sa.UniqueConstraint(
+            "statistic_scope_id", "membership_ordinal",
+            name="uq_statistic_scope_games_scope_ordinal",
+        ),
+    )
+    op.execute(
+        """
+        CREATE TRIGGER trg_statistic_scope_games_immutable
+        BEFORE INSERT OR UPDATE OR DELETE ON statistic_scope_games
+        FOR EACH ROW EXECUTE FUNCTION reject_published_snapshot_child_mutation()
+        """
+    )
+
     for table_name, count_columns in (
         ("scoped_batting_facts", ("at_bats", "hits")),
         ("scoped_pitching_facts", ("opponent_at_bats", "hits_allowed")),
@@ -228,6 +444,14 @@ def upgrade():
             sa.Column(
                 "sample_json", postgresql.JSONB(astext_type=sa.Text()),
                 server_default=sa.text("'{}'::jsonb"), nullable=False,
+            ),
+            sa.Column(
+                "counts_json", postgresql.JSONB(astext_type=sa.Text()),
+                server_default=sa.text("'{}'::jsonb"), nullable=False,
+            ),
+            sa.Column(
+                "contributing_fact_ids", postgresql.JSONB(astext_type=sa.Text()),
+                server_default=sa.text("'[]'::jsonb"), nullable=False,
             ),
             sa.Column("id", sa.Uuid(), nullable=False),
             *(
@@ -249,6 +473,14 @@ def upgrade():
             sa.CheckConstraint(
                 "jsonb_typeof(sample_json) = 'object'",
                 name=f"ck_{table_name}_sample_object",
+            ),
+            sa.CheckConstraint(
+                "jsonb_typeof(counts_json) = 'object'",
+                name=f"ck_{table_name}_counts_object",
+            ),
+            sa.CheckConstraint(
+                "jsonb_typeof(contributing_fact_ids) = 'array'",
+                name=f"ck_{table_name}_contributions_array",
             ),
             sa.ForeignKeyConstraint(
                 ["snapshot_id", "organization_id"],
@@ -283,6 +515,83 @@ def upgrade():
             FOR EACH ROW EXECUTE FUNCTION reject_published_snapshot_child_mutation()
             """
         )
+
+    op.create_table(
+        "scoped_fielding_facts",
+        sa.Column("organization_id", sa.Uuid(), nullable=False),
+        sa.Column("snapshot_id", sa.Uuid(), nullable=False),
+        sa.Column("statistic_scope_id", sa.Uuid(), nullable=False),
+        sa.Column("player_team_season_id", sa.Uuid(), nullable=False),
+        sa.Column("source_record_id", sa.Uuid(), nullable=False),
+        sa.Column("putouts", sa.Integer()),
+        sa.Column("assists", sa.Integer()),
+        sa.Column("errors", sa.Integer()),
+        sa.Column("total_chances", sa.Integer()),
+        sa.Column(
+            "sample_json", postgresql.JSONB(astext_type=sa.Text()),
+            server_default=sa.text("'{}'::jsonb"), nullable=False,
+        ),
+        sa.Column(
+            "counts_json", postgresql.JSONB(astext_type=sa.Text()),
+            server_default=sa.text("'{}'::jsonb"), nullable=False,
+        ),
+        sa.Column(
+            "contributing_fact_ids", postgresql.JSONB(astext_type=sa.Text()),
+            server_default=sa.text("'[]'::jsonb"), nullable=False,
+        ),
+        sa.Column("id", sa.Uuid(), nullable=False),
+        *(
+            sa.CheckConstraint(
+                f"{column} IS NULL OR {column} >= 0",
+                name=f"ck_scoped_fielding_facts_{column}_nonnegative",
+            )
+            for column in ("putouts", "assists", "errors", "total_chances")
+        ),
+        sa.CheckConstraint(
+            "jsonb_typeof(sample_json) = 'object'",
+            name="ck_scoped_fielding_facts_sample_object",
+        ),
+        sa.CheckConstraint(
+            "jsonb_typeof(counts_json) = 'object'",
+            name="ck_scoped_fielding_facts_counts_object",
+        ),
+        sa.CheckConstraint(
+            "jsonb_typeof(contributing_fact_ids) = 'array'",
+            name="ck_scoped_fielding_facts_contributions_array",
+        ),
+        sa.ForeignKeyConstraint(
+            ["snapshot_id", "organization_id"],
+            ["report_snapshots.id", "report_snapshots.organization_id"],
+            name="fk_scoped_fielding_facts_snapshot_organization",
+        ),
+        sa.ForeignKeyConstraint(
+            ["statistic_scope_id", "snapshot_id", "organization_id"],
+            ["statistic_scopes.id", "statistic_scopes.snapshot_id", "statistic_scopes.organization_id"],
+            name="fk_scoped_fielding_facts_scope_snapshot_organization",
+        ),
+        sa.ForeignKeyConstraint(
+            ["player_team_season_id", "snapshot_id", "organization_id"],
+            ["player_team_seasons.id", "player_team_seasons.snapshot_id", "player_team_seasons.organization_id"],
+            name="fk_scoped_fielding_facts_player_snapshot_organization",
+        ),
+        sa.ForeignKeyConstraint(
+            ["source_record_id", "player_team_season_id", "snapshot_id", "organization_id"],
+            ["source_records.id", "source_records.player_team_season_id", "source_records.snapshot_id", "source_records.organization_id"],
+            name="fk_scoped_fielding_facts_source_identity",
+        ),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint(
+            "statistic_scope_id", "player_team_season_id",
+            name="uq_scoped_fielding_facts_scope_player",
+        ),
+    )
+    op.execute(
+        """
+        CREATE TRIGGER trg_scoped_fielding_facts_immutable
+        BEFORE INSERT OR UPDATE OR DELETE ON scoped_fielding_facts
+        FOR EACH ROW EXECUTE FUNCTION reject_published_snapshot_child_mutation()
+        """
+    )
 
     op.create_table(
         "metric_constant_sets",
@@ -579,15 +888,27 @@ def downgrade():
     )
     op.drop_table("metric_constant_sets")
 
+    op.execute(
+        "DROP TRIGGER IF EXISTS trg_scoped_fielding_facts_immutable "
+        "ON scoped_fielding_facts"
+    )
+    op.execute("DROP TABLE IF EXISTS scoped_fielding_facts")
     for table_name in ("scoped_pitching_facts", "scoped_batting_facts"):
         op.execute(
             f"DROP TRIGGER IF EXISTS trg_{table_name}_immutable ON {table_name}"
         )
         op.drop_table(table_name)
     op.execute(
+        "DROP TRIGGER IF EXISTS trg_statistic_scope_games_immutable "
+        "ON statistic_scope_games"
+    )
+    op.execute("DROP TABLE IF EXISTS statistic_scope_games")
+    op.execute(
         "DROP TRIGGER IF EXISTS trg_statistic_scopes_immutable ON statistic_scopes"
     )
     op.drop_table("statistic_scopes")
+    op.execute("DROP TABLE IF EXISTS games")
+    op.execute("DROP TABLE IF EXISTS season_conference_evidence")
 
     op.execute("DROP TRIGGER IF EXISTS trg_fielding_facts_immutable ON fielding_facts")
     op.drop_table("fielding_facts")

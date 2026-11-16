@@ -9,6 +9,7 @@ import importlib
 import importlib.util
 from pathlib import Path
 import re
+import inspect
 import unittest
 
 from bs4 import BeautifulSoup
@@ -87,6 +88,89 @@ class ScheduleFixtureTests(unittest.TestCase):
                         self.assertRegex(item["data-source-game-id"], r"^\d+$")
                     if item["data-conference-evidence"] == "present":
                         self.assertRegex(item["data-opponent-conference-id"], r"^\d+$")
+
+    def test_sanitized_fixture_parses_to_audited_games_without_name_inference(self):
+        from roster_scout.ncaa_detail import parse_schedule_fixture
+
+        parsed = parse_schedule_fixture(
+            (FIXTURES / "d1" / "schedule.html").read_text(encoding="utf-8"),
+            expected_season_id="17040",
+            expected_team_id="234",
+            expected_season_team_id="614606",
+            expected_division="d1",
+        )
+        self.assertTrue(parsed.schedule_complete)
+        self.assertEqual(parsed.team_conference_id, "821")
+        audited = parsed.audited_games()
+        self.assertEqual(len(audited), len(parsed.games))
+        last_ten = scopes_api().select_last_ten_completed_games(
+            audited, schedule_complete=parsed.schedule_complete
+        )
+        self.assertEqual(last_ten.actual_game_count, 10)
+        self.assertEqual(last_ten.games[-1].source_game_id, "6582312")
+
+
+class CanonicalScopeModelTests(unittest.TestCase):
+    def test_game_scope_and_fielding_models_repeat_composite_ownership(self):
+        from sqlalchemy import CheckConstraint, ForeignKeyConstraint, Index, UniqueConstraint
+        from roster_scout.models import (
+            Game, ScopedFieldingFact, SeasonConferenceEvidence,
+            StatisticScope, StatisticScopeGame,
+        )
+
+        expected_constraints = {
+            Game: {
+                "uq_games_snapshot_owner", "fk_games_source_owner",
+                "fk_games_report_conference_owner", "fk_games_opponent_conference_owner",
+                "ck_games_identity_contract",
+            },
+            SeasonConferenceEvidence: {
+                "uq_season_conference_evidence_snapshot_owner",
+                "fk_season_conference_evidence_source_owner",
+            },
+            StatisticScope: {
+                "uq_statistic_scopes_snapshot_owner",
+                "fk_statistic_scopes_schedule_source_owner",
+            },
+            StatisticScopeGame: {
+                "fk_statistic_scope_games_scope_owner",
+                "fk_statistic_scope_games_game_owner",
+            },
+            ScopedFieldingFact: {
+                "fk_scoped_fielding_facts_scope_snapshot_organization",
+                "fk_scoped_fielding_facts_source_identity",
+            },
+        }
+        for model, required in expected_constraints.items():
+            with self.subTest(model=model.__name__):
+                names = {
+                    item.name for item in model.__table__.constraints
+                    if isinstance(item, (CheckConstraint, ForeignKeyConstraint, UniqueConstraint))
+                }
+                names.update(
+                    item.name for item in model.__table__.indexes if isinstance(item, Index)
+                )
+                self.assertTrue(required <= names, required - names)
+
+    def test_game_identity_has_disjoint_source_and_fixture_only_unique_indexes(self):
+        from roster_scout.models import Game
+
+        indexes = {item.name: item for item in Game.__table__.indexes}
+        self.assertEqual(
+            str(indexes["uq_games_snapshot_source_identity"].dialect_options["postgresql"]["where"]),
+            "source_game_id IS NOT NULL",
+        )
+        self.assertIn(
+            "identity_kind = 'fixture_fallback'",
+            str(indexes["uq_games_snapshot_fixture_identity"].dialect_options["postgresql"]["where"]),
+        )
+
+    def test_conference_selector_contains_no_name_or_current_affiliation_fallback(self):
+        source = inspect.getsource(scopes_api().select_conference_games).casefold()
+        self.assertNotIn("conference_name", source)
+        self.assertNotIn("school_name", source)
+        self.assertNotIn("current_conference", source)
+        self.assertIn("conference_evidence_season_id", source)
 
 
 class LastTenScopeTests(unittest.TestCase):
