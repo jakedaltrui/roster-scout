@@ -156,7 +156,7 @@
 | SNAP-01–04, DATA-01–10, OPS-01–02, OPS-04–05 | Phase 1 | Complete |
 | AUTH-01–05, ORG-01–07, SNAP-05–08, SECU-01–05 | Phase 2 | Superseded in part by Phase 02.1 |
 | AUTH-01–02, AUTH-05–06, ORG-01, ORG-06–08, SNAP-05–08, SECU-01–05, OPS-04–05 | Phase 02.1 | Complete |
-| STAT-01–08, SPLT-01–05, HIST-01–06, OPS-03 | Phase 3 | Pending |
+| STAT-01–08, SPLT-01–05, HIST-01–06, OPS-03 | Phase 3 | Complete |
 | XLSX-01–06 | Phase 4 | Pending |
 | SNAP-09, PBI-01–10, SECU-06 | Phase 5 | Pending |
 
