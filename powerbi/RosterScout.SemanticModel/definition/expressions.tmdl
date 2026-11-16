@@ -1,0 +1,5 @@
+expression RosterScoutDatabaseServer = "CONFIGURE_IN_POWER_BI_SERVICE"
+	kind: M
+
+expression RosterScoutDatabaseName = "CONFIGURE_IN_POWER_BI_SERVICE"
+	kind: M

@@ -1,0 +1,30 @@
+table Source
+	column security_key
+		dataType: string
+		sourceColumn: security_key
+	column player_team_season_id
+		dataType: string
+		sourceColumn: player_team_season_id
+	column section
+		dataType: string
+		sourceColumn: section
+	column source_url
+		dataType: string
+		sourceColumn: source_url
+	column source_player_id
+		dataType: string
+		sourceColumn: source_player_id
+	column collected_at
+		dataType: dateTime
+		formatString: General Date
+		sourceColumn: collected_at
+	column parser_version
+		dataType: string
+		sourceColumn: parser_version
+	column schema_version
+		dataType: string
+		sourceColumn: schema_version
+	partition Source = m
+		mode: import
+		source =
+			let SourceDatabase = PostgreSQL.Database(RosterScoutDatabaseServer, RosterScoutDatabaseName), View = SourceDatabase{[Schema="public",Item="pbi_sources"]}[Data] in View

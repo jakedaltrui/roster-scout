@@ -1,0 +1,27 @@
+table 'Game Log'
+	column security_key
+		dataType: string
+		sourceColumn: security_key
+	column player_team_season_id
+		dataType: string
+		sourceColumn: player_team_season_id
+	column game_id
+		dataType: string
+		sourceColumn: game_id
+	column stat_type
+		dataType: string
+		sourceColumn: stat_type
+	column game_date
+		dataType: dateTime
+		formatString: Short Date
+		sourceColumn: game_date
+	column venue
+		dataType: string
+		sourceColumn: venue
+	column result_code
+		dataType: string
+		sourceColumn: result_code
+	partition 'Game Log' = m
+		mode: import
+		source =
+			let Source = PostgreSQL.Database(RosterScoutDatabaseServer, RosterScoutDatabaseName), View = Source{[Schema="public",Item="pbi_game_logs"]}[Data] in View

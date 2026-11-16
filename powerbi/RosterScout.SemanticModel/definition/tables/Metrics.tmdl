@@ -1,0 +1,39 @@
+table Metrics
+	column security_key
+		dataType: string
+		sourceColumn: security_key
+	column player_team_season_id
+		dataType: string
+		sourceColumn: player_team_season_id
+	column statistic_scope_id
+		dataType: string
+		sourceColumn: statistic_scope_id
+	column metric_code
+		dataType: string
+		sourceColumn: metric_code
+	column metric_version
+		dataType: string
+		sourceColumn: metric_version
+	column scope
+		dataType: string
+		sourceColumn: scope
+	column status
+		dataType: string
+		sourceColumn: status
+	column value
+		dataType: decimal
+		sourceColumn: value
+	column reason_code
+		dataType: string
+		sourceColumn: reason_code
+	column unavailable_reason
+		dataType: string
+		sourceColumn: unavailable_reason
+	measure wOBA = CALCULATE(MAX(Metrics[value]), Metrics[metric_code] = "woba", Metrics[status] = "available")
+		formatString: 0.000
+	measure FIP = CALCULATE(MAX(Metrics[value]), Metrics[metric_code] = "fip", Metrics[status] = "available")
+		formatString: 0.00
+	partition Metrics = m
+		mode: import
+		source =
+			let Source = PostgreSQL.Database(RosterScoutDatabaseServer, RosterScoutDatabaseName), View = Source{[Schema="public",Item="pbi_metrics"]}[Data] in View

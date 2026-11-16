@@ -1,0 +1,70 @@
+table Batting
+	column security_key
+		dataType: string
+		sourceColumn: security_key
+	column player_team_season_id
+		dataType: string
+		sourceColumn: player_team_season_id
+	column plate_appearances
+		dataType: int64
+		sourceColumn: plate_appearances
+	column at_bats
+		dataType: int64
+		sourceColumn: at_bats
+	column hits
+		dataType: int64
+		sourceColumn: hits
+	column doubles
+		dataType: int64
+		sourceColumn: doubles
+	column triples
+		dataType: int64
+		sourceColumn: triples
+	column home_runs
+		dataType: int64
+		sourceColumn: home_runs
+	column walks
+		dataType: int64
+		sourceColumn: walks
+	column hit_by_pitch
+		dataType: int64
+		sourceColumn: hit_by_pitch
+	column strikeouts
+		dataType: int64
+		sourceColumn: strikeouts
+	column sacrifice_flies
+		dataType: int64
+		sourceColumn: sacrifice_flies
+	column total_bases
+		dataType: int64
+		sourceColumn: total_bases
+	measure AVG = DIVIDE(SUM(Batting[hits]), SUM(Batting[at_bats]))
+		formatString: 0.000
+	measure OBP = DIVIDE(SUM(Batting[hits]) + SUM(Batting[walks]) + SUM(Batting[hit_by_pitch]), SUM(Batting[at_bats]) + SUM(Batting[walks]) + SUM(Batting[hit_by_pitch]) + SUM(Batting[sacrifice_flies]))
+		formatString: 0.000
+	measure SLG = DIVIDE(SUM(Batting[total_bases]), SUM(Batting[at_bats]))
+		formatString: 0.000
+	measure OPS = [OBP] + [SLG]
+		formatString: 0.000
+	measure ISO = [SLG] - [AVG]
+		formatString: 0.000
+	measure 'BB%' = DIVIDE(SUM(Batting[walks]), SUM(Batting[plate_appearances]))
+		formatString: 0.0%
+	measure 'K%' = DIVIDE(SUM(Batting[strikeouts]), SUM(Batting[plate_appearances]))
+		formatString: 0.0%
+	measure BABIP = DIVIDE(SUM(Batting[hits]) - SUM(Batting[home_runs]), SUM(Batting[at_bats]) - SUM(Batting[strikeouts]) - SUM(Batting[home_runs]) + SUM(Batting[sacrifice_flies]))
+		formatString: 0.000
+	measure 'Dashboard OPS' = IF(ISBLANK(SELECTEDVALUE(Scope[scope_code])), [OPS], 'Scoped Batting'[OPS])
+		formatString: 0.000
+	measure 'Dashboard ISO' = IF(ISBLANK(SELECTEDVALUE(Scope[scope_code])), [ISO], 'Scoped Batting'[ISO])
+		formatString: 0.000
+	measure 'Dashboard BB%' = IF(ISBLANK(SELECTEDVALUE(Scope[scope_code])), [BB%], 'Scoped Batting'[BB%])
+		formatString: 0.0%
+	measure 'Dashboard K%' = IF(ISBLANK(SELECTEDVALUE(Scope[scope_code])), [K%], 'Scoped Batting'[K%])
+		formatString: 0.0%
+	measure 'Dashboard BABIP' = IF(ISBLANK(SELECTEDVALUE(Scope[scope_code])), [BABIP], 'Scoped Batting'[BABIP])
+		formatString: 0.000
+	partition Batting = m
+		mode: import
+		source =
+			let Source = PostgreSQL.Database(RosterScoutDatabaseServer, RosterScoutDatabaseName), View = Source{[Schema="public",Item="pbi_batting"]}[Data] in View

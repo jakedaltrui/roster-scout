@@ -1,0 +1,11 @@
+{
+  "$schema":"https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.9.0/schema.json",
+  "name":"55555555555555555555","position":{"x":24,"y":24,"z":1000,"height":672,"width":1232,"tabOrder":0},
+  "visual":{"visualType":"tableEx","query":{"queryState":{"Values":{"projections":[
+    {"field":{"Column":{"Expression":{"SourceRef":{"Entity":"Player"}},"Property":"display_name"}},"queryRef":"Player.display_name","nativeQueryRef":"Player"},
+    {"field":{"Column":{"Expression":{"SourceRef":{"Entity":"Fielding"}},"Property":"putouts"}},"queryRef":"Fielding.putouts","nativeQueryRef":"PO"},
+    {"field":{"Column":{"Expression":{"SourceRef":{"Entity":"Fielding"}},"Property":"assists"}},"queryRef":"Fielding.assists","nativeQueryRef":"A"},
+    {"field":{"Column":{"Expression":{"SourceRef":{"Entity":"Fielding"}},"Property":"errors"}},"queryRef":"Fielding.errors","nativeQueryRef":"E"},
+    {"field":{"Column":{"Expression":{"SourceRef":{"Entity":"Fielding"}},"Property":"double_plays"}},"queryRef":"Fielding.double_plays","nativeQueryRef":"DP"},
+    {"field":{"Measure":{"Expression":{"SourceRef":{"Entity":"Fielding"}},"Property":"Dashboard Fielding %"}},"queryRef":"Fielding.Dashboard Fielding %","nativeQueryRef":"FLD%"}
+  ]}}},"drillFilterOtherVisuals":true}}

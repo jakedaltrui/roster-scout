@@ -1,0 +1,37 @@
+table Snapshot
+	column organization_id
+		dataType: string
+		sourceColumn: organization_id
+	column snapshot_id
+		dataType: string
+		sourceColumn: snapshot_id
+	column security_key
+		dataType: string
+		sourceColumn: security_key
+	column report_id
+		dataType: string
+		sourceColumn: report_id
+	column opponent_name
+		dataType: string
+		sourceColumn: opponent_name
+	column division
+		dataType: string
+		sourceColumn: division
+	column season_year
+		dataType: int64
+		sourceColumn: season_year
+	column snapshot_status
+		dataType: string
+		sourceColumn: snapshot_status
+	column source_collected_at
+		dataType: dateTime
+		formatString: General Date
+		sourceColumn: source_collected_at
+	column published_at
+		dataType: dateTime
+		formatString: General Date
+		sourceColumn: published_at
+	partition Snapshot = m
+		mode: import
+		source =
+			let Source = PostgreSQL.Database(RosterScoutDatabaseServer, RosterScoutDatabaseName), View = Source{[Schema="public",Item="pbi_snapshots"]}[Data] in View

@@ -1,0 +1,10 @@
+{
+  "$schema":"https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.9.0/schema.json",
+  "name":"11111111111111111111","position":{"x":24,"y":32,"z":1000,"height":150,"width":1232,"tabOrder":0},
+  "visual":{"visualType":"cardVisual","query":{"queryState":{"Data":{"projections":[
+    {"field":{"Measure":{"Expression":{"SourceRef":{"Entity":"Batting"}},"Property":"Dashboard OPS"}},"queryRef":"Batting.Dashboard OPS","nativeQueryRef":"OPS"},
+    {"field":{"Measure":{"Expression":{"SourceRef":{"Entity":"Batting"}},"Property":"Dashboard ISO"}},"queryRef":"Batting.Dashboard ISO","nativeQueryRef":"ISO"},
+    {"field":{"Measure":{"Expression":{"SourceRef":{"Entity":"Pitching"}},"Property":"Dashboard ERA"}},"queryRef":"Pitching.Dashboard ERA","nativeQueryRef":"ERA"},
+    {"field":{"Measure":{"Expression":{"SourceRef":{"Entity":"Pitching"}},"Property":"Dashboard WHIP"}},"queryRef":"Pitching.Dashboard WHIP","nativeQueryRef":"WHIP"},
+    {"field":{"Measure":{"Expression":{"SourceRef":{"Entity":"Fielding"}},"Property":"Dashboard Fielding %"}},"queryRef":"Fielding.Dashboard Fielding %","nativeQueryRef":"Fielding %"}
+  ]}}},"drillFilterOtherVisuals":true}}

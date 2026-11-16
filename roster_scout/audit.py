@@ -29,6 +29,7 @@ AUDIT_ACTIONS = frozenset(
         "report.refresh",
         "report.retry",
         "snapshot.access",
+        "dashboard.embed_token",
         "artifact.download",
         "authorization.deny",
     }
@@ -43,6 +44,7 @@ AUDIT_TARGET_TYPES = frozenset(
         "report",
         "job",
         "snapshot",
+        "dashboard",
         "artifact",
         "session",
     }

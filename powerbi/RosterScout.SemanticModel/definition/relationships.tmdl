@@ -1,0 +1,47 @@
+relationship Snapshot_Player
+	fromColumn: Player.security_key
+	toColumn: Snapshot.security_key
+
+relationship Player_Batting
+	fromColumn: Batting.player_team_season_id
+	toColumn: Player.player_team_season_id
+
+relationship Player_Pitching
+	fromColumn: Pitching.player_team_season_id
+	toColumn: Player.player_team_season_id
+
+relationship Player_Fielding
+	fromColumn: Fielding.player_team_season_id
+	toColumn: Player.player_team_season_id
+
+relationship Scope_ScopedBatting
+	fromColumn: 'Scoped Batting'.statistic_scope_id
+	toColumn: Scope.statistic_scope_id
+
+relationship Scope_ScopedPitching
+	fromColumn: 'Scoped Pitching'.statistic_scope_id
+	toColumn: Scope.statistic_scope_id
+
+relationship Scope_ScopedFielding
+	fromColumn: 'Scoped Fielding'.statistic_scope_id
+	toColumn: Scope.statistic_scope_id
+
+relationship Player_ScopedBatting
+	fromColumn: 'Scoped Batting'.player_team_season_id
+	toColumn: Player.player_team_season_id
+
+relationship Player_ScopedPitching
+	fromColumn: 'Scoped Pitching'.player_team_season_id
+	toColumn: Player.player_team_season_id
+
+relationship Player_ScopedFielding
+	fromColumn: 'Scoped Fielding'.player_team_season_id
+	toColumn: Player.player_team_season_id
+
+relationship Player_Career
+	fromColumn: 'Career Season'.player_team_season_id
+	toColumn: Player.player_team_season_id
+
+relationship Player_GameLog
+	fromColumn: 'Game Log'.player_team_season_id
+	toColumn: Player.player_team_season_id

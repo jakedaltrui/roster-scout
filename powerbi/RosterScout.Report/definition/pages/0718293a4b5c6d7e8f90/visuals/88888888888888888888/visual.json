@@ -1,0 +1,10 @@
+{
+  "$schema":"https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.9.0/schema.json",
+  "name":"88888888888888888888","position":{"x":24,"y":24,"z":1000,"height":672,"width":1232,"tabOrder":0},
+  "visual":{"visualType":"tableEx","query":{"queryState":{"Values":{"projections":[
+    {"field":{"Column":{"Expression":{"SourceRef":{"Entity":"Data Quality"}},"Property":"section"}},"queryRef":"Data Quality.section","nativeQueryRef":"Section"},
+    {"field":{"Column":{"Expression":{"SourceRef":{"Entity":"Data Quality"}},"Property":"status"}},"queryRef":"Data Quality.status","nativeQueryRef":"Status"},
+    {"field":{"Column":{"Expression":{"SourceRef":{"Entity":"Data Quality"}},"Property":"row_count"}},"queryRef":"Data Quality.row_count","nativeQueryRef":"Rows"},
+    {"field":{"Column":{"Expression":{"SourceRef":{"Entity":"Data Quality"}},"Property":"collected_at"}},"queryRef":"Data Quality.collected_at","nativeQueryRef":"Collected"},
+    {"field":{"Column":{"Expression":{"SourceRef":{"Entity":"Data Quality"}},"Property":"failure_category"}},"queryRef":"Data Quality.failure_category","nativeQueryRef":"Availability"}
+  ]}}},"drillFilterOtherVisuals":true}}

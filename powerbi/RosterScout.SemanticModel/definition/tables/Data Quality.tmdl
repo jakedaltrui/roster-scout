@@ -1,0 +1,30 @@
+table 'Data Quality'
+	column security_key
+		dataType: string
+		sourceColumn: security_key
+	column section
+		dataType: string
+		sourceColumn: section
+	column status
+		dataType: string
+		sourceColumn: status
+	column row_count
+		dataType: int64
+		sourceColumn: row_count
+	column verified_empty
+		dataType: boolean
+		sourceColumn: verified_empty
+	column collected_at
+		dataType: dateTime
+		formatString: General Date
+		sourceColumn: collected_at
+	column failure_category
+		dataType: string
+		sourceColumn: failure_category
+	column parser_version
+		dataType: string
+		sourceColumn: parser_version
+	partition 'Data Quality' = m
+		mode: import
+		source =
+			let Source = PostgreSQL.Database(RosterScoutDatabaseServer, RosterScoutDatabaseName), View = Source{[Schema="public",Item="pbi_data_quality"]}[Data] in View
