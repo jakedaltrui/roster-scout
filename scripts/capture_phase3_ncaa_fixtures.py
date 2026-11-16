@@ -16,7 +16,10 @@ import shlex
 import subprocess
 import sys
 import tempfile
-from urllib.parse import parse_qs, urlparse
+import time
+from urllib.parse import parse_qs, quote, urlencode, urlparse
+
+import requests
 
 from bs4 import BeautifulSoup
 
@@ -37,6 +40,7 @@ CAPTURE_FAILURE = "phase3_ncaa_capture_unavailable"
 INVALID_FAILURE = "phase3_capture_invalid"
 MAX_RAW_PAGE_BYTES = 2 * 1024 * 1024
 RESULT_CONTRACT_VERSION = "ncaa-split-result-v1"
+SCHEDULE_CONTRACT_VERSION = "ncaa-schedule-v1"
 
 CANONICAL_LABELS = {
     "batting": (
@@ -159,6 +163,12 @@ def build_ncaa_url(season_team_id: str, category_id: str) -> str:
         f"{NCAA_ORIGIN}/teams/{team}/season_to_date_stats"
         f"?year_stat_category_id={category}"
     )
+
+
+def build_schedule_url(team_id: str, season_id: str) -> str:
+    team = _numeric(team_id, "team ID")
+    season = _numeric(season_id, "season ID")
+    return f"{NCAA_ORIGIN}/team/{team}/{season}"
 
 
 def validate_capture_request(
@@ -491,7 +501,10 @@ def _bounded_fetch(
         parsed = urlparse(url)
         if parsed.scheme != "https" or parsed.netloc != "stats.ncaa.org":
             raise ValueError("capture source host is not approved")
-        if not re.fullmatch(r"/teams/\d+/season_to_date_stats", parsed.path):
+        if not (
+            re.fullmatch(r"/teams/\d+/season_to_date_stats", parsed.path)
+            or re.fullmatch(r"/team/\d+/\d+", parsed.path)
+        ):
             raise ValueError("capture source path is not approved")
 
     import roster_scraper as rs
@@ -1066,6 +1079,384 @@ def capture_split_results(
     return bundle
 
 
+def _catalog_rows_for_season(season_id: str) -> tuple[dict, ...]:
+    import roster_scraper as rs
+
+    required = {
+        "team_id", "team_name", "team_url", "conference_id", "conference",
+        "division", "year", "season_id", "season_team_id",
+    }
+    rows = []
+    for source in rs._load_ncaa_team_rows():
+        if source.get("season_id") != season_id:
+            continue
+        if not required <= set(source):
+            raise CaptureUnavailable(CAPTURE_FAILURE, stage="schedule_catalog_schema")
+        row = {key: str(source.get(key) or "").strip() for key in required}
+        if any(not row[key].isdigit() for key in (
+            "team_id", "division", "season_id", "season_team_id"
+        )) or (row["conference_id"] and not row["conference_id"].isdigit()):
+            continue
+        rows.append(row)
+    if not rows:
+        raise CaptureUnavailable(CAPTURE_FAILURE, stage="schedule_catalog_empty")
+    return tuple(rows)
+
+
+def _schedule_headers(table) -> tuple[list[str], object]:
+    header_rows = table.select("thead tr")
+    header = header_rows[-1] if header_rows else table.find("tr")
+    if header is None:
+        return [], None
+    headers = [
+        re.sub(r"\s+", " ", cell.get_text(" ", strip=True)).casefold()
+        for cell in header.find_all(["th", "td"], recursive=False)
+    ]
+    return headers, header
+
+
+def _schedule_table(raw_html: str):
+    soup = BeautifulSoup(raw_html, "html.parser")
+    candidates = []
+    for table in soup.find_all("table"):
+        headers, header = _schedule_headers(table)
+        if "date" in headers and ({"opponent", "result"} & set(headers)):
+            candidates.append((table, headers, header))
+    if len(candidates) != 1:
+        raise CaptureUnavailable(CAPTURE_FAILURE, stage="schedule_table")
+    return candidates[0]
+
+
+def _bounded_schedule_fetch(source_url: str, limits: CaptureLimits) -> str:
+    """Fetch one schedule in the configured Browserless session without a stat-grid gate."""
+    _validate_browserless_configuration()
+    parsed = urlparse(source_url)
+    if (
+        parsed.scheme != "https"
+        or parsed.netloc != "stats.ncaa.org"
+        or not re.fullmatch(r"/team/\d+/\d+", parsed.path)
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("schedule source is not approved")
+    token = os.environ["BROWSERLESS_TOKEN"]
+    endpoint = os.environ.get(
+        "BROWSERLESS_UNBLOCK_ENDPOINT",
+        "https://production-sfo.browserless.io/chromium/unblock",
+    )
+    timeout_ms = min(limits.timeout_seconds * 1000, 120000)
+    query = urlencode({
+        "token": token,
+        "proxy": os.environ.get("BROWSERLESS_PROXY", "residential"),
+        "proxyCountry": os.environ.get("BROWSERLESS_PROXY_COUNTRY", "us"),
+        "proxySticky": "true",
+        "timeout": str(timeout_ms),
+        "emulationOs": os.environ.get("BROWSERLESS_EMULATION_OS", "windows"),
+    })
+    browser = None
+    playwright = None
+    try:
+        response = requests.post(
+            f"{endpoint}?{query}",
+            json={
+                "url": source_url,
+                "browserWSEndpoint": True,
+                "cookies": True,
+                "content": True,
+                "screenshot": False,
+                "ttl": 60000,
+            },
+            timeout=(timeout_ms / 1000) + 30,
+        )
+        if response.status_code != 200:
+            raise CaptureUnavailable(CAPTURE_FAILURE, stage="schedule_session")
+        ws_endpoint = response.json()["browserWSEndpoint"]
+        from patchright.sync_api import sync_playwright
+        import roster_scraper as rs
+        from usage_limits import browserless_slot
+
+        with browserless_slot():
+            playwright = sync_playwright().start()
+            authenticated_ws = (
+                ws_endpoint
+                + ("&" if "?" in ws_endpoint else "?")
+                + "token="
+                + quote(token, safe="")
+            )
+            browser = playwright.chromium.connect_over_cdp(
+                authenticated_ws, timeout=30000
+            )
+            pages = [page for context in browser.contexts for page in context.pages]
+            if not pages:
+                raise CaptureUnavailable(CAPTURE_FAILURE, stage="schedule_page")
+            page = next(
+                (candidate for candidate in pages if "stats.ncaa.org" in candidate.url),
+                pages[0],
+            )
+            rs._accept_ncaa_terms(page, source_url)
+            deadline = time.monotonic() + min(limits.timeout_seconds, 45)
+            content = ""
+            while time.monotonic() < deadline:
+                content = page.content()
+                try:
+                    _schedule_table(content)
+                    break
+                except CaptureUnavailable:
+                    page.wait_for_timeout(1000)
+            _schedule_table(content)
+            return content
+    except CaptureUnavailable:
+        raise
+    except Exception as exc:
+        raise CaptureUnavailable(CAPTURE_FAILURE, stage="schedule_fetch") from exc
+    finally:
+        try:
+            if browser is not None:
+                try:
+                    browser.new_browser_cdp_session().send("Browser.close")
+                finally:
+                    browser.close()
+        finally:
+            if playwright is not None:
+                playwright.stop()
+
+
+def _catalog_identity_from_href(href: str, catalog: tuple[dict, ...]) -> dict | None:
+    parsed = urlparse(href)
+    if parsed.scheme or parsed.netloc or parsed.query or parsed.fragment:
+        raise CaptureUnavailable(CAPTURE_FAILURE, stage="schedule_opponent_path")
+    season_match = re.fullmatch(r"/teams/(\d+)", parsed.path)
+    stable_match = re.fullmatch(r"/team/(\d+)(?:/\d+)?", parsed.path)
+    if season_match:
+        matches = [row for row in catalog if row["season_team_id"] == season_match.group(1)]
+    elif stable_match:
+        matches = [row for row in catalog if row["team_id"] == stable_match.group(1)]
+    else:
+        return None
+    return matches[0] if len(matches) == 1 else None
+
+
+def _schedule_date(value: str, *, season_year: int) -> str:
+    text = re.sub(r"\s+", " ", value).strip()
+    for pattern in ("%m/%d/%Y", "%m/%d/%y", "%m/%d"):
+        try:
+            parsed = datetime.strptime(text[:10], pattern)
+            if pattern == "%m/%d":
+                parsed = parsed.replace(year=season_year)
+            return parsed.date().isoformat()
+        except ValueError:
+            continue
+    raise CaptureUnavailable(CAPTURE_FAILURE, stage="schedule_date")
+
+
+def _contest_id_from_row(row) -> str | None:
+    identifiers = set()
+    for link in row.find_all("a", href=True):
+        parsed = urlparse(link.get("href", ""))
+        if parsed.scheme or parsed.netloc:
+            continue
+        match = re.search(r"/(?:contests?|game)/(\d+)(?:/|$)", parsed.path)
+        if match:
+            identifiers.add(match.group(1))
+    if len(identifiers) > 1:
+        raise CaptureUnavailable(CAPTURE_FAILURE, stage="schedule_contest_identity")
+    return next(iter(identifiers), None)
+
+
+def sanitize_schedule(
+    raw_html: str,
+    *,
+    season_id: str,
+    team_id: str,
+    season_team_id: str,
+    division: str,
+    catalog: tuple[dict, ...],
+    captured_at: str,
+) -> str:
+    if not isinstance(raw_html, str) or len(raw_html.encode("utf-8")) > MAX_RAW_PAGE_BYTES:
+        raise CaptureUnavailable(CAPTURE_FAILURE, stage="schedule_payload")
+    season = _numeric(season_id, "season ID")
+    stable_team = _numeric(team_id, "team ID")
+    season_team = _numeric(season_team_id, "season team ID")
+    report_matches = [
+        row for row in catalog
+        if row["team_id"] == stable_team and row["season_team_id"] == season_team
+    ]
+    if len(report_matches) != 1:
+        raise CaptureUnavailable(CAPTURE_FAILURE, stage="schedule_report_team")
+    report_team = report_matches[0]
+    if report_team["division"] != str(division).lower().removeprefix("d"):
+        raise CaptureUnavailable(CAPTURE_FAILURE, stage="schedule_division")
+    table, headers, header_row = _schedule_table(raw_html)
+    date_index = headers.index("date")
+    opponent_index = headers.index("opponent") if "opponent" in headers else None
+    result_index = headers.index("result") if "result" in headers else None
+    if opponent_index is None:
+        raise CaptureUnavailable(CAPTURE_FAILURE, stage="schedule_headers")
+    games = []
+    year = int(report_team["year"])
+    for row in table.find_all("tr"):
+        if row is header_row or "grey_heading" in (row.get("class") or []):
+            continue
+        cells = row.find_all(["th", "td"], recursive=False)
+        if not cells or len(cells) < max(date_index, opponent_index, result_index or 0) + 1:
+            continue
+        date_text = cells[date_index].get_text(" ", strip=True)
+        if not date_text:
+            continue
+        game_date = _schedule_date(date_text, season_year=year)
+        opponent_cell = cells[opponent_index]
+        opponent = None
+        for link in opponent_cell.find_all("a", href=True):
+            opponent = _catalog_identity_from_href(link.get("href", ""), catalog)
+            if opponent is not None:
+                break
+        result_text = (
+            cells[result_index].get_text(" ", strip=True)
+            if result_index is not None else ""
+        )
+        normalized_result = re.sub(r"\s+", " ", result_text).strip()
+        lowered = normalized_result.casefold()
+        if lowered in {"canceled", "cancelled"}:
+            status = "canceled"
+        elif lowered in {"ppd", "postponed"}:
+            status = "postponed"
+        elif lowered in {"no contest", "no-contest"}:
+            status = "no_contest"
+        elif re.match(r"^[wlt]\b", lowered):
+            status = "completed"
+        elif normalized_result:
+            status = "scheduled"
+        else:
+            status = "scheduled"
+        contest_id = _contest_id_from_row(row)
+        if status == "completed" and contest_id is None:
+            raise CaptureUnavailable(CAPTURE_FAILURE, stage="schedule_completed_identity")
+        opponent_text = re.sub(r"\s+", " ", opponent_cell.get_text(" ", strip=True)).strip()
+        venue = "away" if opponent_text.startswith("@") else "home"
+        games.append({
+            "source_game_id": contest_id,
+            "date": game_date,
+            "opponent_team_id": opponent["team_id"] if opponent else "",
+            "opponent_season_team_id": opponent["season_team_id"] if opponent else "",
+            "opponent_conference_id": opponent["conference_id"] if opponent else "",
+            "opponent_identity": "present" if opponent else "source_absent",
+            "opponent_ordinal_key": (
+                opponent["season_team_id"] if opponent
+                else hashlib.sha256(opponent_text.encode("utf-8")).hexdigest()
+            ),
+            "status": status,
+            "venue": venue,
+            "result_checksum": hashlib.sha256(normalized_result.encode("utf-8")).hexdigest(),
+        })
+    if not games:
+        raise CaptureUnavailable(CAPTURE_FAILURE, stage="schedule_empty")
+    ordinal_counts = {}
+    for game in games:
+        key = (game["date"], game["opponent_ordinal_key"])
+        ordinal_counts[key] = ordinal_counts.get(key, 0) + 1
+        game["doubleheader_ordinal"] = ordinal_counts[key]
+    source_path = f"/team/{stable_team}/{season}"
+    attrs = {
+        "data-captured-at": captured_at,
+        "data-division": f"d{report_team['division']}",
+        "data-schedule-complete": "true",
+        "data-schedule-contract-version": SCHEDULE_CONTRACT_VERSION,
+        "data-season-id": season,
+        "data-season-team-id": season_team,
+        "data-source-path": source_path,
+        "data-source-payload-sha256": hashlib.sha256(raw_html.encode("utf-8")).hexdigest(),
+        "data-team-conference-id": report_team["conference_id"],
+        "data-team-id": stable_team,
+    }
+    attr_text = " ".join(
+        f'{key}="{html_module.escape(value, quote=True)}"'
+        for key, value in sorted(attrs.items())
+    )
+    lines = [f"<schedule-evidence {attr_text}>"]
+    for game in games:
+        game_attrs = {
+            "data-date": game["date"],
+            "data-doubleheader-ordinal": str(game["doubleheader_ordinal"]),
+            "data-conference-evidence": (
+                "present" if game["opponent_conference_id"] else "source_absent"
+            ),
+            "data-opponent-identity": game["opponent_identity"],
+            "data-result-sha256": game["result_checksum"],
+            "data-status": game["status"],
+            "data-venue": game["venue"],
+        }
+        if game["opponent_conference_id"]:
+            game_attrs["data-opponent-conference-id"] = game["opponent_conference_id"]
+        if game["opponent_season_team_id"]:
+            game_attrs["data-opponent-season-team-id"] = game["opponent_season_team_id"]
+        if game["opponent_team_id"]:
+            game_attrs["data-opponent-team-id"] = game["opponent_team_id"]
+        if game["source_game_id"] is not None:
+            game_attrs["data-source-game-id"] = game["source_game_id"]
+        game_text = " ".join(
+            f'{key}="{html_module.escape(value, quote=True)}"'
+            for key, value in sorted(game_attrs.items())
+        )
+        lines.append(f"  <game {game_text}></game>")
+    lines.append("</schedule-evidence>")
+    return "\n".join(lines) + "\n"
+
+
+def capture_schedule(
+    *,
+    season_id: str,
+    season_team_id: str,
+    division: str,
+    output_dir: str | Path,
+    limits: CaptureLimits | None = None,
+    write: bool = True,
+) -> dict:
+    try:
+        request = validate_capture_request(
+            season_id=season_id,
+            season_team_id=season_team_id,
+            division=division,
+            output_dir=output_dir,
+            limits=limits or CaptureLimits(max_pages=1),
+        )
+    except Exception as exc:
+        raise CaptureUnavailable(CAPTURE_FAILURE, stage="schedule_request") from exc
+    try:
+        catalog = _catalog_rows_for_season(request.season_id)
+    except CaptureUnavailable:
+        raise
+    except Exception as exc:
+        raise CaptureUnavailable(CAPTURE_FAILURE, stage="schedule_catalog") from exc
+    report_rows = [row for row in catalog if row["season_team_id"] == request.season_team_id]
+    if len(report_rows) != 1:
+        raise CaptureUnavailable(CAPTURE_FAILURE, stage="schedule_report_identity")
+    report_team = report_rows[0]
+    source_url = build_schedule_url(report_team["team_id"], request.season_id)
+    raw_schedule = _bounded_schedule_fetch(source_url, request.limits)
+    captured_at = datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+    try:
+        content = sanitize_schedule(
+            raw_schedule,
+            season_id=request.season_id,
+            team_id=report_team["team_id"],
+            season_team_id=request.season_team_id,
+            division=request.division,
+            catalog=catalog,
+            captured_at=captured_at,
+        )
+    except CaptureUnavailable:
+        raise
+    except Exception as exc:
+        raise CaptureUnavailable(CAPTURE_FAILURE, stage="schedule_sanitize") from exc
+    if len(content.encode("utf-8")) > request.limits.max_output_bytes:
+        raise CaptureUnavailable(CAPTURE_FAILURE, stage="schedule_output")
+    bundle = {"schedule.html": content}
+    if write:
+        _atomic_write(request.output_dir / "schedule.html", content)
+    return bundle
+
+
 def _remote_command(args: argparse.Namespace) -> list[str]:
     command = ["python", "-", "--remote-worker"]
     if args.preflight:
@@ -1079,13 +1470,22 @@ def _remote_command(args: argparse.Namespace) -> list[str]:
             "--controls-only",
             "--bundle-stdout",
         ])
-    else:
+    elif args.capture_split_results:
         command.extend([
             "--season-id", args.season_id,
             "--season-team-id", args.season_team_id,
             "--division", args.division,
             "--output-dir", args.output_dir,
             "--capture-split-results",
+            "--bundle-stdout",
+        ])
+    else:
+        command.extend([
+            "--season-id", args.season_id,
+            "--season-team-id", args.season_team_id,
+            "--division", args.division,
+            "--output-dir", args.output_dir,
+            "--capture-schedule",
             "--bundle-stdout",
         ])
     return command
@@ -1148,7 +1548,17 @@ def _run_on_existing_fly_runtime(args: argparse.Namespace) -> int:
     except Exception:
         raise CaptureUnavailable(PREFLIGHT_FAILURE if args.preflight else CAPTURE_FAILURE)
     if result.returncode != 0:
-        raise CaptureUnavailable(PREFLIGHT_FAILURE if args.preflight else CAPTURE_FAILURE)
+        stage = None
+        match = re.search(
+            rf"(?:{PREFLIGHT_FAILURE}|{CAPTURE_FAILURE}):([a-z0-9_]+)",
+            result.stderr,
+        )
+        if match:
+            stage = match.group(1)
+        raise CaptureUnavailable(
+            PREFLIGHT_FAILURE if args.preflight else CAPTURE_FAILURE,
+            stage=stage,
+        )
     if args.preflight:
         if result.stdout.strip() != "phase3_browserless_ready":
             raise CaptureUnavailable(PREFLIGHT_FAILURE)
@@ -1156,11 +1566,12 @@ def _run_on_existing_fly_runtime(args: argparse.Namespace) -> int:
         return 0
     try:
         bundle = json.loads(result.stdout)
-        expected_files = (
-            {"batting_split_result.html", "pitching_split_result.html"}
-            if args.capture_split_results
-            else {"fixture_manifest.json", "split_controls.html"}
-        )
+        if args.capture_split_results:
+            expected_files = {"batting_split_result.html", "pitching_split_result.html"}
+        elif args.capture_schedule:
+            expected_files = {"schedule.html"}
+        else:
+            expected_files = {"fixture_manifest.json", "split_controls.html"}
         if set(bundle) != expected_files:
             raise ValueError
         request = validate_capture_request(
@@ -1188,6 +1599,7 @@ def _parser() -> SafeArgumentParser:
     parser.add_argument("--output-dir")
     parser.add_argument("--controls-only", action="store_true")
     parser.add_argument("--capture-split-results", action="store_true")
+    parser.add_argument("--capture-schedule", action="store_true")
     parser.add_argument("--remote-worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--bundle-stdout", action="store_true", help=argparse.SUPPRESS)
     return parser
@@ -1211,15 +1623,22 @@ def run(args: argparse.Namespace) -> int:
         print("phase3_browserless_ready")
         return 0
 
-    if args.controls_only and args.capture_split_results:
+    if sum(bool(value) for value in (
+        args.controls_only, args.capture_split_results, args.capture_schedule
+    )) > 1:
         raise ValueError("capture modes are mutually exclusive")
-    if not args.controls_only and not args.capture_split_results:
+    if not any((args.controls_only, args.capture_split_results, args.capture_schedule)):
         raise ValueError("capture mode is required")
     if not all((args.season_id, args.season_team_id, args.division, args.output_dir)):
         raise ValueError("capture identity is incomplete")
     if _should_use_fly(args):
         return _run_on_existing_fly_runtime(args)
-    capture = capture_controls if args.controls_only else capture_split_results
+    if args.controls_only:
+        capture = capture_controls
+    elif args.capture_split_results:
+        capture = capture_split_results
+    else:
+        capture = capture_schedule
     bundle = capture(
         season_id=args.season_id,
         season_team_id=args.season_team_id,
@@ -1243,10 +1662,16 @@ def main(argv: list[str] | None = None) -> int:
         category = str(exc)
         if category not in {PREFLIGHT_FAILURE, CAPTURE_FAILURE}:
             category = CAPTURE_FAILURE
-        print(category, file=sys.stderr)
+        if args.remote_worker and exc.stage:
+            print(f"{category}:{exc.stage}", file=sys.stderr)
+        else:
+            print(category, file=sys.stderr)
         return 1
     except Exception:
-        print(CAPTURE_FAILURE, file=sys.stderr)
+        if "args" in locals() and args.remote_worker:
+            print(f"{CAPTURE_FAILURE}:unexpected", file=sys.stderr)
+        else:
+            print(CAPTURE_FAILURE, file=sys.stderr)
         return 1
 
 
