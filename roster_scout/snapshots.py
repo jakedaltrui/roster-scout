@@ -84,6 +84,12 @@ def _validate_computed_game_scopes(session, snapshot, by_name):
             SourceRecord.section == "schedule",
         )
     )
+    if schedule.status not in {"complete", "partial"}:
+        if schedule.row_count or schedule_source_count or scopes or not schedule.failure_category:
+            raise SnapshotPublicationError(
+                "unavailable schedule contains contradictory evidence"
+            )
+        return scopes
     if schedule.row_count != schedule_source_count or schedule_source_count == 0:
         raise SnapshotPublicationError("schedule row/source parity failed")
     expected = {
@@ -594,6 +600,7 @@ def publish_snapshot(session, snapshot_id):
                 select(func.count()).select_from(fact_model).where(
                     fact_model.snapshot_id == snapshot.id,
                     fact_model.organization_id == snapshot.organization_id,
+                    fact_model.statistic_scope_id.in_([scope.id for scope in scopes]),
                 )
             )
             metric_count = session.scalar(
@@ -634,6 +641,7 @@ def publish_snapshot(session, snapshot_id):
                 .where(
                     fact_model.snapshot_id == snapshot.id,
                     fact_model.organization_id == snapshot.organization_id,
+                    StatisticScope.scope_kind == "source_split",
                     StatisticScope.status == "complete",
                 )
             )
@@ -708,10 +716,15 @@ def publish_snapshot(session, snapshot_id):
     if conflict is not None:
         raise SnapshotPublicationError("snapshot contains an identity conflict")
 
-    missing_required_split_family = bool(request_ledgers) and (
-        present_split_sections != split_section_names
+    required_phase3_sections = split_section_names | {
+        "schedule", "game_logs:batting", "game_logs:pitching",
+        "game_logs:fielding", "history:batting", "history:pitching",
+        "history:fielding",
+    }
+    missing_required_phase3_family = bool(request_ledgers) and not (
+        required_phase3_sections <= set(by_name)
     )
-    supplemental_incomplete = missing_required_split_family or any(
+    supplemental_incomplete = missing_required_phase3_family or any(
         not section.critical and section.status != "complete" for section in sections
     ) or any(scope.status != "complete" for scope in computed_scopes) or any(
         item.outcome in {"live_failed", "budget_exhausted", "capacity_exhausted"}

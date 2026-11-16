@@ -2721,6 +2721,113 @@ def collect_ncaa_split_results(
     )
 
 
+def collect_ncaa_schedule_evidence(
+    season_team_id: str,
+    *,
+    division=None,
+    year: int | None = None,
+):
+    """Collect and validate the current team's bounded full-season schedule."""
+    from scripts.capture_phase3_ncaa_fixtures import (
+        CaptureLimits,
+        _bounded_schedule_fetch,
+        _catalog_rows_for_season,
+        build_schedule_url,
+        sanitize_schedule,
+    )
+    from roster_scout.ncaa_detail import parse_schedule_fixture
+
+    year = year or _current_ncaa_year()
+    team = _find_ncaa_team_by_season_id(
+        season_team_id, division=division, year=year
+    )
+    season = _find_ncaa_season(year)
+    season_id = str(team.get("season_id") or season["id"])
+    catalog = _catalog_rows_for_season(season_id)
+    source_url = build_schedule_url(str(team["team_id"]), season_id)
+    raw_html = _bounded_schedule_fetch(source_url, CaptureLimits(max_pages=1))
+    captured_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace(
+        "+00:00", "Z"
+    )
+    sanitized = sanitize_schedule(
+        raw_html,
+        season_id=season_id,
+        team_id=str(team["team_id"]),
+        season_team_id=str(team["season_team_id"]),
+        division=str(team["division"]),
+        catalog=catalog,
+        captured_at=captured_at,
+    )
+    return parse_schedule_fixture(
+        sanitized,
+        expected_season_id=season_id,
+        expected_team_id=str(team["team_id"]),
+        expected_season_team_id=str(team["season_team_id"]),
+        expected_division=str(team["division"]),
+    )
+
+
+def collect_ncaa_player_detail_evidence(
+    season_team_id: str,
+    source_player_id: str,
+    *,
+    division=None,
+    year: int | None = None,
+):
+    """Collect one stable player's three typed history pages as one contract."""
+    from scripts.capture_phase3_ncaa_fixtures import (
+        CaptureLimits,
+        _bounded_player_fetch,
+        sanitize_player_detail,
+    )
+    from roster_scout.ncaa_detail import (
+        build_player_detail_url,
+        parse_player_detail_fixture,
+    )
+
+    player_id = str(source_player_id or "")
+    if not player_id.isdigit():
+        raise ValueError("player detail requires a stable numeric player ID")
+    year = year or _current_ncaa_year()
+    team = _find_ncaa_team_by_season_id(
+        season_team_id, division=division, year=year
+    )
+    season = _find_ncaa_season(year)
+    season_id = str(team.get("season_id") or season["id"])
+    categories = {
+        "batting": str(season["batting_id"]),
+        "pitching": str(season["pitching_id"]),
+        "fielding": str(season.get("fielding_id") or ""),
+    }
+    if any(not value.isdigit() for value in categories.values()):
+        raise NcaaError("NCAA player-detail categories are incomplete.")
+    urls = {
+        stat_type: build_player_detail_url(player_id, category_id)
+        for stat_type, category_id in categories.items()
+    }
+    pages = _bounded_player_fetch(urls, player_id, CaptureLimits(max_pages=3))
+    captured_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace(
+        "+00:00", "Z"
+    )
+    sanitized = sanitize_player_detail(
+        pages,
+        player_id=player_id,
+        season_id=season_id,
+        season_team_id=str(team["season_team_id"]),
+        season_year=year,
+        division=str(team["division"]),
+        categories=categories,
+        captured_at=captured_at,
+    )
+    return parse_player_detail_fixture(
+        sanitized,
+        expected_player_id=player_id,
+        expected_season_id=season_id,
+        expected_season_team_id=str(team["season_team_id"]),
+        expected_division=str(team["division"]),
+    )
+
+
 def scrape_ncaa_by_name(
     team_name: str,
     division=None,

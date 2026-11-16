@@ -17,13 +17,18 @@ from usage_limits import BrowserCapacityExceeded
 
 from .database import session_advisory_lock
 from .models import (
+    BattingGameLogFact,
     BattingFact,
+    CareerAggregate,
+    CareerSeasonFact,
     FieldingFact,
+    FieldingGameLogFact,
     Game,
     MetricConstantSet,
     MetricDefinition,
     MetricValue,
     PitchingFact,
+    PitchingGameLogFact,
     Player,
     PlayerTeamSeason,
     Report,
@@ -335,6 +340,97 @@ class CollectedGameFact:
     stat_type: str
     counts: dict
     link_status: str = "linked"
+
+
+def to_collected_history_sections(
+    details,
+    schedule,
+    *,
+    source_team_id,
+    unavailable_player_count=0,
+    complete=True,
+):
+    """Adapt parsed player detail into durable source rows and scoped game facts."""
+    from .canonical import canonicalize_player_history
+    from .metrics import METRIC_DEFINITIONS
+
+    typed_rows = {name: [] for name in ("batting", "pitching", "fielding")}
+    game_facts = []
+    statuses = []
+    for detail in details:
+        canonical = canonicalize_player_history(detail, schedule.games)
+        statuses.append(canonical.completeness["status"])
+        for row in canonical.career_seasons:
+            typed_rows[row.stat_type].append({
+                "row_kind": "career_season",
+                "row_id": row.row_id,
+                "season_label": row.season_label,
+                "source_season_id": row.source_season_id,
+                "school_name": row.school_name,
+                "source_season_team_id": row.source_season_team_id,
+                "division": row.division,
+                "source_stat_category_id": row.source_stat_category_id,
+                "counts": dict(row.counts),
+                "rates": {key: str(value) for key, value in row.rates.items()},
+                "_player_id": row.source_player_id,
+                "_payload_sha256": row.source_payload_sha256,
+            })
+        for linked in canonical.game_logs:
+            row = linked.row
+            typed_rows[row.stat_type].append({
+                "row_kind": "game_log",
+                "row_id": row.row_id,
+                "source_game_id": row.source_game_id,
+                "game_date": row.game_date.isoformat(),
+                "opponent_label": row.opponent_label,
+                "opponent_season_team_id": row.opponent_season_team_id,
+                "source_season_id": row.source_season_id,
+                "source_stat_category_id": row.source_stat_category_id,
+                "counts": dict(row.counts),
+                "rates": {key: str(value) for key, value in row.rates.items()},
+                "link_status": linked.link_status,
+                "_player_id": row.source_player_id,
+                "_payload_sha256": row.source_payload_sha256,
+            })
+            game_facts.append(CollectedGameFact(
+                fact_id=row.row_id,
+                source_game_id=row.source_game_id,
+                source_player_id=row.source_player_id,
+                stat_type=row.stat_type,
+                counts={
+                    key: value for key, value in row.counts.items()
+                    if key not in METRIC_DEFINITIONS
+                },
+                link_status=linked.link_status,
+            ))
+    fully_complete = complete and unavailable_player_count == 0 and all(
+        status == "complete" for status in statuses
+    )
+    collected_at = min(
+        (detail.collected_at for detail in details), default=schedule.collected_at
+    )
+    sections = tuple(
+        CollectedSection(
+            name=f"history:{stat_type}",
+            critical=False,
+            rows=tuple(rows),
+            verified_empty=fully_complete and not rows,
+            source_url=f"https://stats.ncaa.org/teams/{schedule.source_season_team_id}",
+            source_team_id=str(source_team_id),
+            source_season_id=schedule.source_season_id,
+            source_season_team_id=schedule.source_season_team_id,
+            source_stat_category_id=f"history:{stat_type}",
+            collected_at=collected_at,
+            status="complete" if fully_complete else "partial",
+            failure_category=(
+                None if fully_complete else
+                "missing_stable_player_id" if unavailable_player_count
+                else "player_history_incomplete"
+            ),
+        )
+        for stat_type, rows in typed_rows.items()
+    )
+    return sections, tuple(game_facts)
 
 
 def to_collected_schedule_sections(
@@ -1312,7 +1408,11 @@ def _persist_sections(session, job, snapshot, sections):
                     source_payload_sha256=scope.source_payload_sha256,
                 ))
 
-        if (collected.status != "complete" and not collected.scopes) or not collected.rows:
+        if (
+            collected.status != "complete"
+            and not collected.scopes
+            and not collected.name.startswith("history:")
+        ) or not collected.rows:
             continue
         for ordinal, row in enumerate(collected.rows):
             raw_values, payload_sha256 = _source_row_values(collected, row)
@@ -1773,6 +1873,134 @@ def _persist_canonical(session, job, snapshot, sections):
                 ))
 
     _persist_schedule_scopes(session, job, snapshot, sections, identities)
+    _persist_player_history(session, job, snapshot, sections, identities)
+
+
+def _persist_player_history(session, job, snapshot, sections, identities):
+    """Persist career, aggregate, and exact-game drill rows from detail evidence."""
+    from types import SimpleNamespace
+    from .ncaa_detail import aggregate_career_seasons
+
+    history_names = {
+        f"history:{stat_type}" for stat_type in ("batting", "pitching", "fielding")
+    }
+    if not history_names.intersection(item.name for item in sections):
+        return
+    identity_by_source = {
+        player.source_player_id: identity
+        for identity in identities.values()
+        for player in (session.get(Player, identity.player_id),)
+        if player is not None and player.source_player_id
+    }
+    games_by_source = {
+        game.source_game_id: game for game in session.scalars(select(Game).where(
+            Game.snapshot_id == snapshot.id,
+            Game.organization_id == job.organization_id,
+            Game.source_game_id.is_not(None),
+        ))
+    }
+    career_by_player_type = {}
+    game_models = {
+        "batting": (BattingGameLogFact, (
+            "at_bats", "hits", "runs", "home_runs", "walks", "strikeouts",
+        )),
+        "pitching": (PitchingGameLogFact, (
+            "innings_outs", "hits_allowed", "runs_allowed", "earned_runs",
+            "walks", "strikeouts", "batters_faced",
+        )),
+        "fielding": (FieldingGameLogFact, (
+            "putouts", "assists", "errors", "total_chances", "passed_balls",
+            "stolen_base_attempts", "caught_stealing_by",
+        )),
+    }
+    for source in session.scalars(select(SourceRecord).where(
+        SourceRecord.snapshot_id == snapshot.id,
+        SourceRecord.organization_id == job.organization_id,
+        SourceRecord.section.in_(tuple(history_names)),
+    ).order_by(SourceRecord.section, SourceRecord.row_ordinal)):
+        stat_type = source.section.removeprefix("history:")
+        values = source.raw_values
+        identity = identity_by_source.get(source.source_player_id)
+        if identity is None or stat_type not in game_models:
+            raise DeterministicJobError("schema_validation")
+        source.player_team_season_id = identity.id
+        session.flush()
+        counts = values.get("counts")
+        rates = values.get("rates")
+        if not isinstance(counts, dict) or not isinstance(rates, dict):
+            raise DeterministicJobError("schema_validation")
+        if values.get("row_kind") == "career_season":
+            row = SimpleNamespace(
+                row_id=values["row_id"],
+                stat_type=stat_type,
+                source_season_team_id=values.get("source_season_team_id"),
+                division=values.get("division"),
+                source_season_id=values.get("source_season_id"),
+                counts=counts,
+            )
+            career_by_player_type.setdefault((identity.id, stat_type), []).append(row)
+            session.add(CareerSeasonFact(
+                organization_id=job.organization_id,
+                snapshot_id=snapshot.id,
+                player_team_season_id=identity.id,
+                source_record_id=source.id,
+                row_id=values["row_id"],
+                stat_type=stat_type,
+                season_label=values["season_label"],
+                source_season_id=values.get("source_season_id"),
+                school_name=values["school_name"],
+                source_season_team_id=values.get("source_season_team_id"),
+                division=values.get("division"),
+                source_stat_category_id=values["source_stat_category_id"],
+                counts_json=counts,
+                rates_json=rates,
+                **{key: counts.get(key) for key in (
+                    "at_bats", "hits", "innings_outs", "earned_runs", "putouts",
+                    "assists", "errors", "total_chances",
+                )},
+            ))
+        elif values.get("row_kind") == "game_log":
+            if values.get("link_status") != "linked":
+                continue
+            game = games_by_source.get(values.get("source_game_id"))
+            if game is None:
+                raise DeterministicJobError("schema_validation")
+            model, columns = game_models[stat_type]
+            session.add(model(
+                organization_id=job.organization_id,
+                snapshot_id=snapshot.id,
+                player_team_season_id=identity.id,
+                source_record_id=source.id,
+                game_id=game.id,
+                row_id=values["row_id"],
+                counts_json=counts,
+                **{key: counts.get(key) for key in columns},
+            ))
+        else:
+            raise DeterministicJobError("schema_validation")
+    for identity in identity_by_source.values():
+        for stat_type in ("batting", "pitching", "fielding"):
+            career_by_player_type.setdefault((identity.id, stat_type), [])
+    for (identity_id, stat_type), rows in career_by_player_type.items():
+        aggregate = aggregate_career_seasons(
+            rows,
+            stat_type=stat_type,
+            metric_codes=("avg",) if stat_type == "batting" else (
+                ("era",) if stat_type == "pitching" else ()
+            ),
+        )
+        session.add(CareerAggregate(
+            organization_id=job.organization_id,
+            snapshot_id=snapshot.id,
+            player_team_season_id=identity_id,
+            stat_type=stat_type,
+            status=aggregate.status,
+            availability_reason=aggregate.reason,
+            definition_version="career-v1",
+            counts_json=dict(aggregate.counts),
+            included_row_ids=list(aggregate.included_row_ids),
+            excluded_rows_json=dict(aggregate.excluded_rows),
+        ))
 
 
 def _schedule_row_to_audited(row, *, season_id):
@@ -1844,6 +2072,8 @@ def _persist_schedule_scopes(session, job, snapshot, sections, identities):
 
     schedule_section = next((item for item in sections if item.name == "schedule"), None)
     if schedule_section is None:
+        return
+    if schedule_section.status not in {"complete", "partial"} or not schedule_section.rows:
         return
     records = list(session.scalars(
         select(SourceRecord).where(
@@ -2427,6 +2657,8 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
         _NcaaFailureEvidenceError,
         _find_ncaa_season,
         collect_ncaa_by_id,
+        collect_ncaa_player_detail_evidence,
+        collect_ncaa_schedule_evidence,
         collect_ncaa_split_results,
     )
     from .canonical import to_collected_sections
@@ -2445,6 +2677,12 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
 
         matching_keys = {key: None for key in cached_sections}
         matching = _matching_cached_sections(session, job, matching_keys)
+        matching = {
+            name: section for name, section in matching.items()
+            if name != "schedule"
+            and not name.startswith("game_logs:")
+            and not name.startswith("history:")
+        }
         reconstructed = ()
         if snapshot_id and matching:
             stored = {
@@ -2477,6 +2715,7 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
         split_missing = not {
             "splits:batting", "splits:pitching"
         } <= matching.keys()
+        phase3_missing = True
         source_team_id = team.source_team_id
         source_season_id = season.source_season_id
         split_category_ids = {
@@ -2510,7 +2749,7 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
             budget_remaining=budget.remaining,
         )
 
-    if not missing_core and not fielding_missing and not split_missing:
+    if not missing_core and not fielding_missing and not split_missing and not phase3_missing:
         return reconstructed
 
     def begin_live(family, *identity_parts):
@@ -2687,6 +2926,129 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
                 source_season_id=source_season_id,
                 source_season_team_id=season_team_id,
             ))
+    phase3_transport_available = (
+        os.environ.get("NCAA_BROWSER_PROVIDER") == "browserless"
+    )
+    current_sections = (*reconstructed, *fetched)
+    source_player_ids = []
+    unavailable_player_count = 0
+    for section in current_sections:
+        if section.name not in {"batting", "pitching", "fielding"}:
+            continue
+        for row in section.rows:
+            player_id = str(row.get("_player_id") or "")
+            if player_id.isdigit():
+                if player_id not in source_player_ids:
+                    source_player_ids.append(player_id)
+            else:
+                unavailable_player_count += 1
+
+    schedule_entry = begin_live(
+        "schedule", source_team_id, source_season_id, season_team_id
+    )
+    if not phase3_transport_available:
+        finish_live(
+            schedule_entry,
+            outcome="live_failed",
+            safe_category="schedule_transport_unavailable",
+        )
+        for name in (
+            "schedule", "game_logs:batting", "game_logs:pitching",
+            "game_logs:fielding", "history:batting", "history:pitching",
+            "history:fielding",
+        ):
+            fetched.append(CollectedSection.supplemental_failure(
+                name,
+                status="unavailable",
+                category="schedule_transport_unavailable",
+                collected_at=_utcnow(),
+                source_team_id=source_team_id,
+                source_season_id=source_season_id,
+                source_season_team_id=season_team_id,
+                source_stat_category_id=name,
+            ))
+    else:
+        schedule_finished = False
+        try:
+            schedule = collect_ncaa_schedule_evidence(
+                season_team_id, division=division, year=year
+            )
+            finish_live(schedule_entry, outcome="live_complete")
+            schedule_finished = True
+            details = []
+            history_complete = True
+            for player_id in source_player_ids:
+                history_entries = {
+                    stat_type: begin_live(
+                        f"history:{stat_type}", source_team_id, source_season_id,
+                        season_team_id, player_id, category_id,
+                    )
+                    for stat_type, category_id in (
+                        ("batting", split_category_ids["batting"]),
+                        ("pitching", split_category_ids["pitching"]),
+                        ("fielding", discovered_fielding_id),
+                    )
+                }
+                try:
+                    detail = collect_ncaa_player_detail_evidence(
+                        season_team_id,
+                        player_id,
+                        division=division,
+                        year=year,
+                    )
+                except (NcaaAccessError, NcaaError, ValueError):
+                    history_complete = False
+                    for entry in history_entries.values():
+                        finish_live(
+                            entry,
+                            outcome="live_failed",
+                            safe_category="player_history_unavailable",
+                        )
+                else:
+                    details.append(detail)
+                    for entry in history_entries.values():
+                        finish_live(entry, outcome="live_complete")
+            history_sections, game_facts = to_collected_history_sections(
+                details,
+                schedule,
+                source_team_id=source_team_id,
+                unavailable_player_count=unavailable_player_count,
+                complete=history_complete,
+            )
+            complete_stat_types = (
+                frozenset({"batting", "pitching", "fielding"})
+                if history_complete and unavailable_player_count == 0
+                else frozenset()
+            )
+            fetched.extend(to_collected_schedule_sections(
+                schedule,
+                game_facts=game_facts,
+                complete_stat_types=complete_stat_types,
+            ))
+            fetched.extend(history_sections)
+        except (NcaaAccessError, NcaaError, ValueError):
+            if not schedule_finished:
+                finish_live(
+                    schedule_entry,
+                    outcome="live_failed",
+                    safe_category="schedule_unavailable",
+                )
+            for name in (
+                "schedule", "game_logs:batting", "game_logs:pitching",
+                "game_logs:fielding", "history:batting", "history:pitching",
+                "history:fielding",
+            ):
+                fetched.append(CollectedSection.supplemental_failure(
+                    name,
+                    status="unavailable",
+                    category="schedule_unavailable",
+                    collected_at=_utcnow(),
+                    source_team_id=source_team_id,
+                    source_season_id=source_season_id,
+                    source_season_team_id=season_team_id,
+                    source_stat_category_id=name,
+                ))
+
     if split_missing:
         split_entries = {
             stat_type: begin_live(

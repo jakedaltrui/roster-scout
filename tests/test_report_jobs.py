@@ -2873,6 +2873,102 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
                     for item in split_ledgers
                 ))
 
+    def test_real_collector_persists_schedule_history_and_typed_game_logs(self):
+        import roster_scraper as scraper
+        from roster_scout.jobs import CollectedSection
+        from roster_scout.models import (
+            BattingGameLogFact, CareerAggregate, CareerSeasonFact, Game,
+            ReportSection, RequestLedger,
+        )
+        from roster_scout.ncaa_detail import (
+            parse_player_detail_fixture, parse_schedule_fixture,
+        )
+
+        job = self._accepted_job(1, "phase3-real-collector")
+        base = FullSeasonMetricPublicationTests.detailed_sections()
+        core = tuple(
+            CollectedSection(
+                **{
+                    **section.__dict__,
+                    "rows": ({
+                        **section.rows[0],
+                        "_player_id": "9698671",
+                        "_player_url": "https://stats.ncaa.org/players/9698671",
+                    },),
+                    "source_team_id": "234",
+                    "source_season_id": "17040",
+                    "source_season_team_id": "614606",
+                    "source_stat_category_id": (
+                        self.BATTING_ID if section.name == "batting" else self.PITCHING_ID
+                    ),
+                }
+            )
+            for section in base
+        )
+        schedule = parse_schedule_fixture(
+            self._fixture("ncaa_detail/d1/schedule.html"),
+            expected_season_id="17040",
+            expected_team_id="234",
+            expected_season_team_id="614606",
+            expected_division="1",
+        )
+        detail = parse_player_detail_fixture(
+            self._fixture("ncaa_detail/d1/player_detail.html"),
+            expected_player_id="9698671",
+            expected_season_id="17040",
+            expected_season_team_id="614606",
+            expected_division="1",
+        )
+        season_contract = {
+            "season": "2026", "id": "17040",
+            "batting_id": self.BATTING_ID,
+            "pitching_id": self.PITCHING_ID,
+            "fielding_id": "",
+        }
+        with patch.dict(os.environ, {"NCAA_BROWSER_PROVIDER": "browserless"}), patch.object(
+            scraper, "_find_ncaa_season", return_value=season_contract
+        ), patch.object(
+            scraper, "collect_ncaa_by_id", return_value=Mock()
+        ), patch(
+            "roster_scout.canonical.to_collected_sections", return_value=core
+        ), patch.object(
+            scraper, "collect_ncaa_schedule_evidence", return_value=schedule
+        ), patch.object(
+            scraper, "collect_ncaa_player_detail_evidence", return_value=detail
+        ), patch.object(
+            scraper, "collect_ncaa_split_results",
+            side_effect=scraper.NcaaAccessError("split unavailable"),
+        ):
+            snapshot = self._run_real_collector(job)
+
+        self.assertEqual(snapshot.status, "partial")
+        with self.Session() as session:
+            section_names = set(session.scalars(select(ReportSection.section).where(
+                ReportSection.snapshot_id == snapshot.id
+            )))
+            self.assertTrue({
+                "schedule", "game_logs:batting", "game_logs:pitching",
+                "game_logs:fielding", "history:batting", "history:pitching",
+                "history:fielding", "splits:batting", "splits:pitching",
+            } <= section_names)
+            self.assertGreater(session.scalar(select(func.count()).select_from(Game)), 0)
+            self.assertGreater(
+                session.scalar(select(func.count()).select_from(CareerSeasonFact)), 0
+            )
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(CareerAggregate)), 3
+            )
+            self.assertGreater(
+                session.scalar(select(func.count()).select_from(BattingGameLogFact)), 0
+            )
+            families = set(session.scalars(select(RequestLedger.family).where(
+                RequestLedger.snapshot_id == snapshot.id
+            )))
+            self.assertTrue({
+                "schedule", "history:batting", "history:pitching",
+                "history:fielding", "splits:batting", "splits:pitching",
+            } <= families)
+
 class ComputedScopePublicationTests(PostgreSQLJobTestCase):
     def _sections(self, game_count):
         from roster_scout.jobs import (
