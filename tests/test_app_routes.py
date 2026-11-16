@@ -1642,6 +1642,24 @@ class AppRouteTests(unittest.TestCase):
         self.assertEqual(video.status_code, 206)
         self.assertEqual(len(video.data), 100)
 
+    def test_privacy_page_is_public_and_describes_google_limited_use(self):
+        with app_module.app.test_client() as client:
+            app_module.app.config["ROSTER_SCOUT_TEST_AUTH_ENFORCEMENT"] = True
+            self.addCleanup(
+                app_module.app.config.pop,
+                "ROSTER_SCOUT_TEST_AUTH_ENFORCEMENT",
+                None,
+            )
+            response = client.get("/privacy")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Privacy \xc2\xb7 Roster Scout", response.data)
+        self.assertIn(b"Export to Google Sheets", response.data)
+        self.assertIn(b"Google API Services User Data Policy", response.data)
+        self.assertIn(b"access tokens", response.data)
+        self.assertIn(b"not stored by Roster Scout", response.data)
+        self.assertIn(b'rel="icon"', response.data)
+
     def test_workbook_cells_are_left_aligned_including_numeric_values(self):
         workbook = app_module._create_workbook([SAMPLE_PLAYER], [SAMPLE_PLAYER])
         ns = {"s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}

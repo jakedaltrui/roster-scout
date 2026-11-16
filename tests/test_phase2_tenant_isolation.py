@@ -403,6 +403,7 @@ class UntrustedScopeInputTests(_TenantIsolationCase):
             "healthz",
             "readyz",
             "demo",
+            "privacy",
             "auth.login",
             "auth.start",
             "auth.callback",

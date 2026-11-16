@@ -1,0 +1,54 @@
+{% extends "product_base.html" %}
+
+{% block title %}Privacy · Roster Scout{% endblock %}
+{% block page_title %}Privacy{% endblock %}
+
+{% block head %}
+  <meta name="description" content="How Roster Scout handles account, report, and Google Sheets export data.">
+  <style>
+    .privacy-card{max-width:760px;padding:clamp(24px,5vw,48px);border:1px solid var(--border);border-radius:22px;background:var(--surface);box-shadow:0 20px 55px rgb(32 33 31/.06);animation:privacy-enter var(--motion-enter) var(--motion-emphasized) both}
+    .privacy-card__intro{max-width:620px;margin:0 0 34px;color:var(--muted);font-size:17px;line-height:1.7}
+    .privacy-card section+section{margin-top:30px;padding-top:30px;border-top:1px solid var(--border)}
+    .privacy-card h2{margin:0 0 10px;font-size:18px;letter-spacing:-.02em}
+    .privacy-card p{margin:0;color:var(--muted);line-height:1.7}
+    .privacy-card p+p{margin-top:12px}
+    .privacy-card a{font-weight:600;text-underline-offset:3px}
+    .privacy-card__updated{margin-top:36px!important;font-size:13px}
+    @keyframes privacy-enter{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+    @media (prefers-reduced-motion:reduce){.privacy-card{animation:none}}
+  </style>
+{% endblock %}
+
+{% block content %}
+  <article class="privacy-card">
+    <p class="privacy-card__intro">Roster Scout uses only the information needed to sign you in, create and save opponent reports for your school, and deliver the exports you request.</p>
+
+    <section aria-labelledby="information-heading">
+      <h2 id="information-heading">Information we use</h2>
+      <p>We use your verified school email address to authenticate your account and connect you with the appropriate school organization. We store report requests, saved report versions, and limited usage and successful-download events so the product can provide report history and operate reliably.</p>
+    </section>
+
+    <section aria-labelledby="sharing-heading">
+      <h2 id="sharing-heading">School sharing</h2>
+      <p>Reports are available to authorized members of the same verified school organization. Roster Scout does not sell personal information.</p>
+    </section>
+
+    <section aria-labelledby="google-heading">
+      <h2 id="google-heading">Google Sheets</h2>
+      <p>Google access is optional and used only when you choose “Export to Google Sheets.” Roster Scout requests limited access to create and manage the specific Google Drive files it creates for you. It does not request access to browse unrelated files in your Drive, and Google access tokens are used for the export request and are not stored by Roster Scout.</p>
+      <p>Roster Scout’s use and transfer of information received from Google APIs follows the Google API Services User Data Policy, including the Limited Use requirements.</p>
+    </section>
+
+    <section aria-labelledby="security-heading">
+      <h2 id="security-heading">Security and retention</h2>
+      <p>We use secure sessions, organization-level access controls, private workbook storage, and audit records to protect reports. Information is retained only as needed to operate the saved-report service, protect the product, and meet legitimate legal obligations.</p>
+    </section>
+
+    <section aria-labelledby="contact-heading">
+      <h2 id="contact-heading">Questions</h2>
+      <p>For privacy questions or deletion requests, contact <a href="mailto:jacobdaltrui@gmail.com">jacobdaltrui@gmail.com</a>.</p>
+    </section>
+
+    <p class="privacy-card__updated">Last updated November 15, 2026.</p>
+  </article>
+{% endblock %}

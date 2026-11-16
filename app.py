@@ -744,6 +744,12 @@ def demo():
     return response
 
 
+@app.route("/privacy")
+def privacy():
+    """Publish the product privacy notice used by the Google OAuth brand."""
+    return render_template("privacy.html", **_public_shell_context())
+
+
 @app.route("/healthz")
 def healthz():
     return jsonify({"status": "ok"})
@@ -797,6 +803,7 @@ _PUBLIC_ENDPOINTS = frozenset({
     "healthz",
     "readyz",
     "demo",
+    "privacy",
     "acknowledge_workbook_download",
     "auth.login",
     "auth.start",
