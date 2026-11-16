@@ -79,6 +79,15 @@ class HomepageReportFlowContractTests(unittest.TestCase):
         self.assertNotIn("The steps below illustrate the process.", self.source)
         self.assertNotIn("Getting your roster.", self.source)
 
+        report_new = os.path.join(
+            os.path.dirname(__file__), "..", "templates", "report_new.html"
+        )
+        with open(report_new, encoding="utf-8") as handle:
+            report_new_source = handle.read()
+        expected = "We’re putting your stat sheet together. This may take a minute."
+        self.assertIn(expected, self.source)
+        self.assertIn(expected, report_new_source)
+
     def test_signed_in_avatar_keeps_initial_and_moves_school_logo_into_menu(self):
         self.assertIn(
             'id="account-avatar" data-signed-in="true" aria-hidden="true">{{ account_initial',
