@@ -2,6 +2,46 @@
 
 Roster Scout runs as a standard Flask/Gunicorn service. Live NCAA collection may require Browserless or an approved proxy because upstream anti-bot behavior varies by network.
 
+## Power BI Embedded activation
+
+The repository includes a source-controlled PBIP/PBIR report and TMDL semantic
+model in `powerbi/`. Workbook delivery does not depend on Power BI. Keep
+`POWER_BI_MODE=disabled` until a dedicated workspace has been published to
+supported Embedded, Premium, or Fabric capacity and the live RLS gate below is
+complete.
+
+Production settings belong only in the platform secret store:
+
+- `POWER_BI_MODE=live`
+- `POWER_BI_TENANT_ID`
+- `POWER_BI_CLIENT_ID`
+- `POWER_BI_CLIENT_SECRET`
+- `POWER_BI_WORKSPACE_ID`
+- `POWER_BI_REPORT_ID`
+- `POWER_BI_SEMANTIC_MODEL_ID`
+- `POWER_BI_EMBED_URL` — exact HTTPS `app.powerbi.com/reportEmbed` URL
+- `POWER_BI_RLS_ROLE=RosterScoutSnapshotReader`
+- `POWER_BI_CAPACITY_VERIFIED=true` — set only after the checks below
+
+Publish `powerbi/RosterScout.pbip`, bind its two PostgreSQL parameters in the
+Power BI service, configure credentials for the restricted analytics-view
+database principal, and grant the service principal only the workspace/API
+access required for app-owns-data embedding and semantic refresh. Do not grant
+customers Power BI access; Roster Scout generates short-lived view-only embed
+tokens after local membership and exact report/snapshot authorization.
+
+Before setting `POWER_BI_CAPACITY_VERIFIED=true`, test two real organizations
+and two different snapshots. Each token must return only the row set matching
+its exact `<organization UUID>|<snapshot UUID>` `CUSTOMDATA()` value; swapped
+and nonexistent values must return no rows. Also verify token renewal, a failed
+semantic refresh with the Excel artifact still downloadable, and no token or
+provider payload in logs. Record this evidence outside Git. No deterministic
+test, local fake, or development tenant substitutes for that live gate.
+
+Local preview may use `POWER_BI_MODE=fake`. It shows explicitly labeled
+illustrative values and startup rejects it whenever `APP_ENV=production` or
+`FLY_APP_NAME` is present.
+
 ## Native local runner
 
 The bundled scripts create an isolated environment, collect the Browserless token without echoing it, and bind Gunicorn to localhost.

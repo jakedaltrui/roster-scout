@@ -35,7 +35,7 @@
 - [x] **SNAP-06**: A user can review all dated snapshots for a report and identify the newest complete or partial version.
 - [x] **SNAP-07**: Repeating an accepted report-build request with the same idempotency key does not create duplicate jobs or snapshots.
 - [x] **SNAP-08**: A failed report build leaves no snapshot falsely marked ready and can be retried safely.
-- [ ] **SNAP-09**: A Power BI refresh failure does not invalidate a completed snapshot or its Excel artifact.
+- [x] **SNAP-09**: A Power BI refresh failure does not invalidate a completed snapshot or its Excel artifact.
 
 ### Provenance and Canonical Data
 
@@ -89,16 +89,16 @@
 
 ### Power BI Embedded
 
-- [ ] **PBI-01**: An authenticated Roster Scout customer can view the embedded report without signing in to Power BI or holding a Power BI license.
-- [ ] **PBI-02**: The embedded report includes Opponent Overview, Roster, Hitting, Pitching, Fielding, Situational Splits, Player Detail, and Sources & Data Quality pages.
-- [ ] **PBI-03**: The report is branded for the selected opponent and identifies the active snapshot and data freshness.
-- [ ] **PBI-04**: The server generates only short-lived embed tokens after authorizing the user's organization and requested snapshot.
-- [ ] **PBI-05**: The semantic model enforces organization isolation using effective identity and row-level security or a stronger workspace-isolation model.
-- [ ] **PBI-06**: A snapshot publication can trigger an asynchronous semantic-model refresh and expose pending, completed, and failed refresh states.
-- [ ] **PBI-07**: The dashboard remains unavailable for a new snapshot until its semantic refresh completes, while the completed Excel artifact remains downloadable.
-- [ ] **PBI-08**: The report page provides a full snapshot Excel download independent of Power BI visual export.
-- [ ] **PBI-09**: A customer can filter and drill through report visuals without changing the immutable snapshot data.
-- [ ] **PBI-10**: Production embedding is blocked unless the report resides in an Embedded, Premium, or Fabric capacity-backed workspace.
+- [x] **PBI-01**: An authenticated Roster Scout customer can view the embedded report without signing in to Power BI or holding a Power BI license.
+- [x] **PBI-02**: The embedded report includes Opponent Overview, Roster, Hitting, Pitching, Fielding, Situational Splits, Player Detail, and Sources & Data Quality pages.
+- [x] **PBI-03**: The report is branded for the selected opponent and identifies the active snapshot and data freshness.
+- [x] **PBI-04**: The server generates only short-lived embed tokens after authorizing the user's organization and requested snapshot.
+- [x] **PBI-05**: The semantic model enforces organization isolation using effective identity and row-level security or a stronger workspace-isolation model.
+- [x] **PBI-06**: A snapshot publication can trigger an asynchronous semantic-model refresh and expose pending, completed, and failed refresh states.
+- [x] **PBI-07**: The dashboard remains unavailable for a new snapshot until its semantic refresh completes, while the completed Excel artifact remains downloadable.
+- [x] **PBI-08**: The report page provides a full snapshot Excel download independent of Power BI visual export.
+- [x] **PBI-09**: A customer can filter and drill through report visuals without changing the immutable snapshot data.
+- [x] **PBI-10**: Production embedding is blocked unless the report resides in an Embedded, Premium, or Fabric capacity-backed workspace.
 
 ### Security and Operations
 
@@ -158,7 +158,7 @@
 | AUTH-01–02, AUTH-05–06, ORG-01, ORG-06–08, SNAP-05–08, SECU-01–05, OPS-04–05 | Phase 02.1 | Complete |
 | STAT-01–08, SPLT-01–05, HIST-01–06, OPS-03 | Phase 3 | Complete |
 | XLSX-01–06 | Phase 4 | Complete |
-| SNAP-09, PBI-01–10, SECU-06 | Phase 5 | Pending |
+| SNAP-09, PBI-01–10, SECU-06 | Phase 5 | Implementation complete; SECU-06 live evidence pending |
 
 **Coverage:**
 - v2.0 requirements: 79 total

@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 04-03-PLAN.md
-last_updated: "2026-11-16T21:43:37.919Z"
-last_activity: 2026-11-16 -- Phase 4 completed; Phase 5 implementation started
+status: activation_pending
+stopped_at: Completed 05-04-PLAN.md; awaiting external Power BI activation gate
+last_updated: "2026-11-16T23:58:00-06:00"
+last_activity: 2026-11-16 -- Phase 5 deterministic release gate passed; production unchanged
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 77
-  completed_plans: 73
-  percent: 83
+  completed_plans: 77
+  percent: 98
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-11-16)
 
 **Core value:** A baseball staff can reliably turn fragmented opponent data into a trustworthy, reusable scouting report with interactive analysis and a portable Excel download.
-**Current focus:** Phase 5 — Embedded Opponent Dashboard
+**Current focus:** Phase 5 — Microsoft tenant activation and live RLS evidence
 
 ## Current Position
 
-Phase: 5 (Embedded Opponent Dashboard) — EXECUTING
-Plan: 1 of 4
-Status: Executing Phase 5
-Last activity: 2026-11-16 -- Phase 4 release gate passed
+Phase: 5 (Embedded Opponent Dashboard) — ACTIVATION PENDING
+Plan: 4 of 4 implementation plans complete
+Status: Deterministic implementation verified; external production gate pending
+Last activity: 2026-11-16 -- 801 regressions and 19 dashboard tests passed
 
-Progress: [████████░░] 83%
+Progress: [█████████▊] 98%
 
 ## Performance Metrics
 

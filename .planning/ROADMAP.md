@@ -11,7 +11,7 @@ Roster Scout v2.0 is delivered in five dependency-ordered slices. The roadmap fi
 - [x] **Phase 02.1: Restore public homepage and school-domain sign-in flow** - Reestablish the polished homepage as the primary product, authenticate at generation, auto-join verified school domains, and keep the portal minimal. (INSERTED)
 - [x] **Phase 3: Detailed NCAA Intelligence** - Add fielding, advanced metrics, situational splits, career history, and game logs. (completed 2026-11-16)
 - [x] **Phase 4: Detailed Excel Report** - Extend the established branded two-sheet workbook with auditable season, derived, last-10, and conference statistics. (completed 2026-11-16)
-- [ ] **Phase 5: Embedded Opponent Dashboard** - Securely embed the opponent-branded Power BI report and harden production delivery.
+- [ ] **Phase 5: Embedded Opponent Dashboard** - Implementation complete; production activation awaits supported Microsoft capacity and the live two-organization RLS gate.
 
 ## Phase Details
 
@@ -322,15 +322,15 @@ Plans:
 
 **Wave 1**
 
-- [ ] 04-01: Extend the canonical two-sheet workbook with legacy-matched styling and grouped player, season, derived, last-10, and conference columns.
+- [x] 04-01: Extend the canonical two-sheet workbook with legacy-matched styling and grouped player, season, derived, last-10, and conference columns.
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 04-02: Add immutable object storage, checksums, schema versions, and exact historical artifact downloads.
+- [x] 04-02: Add immutable object storage, checksums, schema versions, and exact historical artifact downloads.
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 04-03: Add canonical-to-Excel parity, formula/URL safety, partial-scope, visual-format, and D1/D2/D3 workbook verification.
+- [x] 04-03: Add canonical-to-Excel parity, formula/URL safety, partial-scope, visual-format, and D1/D2/D3 workbook verification.
 
 ### Phase 5: Embedded Opponent Dashboard
 
@@ -347,14 +347,14 @@ Plans:
 4. Semantic-model refresh has independent pending/completed/failed state, and its failure never invalidates a completed snapshot or Excel artifact.
 5. The opponent-branded report page exposes freshness, completeness, interactive filters/drill-through, and the exact full-workbook download, and production launch is blocked without supported capacity.
 
-**Plans:** 4 plans
+**Plans:** 4/4 implementation plans complete; external activation gate remains
 
 Plans:
 
-- [ ] 05-01: Provision the capacity-backed Power BI foundation, analytics views, semantic model, curated report, and organization isolation.
-- [ ] 05-02: Add service-principal authentication, short-lived embed-token APIs, semantic refresh orchestration, and readiness state.
-- [ ] 05-03: Build the branded customer report page with embedded navigation, filters, drill-through, completeness, and workbook download.
-- [ ] 05-04: Verify tenant isolation, metric parity, capacity/refresh operations, external failure recovery, and the production release gate.
+- [x] 05-01: Build the analytics views, semantic model, curated report source, and organization-isolation contract.
+- [x] 05-02: Add service-principal authentication, short-lived embed-token APIs, semantic refresh orchestration, and readiness state.
+- [x] 05-03: Build the branded customer report page with embedded navigation, filters, player detail, completeness, and workbook download.
+- [x] 05-04: Verify deterministic tenant isolation, metric contracts, refresh recovery, and the fail-closed production gate.
 
 ## Progress
 
@@ -366,5 +366,5 @@ Plans:
 | 2. Identity, Organizations, and Report Library | 16/16 | Complete   | 2026-11-13 |
 | 02.1 Restore public homepage and school-domain sign-in flow | 4/4 | Complete | 2026-11-13 |
 | 3. Detailed NCAA Intelligence | 9/9 | Complete   | 2026-11-16 |
-| 4. Detailed Excel Report | 0/3 | Not started | - |
-| 5. Embedded Opponent Dashboard | 0/4 | Not started | - |
+| 4. Detailed Excel Report | 3/3 | Complete | 2026-11-16 |
+| 5. Embedded Opponent Dashboard | 4/4 | Activation pending | - |
