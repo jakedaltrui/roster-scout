@@ -1900,7 +1900,11 @@ def _fetch_ncaa_browser_pages_locked(urls: dict[str, str]) -> dict[str, str]:
     return rendered
 
 
-def _fetch_ncaa_browserless_pages(urls: dict[str, str]) -> dict[str, str]:
+def _fetch_ncaa_browserless_pages(
+    urls: dict[str, str],
+    *,
+    page_consumer=None,
+) -> dict[str, object]:
     """Fetch NCAA grids inside one Browserless residential browser session."""
     token = os.environ.get("BROWSERLESS_TOKEN")
     if not token:
@@ -2006,7 +2010,22 @@ def _fetch_ncaa_browserless_pages(urls: dict[str, str]) -> dict[str, str]:
                     html=html,
                     failure_category="source_blocked",
                 )
-            rendered[key] = html
+            if page_consumer is None:
+                rendered[key] = html
+            else:
+                try:
+                    rendered[key] = page_consumer(
+                        key=key,
+                        page=page,
+                        source_url=url,
+                        html=html,
+                    )
+                except NcaaAccessError:
+                    raise
+                except Exception as exc:
+                    raise NcaaAccessError(
+                        "Browserless NCAA page extraction failed."
+                    ) from exc
     except NcaaAccessError:
         raise
     except Exception as exc:
@@ -2028,11 +2047,22 @@ def _fetch_ncaa_browserless_pages(urls: dict[str, str]) -> dict[str, str]:
     return rendered
 
 
-def _fetch_ncaa_pages(urls: dict[str, str]) -> dict[str, str]:
+def _fetch_ncaa_pages(
+    urls: dict[str, str],
+    *,
+    page_consumer=None,
+) -> dict[str, object]:
     if os.environ.get("NCAA_BROWSER_PROVIDER") == "browserless":
         from usage_limits import browserless_slot
         with browserless_slot():
-            return _fetch_ncaa_browserless_pages(urls)
+            if page_consumer is None:
+                return _fetch_ncaa_browserless_pages(urls)
+            return _fetch_ncaa_browserless_pages(urls, page_consumer=page_consumer)
+
+    if page_consumer is not None:
+        raise NcaaAccessError(
+            "Interactive NCAA extraction requires the configured Browserless provider."
+        )
 
     direct = {}
     blocked = {}

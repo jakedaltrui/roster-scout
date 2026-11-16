@@ -36,6 +36,7 @@ PREFLIGHT_FAILURE = "phase3_browserless_unavailable"
 CAPTURE_FAILURE = "phase3_ncaa_capture_unavailable"
 INVALID_FAILURE = "phase3_capture_invalid"
 MAX_RAW_PAGE_BYTES = 2 * 1024 * 1024
+RESULT_CONTRACT_VERSION = "ncaa-split-result-v1"
 
 CANONICAL_LABELS = {
     "batting": (
@@ -100,6 +101,10 @@ _CANDIDATE_PARAM = re.compile(r"(?:split|situat|summary|stat[_-]?seq|context)", 
 
 class CaptureUnavailable(RuntimeError):
     """Internal fixed-category signal; its message is never source text."""
+
+    def __init__(self, category: str, *, stage: str | None = None):
+        super().__init__(category)
+        self.stage = stage
 
 
 @dataclass(frozen=True)
@@ -473,7 +478,12 @@ def _validate_browserless_configuration() -> None:
         raise CaptureUnavailable(PREFLIGHT_FAILURE)
 
 
-def _bounded_fetch(urls: dict[str, str], limits: CaptureLimits) -> dict[str, str]:
+def _bounded_fetch(
+    urls: dict[str, str],
+    limits: CaptureLimits,
+    *,
+    page_consumer=None,
+) -> dict[str, object]:
     limits.validate()
     if len(urls) > limits.max_pages:
         raise ValueError("capture page count exceeds the validated limit")
@@ -495,9 +505,9 @@ def _bounded_fetch(urls: dict[str, str], limits: CaptureLimits) -> dict[str, str
         min(limits.timeout_seconds, 45)
     )
     try:
-        pages = rs._fetch_ncaa_pages(urls)
+        pages = rs._fetch_ncaa_pages(urls, page_consumer=page_consumer)
     except Exception as exc:
-        raise CaptureUnavailable(CAPTURE_FAILURE) from exc
+        raise CaptureUnavailable(CAPTURE_FAILURE, stage="bounded_fetch") from exc
     finally:
         if old_timeout is None:
             os.environ.pop("BROWSERLESS_TIMEOUT_MILLISECONDS", None)
@@ -632,17 +642,450 @@ def capture_controls(
     return bundle
 
 
+def _load_control_manifest(request: CaptureRequest) -> dict:
+    inline = os.environ.get("PHASE3_CONTROL_MANIFEST_JSON")
+    try:
+        manifest = (
+            json.loads(inline)
+            if inline is not None
+            else json.loads(
+                (request.output_dir / "fixture_manifest.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+        )
+    except (OSError, ValueError, TypeError) as exc:
+        raise CaptureUnavailable(CAPTURE_FAILURE) from exc
+    if (
+        manifest.get("season_id") != request.season_id
+        or manifest.get("season_team_id") != request.season_team_id
+        or manifest.get("division") != f"d{request.division}"
+        or manifest.get("control_contract_version") != CONTROL_CONTRACT_VERSION
+    ):
+        raise CaptureUnavailable(CAPTURE_FAILURE)
+    return manifest
+
+
+def _representative_candidates(manifest: dict) -> dict[str, dict]:
+    representative_labels = {"batting": "vs_lhp", "pitching": "vs_lhb"}
+    observations = {
+        (item.get("stat_type"), item.get("canonical_label")): item
+        for item in manifest.get("observations", [])
+        if isinstance(item, dict)
+    }
+    selected = {}
+    for stat_type, label in representative_labels.items():
+        item = observations.get((stat_type, label))
+        if (
+            not item
+            or item.get("status") != "candidate"
+            or not str(item.get("identifier") or "").isdigit()
+            or not str(item.get("source_stat_category_id") or "").isdigit()
+        ):
+            selected[stat_type] = {
+                "canonical_label": label,
+                "identifier": None,
+                "source_stat_category_id": None,
+                "status": "source_identifier_not_found",
+            }
+        else:
+            selected[stat_type] = dict(item)
+    return selected
+
+
+def _interactive_split_consumer(candidates: dict[str, dict]):
+    def consume(*, key, page, source_url, html):
+        candidate = candidates[key]
+        identifier = candidate.get("identifier")
+        if not identifier:
+            return html
+        selector = f".sport_stat_menu_option_{identifier}"
+        try:
+            control = page.locator(selector)
+            if control.count() != 1:
+                raise CaptureUnavailable(CAPTURE_FAILURE)
+            if _normalize_label(control.inner_text(), key) != candidate["canonical_label"]:
+                raise CaptureUnavailable(CAPTURE_FAILURE)
+            if control.get_attribute("data-sport-stat-id") != identifier:
+                raise CaptureUnavailable(CAPTURE_FAILURE)
+            control.evaluate("element => element.click()")
+            page.wait_for_timeout(250)
+            return page.content()
+        except CaptureUnavailable:
+            raise
+        except Exception as exc:
+            raise CaptureUnavailable(CAPTURE_FAILURE) from exc
+
+    return consume
+
+
+def _player_row_for_split_node(node):
+    row = node if node.name == "tr" else node.find_parent("tr")
+    if row is None:
+        return None
+    if re.fullmatch(r"player_\d+", str(row.get("id") or "")):
+        return row
+    previous = row.find_previous_sibling("tr")
+    while previous is not None:
+        if re.fullmatch(r"player_\d+", str(previous.get("id") or "")):
+            return previous
+        previous = previous.find_previous_sibling("tr")
+    return None
+
+
+def _result_rows(raw_html: str, identifier: str, stat_type: str) -> list[dict]:
+    soup = BeautifulSoup(raw_html, "html.parser")
+    nodes = soup.select(f".sport_stat_{identifier}")
+    if not nodes:
+        return []
+    headers = _normalized_base_headers(raw_html, stat_type)
+    ab_header = "ab" if stat_type == "batting" else "p-oab"
+    if headers.count("h") != 1 or headers.count(ab_header) != 1:
+        raise CaptureUnavailable(CAPTURE_FAILURE, stage="rows_headers")
+    rows = {}
+    for node in nodes:
+        stat_row = node if node.name == "tr" else node.find_parent("tr")
+        if stat_row is None:
+            continue
+        player_row = _player_row_for_split_node(node)
+        if player_row is None:
+            continue
+        link = player_row.find("a", href=re.compile(r"/players/\d+"))
+        if link is not None:
+            parsed = urlparse(link.get("href", ""))
+            if parsed.scheme or parsed.netloc or not re.fullmatch(r"/players/\d+", parsed.path):
+                raise CaptureUnavailable(CAPTURE_FAILURE, stage="rows_player_path")
+            player_path = parsed.path
+        else:
+            row_identity = re.fullmatch(
+                r"player_(\d+)", str(player_row.get("id") or "")
+            )
+            if row_identity is None:
+                raise CaptureUnavailable(CAPTURE_FAILURE, stage="rows_player_link")
+            player_path = f"/players/{row_identity.group(1)}"
+        cells = stat_row.find_all(["th", "td"], recursive=False)
+        offset = len(headers) - len(cells)
+        h_index = headers.index("h") - offset
+        ab_index = headers.index(ab_header) - offset
+        if (
+            offset < 0
+            or h_index < 0
+            or ab_index < 0
+            or h_index >= len(cells)
+            or ab_index >= len(cells)
+        ):
+            raise CaptureUnavailable(CAPTURE_FAILURE, stage="rows_shape")
+        h_text = cells[h_index].get_text(" ", strip=True)
+        ab_text = cells[ab_index].get_text(" ", strip=True)
+        missing_values = {"", "-", "--"}
+        if h_text in missing_values and ab_text in missing_values:
+            continue
+        if h_text in missing_values and ab_text.isdigit():
+            h_text = "0"
+        if ab_text in missing_values and h_text == "0":
+            ab_text = "0"
+        if not h_text.isdigit() or not ab_text.isdigit():
+            raise CaptureUnavailable(CAPTURE_FAILURE, stage="rows_value_shape")
+        hits, at_bats = int(h_text), int(ab_text)
+        if hits < 0 or at_bats < 0 or hits > at_bats:
+            raise CaptureUnavailable(CAPTURE_FAILURE, stage="rows_values")
+        rows[player_path] = {"player_path": player_path, "h": hits, "ab": at_bats}
+    if nodes and not rows:
+        raise CaptureUnavailable(CAPTURE_FAILURE, stage="rows_no_pairs")
+    return [rows[key] for key in sorted(rows, key=lambda value: int(value.rsplit("/", 1)[1]))]
+
+
+def _render_result_fixture(
+    *,
+    request: CaptureRequest,
+    stat_type: str,
+    candidate: dict,
+    raw_html: str | None,
+    captured_at: str,
+) -> str:
+    label = candidate["canonical_label"]
+    identifier = candidate.get("identifier")
+    category_id = candidate.get("source_stat_category_id")
+    source_path = f"/teams/{request.season_team_id}/season_to_date_stats"
+    source_checksum = (
+        hashlib.sha256(raw_html.encode("utf-8")).hexdigest()
+        if raw_html is not None
+        else hashlib.sha256(
+            json.dumps(candidate, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+    )
+    attrs = {
+        "data-canonical-label": label,
+        "data-captured-at": captured_at,
+        "data-division": f"d{request.division}",
+        "data-result-contract-version": RESULT_CONTRACT_VERSION,
+        "data-season-id": request.season_id,
+        "data-season-team-id": request.season_team_id,
+        "data-source-path": source_path,
+        "data-source-payload-sha256": source_checksum,
+        "data-stat-type": stat_type,
+    }
+    if identifier:
+        attrs["data-identifier"] = _numeric(identifier, "split identifier")
+    if category_id:
+        attrs["data-source-stat-category-id"] = _numeric(
+            category_id, "source stat category ID"
+        )
+    if not identifier or raw_html is None:
+        attrs["data-status"] = "unavailable"
+        reason = candidate.get("status") or "source_identifier_not_found"
+        if reason not in {"source_not_published", "source_identifier_not_found"}:
+            reason = "source_identifier_not_found"
+        attr_text = " ".join(
+            f'{key}="{html_module.escape(value, quote=True)}"'
+            for key, value in sorted(attrs.items())
+        )
+        return (
+            f"<split-result {attr_text}>\n"
+            f'  <source-absence reason="{reason}"></source-absence>\n'
+            "</split-result>\n"
+        )
+
+    try:
+        _normalized_base_headers(raw_html, stat_type)
+    except Exception as exc:
+        raise CaptureUnavailable(
+            CAPTURE_FAILURE, stage=f"render_{stat_type}_headers"
+        ) from exc
+    try:
+        rows = _result_rows(raw_html, identifier, stat_type)
+    except CaptureUnavailable as exc:
+        if exc.stage:
+            raise
+        raise CaptureUnavailable(
+            CAPTURE_FAILURE, stage=f"render_{stat_type}_rows"
+        ) from exc
+    except Exception as exc:
+        raise CaptureUnavailable(
+            CAPTURE_FAILURE, stage=f"render_{stat_type}_rows"
+        ) from exc
+    if not rows:
+        attrs["data-status"] = "unavailable"
+        attr_text = " ".join(
+            f'{key}="{html_module.escape(value, quote=True)}"'
+            for key, value in sorted(attrs.items())
+        )
+        return (
+            f"<split-result {attr_text}>\n"
+            '  <source-absence reason="source_not_published"></source-absence>\n'
+            "</split-result>\n"
+        )
+
+    attrs["data-status"] = "complete"
+    attr_text = " ".join(
+        f'{key}="{html_module.escape(value, quote=True)}"'
+        for key, value in sorted(attrs.items())
+    )
+    lines = [
+        f"<split-result {attr_text}>",
+        '  <table id="split_result_grid">',
+        "    <thead><tr><th>Player</th><th>H</th><th>AB</th></tr></thead>",
+        "    <tbody>",
+    ]
+    for index, row in enumerate(rows, start=1):
+        lines.append(
+            "      <tr>"
+            f'<td><a href="{row["player_path"]}">Player {index}</a></td>'
+            f'<td>{row["h"]}</td><td>{row["ab"]}</td>'
+            "</tr>"
+        )
+    lines.extend(["    </tbody>", "  </table>", "</split-result>"])
+    return "\n".join(lines) + "\n"
+
+
+def certify_result_fixture(
+    fixture_html: str,
+    *,
+    expected_season_id: str,
+    expected_season_team_id: str,
+    expected_division: str,
+    expected_stat_type: str,
+    expected_canonical_label: str,
+    expected_identifier: str | None,
+    expected_source_stat_category_id: str | None,
+) -> dict:
+    soup = BeautifulSoup(fixture_html, "html.parser")
+    root = soup.find("split-result")
+    if root is None or soup.find("script") is not None:
+        raise ValueError("result fixture structure is invalid")
+    expected = {
+        "data-canonical-label": expected_canonical_label,
+        "data-division": f"d{str(expected_division).lower().removeprefix('d')}",
+        "data-result-contract-version": RESULT_CONTRACT_VERSION,
+        "data-season-id": _numeric(expected_season_id, "season ID"),
+        "data-season-team-id": _numeric(expected_season_team_id, "season team ID"),
+        "data-source-path": (
+            f"/teams/{_numeric(expected_season_team_id, 'season team ID')}"
+            "/season_to_date_stats"
+        ),
+        "data-stat-type": expected_stat_type,
+    }
+    if expected_identifier is not None:
+        expected["data-identifier"] = _numeric(expected_identifier, "split identifier")
+    if expected_source_stat_category_id is not None:
+        expected["data-source-stat-category-id"] = _numeric(
+            expected_source_stat_category_id, "source stat category ID"
+        )
+    if any(root.get(key) != value for key, value in expected.items()):
+        raise ValueError("result fixture identity mismatch")
+    if not re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", root.get("data-captured-at", "")):
+        raise ValueError("result fixture capture time is invalid")
+    if not re.fullmatch(r"[0-9a-f]{64}", root.get("data-source-payload-sha256", "")):
+        raise ValueError("result fixture checksum is invalid")
+    forbidden = ("token=", "cookie", "authorization", "browserless", "@")
+    lowered = fixture_html.casefold()
+    if any(value in lowered for value in forbidden):
+        raise ValueError("result fixture contains forbidden content")
+
+    status = root.get("data-status")
+    if status == "unavailable":
+        absence = root.find("source-absence", recursive=False)
+        table = root.find("table")
+        if absence is None or table is not None:
+            raise ValueError("absence fixture structure is invalid")
+        reason = absence.get("reason")
+        if reason not in {"source_not_published", "source_identifier_not_found"}:
+            raise ValueError("absence fixture reason is invalid")
+        return {"status": status, "reason": reason, "row_count": 0}
+    if status != "complete":
+        raise ValueError("result fixture status is invalid")
+    table = root.find("table", id="split_result_grid", recursive=False)
+    if table is None:
+        raise ValueError("result fixture grid is missing")
+    header_row = table.select_one("thead tr")
+    headers = [
+        re.sub(r"\s+", " ", cell.get_text(" ", strip=True)).casefold()
+        for cell in header_row.find_all(["th", "td"], recursive=False)
+    ] if header_row is not None else []
+    if headers != ["player", "h", "ab"]:
+        raise ValueError("result fixture headers are invalid")
+    rows = table.select("tbody tr")
+    if not rows:
+        raise ValueError("complete result fixture is empty")
+    for index, row in enumerate(rows, start=1):
+        cells = row.find_all(["th", "td"], recursive=False)
+        if len(cells) != 3:
+            raise ValueError("result fixture row shape is invalid")
+        links = cells[0].find_all("a", href=True)
+        if (
+            len(links) != 1
+            or not re.fullmatch(r"/players/\d+", links[0].get("href", ""))
+            or links[0].get_text(" ", strip=True) != f"Player {index}"
+        ):
+            raise ValueError("result fixture player link is invalid")
+        if not all(cell.get_text(" ", strip=True).isdigit() for cell in cells[1:]):
+            raise ValueError("result fixture values are invalid")
+        if int(cells[1].get_text(strip=True)) > int(cells[2].get_text(strip=True)):
+            raise ValueError("result fixture values are inconsistent")
+    return {
+        "status": status,
+        "reason": None,
+        "row_count": len(rows),
+        "normalized_headers": headers,
+        "player_links_valid": True,
+    }
+
+
+def _capture_split_result_bundle(request: CaptureRequest) -> dict:
+    try:
+        _validate_browserless_configuration()
+    except Exception as exc:
+        raise CaptureUnavailable(CAPTURE_FAILURE, stage="configuration") from exc
+    try:
+        manifest = _load_control_manifest(request)
+        candidates = _representative_candidates(manifest)
+    except Exception as exc:
+        raise CaptureUnavailable(CAPTURE_FAILURE, stage="manifest") from exc
+    urls = {}
+    for stat_type, candidate in candidates.items():
+        category_id = candidate.get("source_stat_category_id")
+        if category_id:
+            urls[stat_type] = build_ncaa_url(request.season_team_id, category_id)
+    try:
+        pages = _bounded_fetch(
+            urls,
+            request.limits,
+            page_consumer=_interactive_split_consumer(candidates),
+        ) if urls else {}
+    except CaptureUnavailable:
+        raise
+    except Exception as exc:
+        raise CaptureUnavailable(CAPTURE_FAILURE, stage="result_fetch") from exc
+    captured_at = datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+    bundle = {}
+    for stat_type in ("batting", "pitching"):
+        try:
+            content = _render_result_fixture(
+                request=request,
+                stat_type=stat_type,
+                candidate=candidates[stat_type],
+                raw_html=pages.get(stat_type),
+                captured_at=captured_at,
+            )
+        except CaptureUnavailable as exc:
+            if exc.stage:
+                raise
+            raise CaptureUnavailable(
+                CAPTURE_FAILURE, stage=f"render_{stat_type}"
+            ) from exc
+        except Exception as exc:
+            raise CaptureUnavailable(
+                CAPTURE_FAILURE, stage=f"render_{stat_type}"
+            ) from exc
+        if len(content.encode("utf-8")) > request.limits.max_output_bytes:
+            raise CaptureUnavailable(CAPTURE_FAILURE)
+        bundle[f"{stat_type}_split_result.html"] = content
+    return bundle
+
+
+def capture_split_results(
+    *,
+    season_id: str,
+    season_team_id: str,
+    division: str,
+    output_dir: str | Path,
+    limits: CaptureLimits | None = None,
+    write: bool = True,
+) -> dict:
+    request = validate_capture_request(
+        season_id=season_id,
+        season_team_id=season_team_id,
+        division=division,
+        output_dir=output_dir,
+        limits=limits or CaptureLimits(),
+    )
+    bundle = _capture_split_result_bundle(request)
+    if write:
+        for filename, content in bundle.items():
+            _atomic_write(request.output_dir / filename, content)
+    return bundle
+
+
 def _remote_command(args: argparse.Namespace) -> list[str]:
     command = ["python", "-", "--remote-worker"]
     if args.preflight:
         command.append("--preflight")
-    else:
+    elif args.controls_only:
         command.extend([
             "--season-id", args.season_id,
             "--season-team-id", args.season_team_id,
             "--division", args.division,
             "--output-dir", args.output_dir,
             "--controls-only",
+            "--bundle-stdout",
+        ])
+    else:
+        command.extend([
+            "--season-id", args.season_id,
+            "--season-team-id", args.season_team_id,
+            "--division", args.division,
+            "--output-dir", args.output_dir,
+            "--capture-split-results",
             "--bundle-stdout",
         ])
     return command
@@ -662,11 +1105,41 @@ def _run_on_existing_fly_runtime(args: argparse.Namespace) -> int:
         )
     try:
         source = Path(__file__).read_text(encoding="utf-8")
+        roster_source = (PROJECT_ROOT / "roster_scraper.py").read_text(
+            encoding="utf-8"
+        )
+        manifest_text = None
+        if args.capture_split_results:
+            request = validate_capture_request(
+                season_id=args.season_id,
+                season_team_id=args.season_team_id,
+                division=args.division,
+                output_dir=args.output_dir,
+                limits=CaptureLimits(),
+            )
+            manifest_text = (request.output_dir / "fixture_manifest.json").read_text(
+                encoding="utf-8"
+            )
+        loader = (
+            "import os, sys, types\n"
+            "module = types.ModuleType('roster_scraper')\n"
+            "module.__file__ = '/app/roster_scraper.py'\n"
+            "module.__package__ = ''\n"
+            "sys.modules['roster_scraper'] = module\n"
+            f"exec(compile({roster_source!r}, module.__file__, 'exec'), module.__dict__)\n"
+            + (
+                f"os.environ['PHASE3_CONTROL_MANIFEST_JSON'] = {manifest_text!r}\n"
+                if manifest_text is not None else ""
+            )
+            + "script_globals = {'__name__': '__main__', "
+              "'__file__': '/app/scripts/capture_phase3_ncaa_fixtures.py'}\n"
+            f"exec(compile({source!r}, script_globals['__file__'], 'exec'), script_globals)\n"
+        )
         command = " ".join(shlex.quote(part) for part in _remote_command(args))
         result = subprocess.run(
             ["fly", "ssh", "console", "-q", "-g", "app", "-C", command],
             cwd=PROJECT_ROOT,
-            input=source,
+            input=loader,
             text=True,
             capture_output=True,
             timeout=360,
@@ -683,7 +1156,12 @@ def _run_on_existing_fly_runtime(args: argparse.Namespace) -> int:
         return 0
     try:
         bundle = json.loads(result.stdout)
-        if set(bundle) != {"fixture_manifest.json", "split_controls.html"}:
+        expected_files = (
+            {"batting_split_result.html", "pitching_split_result.html"}
+            if args.capture_split_results
+            else {"fixture_manifest.json", "split_controls.html"}
+        )
+        if set(bundle) != expected_files:
             raise ValueError
         request = validate_capture_request(
             season_id=args.season_id,
@@ -733,15 +1211,16 @@ def run(args: argparse.Namespace) -> int:
         print("phase3_browserless_ready")
         return 0
 
-    if args.capture_split_results:
-        raise CaptureUnavailable(CAPTURE_FAILURE)
-    if not args.controls_only:
+    if args.controls_only and args.capture_split_results:
+        raise ValueError("capture modes are mutually exclusive")
+    if not args.controls_only and not args.capture_split_results:
         raise ValueError("capture mode is required")
     if not all((args.season_id, args.season_team_id, args.division, args.output_dir)):
         raise ValueError("capture identity is incomplete")
     if _should_use_fly(args):
         return _run_on_existing_fly_runtime(args)
-    bundle = capture_controls(
+    capture = capture_controls if args.controls_only else capture_split_results
+    bundle = capture(
         season_id=args.season_id,
         season_team_id=args.season_team_id,
         division=args.division,
