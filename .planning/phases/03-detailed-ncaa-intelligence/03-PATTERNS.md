@@ -1,8 +1,8 @@
 # Phase 03: Detailed NCAA Intelligence - Pattern Map
 
 **Mapped:** 2026-11-15
-**Files analyzed:** 18 new or modified files plus fixture directories
-**Analogs found:** 18 / 18
+**Files analyzed:** 20 mapped files/resources including fixture directories
+**Analogs found:** 20 / 20
 
 ## File Classification
 
@@ -20,6 +20,7 @@
 | `roster_scraper.py` | external-source adapter | request-response / browser I/O | Existing `_fetch_ncaa_pages()`, `_parse_ncaa_stat_table_result()`, `_collect_ncaa_team()` | exact |
 | `migrations/versions/0025_detailed_ncaa_intelligence.py` | migration | additive DDL / immutability | `0001_canonical_snapshot_foundation.py` plus `0024_durable_workbook_artifacts.py` | exact |
 | `scripts/inspect_report_jobs.py` | operator CLI | read-only DB query → sanitized JSON | `scripts/report_usage.py` | exact |
+| `scripts/prepare_phase3_test_database.py` | test infrastructure CLI | validated local service/bootstrap → disposable PostgreSQL readiness | `scripts/validate_phase2_release.py::_validate_database_url()`, `tests/db_support.py::require_test_database_url()`, and `compose.yaml` loopback PostgreSQL service | exact boundary |
 | `scripts/validate_phase3_release.py` | release gate | batch subprocess orchestration | `scripts/validate_phase1_release.py` | exact |
 | `tests/test_detailed_stats.py` | unit + DB integration test | table-driven transform / CRUD | `tests/test_canonical_data.py`, `tests/test_snapshot_persistence.py` | exact |
 | `tests/test_ncaa_detail.py` | parser contract test | fixture HTML → typed evidence | `tests/test_ncaa_workflow.py::NcaaParserCorruptionTests` | exact |
@@ -304,6 +305,40 @@ Create all new tables and named checks additively, update the section-status con
 **Analog:** `scripts/report_usage.py:21-136`.
 
 Use `SafeArgumentParser` so invalid input is replaced by fixed text, validate UUID/time arguments before constructing database dependencies, create/dispose the engine inside `main()`, print sorted JSON on stdout, and return a fixed nonzero error with no exception text. The projection may include job/snapshot IDs, lifecycle state, generation/attempt, age/heartbeat, section/scope state and safe reason, request budget, cache/live counts, capacity category, and next retry. It must omit player names, raw rows, exception text, arbitrary source query strings, email, credentials, and organization/customer content.
+
+---
+
+### `scripts/prepare_phase3_test_database.py` (disposable PostgreSQL readiness/bootstrap)
+
+**Analogs:** `scripts/validate_phase2_release.py:158-202`, `tests/db_support.py:31-41`, and `compose.yaml:109-119`.
+
+**Destructive-target guard** (`scripts/validate_phase2_release.py:158-202`):
+
+```python
+url = make_url(raw_url)
+if url.drivername != "postgresql+psycopg":
+    raise SystemExit("DATABASE_URL must use PostgreSQL with psycopg")
+if env.get("PHASE2_DESTRUCTIVE_DATABASE") != "local-disposable":
+    raise SystemExit(
+        "PHASE2_DESTRUCTIVE_DATABASE=local-disposable is required before destructive lifecycle checks"
+    )
+database = effective.get("dbname")
+if not isinstance(database, str) or not database.endswith("_test"):
+    raise SystemExit("DATABASE_URL must name a disposable database ending in '_test'")
+```
+
+The same validator resolves the effective host and rejects it unless it is `localhost` or an IP address whose `is_loopback` property is true. Reuse that parsed-SQLAlchemy-URL approach rather than string-prefix checks. The helper must never accept query parameters for destructive lifecycle work, must render any diagnostic URL with `hide_password=True`, and must collapse connection/bootstrap failures to the fixed `phase3_test_database_unavailable` error.
+
+**Test database contract** (`tests/db_support.py:31-41`):
+
+```python
+if url.get_backend_name() != "postgresql":
+    raise ValueError("Database integration tests require PostgreSQL; SQLite is forbidden")
+if not (url.database or "").endswith("_test"):
+    raise ValueError("DATABASE_URL must name a disposable database ending in '_test'")
+```
+
+**Local service boundary** (`compose.yaml:109-119`): the existing `postgres:16-alpine` service publishes only `127.0.0.1:5432`, mounts `scripts/create-test-database.sql`, and owns the repository's local disposable database bootstrap. `prepare_phase3_test_database.py --ensure` may start this existing service and create/validate only the documented loopback `roster_scout_test` target when `PHASE2_DESTRUCTIVE_DATABASE=local-disposable`; for any already-configured non-loopback `_test` database it performs non-destructive reachability and reversible-DDL permission checks only. It must not inspect or use legacy credential/token files prohibited by `AGENTS.md`.
 
 ---
 
