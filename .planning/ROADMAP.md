@@ -10,7 +10,7 @@ Roster Scout v2.0 is delivered in five dependency-ordered slices. The roadmap fi
 - [x] **Phase 2: Identity, Organizations, and Report Library** - Gate Roster Scout behind passwordless organization access and versioned report workflows. (completed 2026-11-13)
 - [x] **Phase 02.1: Restore public homepage and school-domain sign-in flow** - Reestablish the polished homepage as the primary product, authenticate at generation, auto-join verified school domains, and keep the portal minimal. (INSERTED)
 - [x] **Phase 3: Detailed NCAA Intelligence** - Add fielding, advanced metrics, situational splits, career history, and game logs. (completed 2026-11-16)
-- [ ] **Phase 4: Detailed Excel Report** - Deliver the exact detailed snapshot as a branded ten-sheet workbook.
+- [ ] **Phase 4: Detailed Excel Report** - Extend the established branded two-sheet workbook with auditable season, derived, last-10, and conference statistics.
 - [ ] **Phase 5: Embedded Opponent Dashboard** - Securely embed the opponent-branded Power BI report and harden production delivery.
 
 ## Phase Details
@@ -303,16 +303,16 @@ Plans:
 
 ### Phase 4: Detailed Excel Report
 
-**Goal:** Customers can download the exact detailed snapshot as a safe, branded, analysis-ready workbook with complete methodology and section status.
+**Goal:** Customers can download a safe, branded, analysis-ready two-sheet workbook that preserves the familiar Roster Scout Excel experience while adding canonical season, derived, last-10, and conference statistics.
 **Mode:** mvp
 **UI hint:** no
 **Depends on:** Phase 3
 **Requirements:** XLSX-01, XLSX-02, XLSX-03, XLSX-04, XLSX-05, XLSX-06
 **Success Criteria** (what must be TRUE):
 
-1. A complete snapshot renders Report Summary, Roster, Hitters, Pitchers, Fielding, Hitting Splits, Pitching Splits, Career Stats, Game Logs, and Sources & Methodology worksheets.
-2. A partial snapshot identifies each unavailable section and preserves opponent, season, source freshness, and refresh lineage.
-3. Workbook numeric types, precision, formula/URL safety, branding, and navigation remain correct for representative D1/D2/D3 fixtures.
+1. A complete snapshot renders exactly two worksheets, `Hitters` and `Pitchers`, using the established workbook styling and grouped Player, Season, Derived Metrics, Last 10 Games, and Conference Games columns.
+2. Stable NCAA player IDs and source URLs remain available in the workbook, while partial or unavailable last-10 and conference scopes are labeled explicitly rather than rendered as zero.
+3. Workbook numeric types, precision, formula/URL safety, school-derived branding, filters, frozen headers, print behavior, and two-way-player logic remain correct for representative D1/D2/D3 fixtures.
 4. Downloading an older snapshot returns its original checksummed artifact rather than rebuilding from newer data.
 5. Shared fixture metrics match canonical storage and Power BI-facing views.
 
@@ -320,9 +320,9 @@ Plans:
 
 Plans:
 
-- [ ] 04-01: Build the ten-sheet workbook contract, formatting, methodology, completeness, and branding.
+- [ ] 04-01: Extend the canonical two-sheet workbook with legacy-matched styling and grouped player, season, derived, last-10, and conference columns.
 - [ ] 04-02: Add immutable object storage, checksums, schema versions, and exact historical artifact downloads.
-- [ ] 04-03: Add canonical-to-Excel parity, safety, partial-report, and D1/D2/D3 workbook verification.
+- [ ] 04-03: Add canonical-to-Excel parity, formula/URL safety, partial-scope, visual-format, and D1/D2/D3 workbook verification.
 
 ### Phase 5: Embedded Opponent Dashboard
 

@@ -19,7 +19,7 @@ A baseball staff can reliably turn fragmented opponent data into a trustworthy, 
 - Immutable report snapshots with explicit refresh-to-new-version behavior and report history
 - NCAA player provenance, derived metrics, fielding, split statistics, career statistics, and game logs
 - A stable analytics data model that feeds both Excel and Power BI without duplicating metric definitions
-- Opponent-branded embedded Power BI reports with a full formatted Excel download
+- A familiar two-sheet Excel download for core scouting statistics, with deeper splits and player intelligence in the opponent-branded embedded Power BI report
 
 ## Requirements
 

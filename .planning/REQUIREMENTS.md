@@ -80,8 +80,8 @@
 
 ### Excel Report
 
-- [ ] **XLSX-01**: A ready or partial snapshot can produce a branded workbook containing Report Summary, Roster, Hitters, Pitchers, Fielding, Hitting Splits, Pitching Splits, Career Stats, Game Logs, and Sources & Methodology worksheets.
-- [ ] **XLSX-02**: The workbook identifies the opponent, season, snapshot generation time, refresh lineage, section completeness, and data freshness.
+- [ ] **XLSX-01**: A ready or partial snapshot can produce the established branded two-sheet workbook (`Hitters` and `Pitchers`) with grouped Player, Season, Derived Metrics, Last 10 Games, and Conference Games columns.
+- [ ] **XLSX-02**: Both worksheets identify the opponent, season, snapshot generation time, data freshness, stable player identity, and source URL; unavailable or partial scoped metrics remain explicit instead of appearing as zero.
 - [ ] **XLSX-03**: The workbook writes numeric cells as numbers, preserves safe plain-text handling, and applies the correct display precision for each metric.
 - [ ] **XLSX-04**: Downloading an older snapshot returns its exact stored workbook artifact rather than rebuilding it from current upstream data.
 - [ ] **XLSX-05**: The workbook records a schema version and SHA-256 artifact checksum in snapshot metadata.
@@ -143,7 +143,7 @@
 
 - [x] A verified school member can authenticate passwordlessly, enter the correct organization, create a report, and later reopen its saved report; exact invitations remain available for exceptions.
 - [ ] Refreshing a report creates a second snapshot while the first dashboard and workbook remain reproducible.
-- [ ] A representative D1, D2, and D3 report contains season batting, pitching, fielding, derived metrics, split statistics, career history, game logs, and provenance or an explicit unavailable state for each section.
+- [ ] A representative D1, D2, and D3 report exposes season and scoped workbook metrics in the two-sheet Excel download, while the dashboard contains fielding, split statistics, career history, game logs, methodology, and provenance or an explicit unavailable state for each section.
 - [ ] The same fixture player and snapshot produce matching shared metric values in canonical storage, Excel, and Power BI-facing views.
 - [ ] A member of Organization A cannot access any Organization B report, job, workbook, or Power BI data through identifier substitution.
 - [ ] A customer can review the opponent-branded embedded report and download the complete snapshot workbook from the same report page.
