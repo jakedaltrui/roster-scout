@@ -30,6 +30,11 @@ from .jobs import drain_report_dispatch_outbox
 from .google_sheets import GoogleSheetsFailure, GoogleSheetsOAuthClient
 from .institution_registry import identity_for_verified_email
 from .models import Account, Organization
+from .player_detail import (
+    PLAYER_DETAIL_VIEWS,
+    PlayerDetailFailure,
+    load_snapshot_player_detail,
+)
 from .reports import (
     CanonicalReportRequest,
     ReportAcceptanceFailure,
@@ -851,6 +856,38 @@ def detail_status(report_id):
     except (SQLAlchemyError, RuntimeError, ValueError):
         return jsonify(error="report_service_unavailable"), 503
     return jsonify(status.as_dict())
+
+
+@report_blueprint.get(
+    "/reports/<uuid:report_id>/snapshots/<uuid:snapshot_id>"
+    "/players/<uuid:player_id>"
+)
+def snapshot_player_detail(report_id, snapshot_id, player_id):
+    """Return one exact immutable snapshot/player projection for the active tenant."""
+    context = g.authorization_context
+    view = request.args.get("view", "all")
+    if view not in PLAYER_DETAIL_VIEWS:
+        return jsonify(error="invalid_view"), 400
+    try:
+        with _session_factory().begin() as session:
+            detail = load_snapshot_player_detail(
+                session,
+                context.organization_id,
+                report_id,
+                snapshot_id,
+                player_id,
+                view,
+            )
+    except PlayerDetailFailure:
+        return _json_not_found(
+            context,
+            target_type="snapshot",
+            target_id=snapshot_id,
+        )
+    except (SQLAlchemyError, RuntimeError, ValueError):
+        current_app.logger.warning("player_detail_service_unavailable")
+        return jsonify(error="player_detail_service_unavailable"), 503
+    return jsonify(detail)
 
 
 @report_blueprint.route("/reports/new", methods=("GET", "POST"))
