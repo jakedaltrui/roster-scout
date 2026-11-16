@@ -821,7 +821,10 @@ def _result_rows(raw_html: str, identifier: str, stat_type: str) -> list[dict]:
         hits, at_bats = int(h_text), int(ab_text)
         if hits < 0 or at_bats < 0 or hits > at_bats:
             raise CaptureUnavailable(CAPTURE_FAILURE, stage="rows_values")
-        rows[player_path] = {"player_path": player_path, "h": hits, "ab": at_bats}
+        normalized = {"player_path": player_path, "h": hits, "ab": at_bats}
+        if player_path in rows and rows[player_path] != normalized:
+            raise CaptureUnavailable(CAPTURE_FAILURE, stage="rows_duplicate_player")
+        rows[player_path] = normalized
     if nodes and not rows:
         raise CaptureUnavailable(CAPTURE_FAILURE, stage="rows_no_pairs")
     return [rows[key] for key in sorted(rows, key=lambda value: int(value.rsplit("/", 1)[1]))]

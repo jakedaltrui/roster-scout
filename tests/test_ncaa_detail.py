@@ -834,6 +834,46 @@ class PitchingSplitTests(_SplitContractMixin, unittest.TestCase):
 
 
 class SplitProvenanceTests(_SplitContractMixin, unittest.TestCase):
+    @staticmethod
+    def _live_duplicate_grid(second_counts):
+        return f"""
+        <button data-stat-seq="123">Vs LHP</button>
+        <table id="stat_grid">
+          <thead><tr><th>Player</th><th>H</th><th>AB</th></tr></thead>
+          <tbody>
+            <tr id="player_42"><td><a href="/players/42">Player</a></td></tr>
+            <tr class="sport_stat_123"><td>2</td><td>5</td></tr>
+            <tr class="sport_stat_123"><td>{second_counts[0]}</td><td>{second_counts[1]}</td></tr>
+          </tbody>
+        </table>
+        """
+
+    def test_live_split_duplicates_dedupe_only_when_counts_match(self):
+        api = fielding_api()
+        identical = self._live_duplicate_grid((2, 5))
+        scope = next(item for item in api.discover_live_split_controls(
+            identical,
+            season_id="17040",
+            season_team_id="614606",
+            stat_type="batting",
+            source_stat_category_id="15867",
+        ) if item.scope_code == "vs_lhp")
+        result = api.parse_live_split_result(identical, discovered_scope=scope)
+        self.assertEqual(len(result.rows), 1)
+        with self.assertRaises(api.SplitContractError):
+            api.parse_live_split_result(
+                self._live_duplicate_grid((3, 5)), discovered_scope=scope
+            )
+
+    def test_capture_split_duplicates_reject_conflicting_evidence(self):
+        api = FixtureCaptureSafetyTests.capture_api()
+        identical = self._live_duplicate_grid((2, 5))
+        self.assertEqual(len(api._result_rows(identical, "123", "batting")), 1)
+        with self.assertRaises(api.CaptureUnavailable):
+            api._result_rows(
+                self._live_duplicate_grid((3, 5)), "123", "batting"
+            )
+
     def test_stale_identifier_is_rejected_before_result_rows_are_returned(self):
         api = fielding_api()
         scope = next(

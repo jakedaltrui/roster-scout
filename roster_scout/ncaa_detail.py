@@ -1291,6 +1291,9 @@ def parse_live_split_result(
         at_bats = _parse_split_count(ab_text)
         if hits > at_bats:
             raise SplitContractError("schema_validation")
+        previous = extracted.get(player_path)
+        if previous is not None and previous != (hits, at_bats):
+            raise SplitContractError("schema_validation")
         extracted[player_path] = (hits, at_bats)
     checksum = hashlib.sha256(html.encode("utf-8")).hexdigest()
     captured = discovered_scope.collected_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
