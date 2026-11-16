@@ -10,6 +10,10 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import roster_scraper as rs
+from roster_scout.collection_control import (
+    CollectionBudgetExceeded,
+    CollectionDeadlineExceeded,
+)
 from usage_limits import BrowserCapacityExceeded
 
 
@@ -76,6 +80,62 @@ class NcaaSameTeamCollectionLockTests(unittest.TestCase):
 
 
 class BrowserlessLifecycleTests(unittest.TestCase):
+    @staticmethod
+    def _session(first_url):
+        page = MagicMock()
+        page.url = first_url
+        page.content.return_value = (
+            "<table id='stat_grid'><thead><tr><th>Player</th></tr></thead>"
+            "<tbody></tbody></table>"
+        )
+        browser, playwright = MagicMock(), MagicMock()
+        browser.contexts = [SimpleNamespace(pages=[page])]
+        playwright.chromium.connect_over_cdp.return_value = browser
+        starter = MagicMock()
+        starter.start.return_value = playwright
+        response = MagicMock(status_code=200)
+        response.json.return_value = {
+            'browserWSEndpoint': 'wss://example.test/browser'
+        }
+        return page, response, starter
+
+    def test_public_transport_preserves_collection_control_signals(self):
+        urls = {
+            'batting': 'https://stats.ncaa.org/teams/1/batting',
+            'pitching': 'https://stats.ncaa.org/teams/1/pitching',
+        }
+        for signal in (
+            CollectionBudgetExceeded('fixture budget'),
+            CollectionDeadlineExceeded('fixture deadline'),
+        ):
+            page, response, starter = self._session(urls['batting'])
+            calls = []
+
+            def reserve(key):
+                calls.append(key)
+                if len(calls) == 2:
+                    raise signal
+
+            with self.subTest(signal=type(signal).__name__), patch.dict(
+                os.environ,
+                {
+                    'NCAA_BROWSER_PROVIDER': 'browserless',
+                    'BROWSERLESS_TOKEN': 'test',
+                },
+            ), patch(
+                'requests.post', return_value=response
+            ), patch(
+                'patchright.sync_api.sync_playwright', return_value=starter
+            ):
+                with self.assertRaises(type(signal)):
+                    rs._fetch_ncaa_pages(
+                        urls,
+                        request_reserver=reserve,
+                        navigation_timeout_seconds=5,
+                        deadline_monotonic=time.monotonic() + 30,
+                    )
+            self.assertEqual(calls, ['batting', 'pitching'])
+
     def test_upstream_429_becomes_capacity_error_without_retry(self):
         with patch.dict(os.environ, {'BROWSERLESS_TOKEN': 'test'}), patch(
             'requests.post', return_value=SimpleNamespace(status_code=429)

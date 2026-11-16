@@ -506,6 +506,92 @@ class FixtureCaptureSafetyTests(unittest.TestCase):
             target, wait_until="domcontentloaded", timeout=5000
         )
 
+    def test_player_transport_accepts_preloaded_first_url(self):
+        api = self.capture_api()
+        player_id = "9698671"
+        urls = {
+            key: api.build_player_url(player_id, category)
+            for key, category in {
+                "batting": "15867",
+                "pitching": "15868",
+                "fielding": "15869",
+            }.items()
+        }
+        page = Mock()
+        page.url = urls["batting"]
+        page.content.side_effect = lambda: f"<html>{page.url}</html>"
+        page.goto.side_effect = lambda url, **_kwargs: setattr(page, "url", url)
+        browser = Mock()
+        browser.contexts = [Mock(pages=[page])]
+        playwright = Mock()
+        playwright.chromium.connect_over_cdp.return_value = browser
+        starter = Mock()
+        starter.start.return_value = playwright
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            "browserWSEndpoint": "wss://example.test/browser"
+        }
+        reserved = []
+
+        with patch.dict(os.environ, {
+            "BROWSERLESS_TOKEN": "test-only-token",
+            "NCAA_BROWSER_PROVIDER": "browserless",
+        }, clear=False), patch.object(
+            api.requests, "post", return_value=response
+        ), patch(
+            "patchright.sync_api.sync_playwright", return_value=starter
+        ):
+            pages = api._bounded_player_fetch(
+                urls,
+                player_id,
+                api.CaptureLimits(max_pages=3, timeout_seconds=5),
+                request_reserver=reserved.append,
+                deadline_monotonic=time.monotonic() + 30,
+            )
+
+        self.assertEqual(set(pages), set(urls))
+        self.assertEqual(
+            reserved,
+            ["history:batting", "history:pitching", "history:fielding"],
+        )
+        self.assertEqual(page.goto.call_count, 2)
+
+    def test_terms_dwell_stops_at_absolute_build_deadline(self):
+        import roster_scraper as scraper
+        from roster_scout.collection_control import CollectionDeadlineExceeded
+
+        clock = [100.0]
+        checkbox = Mock()
+        checkbox.count.return_value = 1
+        button = Mock()
+        button.count.return_value = 1
+        page = Mock()
+        page.url = "https://stats.ncaa.org/stats_terms"
+        page.locator.side_effect = lambda selector: {
+            "#terms_accepted": checkbox,
+            "#stats-access-button": button,
+        }[selector]
+        page.wait_for_timeout.side_effect = (
+            lambda milliseconds: clock.__setitem__(
+                0, clock[0] + milliseconds / 1000
+            )
+        )
+
+        with patch.dict(
+            os.environ, {"NCAA_TERMS_DWELL_MILLISECONDS": "8000"}, clear=False
+        ), patch.object(scraper.time, "monotonic", side_effect=lambda: clock[0]):
+            with self.assertRaises(CollectionDeadlineExceeded):
+                scraper._accept_ncaa_terms(
+                    page,
+                    "https://stats.ncaa.org/teams/614606/season_to_date_stats",
+                    timeout_seconds=45,
+                    deadline_monotonic=103.0,
+                )
+
+        self.assertEqual(clock[0], 103.0)
+        checkbox.check.assert_not_called()
+        page.goto.assert_not_called()
+
     def test_manifest_is_allowlisted_sorted_and_contains_no_raw_source(self):
         api = self.capture_api()
         manifest = api.build_fixture_manifest(

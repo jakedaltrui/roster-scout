@@ -33,6 +33,13 @@ from datetime import datetime, timezone
 from difflib import SequenceMatcher
 from pathlib import Path
 
+from roster_scout.collection_control import (
+    CollectionBudgetExceeded,
+    CollectionDeadlineExceeded,
+    remaining_timeout_milliseconds,
+    remaining_timeout_seconds,
+)
+
 # ── Constants ──────────────────────────────────────────────────────────────────
 
 HEADERS = {
@@ -1894,6 +1901,7 @@ def _accept_ncaa_terms(
     *,
     request_reserver=None,
     timeout_seconds=60,
+    deadline_monotonic=None,
 ) -> None:
     """Accept NCAA's stats terms screen and retry the requested stats page."""
     if not page.url.rstrip("/").endswith("/stats_terms"):
@@ -1908,9 +1916,11 @@ def _accept_ncaa_terms(
     # after the real browser input matches the site's intended interaction and
     # preserves the accepted state in the dedicated browser profile.
     dwell_ms = int(os.environ.get("NCAA_TERMS_DWELL_MILLISECONDS", "8000"))
-    page.wait_for_timeout(max(dwell_ms, 0))
+    _bounded_browser_wait(
+        page, max(dwell_ms, 0), deadline_monotonic, timeout_seconds
+    )
     checkbox.check()
-    page.wait_for_timeout(2000)
+    _bounded_browser_wait(page, 2000, deadline_monotonic, timeout_seconds)
     if button.is_enabled():
         button.click()
     else:
@@ -1922,16 +1932,43 @@ def _accept_ncaa_terms(
         if form.count() != 1:
             raise NcaaAccessError("NCAA returned an unrecognized terms form.")
         form.evaluate("form => form.submit()")
-    page.wait_for_load_state(
-        "domcontentloaded", timeout=timeout_seconds * 1000
+    current_timeout_ms = remaining_timeout_milliseconds(
+        deadline_monotonic, timeout_seconds
     )
-    page.wait_for_timeout(2000)
+    page.wait_for_load_state(
+        "domcontentloaded", timeout=current_timeout_ms
+    )
+    _bounded_browser_wait(page, 2000, deadline_monotonic, timeout_seconds)
     if request_reserver is not None:
         request_reserver()
+    current_timeout_ms = remaining_timeout_milliseconds(
+        deadline_monotonic, timeout_seconds
+    )
     page.goto(
         target_url,
         wait_until="domcontentloaded",
-        timeout=timeout_seconds * 1000,
+        timeout=current_timeout_ms,
+    )
+
+
+def _bounded_browser_wait(
+    page,
+    requested_milliseconds,
+    deadline_monotonic,
+    navigation_timeout_seconds,
+) -> None:
+    """Wait no longer than the exact remaining build/navigation allowance."""
+    if requested_milliseconds <= 0:
+        remaining_timeout_milliseconds(
+            deadline_monotonic, navigation_timeout_seconds
+        )
+        return
+    allowance = remaining_timeout_milliseconds(
+        deadline_monotonic, navigation_timeout_seconds
+    )
+    page.wait_for_timeout(min(requested_milliseconds, allowance))
+    remaining_timeout_milliseconds(
+        deadline_monotonic, navigation_timeout_seconds
     )
 
 
@@ -2012,7 +2049,9 @@ def _fetch_ncaa_browser_pages_locked(
                 page.goto(
                     f"{NCAA_BASE}/stats_terms",
                     wait_until="domcontentloaded",
-                    timeout=current_timeout * 1000,
+                    timeout=remaining_timeout_milliseconds(
+                        deadline_monotonic, navigation_timeout_seconds
+                    ),
                 )
                 _accept_ncaa_terms(
                     page,
@@ -2022,6 +2061,7 @@ def _fetch_ncaa_browser_pages_locked(
                         if request_reserver is not None else None
                     ),
                     timeout_seconds=current_timeout,
+                    deadline_monotonic=deadline_monotonic,
                 )
                 preloaded_url = first_url
 
@@ -2035,7 +2075,9 @@ def _fetch_ncaa_browser_pages_locked(
                     page.goto(
                         url,
                         wait_until="domcontentloaded",
-                        timeout=current_timeout * 1000,
+                        timeout=remaining_timeout_milliseconds(
+                            deadline_monotonic, navigation_timeout_seconds
+                        ),
                     )
                 preloaded_url = None
                 current_timeout = remaining_timeout_seconds(
@@ -2049,6 +2091,7 @@ def _fetch_ncaa_browser_pages_locked(
                         if request_reserver is not None else None
                     ),
                     timeout_seconds=current_timeout,
+                    deadline_monotonic=deadline_monotonic,
                 )
                 deadline = time.monotonic() + min(
                     timeout_seconds, current_timeout
@@ -2061,11 +2104,17 @@ def _fetch_ncaa_browser_pages_locked(
                         # Akamai uses timed meta/JavaScript redirects. Content
                         # is temporarily unavailable while Chrome commits the
                         # next document, which is a normal verification state.
-                        page.wait_for_timeout(1000)
+                        _bounded_browser_wait(
+                            page, 1000, deadline_monotonic,
+                            navigation_timeout_seconds,
+                        )
                         continue
                     if _has_ncaa_stat_grid(html):
                         break
-                    page.wait_for_timeout(1000)
+                    _bounded_browser_wait(
+                        page, 1000, deadline_monotonic,
+                        navigation_timeout_seconds,
+                    )
                 if not _has_ncaa_stat_grid(html):
                     raise _NcaaFailureEvidenceError(
                         section=key,
@@ -2076,6 +2125,8 @@ def _fetch_ncaa_browser_pages_locked(
                 rendered[key] = html
 
             context.close()
+    except (CollectionBudgetExceeded, CollectionDeadlineExceeded):
+        raise
     except NcaaAccessError:
         raise
     except Exception as exc:
@@ -2198,6 +2249,7 @@ def _fetch_ncaa_browserless_pages(
                 if request_reserver is not None else None
             ),
             timeout_seconds=boundary_timeout,
+            deadline_monotonic=deadline_monotonic,
         )
         verify_seconds = min(
             int(os.environ.get("NCAA_BROWSER_VERIFY_TIMEOUT_SECONDS", "45")),
@@ -2213,7 +2265,9 @@ def _fetch_ncaa_browserless_pages(
                 page.goto(
                     url,
                     wait_until="domcontentloaded",
-                    timeout=current_timeout * 1000,
+                    timeout=remaining_timeout_milliseconds(
+                        deadline_monotonic, navigation_timeout_seconds
+                    ),
                 )
             _accept_ncaa_terms(
                 page,
@@ -2223,6 +2277,7 @@ def _fetch_ncaa_browserless_pages(
                     if request_reserver is not None else None
                 ),
                 timeout_seconds=current_timeout,
+                deadline_monotonic=deadline_monotonic,
             )
             current_timeout = remaining_timeout_seconds(
                 deadline_monotonic, verify_seconds
@@ -2233,7 +2288,10 @@ def _fetch_ncaa_browserless_pages(
                 html = page.content()
                 if _has_ncaa_stat_grid(html):
                     break
-                page.wait_for_timeout(1000)
+                _bounded_browser_wait(
+                    page, 1000, deadline_monotonic,
+                    navigation_timeout_seconds,
+                )
             if not _has_ncaa_stat_grid(html):
                 raise _NcaaFailureEvidenceError(
                     section=key,
@@ -2251,12 +2309,16 @@ def _fetch_ncaa_browserless_pages(
                         source_url=url,
                         html=html,
                     )
+                except (CollectionBudgetExceeded, CollectionDeadlineExceeded):
+                    raise
                 except NcaaAccessError:
                     raise
                 except Exception as exc:
                     raise NcaaAccessError(
                         "Browserless NCAA page extraction failed."
                     ) from exc
+    except (CollectionBudgetExceeded, CollectionDeadlineExceeded):
+        raise
     except NcaaAccessError:
         raise
     except Exception as exc:
@@ -2941,7 +3003,10 @@ def collect_ncaa_split_results(
             if request_reserver is not None:
                 request_reserver(f"splits:{scope.stat_type}")
             control.evaluate("element => element.click()")
-            page.wait_for_timeout(250)
+            _bounded_browser_wait(
+                page, 250, deadline_monotonic,
+                navigation_timeout_seconds,
+            )
             rendered[candidate_key] = page.content()
         return page.content()
 
@@ -2985,6 +3050,7 @@ def collect_ncaa_schedule_evidence(
 ):
     """Collect and validate the current team's bounded full-season schedule."""
     from scripts.capture_phase3_ncaa_fixtures import (
+        CaptureUnavailable,
         CaptureLimits,
         _bounded_schedule_fetch,
         _catalog_rows_for_season,
@@ -2999,29 +3065,38 @@ def collect_ncaa_schedule_evidence(
     )
     season = _find_ncaa_season(year)
     season_id = str(team.get("season_id") or season["id"])
-    catalog = _catalog_rows_for_season(season_id)
+    try:
+        catalog = _catalog_rows_for_season(season_id)
+    except CaptureUnavailable as exc:
+        raise NcaaAccessError("NCAA schedule collection unavailable.") from exc
     source_url = build_schedule_url(str(team["team_id"]), season_id)
-    raw_html = _bounded_schedule_fetch(
-        source_url,
-        CaptureLimits(
-            max_pages=1,
-            timeout_seconds=navigation_timeout_seconds,
-        ),
-        request_reserver=request_reserver,
-        deadline_monotonic=deadline_monotonic,
-    )
+    try:
+        raw_html = _bounded_schedule_fetch(
+            source_url,
+            CaptureLimits(
+                max_pages=1,
+                timeout_seconds=navigation_timeout_seconds,
+            ),
+            request_reserver=request_reserver,
+            deadline_monotonic=deadline_monotonic,
+        )
+    except CaptureUnavailable as exc:
+        raise NcaaAccessError("NCAA schedule collection unavailable.") from exc
     captured_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace(
         "+00:00", "Z"
     )
-    sanitized = sanitize_schedule(
-        raw_html,
-        season_id=season_id,
-        team_id=str(team["team_id"]),
-        season_team_id=str(team["season_team_id"]),
-        division=str(team["division"]),
-        catalog=catalog,
-        captured_at=captured_at,
-    )
+    try:
+        sanitized = sanitize_schedule(
+            raw_html,
+            season_id=season_id,
+            team_id=str(team["team_id"]),
+            season_team_id=str(team["season_team_id"]),
+            division=str(team["division"]),
+            catalog=catalog,
+            captured_at=captured_at,
+        )
+    except CaptureUnavailable as exc:
+        raise NcaaAccessError("NCAA schedule collection unavailable.") from exc
     return parse_schedule_fixture(
         sanitized,
         expected_season_id=season_id,
@@ -3043,6 +3118,7 @@ def collect_ncaa_player_detail_evidence(
 ):
     """Collect one stable player's three typed history pages as one contract."""
     from scripts.capture_phase3_ncaa_fixtures import (
+        CaptureUnavailable,
         CaptureLimits,
         _bounded_player_fetch,
         sanitize_player_detail,
@@ -3072,29 +3148,39 @@ def collect_ncaa_player_detail_evidence(
         stat_type: build_player_detail_url(player_id, category_id)
         for stat_type, category_id in categories.items()
     }
-    pages = _bounded_player_fetch(
-        urls,
-        player_id,
-        CaptureLimits(
-            max_pages=3,
-            timeout_seconds=navigation_timeout_seconds,
-        ),
-        request_reserver=request_reserver,
-        deadline_monotonic=deadline_monotonic,
-    )
+    try:
+        pages = _bounded_player_fetch(
+            urls,
+            player_id,
+            CaptureLimits(
+                max_pages=3,
+                timeout_seconds=navigation_timeout_seconds,
+            ),
+            request_reserver=request_reserver,
+            deadline_monotonic=deadline_monotonic,
+        )
+    except CaptureUnavailable as exc:
+        raise NcaaAccessError(
+            "NCAA player history collection unavailable."
+        ) from exc
     captured_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace(
         "+00:00", "Z"
     )
-    sanitized = sanitize_player_detail(
-        pages,
-        player_id=player_id,
-        season_id=season_id,
-        season_team_id=str(team["season_team_id"]),
-        season_year=year,
-        division=str(team["division"]),
-        categories=categories,
-        captured_at=captured_at,
-    )
+    try:
+        sanitized = sanitize_player_detail(
+            pages,
+            player_id=player_id,
+            season_id=season_id,
+            season_team_id=str(team["season_team_id"]),
+            season_year=year,
+            division=str(team["division"]),
+            categories=categories,
+            captured_at=captured_at,
+        )
+    except CaptureUnavailable as exc:
+        raise NcaaAccessError(
+            "NCAA player history collection unavailable."
+        ) from exc
     return parse_player_detail_fixture(
         sanitized,
         expected_player_id=player_id,

@@ -25,3 +25,17 @@ def remaining_timeout_seconds(
     if remaining <= 0:
         raise CollectionDeadlineExceeded("phase3_collection_deadline_exceeded")
     return max(1, min(navigation_timeout_seconds, math.ceil(remaining)))
+
+
+def remaining_timeout_milliseconds(
+    deadline_monotonic: float | None,
+    navigation_timeout_seconds: int,
+) -> int:
+    """Return a non-rounded millisecond allowance for cancellable browser waits."""
+    maximum = navigation_timeout_seconds * 1000
+    if deadline_monotonic is None:
+        return maximum
+    remaining = math.floor((deadline_monotonic - time.monotonic()) * 1000)
+    if remaining <= 0:
+        raise CollectionDeadlineExceeded("phase3_collection_deadline_exceeded")
+    return min(maximum, remaining)

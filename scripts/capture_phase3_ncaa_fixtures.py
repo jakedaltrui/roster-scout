@@ -33,6 +33,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from roster_scout.collection_control import (
     CollectionBudgetExceeded,
     CollectionDeadlineExceeded,
+    remaining_timeout_milliseconds,
     remaining_timeout_seconds,
 )
 
@@ -1239,6 +1240,7 @@ def _bounded_schedule_fetch(
                     if request_reserver is not None else None
                 ),
                 timeout_seconds=boundary_timeout,
+                deadline_monotonic=deadline_monotonic,
             )
             deadline = min(
                 deadline_monotonic or float("inf"),
@@ -1251,7 +1253,10 @@ def _bounded_schedule_fetch(
                     _schedule_table(content)
                     break
                 except CaptureUnavailable:
-                    page.wait_for_timeout(1000)
+                    rs._bounded_browser_wait(
+                        page, 1000, deadline_monotonic,
+                        limits.timeout_seconds,
+                    )
             _schedule_table(content)
             return content
     except (
@@ -1823,16 +1828,18 @@ def _bounded_player_fetch(
                 pages[0],
             )
             for key, source_url in urls.items():
+                current_timeout = remaining_timeout_seconds(
+                    deadline_monotonic, limits.timeout_seconds
+                )
                 if page.url != source_url:
                     if request_reserver is not None:
                         request_reserver(f"history:{key}")
-                    current_timeout = remaining_timeout_seconds(
-                        deadline_monotonic, limits.timeout_seconds
-                    )
                     page.goto(
                         source_url,
                         wait_until="domcontentloaded",
-                        timeout=current_timeout * 1000,
+                        timeout=remaining_timeout_milliseconds(
+                            deadline_monotonic, limits.timeout_seconds
+                        ),
                     )
                 rs._accept_ncaa_terms(
                     page,
@@ -1842,20 +1849,19 @@ def _bounded_player_fetch(
                         if request_reserver is not None else None
                     ),
                     timeout_seconds=current_timeout,
-                )
-                current_timeout = remaining_timeout_seconds(
-                    deadline_monotonic, limits.timeout_seconds
+                    deadline_monotonic=deadline_monotonic,
                 )
                 page.wait_for_selector(
                     f"#career_totals_{player}_player",
-                    timeout=current_timeout * 1000,
-                )
-                current_timeout = remaining_timeout_seconds(
-                    deadline_monotonic, limits.timeout_seconds
+                    timeout=remaining_timeout_milliseconds(
+                        deadline_monotonic, limits.timeout_seconds
+                    ),
                 )
                 page.wait_for_selector(
                     f"#game_log_{player}_player",
-                    timeout=current_timeout * 1000,
+                    timeout=remaining_timeout_milliseconds(
+                        deadline_monotonic, limits.timeout_seconds
+                    ),
                 )
                 rendered[key] = page.content()
         return rendered
