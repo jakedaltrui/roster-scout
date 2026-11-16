@@ -973,6 +973,7 @@ def _new_or_existing_snapshot(session, job):
         report_id=job.report_id,
         predecessor_snapshot_id=previous.id if previous else None,
         schema_version=SCHEMA_VERSION,
+        collection_contract_version="phase3-detailed-v1",
         created_by_account_id=job.requested_by_account_id,
     )
     session.add(snapshot)

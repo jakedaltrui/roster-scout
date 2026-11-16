@@ -1,6 +1,7 @@
 """String-backed lifecycle states shared by models and services."""
 
 SNAPSHOT_STATUSES = ("draft", "ready", "partial", "failed")
+COLLECTION_CONTRACT_VERSIONS = ("legacy-core-v1", "phase3-detailed-v1")
 PUBLISHED_SNAPSHOT_STATUSES = ("ready", "partial")
 SECTION_STATUSES = ("pending", "complete", "partial", "unavailable", "failed")
 METRIC_STATUSES = (

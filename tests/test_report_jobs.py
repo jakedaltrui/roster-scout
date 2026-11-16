@@ -1111,6 +1111,27 @@ class FullSeasonMetricPublicationTests(PostgreSQLJobTestCase):
             session.flush()
         return snapshot_id
 
+    def test_current_contract_missing_ledgers_and_phase3_families_stays_partial(self):
+        from roster_scout.models import ReportSnapshot, RequestLedger
+
+        _organization_id, _report_id, snapshot_id = self._build_published_snapshot(
+            "phase3-contract-missing-evidence"
+        )
+        with self.Session() as session:
+            snapshot = session.get(ReportSnapshot, snapshot_id)
+            self.assertEqual(
+                snapshot.collection_contract_version, "phase3-detailed-v1"
+            )
+            self.assertEqual(snapshot.status, "partial")
+            self.assertEqual(
+                session.scalar(
+                    select(func.count()).select_from(RequestLedger).where(
+                        RequestLedger.snapshot_id == snapshot_id
+                    )
+                ),
+                0,
+            )
+
     def test_normal_report_build_persists_detailed_facts_and_metric_lineage(self):
         from roster_scout.metrics import DEFINITION_VERSION
         from roster_scout.models import (
@@ -1126,7 +1147,7 @@ class FullSeasonMetricPublicationTests(PostgreSQLJobTestCase):
         _organization_id, _report_id, snapshot_id = self._build_published_snapshot()
         with self.Session() as session:
             snapshot = session.get(ReportSnapshot, snapshot_id)
-            self.assertEqual(snapshot.status, "ready")
+            self.assertEqual(snapshot.status, "partial")
             batting = session.scalar(
                 select(BattingFact)
                 .join(PlayerTeamSeason)

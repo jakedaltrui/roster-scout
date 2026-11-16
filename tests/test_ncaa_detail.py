@@ -1198,7 +1198,7 @@ class SplitPublicationTests(
                 all_available=True
             ),
         )
-        self.assertEqual(snapshot.status, "ready")
+        self.assertEqual(snapshot.status, "partial")
         with self.Session() as session:
             self.assertEqual(session.scalar(
                 select(func.count()).select_from(StatisticScope).where(
@@ -1464,7 +1464,7 @@ class FieldingPublicationTests(
             job.id,
             collector=lambda *_args, **_kwargs: self._sections(),
         )
-        self.assertEqual(snapshot.status, "ready")
+        self.assertEqual(snapshot.status, "partial")
         with self.Session() as session:
             section = session.scalar(select(ReportSection).where(
                 ReportSection.snapshot_id == snapshot.id,

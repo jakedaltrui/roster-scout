@@ -272,6 +272,21 @@ def _create_player_history_tables():
 
 
 def upgrade():
+    op.add_column(
+        "report_snapshots",
+        sa.Column(
+            "collection_contract_version",
+            sa.String(length=32),
+            nullable=False,
+            server_default="legacy-core-v1",
+        ),
+    )
+    op.create_check_constraint(
+        "ck_report_snapshots_collection_contract_version",
+        "report_snapshots",
+        "collection_contract_version IN ('legacy-core-v1', 'phase3-detailed-v1')",
+    )
+
     op.drop_constraint(
         "ck_report_sections_status", "report_sections", type_="check"
     )
@@ -1349,4 +1364,12 @@ def downgrade():
         "ck_report_sections_status",
         "report_sections",
         "status IN ('pending', 'complete', 'unavailable', 'failed')",
+    )
+    op.execute(
+        "ALTER TABLE report_snapshots DROP CONSTRAINT IF EXISTS "
+        "ck_report_snapshots_collection_contract_version"
+    )
+    op.execute(
+        "ALTER TABLE report_snapshots DROP COLUMN IF EXISTS "
+        "collection_contract_version"
     )

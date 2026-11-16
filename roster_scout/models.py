@@ -25,6 +25,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from .enums import (
+    COLLECTION_CONTRACT_VERSIONS,
     ARTIFACT_STATUSES,
     ARTIFACT_TYPES,
     IDENTITY_STATUSES,
@@ -612,6 +613,12 @@ class ReportSnapshot(UUIDPrimaryKey, Timestamped, Base):
     predecessor_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="draft", server_default="draft")
     schema_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    collection_contract_version: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="legacy-core-v1",
+        server_default="legacy-core-v1",
+    )
     source_collected_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
     published_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
     created_by: Mapped[str | None] = mapped_column(String(200))
@@ -640,6 +647,10 @@ class ReportSnapshot(UUIDPrimaryKey, Timestamped, Base):
             name="fk_report_snapshots_creator_membership",
         ),
         CheckConstraint(_allowed("status", SNAPSHOT_STATUSES), name="ck_report_snapshots_status"),
+        CheckConstraint(
+            _allowed("collection_contract_version", COLLECTION_CONTRACT_VERSIONS),
+            name="ck_report_snapshots_collection_contract_version",
+        ),
         CheckConstraint(
             "(status IN ('ready', 'partial') AND published_at IS NOT NULL) OR "
             "(status IN ('draft', 'failed') AND published_at IS NULL)",
