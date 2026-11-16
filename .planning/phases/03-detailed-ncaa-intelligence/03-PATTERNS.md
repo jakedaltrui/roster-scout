@@ -1,8 +1,8 @@
 # Phase 03: Detailed NCAA Intelligence - Pattern Map
 
 **Mapped:** 2026-11-15
-**Files analyzed:** 17 new or modified files plus fixture directories
-**Analogs found:** 17 / 17
+**Files analyzed:** 18 new or modified files plus fixture directories
+**Analogs found:** 18 / 18
 
 ## File Classification
 
@@ -14,6 +14,7 @@
 | `roster_scout/metrics.py` | utility / service | deterministic transform | `roster_scout/canonical.py` numeric parsing and metric lineage | role-match |
 | `roster_scout/ncaa_detail.py` | parser / service | request-response → validated source evidence | `roster_scraper.py` NCAA dataclasses, `_parse_ncaa_stat_table_result()`, `_collect_ncaa_team()` | exact boundary |
 | `roster_scout/scopes.py` | service / transform | audited games → scoped facts | `roster_scout/canonical.py` canonical dataclasses and deterministic grouping | role-match |
+| `roster_scout/player_detail.py` | service / read projection | authorized published snapshot → fixed player JSON views | `roster_scout/reports.py` organization-scoped report/detail loaders | exact boundary |
 | `roster_scout/jobs.py` | service / worker | event-driven durable collection and persistence | Existing `CollectedSection`, cache reconstruction, `_persist_canonical()`, `run_report_job()` | exact |
 | `roster_scout/snapshots.py` | service | transactional validation / publication | Existing `publish_snapshot()` parity and trace checks | exact |
 | `roster_scraper.py` | external-source adapter | request-response / browser I/O | Existing `_fetch_ncaa_pages()`, `_parse_ncaa_stat_table_result()`, `_collect_ncaa_team()` | exact |
@@ -206,6 +207,14 @@ if len(cells) != len(headers):
 **Analog:** deterministic grouping in `roster_scout/canonical.py:181-278` and strict canonical fact objects at `51-73`.
 
 Use pure functions over immutable canonical `Game` and fact inputs. Sort completed games by `(completed_at_or_date, doubleheader_ordinal, source_game_id)` and persist the exact selected game IDs. `last_10_completed_games` is complete with 0–9 games only when the full schedule evidence is complete. Conference classification returns unknown when either season-specific membership is absent or from a different season. Aggregate compatible counts first and then invoke `roster_scout.metrics`; never average source rates.
+
+---
+
+### `roster_scout/player_detail.py` (authorized published-snapshot projection)
+
+**Analog:** `load_report_detail()` / `load_report_status()` in `roster_scout/reports.py` and the audited JSON-not-found pattern in `roster_scout/report_routes.py`.
+
+Keep the service connection-free and accept the caller-owned session plus explicit `organization_id`, `report_id`, `snapshot_id`, `player_id`, and bounded view code. Join through the published `ready`/`partial` snapshot and same-snapshot `PlayerTeamSeason`; never authorize from a request-provided organization. Return fixed JSON-safe season, split, career, aggregate, game-log, and completeness projections. The route derives organization from `g.authorization_context`, returns the existing indistinguishable audited 404 for absent/foreign identifiers, and never contacts NCAA or mutates the snapshot.
 
 ---
 

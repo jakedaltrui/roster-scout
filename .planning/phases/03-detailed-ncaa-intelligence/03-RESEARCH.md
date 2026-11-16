@@ -656,7 +656,7 @@ Define stuck conditions as configuration, not ad hoc queries: queued without dis
 | A5 | Player game-log rows can be uniquely linked to schedule games with date/opponent/result plus explicit doubleheader evidence. | Schedule-First Identity | High; capture live fixtures and mark ambiguous rows partial. |
 | A6 | Career grid source links or season lookup can resolve each historical team ID exactly. | Player Fan-Out | High; if not, the affected career row must be partial/unavailable. |
 | A7 | Proposed availability/reason code vocabulary is acceptable. | Availability | Medium; codes may be renamed but must stay machine-safe and semantically distinct. |
-| A8 | Metadata-only `inspect_report_jobs.py` is the best OPS-03 surface. | Operations | Medium; structured metrics/admin endpoint may be preferred operationally. |
+| A8 | A reusable metadata-only projection plus `inspect_report_jobs.py` as the minimum OPS-03 surface is selected. | Operations | Resolved in Plans 03-07/03-08; later adapters may consume the same safe projection. |
 | A9 | Proposed expanded count columns, scope fields, request-ledger fields, and exact new module/table names fit the final schema. | Data Shape / Project Structure | Medium; preserve semantics if names or normalization change. |
 | A10 | The proposed `MetricResult` API and metric status vocabulary are the right implementation form. | Metric Pattern | Medium; equivalent typed result objects are acceptable. |
 | A11 | Summing compatible counts before recalculating rates is the required career/scoped aggregation behavior for every listed rate. | Pitfalls | Medium; verify each metric's compatibility rules with golden fixtures. |
@@ -664,27 +664,19 @@ Define stuck conditions as configuration, not ad hoc queries: queued without dis
 | A13 | Fixed-host URL construction, no dynamic evaluation, and the proposed operator redaction fields cover the new Phase 3 security surface. | Security / Operations | Medium; security review may add stricter controls. |
 | A14 | Page selectors and exact URL contracts observed in current upstream source will remain valid until fixture capture. | NCAA Source Contract | High; validate live before locking parser versions. |
 
-## Open Questions
+## Resolved Planning Questions
 
-1. **What are the current NCAA identifiers/controls for all 14 batting/pitching split requests?**
-   - What we know: The seven requested split families are documented by prior NCAA scraper tooling, but current source IDs were not verified against a live 2026 Browserless session. [CITED: https://collegebaseball.readthedocs.io/en/latest/season_stats.html]
-   - What's unclear: The redesigned page's exact control names, IDs, URL parameters, and D1/D2/D3 parity. [ASSUMED]
-   - Recommendation: Make a fixture-capture/spike the first source task; discovery must fail safely and never bake IDs into constants. [ASSUMED]
+1. **NCAA split identifiers/controls — resolved by fixture discovery and fail-closed contracts.**
+   - Selected outcome: Phase 3 first captures sanitized D1/D2/D3 control and result-grid fixtures through the existing Browserless boundary. Identifiers are discovered and certified per season/stat type/label/header/player-link contract; production never bakes historical IDs into constants. A missing result is stored as explicit source-absence evidence, and stale/mismatched identifiers fail closed. [VERIFIED: plans 03-03 and 03-04]
 
-2. **Which source is approved as “verified NCAA” for wOBA weights and FIP constants?**
-   - What we know: The official NCAA statistics resources/manual checked here define traditional percentage calculations but did not publish wOBA weights or a FIP constant in the reviewed material. [CITED: https://www.ncaa.org/championships/statistics-and-records/baseball/] [CITED: https://s3.amazonaws.com/fs.ncaa.org/Docs/stats/Stats_Manuals/Baseball.pdf]
-   - What's unclear: Whether the product owner will approve a reproducible Roster Scout-derived NCAA constant methodology in a later decision. [ASSUMED]
-   - Recommendation: Phase 3 should ship explicit unavailability by default; do not make third-party fitted constants authoritative implicitly. [VERIFIED: codebase grep]
+2. **wOBA weights and FIP constants — resolved as explicit unavailability by default.**
+   - Selected outcome: Phase 3 defines an append-only, provenance-rich NCAA constant-set contract but seeds no rows. wOBA and FIP return `unavailable_constant` unless an exact season/division/definition set is independently verified; MLB or guessed/fitted third-party constants are never substituted. [VERIFIED: plans 03-01 and 03-08]
 
-3. **Can current career grids provide an authoritative historical team ID on every row?**
-   - What we know: Player pages expose career totals by Year and Team, but the reviewed parser reads the table and does not prove every team cell has an ID link. [CITED: https://github.com/billpetti/baseballr/blob/master/R/ncaa_game_logs.R]
-   - What's unclear: Current live D1/D2/D3 anchor markup and transferred-player edge cases. [ASSUMED]
-   - Recommendation: Capture transfer fixtures and accept a career row only when the team identity resolves exactly from source link or season-specific lookup. [ASSUMED]
+3. **Historical team identity — resolved as exact identity or partial/unavailable.**
+   - Selected outcome: A career row is accepted with authoritative team identity only from a source link or exact season-specific lookup. Text-only ambiguous teams and ambiguous current-season game links remain partial/unavailable with exact reasons; they are never guessed or name-linked across seasons. [VERIFIED: plan 03-05]
 
-4. **Should operational diagnostics be CLI, structured logs/metrics, or a protected internal endpoint?**
-   - What we know: OPS-03 requires diagnosis without customer data; current code already has safe categories and reconciliation state. [VERIFIED: codebase grep]
-   - What's unclear: The deployment's preferred operator surface. [ASSUMED]
-   - Recommendation: Plan a reusable metadata projection first, with CLI as the minimum surface and structured metrics as an adapter. [ASSUMED]
+4. **Operator diagnostics surface — resolved as reusable metadata projection plus CLI minimum.**
+   - Selected outcome: Models/services expose a provider-neutral safe metadata projection for job, section, request-budget, capacity, and external refresh attempts; `scripts/inspect_report_jobs.py` is the minimum read-only operator surface. The projection excludes customer/raw/secret data and can support later structured metrics or internal adapters without changing Phase 3 canonical semantics. [VERIFIED: plans 03-07 and 03-08]
 
 ## Sources
 

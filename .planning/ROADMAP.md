@@ -356,6 +356,6 @@ Plans:
 | 1. Canonical Snapshot Foundation | 41/41 | Complete | 2026-11-11 |
 | 2. Identity, Organizations, and Report Library | 16/16 | Complete   | 2026-11-13 |
 | 02.1 Restore public homepage and school-domain sign-in flow | 4/4 | Complete | 2026-11-13 |
-| 3. Detailed NCAA Intelligence | 0/4 | Not started | - |
+| 3. Detailed NCAA Intelligence | 0/8 | Not started | - |
 | 4. Detailed Excel Report | 0/3 | Not started | - |
 | 5. Embedded Opponent Dashboard | 0/4 | Not started | - |
