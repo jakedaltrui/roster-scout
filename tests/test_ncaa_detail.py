@@ -14,9 +14,11 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
+import requests
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ncaa_detail"
 
@@ -444,6 +446,65 @@ class FixtureCaptureSafetyTests(unittest.TestCase):
                     limits=api.CaptureLimits(max_pages=0),
                 )
         fetch.assert_not_called()
+
+    def test_schedule_transport_uses_the_smaller_navigation_or_wall_timeout(self):
+        api = self.capture_api()
+        reserved = []
+        deadline = time.monotonic() + 2
+        with patch.dict(
+            os.environ,
+            {
+                "BROWSERLESS_TOKEN": "test-only-token",
+                "NCAA_BROWSER_PROVIDER": "browserless",
+            },
+            clear=False,
+        ), patch.object(
+            api.requests,
+            "post",
+            side_effect=requests.Timeout("fixture timeout"),
+        ) as post:
+            with self.assertRaises(api.CaptureUnavailable):
+                api._bounded_schedule_fetch(
+                    "https://stats.ncaa.org/team/234/17040",
+                    api.CaptureLimits(max_pages=1, timeout_seconds=5),
+                    request_reserver=reserved.append,
+                    deadline_monotonic=deadline,
+                )
+
+        self.assertEqual(reserved, ["schedule"])
+        self.assertLessEqual(post.call_args.kwargs["timeout"], 2)
+
+    def test_terms_retry_reserves_the_followup_navigation(self):
+        import roster_scraper as scraper
+
+        checkbox = Mock()
+        checkbox.count.return_value = 1
+        button = Mock()
+        button.count.return_value = 1
+        button.is_enabled.return_value = True
+        page = Mock()
+        page.url = "https://stats.ncaa.org/stats_terms"
+        page.locator.side_effect = lambda selector: {
+            "#terms_accepted": checkbox,
+            "#stats-access-button": button,
+        }[selector]
+        reserved = []
+        target = "https://stats.ncaa.org/teams/614606/season_to_date_stats"
+
+        with patch.dict(
+            os.environ, {"NCAA_TERMS_DWELL_MILLISECONDS": "0"}, clear=False
+        ):
+            scraper._accept_ncaa_terms(
+                page,
+                target,
+                request_reserver=lambda: reserved.append("batting"),
+                timeout_seconds=5,
+            )
+
+        self.assertEqual(reserved, ["batting"])
+        page.goto.assert_called_once_with(
+            target, wait_until="domcontentloaded", timeout=5000
+        )
 
     def test_manifest_is_allowlisted_sorted_and_contains_no_raw_source(self):
         api = self.capture_api()
