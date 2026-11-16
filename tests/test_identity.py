@@ -1173,6 +1173,11 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
                     "artifacts/<uuid:artifact_id>/google-sheets",
                     ("POST",),
                 ),
+                (
+                    "/reports/<uuid:report_id>/snapshots/<uuid:snapshot_id>/"
+                    "players/<uuid:player_id>",
+                    ("GET",),
+                ),
                 ("/reports/<uuid:report_id>/status", ("GET",)),
                 ("/reports/new", ("GET", "POST")),
                 ("/scrape", ("POST",)),
