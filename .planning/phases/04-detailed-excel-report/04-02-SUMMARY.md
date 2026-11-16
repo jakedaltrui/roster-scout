@@ -59,4 +59,3 @@ completed: 2026-11-16
 ## Next Plan Readiness
 
 - Plan 04-03 can now generate branded D1/D2/D3 release samples, inspect both sheets visually, and run the end-to-end regression gate.
-

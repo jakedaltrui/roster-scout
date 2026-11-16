@@ -63,4 +63,3 @@ completed: 2026-11-16
 ## Next Plan Readiness
 
 - Plan 04-02 can project canonical season facts, central derived metrics, and scoped Last 10/conference facts into this renderer without changing the workbook layout.
-
