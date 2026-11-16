@@ -2721,18 +2721,42 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
             dispatch=None,
         )
 
-    def _run_real_collector(self, job):
+    def _run_real_collector(self, job, generation=None):
         from roster_scout.jobs import collect_ncaa_sections, run_report_job
 
         return run_report_job(
             self.Session,
             job.id,
+            generation,
             collector=lambda job_id, cached_sections=frozenset(): collect_ncaa_sections(
                 self.Session,
                 job_id,
                 cached_sections=cached_sections,
             ),
         )
+
+    @staticmethod
+    def _fixture_page_transport(pages, *, error=None):
+        """Exercise the production collector above a deterministic network adapter."""
+        def fetch(urls, **kwargs):
+            reserve = kwargs.get("request_reserver")
+            for key in urls:
+                if reserve is not None:
+                    reserve(key)
+            if error is not None:
+                raise error
+            return {key: pages[key] for key in urls}
+
+        return fetch
+
+    @staticmethod
+    def _reserving_collector_result(result, families):
+        def collect(*_args, request_reserver=None, **_kwargs):
+            for family in families:
+                request_reserver(family)
+            return result
+
+        return collect
 
     def _complete_phase3_evidence(self):
         from dataclasses import replace
@@ -2957,7 +2981,11 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
             }
             with self.subTest(division=division), patch.dict(
                 os.environ, {}, clear=False
-            ), patch.object(scraper, "_fetch_ncaa_pages", return_value=pages):
+            ), patch.object(
+                scraper,
+                "_fetch_ncaa_pages",
+                side_effect=self._fixture_page_transport(pages),
+            ):
                 os.environ.pop("NCAA_BROWSER_PROVIDER", None)
                 snapshot = self._run_real_collector(job)
             self.assertEqual(snapshot.status, "partial")
@@ -2985,6 +3013,14 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
                     item.safe_category == "split_transport_unavailable"
                     for item in split_ledgers
                 ))
+                live_ledgers = list(session.scalars(select(RequestLedger).where(
+                    RequestLedger.snapshot_id == snapshot.id,
+                    RequestLedger.family.in_(("batting", "pitching")),
+                )))
+                self.assertEqual(
+                    {(item.family, item.pages_consumed) for item in live_ledgers},
+                    {("batting", 1), ("pitching", 1)},
+                )
 
     def test_real_collector_complete_phase3_evidence_publishes_ready(self):
         import roster_scraper as scraper
@@ -2999,15 +3035,29 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
         ), patch.object(
             scraper, "_find_ncaa_season", return_value=season_contract
         ), patch.object(
-            scraper, "collect_ncaa_by_id", return_value=Mock()
+            scraper,
+            "collect_ncaa_by_id",
+            side_effect=self._reserving_collector_result(
+                Mock(), ("batting", "pitching")
+            ),
         ), patch(
             "roster_scout.canonical.to_collected_sections", return_value=core
         ), patch.object(
-            scraper, "collect_ncaa_schedule_evidence", return_value=schedule
+            scraper,
+            "collect_ncaa_schedule_evidence",
+            side_effect=self._reserving_collector_result(schedule, ("schedule",)),
         ), patch.object(
-            scraper, "collect_ncaa_player_detail_evidence", return_value=detail
+            scraper,
+            "collect_ncaa_player_detail_evidence",
+            side_effect=self._reserving_collector_result(
+                detail, ("history:batting", "history:pitching", "history:fielding")
+            ),
         ), patch.object(
-            scraper, "collect_ncaa_split_results", return_value=split_results
+            scraper,
+            "collect_ncaa_split_results",
+            side_effect=self._reserving_collector_result(
+                split_results, ("splits:batting", "splits:pitching")
+            ),
         ):
             snapshot = self._run_real_collector(job)
 
@@ -3024,6 +3074,170 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
                 "splits:batting", "splits:pitching",
             } <= {item.family for item in ledgers})
 
+    def test_live_page_reservation_is_atomic_under_concurrency(self):
+        from roster_scout.jobs import _reserve_job_live_pages
+        from roster_scout.models import ReportJob
+
+        job = self._accepted_job(1, "phase3-concurrent-budget")
+        ready = threading.Barrier(2)
+        results = []
+        errors = []
+
+        def reserve():
+            try:
+                ready.wait()
+                results.append(_reserve_job_live_pages(
+                    self.Session,
+                    job_id=job.id,
+                    dispatch_generation=1,
+                    page_count=1,
+                    page_budget=1,
+                ))
+            except Exception as exc:  # pragma: no cover - assertion reports details
+                errors.append(exc)
+
+        threads = [threading.Thread(target=reserve) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(10)
+
+        self.assertFalse(errors)
+        self.assertEqual(sorted(results, key=lambda item: item is None), [0, None])
+        with self.Session() as session:
+            stored = session.get(ReportJob, job.id)
+            self.assertEqual(stored.phase3_live_pages_consumed, 1)
+
+    def test_retry_generation_reuses_durable_budget_without_ledger_collision(self):
+        import roster_scraper as scraper
+        from roster_scout.jobs import RetryableJobError
+        from roster_scout.models import ReportJob, RequestLedger
+
+        job = self._accepted_job(1, "phase3-retry-budget")
+        pages = {
+            "batting": self._fixture("d1_batting.html"),
+            "pitching": self._fixture("d1_pitching.html"),
+            "fielding": self._fixture("ncaa_detail/d1/fielding.html"),
+        }
+        blocked = scraper.NcaaAccessError("fixture transport blocked")
+        with patch.dict(os.environ, {}, clear=False), patch.object(
+            scraper,
+            "_fetch_ncaa_pages",
+            side_effect=self._fixture_page_transport(pages, error=blocked),
+        ):
+            os.environ.pop("NCAA_BROWSER_PROVIDER", None)
+            with self.assertRaises(RetryableJobError):
+                self._run_real_collector(job, generation=1)
+
+        with self.Session() as session:
+            retried = session.get(ReportJob, job.id)
+            self.assertEqual(retried.dispatch_generation, 2)
+            self.assertEqual(retried.phase3_live_pages_consumed, 2)
+
+        with patch.dict(os.environ, {}, clear=False), patch.object(
+            scraper,
+            "_fetch_ncaa_pages",
+            side_effect=self._fixture_page_transport(pages),
+        ):
+            os.environ.pop("NCAA_BROWSER_PROVIDER", None)
+            snapshot = self._run_real_collector(job, generation=2)
+
+        self.assertEqual(snapshot.status, "partial")
+        with self.Session() as session:
+            stored = session.get(ReportJob, job.id)
+            ledgers = list(session.scalars(
+                select(RequestLedger)
+                .where(RequestLedger.job_id == job.id)
+                .order_by(
+                    RequestLedger.dispatch_generation,
+                    RequestLedger.family,
+                )
+            ))
+            self.assertEqual(stored.phase3_live_pages_consumed, 5)
+            self.assertEqual(
+                sum(item.pages_consumed for item in ledgers),
+                stored.phase3_live_pages_consumed,
+            )
+            self.assertEqual(
+                {
+                    (item.dispatch_generation, item.family, item.pages_consumed)
+                    for item in ledgers
+                    if item.family in {"batting", "pitching"}
+                },
+                {
+                    (1, "batting", 1),
+                    (1, "pitching", 1),
+                    (2, "batting", 1),
+                    (2, "pitching", 1),
+                },
+            )
+            self.assertNotIn("planned", {item.outcome for item in ledgers})
+
+    def test_supplemental_deadline_persists_sanitized_unavailable_sections(self):
+        import roster_scraper as scraper
+        from roster_scout.collection_control import CollectionDeadlineExceeded
+        from roster_scout.models import ReportSection, RequestLedger
+
+        job = self._accepted_job(1, "phase3-deadline-state")
+        pages = {
+            "batting": self._fixture("d1_batting.html"),
+            "pitching": self._fixture("d1_pitching.html"),
+            "fielding": self._fixture("ncaa_detail/d1/fielding.html"),
+        }
+
+        def deadline(family):
+            def collect(*_args, request_reserver=None, **_kwargs):
+                request_reserver(family)
+                raise CollectionDeadlineExceeded("fixture deadline")
+            return collect
+
+        with patch.dict(
+            os.environ, {"NCAA_BROWSER_PROVIDER": "browserless"}, clear=False
+        ), patch.object(
+            scraper,
+            "_fetch_ncaa_pages",
+            side_effect=self._fixture_page_transport(pages),
+        ), patch.object(
+            scraper,
+            "collect_ncaa_schedule_evidence",
+            side_effect=deadline("schedule"),
+        ), patch.object(
+            scraper,
+            "collect_ncaa_split_results",
+            side_effect=deadline("splits:batting"),
+        ):
+            snapshot = self._run_real_collector(job)
+
+        self.assertEqual(snapshot.status, "partial")
+        with self.Session() as session:
+            sections = list(session.scalars(select(ReportSection).where(
+                ReportSection.snapshot_id == snapshot.id,
+                ReportSection.section.in_(("schedule", "splits:batting")),
+            )))
+            self.assertEqual({item.section for item in sections}, {
+                "schedule", "splits:batting",
+            })
+            self.assertEqual(
+                {
+                    (item.section, item.status, item.failure_category)
+                    for item in sections
+                },
+                {
+                    ("schedule", "unavailable", "collection_timeout"),
+                    ("splits:batting", "partial", "collection_timeout"),
+                },
+            )
+            ledgers = list(session.scalars(select(RequestLedger).where(
+                RequestLedger.snapshot_id == snapshot.id,
+                RequestLedger.family.in_(("schedule", "splits:batting")),
+            )))
+            self.assertTrue(all(
+                item.outcome == "live_failed"
+                and item.safe_category == "collection_timeout"
+                and item.pages_consumed == 1
+                for item in ledgers
+            ))
+
     def test_real_collector_budget_boundary_leaves_no_planned_ledgers(self):
         import roster_scraper as scraper
         from roster_scout.models import ReportSection, RequestLedger
@@ -3032,27 +3246,41 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
         core, schedule, detail, season_contract, split_results = (
             self._complete_phase3_evidence()
         )
-        split_collector = Mock(return_value=split_results)
+        split_collector = Mock(side_effect=self._reserving_collector_result(
+            split_results, ("splits:batting", "splits:pitching")
+        ))
         with patch.dict(os.environ, {
             "NCAA_BROWSER_PROVIDER": "browserless",
             "PHASE3_LIVE_PAGE_BUDGET": "5",
         }, clear=False), patch.object(
             scraper, "_find_ncaa_season", return_value=season_contract
         ), patch.object(
-            scraper, "collect_ncaa_by_id", return_value=Mock()
+            scraper,
+            "collect_ncaa_by_id",
+            side_effect=self._reserving_collector_result(
+                Mock(), ("batting", "pitching")
+            ),
         ), patch(
             "roster_scout.canonical.to_collected_sections", return_value=core
         ), patch.object(
-            scraper, "collect_ncaa_schedule_evidence", return_value=schedule
+            scraper,
+            "collect_ncaa_schedule_evidence",
+            side_effect=self._reserving_collector_result(schedule, ("schedule",)),
         ), patch.object(
-            scraper, "collect_ncaa_player_detail_evidence", return_value=detail
+            scraper,
+            "collect_ncaa_player_detail_evidence",
+            side_effect=self._reserving_collector_result(
+                detail, ("history:batting", "history:pitching", "history:fielding")
+            ),
         ), patch.object(
-            scraper, "collect_ncaa_split_results", split_collector
+            scraper,
+            "collect_ncaa_split_results",
+            split_collector,
         ):
             snapshot = self._run_real_collector(job)
 
         self.assertEqual(snapshot.status, "partial")
-        split_collector.assert_not_called()
+        split_collector.assert_called_once()
         with self.Session() as session:
             ledgers = list(session.scalars(select(RequestLedger).where(
                 RequestLedger.snapshot_id == snapshot.id
