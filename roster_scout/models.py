@@ -616,7 +616,6 @@ class ReportSnapshot(UUIDPrimaryKey, Timestamped, Base):
     collection_contract_version: Mapped[str] = mapped_column(
         String(32),
         nullable=False,
-        default="legacy-core-v1",
         server_default="legacy-core-v1",
     )
     source_collected_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
