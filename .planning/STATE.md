@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 03-01-PLAN.md
-last_updated: "2026-11-16T05:52:58.032Z"
+stopped_at: Completed 03-02-PLAN.md
+last_updated: "2026-11-16T06:27:40.379Z"
 last_activity: 2026-11-16
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 70
-  completed_plans: 62
+  completed_plans: 63
   percent: 50
 ---
 
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-11-13)
 ## Current Position
 
 Phase: 03 (detailed-ncaa-intelligence) — EXECUTING
-Plan: 2 of 9
+Plan: 3 of 9
 Status: Ready to execute
 Last activity: 2026-11-16
 
-Progress: [█████████░] 89%
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
@@ -243,6 +243,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 03]: Require one verified exact definition/season/division NCAA constant set before wOBA or FIP can be available.
 - [Phase 03]: Keep constant methodologies global while metric values remain tenant-scoped to snapshots.
 - [Phase 03]: Serialize constant references so verified methodologies become immutable once used.
+- [Phase 03]: NCAA fielding URLs are built only from trusted numeric category IDs on the fixed stats.ncaa.org origin.
+- [Phase 03]: Fielding is supplemental when an NCAA build lacks a discovered numeric fielding ID; core batting and pitching remain publishable.
+- [Phase 03]: Fielding publication requires same-snapshot source/fact/row parity and explicit partial status for unavailable supplemental evidence.
 
 ### Pending Todos
 
@@ -299,9 +302,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 02 P10 | 11 min | 2 tasks | 5 files |
 | Phase 02 P11 | 29min | 2 tasks | 8 files |
 | Phase 03 P01 | 45min | 3 tasks | 10 files |
+| Phase 03 P02 | 30 min | 3 tasks | 13 files |
 
 ## Session Continuity
 
-Last session: 2026-11-16T05:52:58.021Z
-Stopped at: Completed 03-01-PLAN.md
+Last session: 2026-11-16T06:27:40.371Z
+Stopped at: Completed 03-02-PLAN.md
 Resume file: None
