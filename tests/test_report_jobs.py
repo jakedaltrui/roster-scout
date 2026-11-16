@@ -2878,7 +2878,7 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
         from roster_scout.jobs import CollectedSection
         from roster_scout.models import (
             BattingGameLogFact, CareerAggregate, CareerSeasonFact, Game,
-            Player, PlayerTeamSeason, ReportSection, RequestLedger,
+            Player, PlayerTeamSeason, ReportSection, RequestLedger, SourceRecord,
         )
         from roster_scout.ncaa_detail import (
             parse_player_detail_fixture, parse_schedule_fixture,
@@ -2961,6 +2961,30 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
             self.assertGreater(
                 session.scalar(select(func.count()).select_from(BattingGameLogFact)), 0
             )
+            detail_sources = list(session.scalars(select(SourceRecord).where(
+                SourceRecord.snapshot_id == snapshot.id,
+                SourceRecord.section.in_((
+                    "history:batting", "history:pitching", "history:fielding",
+                    "game_logs:batting", "game_logs:pitching", "game_logs:fielding",
+                )),
+            )))
+            self.assertTrue(detail_sources)
+            self.assertTrue(all(
+                item.source_url == "https://stats.ncaa.org/players/9698671"
+                and item.source_stat_category_id in {
+                    self.BATTING_ID, self.PITCHING_ID, "15869",
+                }
+                and item.source_stat_category_id
+                == item.raw_values["source_stat_category_id"]
+                for item in detail_sources
+            ))
+            self.assertEqual(
+                {item.payload_sha256 for item in detail_sources},
+                {
+                    row.source_payload_sha256
+                    for row in (*detail.career_seasons, *detail.game_logs)
+                },
+            )
             families = set(session.scalars(select(RequestLedger.family).where(
                 RequestLedger.snapshot_id == snapshot.id
             )))
@@ -2988,6 +3012,13 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
             self.assertTrue(drill["data"]["career"]["seasons"])
             self.assertTrue(drill["data"]["career"]["aggregate"])
             self.assertTrue(drill["data"]["games"])
+            self.assertEqual(
+                {
+                    item["source_stat_category_id"]
+                    for item in drill["data"]["career"]["seasons"]
+                },
+                {self.BATTING_ID, self.PITCHING_ID, "15869"},
+            )
 
 class ComputedScopePublicationTests(PostgreSQLJobTestCase):
     def _sections(self, game_count):

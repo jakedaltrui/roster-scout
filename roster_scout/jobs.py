@@ -340,6 +340,10 @@ class CollectedGameFact:
     stat_type: str
     counts: dict
     link_status: str = "linked"
+    source_url: str | None = None
+    source_stat_category_id: str | None = None
+    source_payload_sha256: str | None = None
+    collected_at: datetime | None = None
 
 
 def to_collected_history_sections(
@@ -353,6 +357,7 @@ def to_collected_history_sections(
     """Adapt parsed player detail into durable source rows and scoped game facts."""
     from .canonical import canonicalize_player_history
     from .metrics import METRIC_DEFINITIONS
+    from .ncaa_detail import NCAA_BASE
 
     typed_rows = {name: [] for name in ("batting", "pitching", "fielding")}
     game_facts = []
@@ -373,6 +378,9 @@ def to_collected_history_sections(
                 "counts": dict(row.counts),
                 "rates": {key: str(value) for key, value in row.rates.items()},
                 "_player_id": row.source_player_id,
+                "_source_url": f"{NCAA_BASE}{row.source_path}",
+                "_source_stat_category_id": row.source_stat_category_id,
+                "_source_collected_at": detail.collected_at,
                 "_payload_sha256": row.source_payload_sha256,
             })
         for linked in canonical.game_logs:
@@ -390,6 +398,9 @@ def to_collected_history_sections(
                 "rates": {key: str(value) for key, value in row.rates.items()},
                 "link_status": linked.link_status,
                 "_player_id": row.source_player_id,
+                "_source_url": f"{NCAA_BASE}{row.source_path}",
+                "_source_stat_category_id": row.source_stat_category_id,
+                "_source_collected_at": detail.collected_at,
                 "_payload_sha256": row.source_payload_sha256,
             })
             game_facts.append(CollectedGameFact(
@@ -402,6 +413,10 @@ def to_collected_history_sections(
                     if key not in METRIC_DEFINITIONS
                 },
                 link_status=linked.link_status,
+                source_url=f"{NCAA_BASE}{row.source_path}",
+                source_stat_category_id=row.source_stat_category_id,
+                source_payload_sha256=row.source_payload_sha256,
+                collected_at=detail.collected_at,
             ))
     fully_complete = complete and unavailable_player_count == 0 and all(
         status == "complete" for status in statuses
@@ -415,11 +430,11 @@ def to_collected_history_sections(
             critical=False,
             rows=tuple(rows),
             verified_empty=fully_complete and not rows,
-            source_url=f"https://stats.ncaa.org/teams/{schedule.source_season_team_id}",
+            source_url=None,
             source_team_id=str(source_team_id),
             source_season_id=schedule.source_season_id,
             source_season_team_id=schedule.source_season_team_id,
-            source_stat_category_id=f"history:{stat_type}",
+            source_stat_category_id=None,
             collected_at=collected_at,
             status="complete" if fully_complete else "partial",
             failure_category=(
@@ -479,9 +494,16 @@ def to_collected_schedule_sections(
             "source_game_id": fact.source_game_id,
             "fact_id": fact.fact_id,
             "stat_type": fact.stat_type,
+            "source_stat_category_id": fact.source_stat_category_id,
             "counts": dict(fact.counts),
             "link_status": fact.link_status,
             "_player_id": fact.source_player_id,
+            "_source_url": fact.source_url or schedule.source_url,
+            "_source_stat_category_id": (
+                fact.source_stat_category_id or f"game_logs:{fact.stat_type}"
+            ),
+            "_source_collected_at": fact.collected_at or schedule.collected_at,
+            "_payload_sha256": fact.source_payload_sha256,
         })
     unknown_complete_types = set(complete_stat_types) - set(typed)
     if unknown_complete_types:
@@ -493,11 +515,11 @@ def to_collected_schedule_sections(
             critical=False,
             rows=tuple(rows),
             verified_empty=available and not rows,
-            source_url=schedule.source_url,
+            source_url=None,
             source_team_id=schedule.source_team_id,
             source_season_id=schedule.source_season_id,
             source_season_team_id=schedule.source_season_team_id,
-            source_stat_category_id=f"game_logs:{stat_type}",
+            source_stat_category_id=None,
             collected_at=schedule.collected_at,
             status="complete" if available else "unavailable",
             failure_category=None if available else "game_log_evidence_unavailable",
@@ -1161,7 +1183,10 @@ def _reconstruct_cached_sections(session, snapshot, matching):
 def _source_row_values(collected, row):
     raw_values = {
         key: value for key, value in row.items()
-        if key not in {"_player_id", "_player_url", "_payload_sha256"}
+        if key not in {
+            "_player_id", "_player_url", "_payload_sha256", "_source_url",
+            "_source_stat_category_id", "_source_collected_at",
+        }
     }
     if row.get("_player_url"):
         raw_values["player_url"] = row["_player_url"]
@@ -1177,13 +1202,17 @@ def _collected_section_signature(collected):
         raw_values, payload_sha256 = _source_row_values(collected, row)
         records.append((
             ordinal,
-            collected.source_url or "unknown",
+            row.get("_source_url") or collected.source_url or "unknown",
             collected.source_team_id or "unknown",
             collected.source_season_id or "unknown",
             collected.source_season_team_id or "unknown",
-            collected.source_stat_category_id or "unknown",
+            (
+                row.get("_source_stat_category_id")
+                or collected.source_stat_category_id
+                or "unknown"
+            ),
             row.get("_player_id"),
-            collected.collected_at,
+            row.get("_source_collected_at") or collected.collected_at,
             collected.parser_version,
             collected.schema_version,
             payload_sha256,
@@ -1422,13 +1451,23 @@ def _persist_sections(session, job, snapshot, sections):
                     snapshot_id=snapshot.id,
                     section=collected.name,
                     row_ordinal=ordinal,
-                    source_url=collected.source_url or "unknown",
+                    source_url=(
+                        row.get("_source_url") or collected.source_url or "unknown"
+                    ),
                     source_team_id=collected.source_team_id or "unknown",
                     source_season_id=collected.source_season_id or "unknown",
                     source_season_team_id=collected.source_season_team_id or "unknown",
-                    source_stat_category_id=collected.source_stat_category_id or "unknown",
+                    source_stat_category_id=(
+                        row.get("_source_stat_category_id")
+                        or collected.source_stat_category_id
+                        or "unknown"
+                    ),
                     source_player_id=row.get("_player_id"),
-                    collected_at=collected.collected_at or _utcnow(),
+                    collected_at=(
+                        row.get("_source_collected_at")
+                        or collected.collected_at
+                        or _utcnow()
+                    ),
                     parser_version=collected.parser_version,
                     schema_version=collected.schema_version,
                     payload_sha256=payload_sha256,
