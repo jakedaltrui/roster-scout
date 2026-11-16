@@ -36,6 +36,30 @@ FOCUSED_TESTS = (
         "test_real_collector_budget_boundary_leaves_no_planned_ledgers"
     ),
     (
+        "tests.test_report_jobs.SectionHeaderPublicationTests."
+        "test_valid_d1_d2_d3_pages_publish_partial_when_split_transport_is_unavailable"
+    ),
+    (
+        "tests.test_report_jobs.SectionHeaderPublicationTests."
+        "test_live_page_reservation_is_atomic_under_concurrency"
+    ),
+    (
+        "tests.test_report_jobs.SectionHeaderPublicationTests."
+        "test_retry_generation_reuses_durable_budget_without_ledger_collision"
+    ),
+    (
+        "tests.test_report_jobs.SectionHeaderPublicationTests."
+        "test_supplemental_deadline_persists_sanitized_unavailable_sections"
+    ),
+    (
+        "tests.test_ncaa_detail.FixtureCaptureSafetyTests."
+        "test_schedule_transport_uses_the_smaller_navigation_or_wall_timeout"
+    ),
+    (
+        "tests.test_ncaa_detail.FixtureCaptureSafetyTests."
+        "test_terms_retry_reserves_the_followup_navigation"
+    ),
+    (
         "tests.test_ncaa_detail.FixtureCaptureSafetyTests."
         "test_schedule_capture_rejects_pagination_unknown_results_and_malformed_rows"
     ),
