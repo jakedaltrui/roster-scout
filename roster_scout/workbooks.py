@@ -271,7 +271,11 @@ def logo_palette(logo_png: bytes | None) -> dict[str, str]:
 
 
 def workbook_branding(
-    *, school_name: str, generated_on: date, team_id: str | None = None
+    *,
+    school_name: str,
+    generated_on: date,
+    team_id: str | None = None,
+    subtitle: str | None = None,
 ) -> dict:
     """Resolve deterministic school branding for a canonical NCAA identity."""
     logo_png = None
@@ -283,6 +287,7 @@ def workbook_branding(
     return {
         "school_name": school_name,
         "generated_on": generated_on,
+        "subtitle": subtitle,
         "logo_png": logo_png,
         "palette": logo_palette(logo_png),
     }
@@ -389,7 +394,9 @@ def _write_worksheet(workbook, title, rows, columns, branding=None):
         subtitle_row_height = 30
         worksheet.set_row(0, title_row_height)
         worksheet.set_row(1, subtitle_row_height)
-        if isinstance(generated_on, date):
+        if branding.get("subtitle"):
+            date_text = str(branding["subtitle"]).upper()
+        elif isinstance(generated_on, date):
             date_text = (
                 f"{generated_on.strftime('%B')} {generated_on.day}, "
                 f"{generated_on.year}"

@@ -19,18 +19,31 @@ from roster_scraper import normalize_ncaa_players, split_roster
 
 from .database import session_advisory_lock
 from .models import (
+    BattingFact,
+    MetricDefinition,
+    MetricValue,
+    PitchingFact,
+    PlayerTeamSeason,
     Report,
     ReportArtifact,
     ReportSnapshot,
+    ScopedBattingFact,
+    ScopedPitchingFact,
     Season,
     SourceRecord,
+    StatisticScope,
     Team,
     TeamSeason,
 )
+from .metrics import DEFINITION_VERSION, calculate_metric
 from .workbooks import create_workbook, workbook_branding
 
 
-ARTIFACT_SCHEMA_VERSION = "basic-xlsx-v1"
+ARTIFACT_SCHEMA_VERSION = "detailed-two-sheet-xlsx-v2"
+SUPPORTED_ARTIFACT_SCHEMA_VERSIONS = frozenset({
+    "basic-xlsx-v1",
+    ARTIFACT_SCHEMA_VERSION,
+})
 MAX_ARTIFACT_BYTES = 25 * 1024 * 1024
 DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_STALE_AFTER = timedelta(minutes=15)
@@ -56,7 +69,8 @@ def _validated_object_key(key: str) -> str:
         uuid.UUID(parts[5])
     except (TypeError, ValueError, AttributeError):
         raise ArtifactStorageError("invalid artifact key") from None
-    if parts[7] != f"roster-scout-{ARTIFACT_SCHEMA_VERSION}.xlsx":
+    match = re.fullmatch(r"roster-scout-(.+)\.xlsx", parts[7])
+    if match is None or match.group(1) not in SUPPORTED_ARTIFACT_SCHEMA_VERSIONS:
         raise ArtifactStorageError("invalid artifact key")
     return "/".join(parts)
 
@@ -295,6 +309,8 @@ class SnapshotWorkbookSource:
     published_at: datetime
     hitters: tuple[dict, ...]
     pitchers: tuple[dict, ...]
+    source_collected_at: datetime | None = None
+    snapshot_status: str = "ready"
 
 
 def _workbook_rows_from_source_records(rows):
@@ -311,6 +327,291 @@ def _workbook_rows_from_source_records(rows):
             pitching_rows.append(raw)
     players = normalize_ncaa_players(batting_rows, pitching_rows)
     return split_roster(players)
+
+
+def _first_present(mapping, *keys):
+    for key in keys:
+        value = mapping.get(key)
+        if value not in (None, ""):
+            return value
+    return ""
+
+
+def _innings_text(outs):
+    if outs is None:
+        return ""
+    return f"{int(outs) // 3}.{int(outs) % 3}"
+
+
+def _metric_text(code, value):
+    if value is None:
+        return ""
+    precision = 2 if code in {
+        "era", "whip", "k_per_9", "bb_per_9", "h_per_9", "hr_per_9",
+        "k_bb", "fip",
+    } else 3
+    return f"{value:.{precision}f}"
+
+
+def _scope_label(status):
+    return {
+        "complete": "Complete",
+        "partial": "Partial",
+        "unavailable": "Unavailable",
+        "failed": "Failed",
+    }.get(str(status or "unavailable").lower(), "Unavailable")
+
+
+def _project_snapshot_workbook_rows(
+    player_rows,
+    source_rows,
+    batting_facts,
+    pitching_facts,
+    metric_rows,
+    scopes,
+    scoped_batting_facts,
+    scoped_pitching_facts,
+):
+    """Project one immutable snapshot into renderer-ready rows."""
+    players = {item.id: item for item in player_rows}
+    sources = {(item.player_team_season_id, item.section): item for item in source_rows}
+    source_by_id = {item.id: item for item in source_rows}
+    batting_by_player = {item.player_team_season_id: item for item in batting_facts}
+    pitching_by_player = {item.player_team_season_id: item for item in pitching_facts}
+    scope_by_key = {(item.stat_type, item.scope_code): item for item in scopes}
+    scoped_batting = {
+        (item.statistic_scope_id, item.player_team_season_id): item
+        for item in scoped_batting_facts
+    }
+    scoped_pitching = {
+        (item.statistic_scope_id, item.player_team_season_id): item
+        for item in scoped_pitching_facts
+    }
+
+    persisted_metrics = {}
+    for item in metric_rows:
+        metric, definition = item
+        key = (metric.player_team_season_id, definition.code, metric.scope or "")
+        persisted_metrics.setdefault(key, []).append((metric, definition))
+
+    def metric_value(player_id, code, counts, *, scopes=("full_season", "season")):
+        candidates = []
+        for scope in scopes:
+            candidates.extend(persisted_metrics.get((player_id, code, scope), ()))
+        candidates.sort(
+            key=lambda pair: (
+                pair[0].status == "available",
+                pair[1].version == DEFINITION_VERSION,
+            ),
+            reverse=True,
+        )
+        if candidates and candidates[0][0].status == "available":
+            return _metric_text(code, candidates[0][0].value)
+        result = calculate_metric(code, counts)
+        return _metric_text(code, result.value) if result.status == "available" else ""
+
+    def identity(player_id, preferred_section):
+        player = players[player_id]
+        source = sources.get((player_id, preferred_section))
+        alternate = sources.get(
+            (player_id, "pitching" if preferred_section == "batting" else "batting")
+        )
+        source = source or alternate
+        alternate_raw = dict(alternate.raw_values) if alternate is not None else {}
+        raw = {**alternate_raw, **(dict(source.raw_values) if source is not None else {})}
+        identity_source = (
+            source
+            if source is not None and source.source_player_id
+            else alternate or source
+        )
+        return {
+            "_player_id": (
+                identity_source.source_player_id if identity_source is not None else ""
+            ),
+            "_player_url": (
+                _first_present(raw, "_player_url", "player_url", "Player URL")
+                or (source.source_url if source is not None else "")
+            ),
+            "Name": player.display_name,
+            "#": player.jersey_number or "",
+            "Position": player.position or "",
+            "Class": _first_present(raw, "Class", "Yr", "Year"),
+        }
+
+    def add_batting_scope(row, player_id, scope_code, prefix):
+        scope = scope_by_key.get(("batting", scope_code))
+        if scope is None:
+            row[f"{prefix} Status"] = "Unavailable"
+            return
+        row[f"{prefix} Status"] = _scope_label(scope.status)
+        if scope.status not in {"complete", "partial"}:
+            return
+        if scope.actual_game_count is not None:
+            row[f"{prefix} G"] = scope.actual_game_count
+        fact = scoped_batting.get((scope.id, player_id))
+        if scope.status != "complete" or fact is None:
+            return
+        counts = dict(fact.counts_json or {})
+        row[f"{prefix} PA"] = counts.get("plate_appearances", "")
+        row[f"{prefix} AB"] = counts.get("at_bats", "")
+        row[f"{prefix} AVG"] = metric_value(
+            player_id,
+            "avg",
+            counts,
+            scopes=(f"computed:batting:{scope_code}",),
+        )
+        row[f"{prefix} OPS"] = metric_value(
+            player_id,
+            "ops",
+            counts,
+            scopes=(f"computed:batting:{scope_code}",),
+        )
+        row[f"{prefix} K%"] = metric_value(
+            player_id,
+            "batting_k_pct",
+            counts,
+            scopes=(f"computed:batting:{scope_code}",),
+        )
+
+    def add_pitching_scope(row, player_id, scope_code, prefix):
+        scope = scope_by_key.get(("pitching", scope_code))
+        if scope is None:
+            row[f"{prefix} Status"] = "Unavailable"
+            return
+        row[f"{prefix} Status"] = _scope_label(scope.status)
+        if scope.status not in {"complete", "partial"}:
+            return
+        if scope.actual_game_count is not None:
+            row[f"{prefix} G"] = scope.actual_game_count
+        fact = scoped_pitching.get((scope.id, player_id))
+        if scope.status != "complete" or fact is None:
+            return
+        counts = dict(fact.counts_json or {})
+        row[f"{prefix} IP"] = _innings_text(counts.get("innings_outs"))
+        for code, label in (
+            ("era", "ERA"),
+            ("whip", "WHIP"),
+            ("k_per_9", "K/9"),
+        ):
+            row[f"{prefix} {label}"] = metric_value(
+                player_id,
+                code,
+                counts,
+                scopes=(f"computed:pitching:{scope_code}",),
+            )
+
+    hitters = []
+    for player_id, fact in sorted(
+        batting_by_player.items(),
+        key=lambda pair: pair[1].at_bats or 0,
+        reverse=True,
+    ):
+        row = identity(player_id, "batting")
+        counts = {
+            "games": fact.games,
+            "games_started": fact.games_started,
+            "plate_appearances": fact.plate_appearances,
+            "at_bats": fact.at_bats,
+            "runs": fact.runs,
+            "hits": fact.hits,
+            "doubles": fact.doubles,
+            "triples": fact.triples,
+            "home_runs": fact.home_runs,
+            "runs_batted_in": fact.runs_batted_in,
+            "walks": fact.walks,
+            "hit_by_pitch": fact.hit_by_pitch,
+            "strikeouts": fact.strikeouts,
+            "sacrifice_flies": fact.sacrifice_flies,
+            "sacrifice_hits": fact.sacrifice_hits,
+            "stolen_bases": fact.stolen_bases,
+        }
+        row.update({
+            "G": fact.games,
+            "GS": fact.games_started,
+            "PA": fact.plate_appearances,
+            "AB": fact.at_bats,
+            "H": fact.hits,
+            "2B": fact.doubles,
+            "3B": fact.triples,
+            "HR": fact.home_runs,
+            "RBI": fact.runs_batted_in,
+            "R": fact.runs,
+            "BB": fact.walks,
+            "SO": fact.strikeouts,
+            "SB": fact.stolen_bases,
+        })
+        for code, label in (
+            ("avg", "AVG"),
+            ("obp", "OBP"),
+            ("slg", "SLG"),
+            ("ops", "OPS"),
+            ("iso", "ISO"),
+            ("batting_bb_pct", "BB%"),
+            ("batting_k_pct", "K%"),
+            ("babip", "BABIP"),
+            ("woba", "wOBA"),
+        ):
+            row[label] = metric_value(player_id, code, counts)
+        add_batting_scope(row, player_id, "last_10", "Last 10")
+        add_batting_scope(row, player_id, "conference", "Conference")
+        hitters.append(row)
+
+    pitchers = []
+    for player_id, fact in sorted(
+        pitching_by_player.items(),
+        key=lambda pair: pair[1].innings_outs or 0,
+        reverse=True,
+    ):
+        row = identity(player_id, "pitching")
+        source = source_by_id.get(fact.source_record_id)
+        raw = dict(source.raw_values) if source is not None else {}
+        counts = {
+            "appearances": fact.appearances,
+            "games_started": fact.games_started,
+            "innings_outs": fact.innings_outs,
+            "hits_allowed": fact.hits_allowed,
+            "earned_runs": fact.earned_runs,
+            "walks": fact.walks,
+            "strikeouts": fact.strikeouts,
+            "home_runs_allowed": fact.home_runs_allowed,
+            "hit_batters": fact.hit_batters,
+            "batters_faced": fact.batters_faced,
+            "opponent_at_bats": fact.opponent_at_bats,
+            "opponent_sacrifice_flies": fact.opponent_sacrifice_flies,
+        }
+        row.update({
+            "G": fact.appearances,
+            "GS": fact.games_started,
+            "IP": _innings_text(fact.innings_outs),
+            "W": _first_present(raw, "W", "Wins"),
+            "L": _first_present(raw, "L", "Losses"),
+            "SV": _first_present(raw, "SV", "Saves"),
+            "H": fact.hits_allowed,
+            "ER": fact.earned_runs,
+            "BB": fact.walks,
+            "SO": fact.strikeouts,
+            "HR": fact.home_runs_allowed,
+            "BF": fact.batters_faced,
+        })
+        for code, label in (
+            ("era", "ERA"),
+            ("whip", "WHIP"),
+            ("k_per_9", "K/9"),
+            ("bb_per_9", "BB/9"),
+            ("h_per_9", "H/9"),
+            ("hr_per_9", "HR/9"),
+            ("k_bb", "K/BB"),
+            ("pitching_k_pct", "K%"),
+            ("pitching_bb_pct", "BB%"),
+            ("babip_allowed", "BABIP"),
+            ("fip", "FIP"),
+        ):
+            row[label] = metric_value(player_id, code, counts)
+        add_pitching_scope(row, player_id, "last_10", "Last 10")
+        add_pitching_scope(row, player_id, "conference", "Conference")
+        pitchers.append(row)
+
+    return hitters, pitchers
 
 
 def load_snapshot_workbook_source(session, snapshot_id):
@@ -333,7 +634,71 @@ def load_snapshot_workbook_source(session, snapshot_id):
         )
         .order_by(SourceRecord.section, SourceRecord.row_ordinal)
     ))
-    hitters, pitchers = _workbook_rows_from_source_records(rows)
+    player_rows = tuple(session.scalars(
+        select(PlayerTeamSeason)
+        .where(
+            PlayerTeamSeason.organization_id == snapshot.organization_id,
+            PlayerTeamSeason.snapshot_id == snapshot.id,
+        )
+        .order_by(PlayerTeamSeason.display_name, PlayerTeamSeason.id)
+    ))
+    batting_facts = tuple(session.scalars(
+        select(BattingFact).where(
+            BattingFact.organization_id == snapshot.organization_id,
+            BattingFact.snapshot_id == snapshot.id,
+        )
+    ))
+    pitching_facts = tuple(session.scalars(
+        select(PitchingFact).where(
+            PitchingFact.organization_id == snapshot.organization_id,
+            PitchingFact.snapshot_id == snapshot.id,
+        )
+    ))
+    metric_rows = tuple(session.execute(
+        select(MetricValue, MetricDefinition)
+        .join(
+            MetricDefinition,
+            MetricDefinition.id == MetricValue.metric_definition_id,
+        )
+        .where(
+            MetricValue.organization_id == snapshot.organization_id,
+            MetricValue.snapshot_id == snapshot.id,
+            MetricValue.player_team_season_id.is_not(None),
+        )
+    ))
+    scopes = tuple(session.scalars(
+        select(StatisticScope).where(
+            StatisticScope.organization_id == snapshot.organization_id,
+            StatisticScope.snapshot_id == snapshot.id,
+            StatisticScope.scope_code.in_(("last_10", "conference")),
+            StatisticScope.stat_type.in_(("batting", "pitching")),
+        )
+    ))
+    scoped_batting = tuple(session.scalars(
+        select(ScopedBattingFact).where(
+            ScopedBattingFact.organization_id == snapshot.organization_id,
+            ScopedBattingFact.snapshot_id == snapshot.id,
+        )
+    ))
+    scoped_pitching = tuple(session.scalars(
+        select(ScopedPitchingFact).where(
+            ScopedPitchingFact.organization_id == snapshot.organization_id,
+            ScopedPitchingFact.snapshot_id == snapshot.id,
+        )
+    ))
+    if player_rows and (batting_facts or pitching_facts):
+        hitters, pitchers = _project_snapshot_workbook_rows(
+            player_rows,
+            rows,
+            batting_facts,
+            pitching_facts,
+            metric_rows,
+            scopes,
+            scoped_batting,
+            scoped_pitching,
+        )
+    else:
+        hitters, pitchers = _workbook_rows_from_source_records(rows)
     return SnapshotWorkbookSource(
         organization_id=snapshot.organization_id,
         report_id=report.id,
@@ -344,15 +709,26 @@ def load_snapshot_workbook_source(session, snapshot_id):
         published_at=snapshot.published_at,
         hitters=tuple(hitters),
         pitchers=tuple(pitchers),
+        source_collected_at=snapshot.source_collected_at,
+        snapshot_status=snapshot.status,
     )
 
 
 def build_snapshot_workbook(source):
     """Build a saved version with the exact homepage workbook renderer."""
+    subtitle = None
+    if source.source_collected_at is not None:
+        subtitle = (
+            f"{source.season_year} SEASON · "
+            f"PUBLISHED {source.published_at.astimezone(UTC).strftime('%b %d, %Y %H:%M UTC').upper()} · "
+            f"SOURCE {source.source_collected_at.astimezone(UTC).strftime('%b %d, %Y %H:%M UTC').upper()} · "
+            f"{source.snapshot_status.upper()} SNAPSHOT"
+        )
     branding = workbook_branding(
         school_name=source.team_name,
         generated_on=source.published_at.date(),
         team_id=source.source_team_id,
+        subtitle=subtitle,
     )
     payload = create_workbook(
         list(source.hitters),

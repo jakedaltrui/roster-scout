@@ -93,7 +93,7 @@ class ArtifactStorageUnitTests(unittest.TestCase):
         self.assertEqual(
             key,
             f"organizations/{organization_id}/reports/{report_id}/snapshots/"
-            f"{snapshot_id}/workbooks/roster-scout-basic-xlsx-v1.xlsx",
+            f"{snapshot_id}/workbooks/roster-scout-detailed-two-sheet-xlsx-v2.xlsx",
         )
         with self.assertRaisesRegex(ArtifactStorageError, "invalid artifact key"):
             _validated_object_key(f"../{key}")
@@ -516,7 +516,7 @@ class ArtifactContractTests(unittest.TestCase):
             hitters[0]["_player_url"], "https://stats.ncaa.org/players/9001"
         )
         self.assertEqual(hitters[0]["G"], 32)
-        self.assertEqual(hitters[0]["OPS"], "1.043")
+        self.assertEqual(hitters[0]["OPS"], "1.050")
         self.assertEqual(hitters[0]["Last 10 G"], 10)
         self.assertEqual(hitters[0]["Last 10 AVG"], "0.368")
         self.assertEqual(hitters[0]["Last 10 Status"], "Complete")
@@ -605,6 +605,41 @@ class ArtifactLifecycleTests(_PostgreSQLJobTestCase):
                 self.assertEqual(artifact.attempt_count, 1)
                 self.assertTrue(payload.startswith(b"PK"))
             self.assertIsNone(claim_artifact_build(self.Session, artifact_id))
+
+    def test_detailed_snapshot_source_projects_canonical_rows_not_legacy_rates(self):
+        from roster_scout.artifacts import load_snapshot_workbook_source
+        from roster_scout.jobs import accept_report_job, run_report_job
+        from tests.test_report_jobs import FullSeasonMetricPublicationTests
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            "detailed-workbook-source",
+            dispatch=None,
+        )
+        snapshot = run_report_job(
+            self.Session,
+            job.id,
+            collector=Mock(
+                return_value=FullSeasonMetricPublicationTests.detailed_sections()
+            ),
+        )
+
+        with self.Session() as session:
+            source = load_snapshot_workbook_source(session, snapshot.id)
+
+        hitter = next(row for row in source.hitters if row["_player_id"] == "100")
+        pitcher = next(row for row in source.pitchers if row["_player_id"] == "100")
+        self.assertEqual(hitter["_player_url"], "https://stats.ncaa.org/players/100")
+        self.assertEqual(hitter["G"], 12)
+        self.assertEqual(hitter["OPS"], "1.500")
+        self.assertEqual(hitter["Last 10 Status"], "Unavailable")
+        self.assertEqual(hitter["Conference Status"], "Unavailable")
+        self.assertEqual(pitcher["IP"], "7.0")
+        self.assertEqual(pitcher["K/9"], "11.57")
+        self.assertEqual(source.source_collected_at.isoformat(), "2026-04-01T18:30:00+00:00")
 
     def test_dispatch_failure_releases_claim_for_bounded_retry(self):
         from roster_scout.artifacts import dispatch_pending_artifacts
