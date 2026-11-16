@@ -394,6 +394,8 @@ class UntrustedScopeInputTests(_TenantIsolationCase):
             ("reports.refresh_report", ("GET", "POST")),
             ("reports.retry_report", ("POST",)),
             ("reports.download_snapshot_artifact", ("POST",)),
+            ("reports.start_google_sheets_export", ("POST",)),
+            ("reports.google_sheets_callback", ("GET",)),
             ("reports.create_report", ("GET", "POST")),
         }
         public_outside_matrix = {

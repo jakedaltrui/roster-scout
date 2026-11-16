@@ -149,6 +149,7 @@ class AuthorizedArtifact:
     snapshot_id: uuid.UUID
     object_key: str
     sha256: str
+    report_name: str
 
 
 def _upsert_team(session, request):
@@ -597,11 +598,15 @@ def resolve_authorized_artifact(
     )
     if artifact is None:
         raise ReportLibraryFailure("not_found")
+    report = get_report_for_organization(session, organization_id, report_id)
+    if report is None:
+        raise ReportLibraryFailure("not_found")
     return AuthorizedArtifact(
         id=artifact.id,
         snapshot_id=artifact.snapshot_id,
         object_key=artifact.object_key,
         sha256=artifact.sha256,
+        report_name=report.name,
     )
 
 

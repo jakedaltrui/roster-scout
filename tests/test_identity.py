@@ -1101,6 +1101,7 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
                 ("/login", ("GET",)),
                 ("/logout", ("POST",)),
                 ("/invitations/<uuid:invitation_id>/accept", ("POST",)),
+                ("/integrations/google/callback", ("GET",)),
                 ("/organization/invitations", ("POST",)),
                 ("/organization/invitations/<uuid:invitation_id>/revoke", ("POST",)),
                 ("/organization/members", ("GET",)),
@@ -1121,6 +1122,11 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
                 (
                     "/reports/<uuid:report_id>/snapshots/<uuid:snapshot_id>/"
                     "artifacts/<uuid:artifact_id>/download",
+                    ("POST",),
+                ),
+                (
+                    "/reports/<uuid:report_id>/snapshots/<uuid:snapshot_id>/"
+                    "artifacts/<uuid:artifact_id>/google-sheets",
                     ("POST",),
                 ),
                 ("/reports/<uuid:report_id>/status", ("GET",)),

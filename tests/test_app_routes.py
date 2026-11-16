@@ -113,6 +113,8 @@ class DownloadEventContractTests(unittest.TestCase):
         self.assertIn("normalizeVerificationCode", self.source)
         self.assertEqual(self.source.count("data-auth-code-digit"), 7)
         self.assertIn('class="auth-code-control"', self.source)
+        self.assertIn("@keyframes auth-code-caret", self.source)
+        self.assertIn(".auth-code-box.is-active::after", self.source)
         self.assertIn("renderAuthCode", self.source)
         self.assertIn("beginInlineAuth", self.source)
         self.assertIn("createPendingReportStore", self.source)
@@ -199,6 +201,10 @@ class WorkbookPreparationReceiptTests(unittest.TestCase):
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
         self.assertIn("Tampa", response.headers["Content-Disposition"])
+        self.assertIn(
+            f"Tampa Stats {datetime.now(UTC).strftime('%m-%d-%y')}.xlsx",
+            response.headers["Content-Disposition"],
+        )
         self.assertTrue(response.data.startswith(b"PK"))
         with zipfile.ZipFile(io.BytesIO(response.data)) as archive:
             workbook_xml = archive.read("xl/workbook.xml").decode("utf-8")
@@ -1315,9 +1321,24 @@ class AuthenticatedSnapshotDownloadAcknowledgementTests(unittest.TestCase):
         self.assertEqual(source.count("data-authenticated-snapshot-download"), 2)
         self.assertEqual(source.count("{{ workbook_download_button"), 2)
         self.assertIn("data-download-label", source)
-        self.assertIn("download-workbook-button__arrow", source)
-        self.assertIn("download-workbook-button__tray", source)
+        self.assertIn("brand/microsoft-excel.png", source)
         self.assertIn("button--download", source)
+        self.assertEqual(source.count("{{ google_sheets_button"), 2)
+        self.assertIn("data-google-sheets-trigger", source)
+        self.assertIn("data-google-sheets-confirm", source)
+        self.assertIn("start_google_sheets_export", source)
+        self.assertIn("Continue with Google", source)
+        self.assertIn("brand/google-sheets.png", source)
+        self.assertIn("Export to Google Sheets", source)
+        self.assertIn("Download in Excel", source)
+        self.assertNotIn("Use in Google Sheets", source)
+        self.assertEqual(source.count('class="artifact-actions"'), 2)
+        self.assertIn(".button.export-choice", source)
+        self.assertNotIn("background:#20211f", source)
+        self.assertIn("Access is limited to files Roster Scout creates", source)
+        self.assertIn("Roster Scout never requests access to your Google account.", source)
+        self.assertIn("animation:report-progress 4.2s", source)
+        self.assertIn(".refresh-progress span{animation-duration:1.8s}", source)
         self.assertNotIn("Download saved", source)
         self.assertNotIn("Snapshot saved to your device", source)
 
@@ -1328,6 +1349,20 @@ class AuthenticatedSnapshotDownloadAcknowledgementTests(unittest.TestCase):
             shell = handle.read()
         self.assertIn('rel="icon"', shell)
         self.assertIn("brand/roster-scout-dog-outlined.png", shell)
+
+        product_shell = os.path.join(
+            os.path.dirname(__file__), "..", "static", "product_shell.js"
+        )
+        with open(product_shell, encoding="utf-8") as handle:
+            shell_script = handle.read()
+        self.assertIn('window.open("https://sheets.new"', shell_script)
+        self.assertIn('form.dataset.exportTarget = "google-sheets"', shell_script)
+        self.assertIn('headers: { Accept: "application/json" }', shell_script)
+        self.assertIn("window.location.assign(payload.authorization_url)", shell_script)
+        self.assertIn("Couldn’t connect to Google. Try again.", shell_script)
+        self.assertIn("googleSheetsOauthUrl", shell_script)
+        self.assertNotIn("oauthForm.submit()", shell_script)
+        self.assertNotIn("accounts.google.com", shell_script)
 
 
 class NativeWorkbookDatabaseOptionalTests(unittest.TestCase):

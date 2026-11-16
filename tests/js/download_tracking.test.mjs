@@ -7,6 +7,7 @@ const {
   classifyAcknowledgementResponse,
   createSafeStorage,
   createDownloadTracker,
+  downloadNameFromResponse,
   runAuthenticatedSnapshotDownload,
   runDownloadSubmission,
 } = require("../../static/download_tracking.js");
@@ -15,6 +16,23 @@ const FIRST_ID = "11111111-1111-4111-8111-111111111111";
 const SECOND_ID = "22222222-2222-4222-8222-222222222222";
 const PROOF = "signed-proof";
 const START = 1_700_000_000_000;
+
+test("saved workbook downloads keep the clean server-provided filename", () => {
+  const response = {
+    headers: {
+      get(name) {
+        return name === "Content-Disposition"
+          ? "attachment; filename*=UTF-8''Abilene%20Christian%20Stats%2011-15-26.xlsx"
+          : null;
+      },
+    },
+  };
+  assert.equal(
+    downloadNameFromResponse(response),
+    "Abilene Christian Stats 11-15-26.xlsx",
+  );
+  assert.equal(downloadNameFromResponse({ headers: new Map() }), "Opponent Stats.xlsx");
+});
 
 class FakeStorage {
   constructor() {

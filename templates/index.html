@@ -128,6 +128,7 @@
     .auth-code-box { display:grid; place-items:center; aspect-ratio:1/1.08; min-width:0; border:1px solid #20211f; border-radius:12px; color:#20211f; background:#fff; font-size:clamp(20px,5vw,25px); font-weight:700; font-variant-numeric:tabular-nums; transition:border-color .2s,background-color .2s,box-shadow .2s,transform .2s cubic-bezier(.2,.8,.2,1); }
     .auth-code-box.is-filled { border-color:#20211f; background:#fff; }
     .auth-code-control:focus-within .auth-code-box.is-active { border-color:#20211f; box-shadow:0 0 0 3px rgba(0,0,0,.1); transform:translateY(-1px); }
+    .auth-code-control:focus-within .auth-code-box.is-active::after { width:2px; height:1.08em; border-radius:999px; background:currentColor; content:""; animation:auth-code-caret 1.05s steps(1,end) infinite; }
     :root[data-theme="dark"] .auth-code-box { border-color:#39393d; color:#f4f4f3; background:#111113; }
     :root[data-theme="dark"] .auth-code-box.is-filled { border-color:#5b5b60; background:#171719; }
     :root[data-theme="dark"] .auth-code-control:focus-within .auth-code-box.is-active { border-color:#a2a2a6; box-shadow:0 0 0 3px rgba(255,255,255,.08); }
@@ -136,6 +137,8 @@
     .auth-text-button { min-height:44px; padding:0; border:0; color:#aaaab0; background:transparent; font-size:11px; font-weight:700; text-decoration:underline; text-underline-offset:3px; }
     .auth-text-button:hover { color:#f0f0ee; }
     .auth-dev-note { margin:2px 0 0; color:#8d8d92; font-size:11px; text-align:center; }
+    @keyframes auth-code-caret { 0%,48% { opacity:1; } 49%,100% { opacity:0; } }
+    @media (prefers-reduced-motion:reduce) { .auth-code-control:focus-within .auth-code-box.is-active::after { animation:none; } }
     .state-center { text-align:center; padding:25px 0 0; }
     .state-center .state-title { margin-top:20px; }
     .status-icon { width:48px; height:48px; margin:0 auto; border-radius:50%; display:grid; place-items:center; color:var(--green); background:#eaf1e9; }
@@ -629,7 +632,7 @@
           <ul class="output-list"><li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg><span>Hitters and pitchers are separated automatically.</span></li><li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg><span>Roster details and season stats stay together by player.</span></li><li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg><span>The finished .xlsx file downloads directly to your device.</span></li></ul>
         </div>
         <div class="workbook-preview" id="workbook-preview" aria-label="Interactive championship-team Excel workbook preview">
-          <div class="workbook-bar"><div class="workbook-file"><span class="xlsx-file-type" role="img" aria-label="XLSX file"><svg viewBox="0 0 40 40" aria-hidden="true"><path fill="currentColor" d="M7 2h19l8 8v26a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z"/><path fill="#fff" fill-opacity=".3" d="M26 2v8h8L26 2Z"/><path fill="#fff" fill-opacity=".18" d="m26 2 8 8h-6a2 2 0 0 1-2-2V2Z"/></svg><span class="xlsx-file-type-label">XLSX</span></span><span id="workbook-filename">Oklahoma_2026_Baseball.xlsx</span></div></div>
+          <div class="workbook-bar"><div class="workbook-file"><span class="xlsx-file-type" role="img" aria-label="XLSX file"><svg viewBox="0 0 40 40" aria-hidden="true"><path fill="currentColor" d="M7 2h19l8 8v26a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z"/><path fill="#fff" fill-opacity=".3" d="M26 2v8h8L26 2Z"/><path fill="#fff" fill-opacity=".18" d="m26 2 8 8h-6a2 2 0 0 1-2-2V2Z"/></svg><span class="xlsx-file-type-label">XLSX</span></span><span id="workbook-filename">Oklahoma Stats 11-15-26.xlsx</span></div></div>
           <div class="sheet-window" id="sheet-window">
             <div class="sample-team"><div class="sample-team-main"><img class="sample-team-logo" id="workbook-team-logo" src="/api/team-logo/522" width="58" height="42" alt="Oklahoma" /><span class="sample-team-copy"><strong class="sample-team-name" id="workbook-team-name">University of Oklahoma</strong><span class="sample-team-meta" id="workbook-team-meta">2026 season</span></span></div></div>
             <div class="sheet-tabs" role="tablist" aria-label="Workbook sheets"><button type="button" class="sheet-tab" id="hitters-tab" role="tab" aria-selected="true" aria-controls="hitters-sheet" tabindex="0"><span class="sheet-tab-icon" aria-hidden="true"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1"><path d="M1.5 1.5h9v9h-9zM1.5 4.5h9M4.5 1.5v9" /></svg></span><span>Hitters</span></button><button type="button" class="sheet-tab" id="pitchers-tab" role="tab" aria-selected="false" aria-controls="pitchers-sheet" tabindex="-1"><span class="sheet-tab-icon" aria-hidden="true"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1"><path d="M1.5 1.5h9v9h-9zM1.5 4.5h9M4.5 1.5v9" /></svg></span><span>Pitchers</span></button></div>
@@ -647,7 +650,7 @@
         </div>
       </section>
       <section class="guide" id="how-it-works" aria-labelledby="guide-heading"><div><h2 class="guide-heading" id="guide-heading">How it works.</h2><p class="guide-intro">Find a team and download a clean workbook in three steps.</p></div><div><ol class="how-it-works"><li><button type="button" class="how-button" data-guide="division" aria-pressed="true" aria-controls="guide-detail"><span class="how-number">1</span><span>Find a team</span></button></li><li><button type="button" class="how-button" data-guide="team" aria-pressed="false" aria-controls="guide-detail"><span class="how-number">2</span><span>Review the roster</span></button></li><li><button type="button" class="how-button" data-guide="download" aria-pressed="false" aria-controls="guide-detail"><span class="how-number">3</span><span>Download the file</span></button></li></ol><div class="guide-detail" id="guide-detail" aria-live="polite"><span class="guide-detail-label" id="guide-detail-label">Step 01</span><h3 class="guide-detail-title" id="guide-detail-title">Find a team.</h3><p class="guide-detail-text" id="guide-detail-text">Choose a division, then search for a school.</p><span class="guide-detail-number" id="guide-detail-number" aria-hidden="true">01</span></div></div></section>
-      <section class="faq-section" id="questions" aria-labelledby="faq-heading"><div class="faq-intro"><p class="section-kicker">Quick answers</p><h2 class="faq-heading" id="faq-heading">Know what you’re downloading.</h2><p>Choose a team first. When you download, a quick passwordless school-email sign-in keeps the report available to your staff.</p></div><div class="faq-list"><details class="faq-item" open><summary>What is included in the workbook?</summary><p>Every download contains a Hitters worksheet and a Pitchers worksheet. Both include player identity fields, while each sheet adds the season statistics relevant to that group.</p></details><details class="faq-item"><summary>Which teams can I search?</summary><p>The selector covers the current NCAA baseball catalog for Division I, Division II, and Division III teams.</p></details><details class="faq-item"><summary>What file type will I receive?</summary><p>Roster Scout creates an .xlsx Excel workbook and names it for the selected team and download date.</p></details><details class="faq-item"><summary>What happens after I click download?</summary><p>The app verifies the selected team, asks you to sign in if needed, gathers the roster and season statistics, and prepares the workbook before your browser starts the download.</p></details></div></section>
+      <section class="faq-section" id="questions" aria-labelledby="faq-heading"><div class="faq-intro"><p class="section-kicker">Quick answers</p><h2 class="faq-heading" id="faq-heading">Know what you’re downloading.</h2><p>Choose a team first. When you download, a quick passwordless school-email sign-in keeps the report available to your staff.</p></div><div class="faq-list"><details class="faq-item" open><summary>What is included in the workbook?</summary><p>Every download contains a Hitters worksheet and a Pitchers worksheet. Both include player identity fields, while each sheet adds the season statistics relevant to that group.</p></details><details class="faq-item"><summary>Which teams can I search?</summary><p>The selector covers the current NCAA baseball catalog for Division I, Division II, and Division III teams.</p></details><details class="faq-item"><summary>What file type will I receive?</summary><p>Roster Scout creates an .xlsx Excel workbook with a short, team-specific filename.</p></details><details class="faq-item"><summary>What happens after I click download?</summary><p>The app verifies the selected team, asks you to sign in if needed, gathers the roster and season statistics, and prepares the workbook before your browser starts the download.</p></details></div></section>
       <section class="final-cta" aria-labelledby="final-heading"><div class="final-copy"><h2 class="final-heading" id="final-heading">Your next opponent is a search away.</h2><p>Choose a division and build the workbook when you need it.</p></div><a class="cta-link" href="#builder">Find a team <span aria-hidden="true">&nbsp;↗</span></a></section>
     </main>
     <footer class="footer"><span>Roster Scout © 2026</span><a href="https://github.com/jakedaltrui/roster-scout" target="_blank" rel="noopener noreferrer">View source on GitHub ↗</a></footer>
@@ -686,7 +689,7 @@
 
     const featuredTeams = [
       {
-        school: 'University of Oklahoma', shortName: 'Oklahoma', year: '2026', filename: 'Oklahoma_2026_Baseball.xlsx', logo: '{{ url_for("static", filename="logos/oklahoma.svg") }}',
+        school: 'University of Oklahoma', shortName: 'Oklahoma', year: '2026', filename: 'Oklahoma Stats 11-15-26.xlsx', logo: '{{ url_for("static", filename="logos/oklahoma.svg") }}',
         colors: { primary:'#841617', accent:'#e8c893', soft:'#f7eeee', hover:'#f8e8e8', meta:'#7a3d3e' },
         hitters: [
           ['Dasan Harris','17','OF','Jr','.361','.415','.581','6','31','18'],
@@ -704,7 +707,7 @@
         ],
       },
       {
-        school: 'University of Tennessee', shortName: 'Tennessee', year: '2024', filename: 'Tennessee_2024_Baseball.xlsx', logo: '{{ url_for("static", filename="logos/tennessee.svg") }}',
+        school: 'University of Tennessee', shortName: 'Tennessee', year: '2024', filename: 'Tennessee Stats 11-15-26.xlsx', logo: '{{ url_for("static", filename="logos/tennessee.svg") }}',
         colors: { primary:'#ff8200', accent:'#58595b', soft:'#fff0e2', hover:'#ffe5cc', meta:'#95500c' },
         hitters: [
           ['Blake Burke','25','1B','Jr','.379','.449','.702','20','61','11'],
@@ -722,7 +725,7 @@
         ],
       },
       {
-        school: 'Louisiana State University', shortName: 'LSU', year: '2023', filename: 'LSU_2023_Baseball.xlsx', logo: '{{ url_for("static", filename="logos/lsu.svg") }}',
+        school: 'Louisiana State University', shortName: 'LSU', year: '2023', filename: 'LSU Stats 11-15-26.xlsx', logo: '{{ url_for("static", filename="logos/lsu.svg") }}',
         colors: { primary:'#461d7c', accent:'#fdd023', soft:'#f1edf5', hover:'#f5edc7', meta:'#5a476c' },
         hitters: [
           ['Dylan Crews','3','OF','Jr','.426','.567','.713','18','70','6'],
@@ -740,7 +743,7 @@
         ],
       },
       {
-        school: 'University of Mississippi', shortName: 'Ole Miss', year: '2022', filename: 'Ole_Miss_2022_Baseball.xlsx', logo: '{{ url_for("static", filename="logos/ole-miss.svg") }}',
+        school: 'University of Mississippi', shortName: 'Ole Miss', year: '2022', filename: 'Ole Miss Stats 11-15-26.xlsx', logo: '{{ url_for("static", filename="logos/ole-miss.svg") }}',
         colors: { primary:'#ce1126', accent:'#14213d', soft:'#eef2f7', hover:'#fce9eb', meta:'#7d2630' },
         hitters: [
           ['Kevin Graham','35','OF','Sr','.335','.371','.562','11','51','1'],
@@ -758,7 +761,7 @@
         ],
       },
       {
-        school: 'Mississippi State University', shortName: 'Mississippi State', year: '2021', filename: 'Mississippi_State_2021_Baseball.xlsx', logo: '{{ url_for("static", filename="logos/mississippi-state.svg") }}',
+        school: 'Mississippi State University', shortName: 'Mississippi State', year: '2021', filename: 'Mississippi State Stats 11-15-26.xlsx', logo: '{{ url_for("static", filename="logos/mississippi-state.svg") }}',
         colors: { primary:'#5d1725', accent:'#c5c6c8', soft:'#f4ecee', hover:'#f1e0e4', meta:'#70414a' },
         hitters: [
           ['Tanner Allen','5','OF','Sr','.383','.456','.621','11','66','11'],
@@ -776,7 +779,7 @@
         ],
       },
       {
-        school: 'Vanderbilt University', shortName: 'Vanderbilt', year: '2019', filename: 'Vanderbilt_2019_Baseball.xlsx', logo: '{{ url_for("static", filename="logos/vanderbilt.svg") }}',
+        school: 'Vanderbilt University', shortName: 'Vanderbilt', year: '2019', filename: 'Vanderbilt Stats 11-15-26.xlsx', logo: '{{ url_for("static", filename="logos/vanderbilt.svg") }}',
         colors: { primary:'#171717', accent:'#cfb53b', soft:'#f3efe3', hover:'#fbf4d8', meta:'#6c5c2b' },
         hitters: [
           ['Austin Martin','16','3B/OF','So','.392','.486','.604','10','46','18'],

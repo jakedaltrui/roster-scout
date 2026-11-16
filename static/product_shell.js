@@ -98,6 +98,54 @@
     });
   }
 
+  function enhanceGoogleSheetsExports() {
+    document.querySelectorAll("[data-google-sheets-confirm]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const dialog = button.closest("dialog");
+        const trigger = dialog && dialog.__returnFocus;
+        const form = trigger && trigger.closest("form[data-authenticated-snapshot-download]");
+        if (!form) return;
+        const oauthUrl = trigger.dataset.googleSheetsOauthUrl;
+        if (oauthUrl) {
+          const csrf = form.querySelector('input[name="csrf_token"]');
+          if (!csrf) return;
+          closeDialog(dialog);
+          button.disabled = true;
+          button.textContent = "Connecting…";
+          const status = form.querySelector("[data-download-status]");
+          try {
+            const body = new FormData();
+            body.append("csrf_token", csrf.value);
+            const response = await fetch(oauthUrl, {
+              method: "POST",
+              credentials: "same-origin",
+              headers: { Accept: "application/json" },
+              body,
+            });
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok || typeof payload.authorization_url !== "string") {
+              throw new Error("Google authorization is unavailable.");
+            }
+            window.location.assign(payload.authorization_url);
+          } catch (_error) {
+            button.disabled = false;
+            button.textContent = "Continue with Google";
+            if (status) {
+              status.textContent = "Couldn’t connect to Google. Try again.";
+              status.focus();
+            }
+          }
+          return;
+        }
+        window.open("https://sheets.new", "_blank", "noopener");
+        closeDialog(dialog);
+        form.dataset.exportTarget = "google-sheets";
+        form.requestSubmit();
+        delete form.dataset.exportTarget;
+      });
+    });
+  }
+
   function enhanceAccountMenu() {
     const menu = document.querySelector("details.account-menu");
     if (!menu) return;
@@ -197,6 +245,7 @@
       });
     }
     enhanceDialogs();
+    enhanceGoogleSheetsExports();
     enhanceRoleConfirmations();
     enhancePendingForms();
     enhanceAccountMenu();

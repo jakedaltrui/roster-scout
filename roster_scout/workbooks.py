@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import io
 import re
-from datetime import date
+from datetime import UTC, date, datetime
 from functools import lru_cache
 
 import requests
@@ -28,6 +28,18 @@ DEFAULT_PALETTE = {
     "band": "#F2F5F8",
     "border": "#D9E0E7",
 }
+
+
+def workbook_download_name(
+    team_name: str,
+    *,
+    generated_on: date | None = None,
+) -> str:
+    """Return one dated, readable filename shared by every download flow."""
+    readable = " ".join(str(team_name or "").split())
+    safe_name = re.sub(r"[^A-Za-z0-9]+", " ", readable).strip() or "Opponent"
+    report_date = generated_on or datetime.now(UTC).date()
+    return f"{safe_name} Stats {report_date.strftime('%m-%d-%y')}.xlsx"
 
 
 def excel_value(header: str, value):

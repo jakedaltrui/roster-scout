@@ -68,6 +68,7 @@ AUDIT_REASONS = frozenset(
         "snapshot_opened",
         "download_prepared",
         "download_acknowledged",
+        "google_sheets_exported",
         "invalid_auth_state",
         "invalid_callback",
         "identity_not_verified",

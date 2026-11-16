@@ -18,6 +18,7 @@ from flask import (
     request,
     send_file,
 )
+from itsdangerous import BadData, URLSafeTimedSerializer
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -26,6 +27,7 @@ from roster_scraper import NcaaError, list_ncaa_teams
 from .audit import append_security_audit_event
 from .authorization import record_scoped_not_found
 from .jobs import drain_report_dispatch_outbox
+from .google_sheets import GoogleSheetsFailure, GoogleSheetsOAuthClient
 from .institution_registry import identity_for_verified_email
 from .models import Account, Organization
 from .reports import (
@@ -41,6 +43,7 @@ from .reports import (
     resolve_authorized_artifact,
 )
 from .tasks import dispatch_report_job
+from .workbooks import workbook_download_name
 
 
 report_blueprint = Blueprint("reports", __name__)
@@ -49,6 +52,8 @@ _SELECTOR_ERROR = "Choose an NCAA team from the list."
 _SERVICE_ERROR = "We couldn’t accept the report request. Try again."
 _ARTIFACT_ERROR = "The saved workbook is temporarily unavailable. Try again."
 _MAX_ARTIFACT_BYTES = 64 * 1024 * 1024
+_GOOGLE_STATE_SALT = "roster-scout-google-sheets-v1"
+_GOOGLE_STATE_MAX_AGE_SECONDS = 10 * 60
 
 
 def _unconfigured_artifact_reader(_object_key):
@@ -58,6 +63,28 @@ def _unconfigured_artifact_reader(_object_key):
 def _session_factory():
     configured = current_app.extensions["roster_scout_report_session_factory"]
     return configured if hasattr(configured, "begin") else configured()
+
+
+def _google_sheets_client():
+    return current_app.extensions["roster_scout_google_sheets_oauth"]
+
+
+def _google_state_serializer():
+    return URLSafeTimedSerializer(current_app.secret_key, salt=_GOOGLE_STATE_SALT)
+
+
+def _load_artifact_payload(artifact):
+    payload = current_app.extensions["roster_scout_artifact_reader"](
+        artifact.object_key
+    )
+    if (
+        not isinstance(payload, bytes)
+        or not payload
+        or len(payload) > _MAX_ARTIFACT_BYTES
+        or not compare_digest(sha256(payload).hexdigest(), artifact.sha256)
+    ):
+        raise RuntimeError("stored artifact failed integrity validation")
+    return payload
 
 
 def _record_not_found(context, *, target_type, target_id=None):
@@ -387,6 +414,7 @@ def detail(report_id):
         report_detail=report_detail,
         load_error=False,
         retry_action_id=str(uuid.uuid4()),
+        google_sheets_oauth_configured=_google_sheets_client().configured,
     )
 
 
@@ -598,16 +626,7 @@ def download_snapshot_artifact(report_id, snapshot_id, artifact_id):
 
         # Object storage and hashing are deliberately outside a database
         # transaction so a slow reader cannot occupy a pooled connection.
-        payload = current_app.extensions[
-            "roster_scout_artifact_reader"
-        ](artifact.object_key)
-        if (
-            not isinstance(payload, bytes)
-            or not payload
-            or len(payload) > _MAX_ARTIFACT_BYTES
-            or not compare_digest(sha256(payload).hexdigest(), artifact.sha256)
-        ):
-            raise RuntimeError("stored artifact failed integrity validation")
+        payload = _load_artifact_payload(artifact)
         download_event_id = str(uuid.uuid4())
         proof = current_app.extensions[
             "roster_scout_download_ack_proof_issuer"
@@ -665,13 +684,151 @@ def download_snapshot_artifact(report_id, snapshot_id, artifact_id):
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         ),
         as_attachment=True,
-        download_name="roster-scout-report.xlsx",
+        download_name=workbook_download_name(artifact.report_name),
         max_age=0,
     )
     response.headers["Cache-Control"] = "no-store"
     response.headers["X-Roster-Scout-Download-Event-ID"] = download_event_id
     response.headers["X-Roster-Scout-Download-Ack-Proof"] = proof
     return response
+
+
+@report_blueprint.post(
+    "/reports/<uuid:report_id>/snapshots/<uuid:snapshot_id>"
+    "/artifacts/<uuid:artifact_id>/google-sheets"
+)
+def start_google_sheets_export(report_id, snapshot_id, artifact_id):
+    """Authorize a least-privilege, one-time native Google Sheets copy."""
+    context = g.authorization_context
+    client = _google_sheets_client()
+    if not client.configured:
+        if request.accept_mimetypes.best == "application/json":
+            return jsonify(error="google_setup_required"), 503
+        return redirect(
+            f"/reports/{report_id}?notice=google_setup_required",
+            code=303,
+        )
+    try:
+        with _session_factory().begin() as session:
+            resolve_authorized_artifact(
+                session,
+                organization_id=context.organization_id,
+                report_id=report_id,
+                snapshot_id=snapshot_id,
+                artifact_id=artifact_id,
+            )
+        state = _google_state_serializer().dumps(
+            {
+                "account_id": str(context.account_id),
+                "organization_id": str(context.organization_id),
+                "report_id": str(report_id),
+                "snapshot_id": str(snapshot_id),
+                "artifact_id": str(artifact_id),
+                "nonce": str(uuid.uuid4()),
+            }
+        )
+        authorization_url = client.authorization_url(state=state)
+        if request.accept_mimetypes.best == "application/json":
+            return jsonify(authorization_url=authorization_url)
+        return redirect(authorization_url, code=303)
+    except ReportLibraryFailure:
+        return _html_not_found(
+            context,
+            target_type="artifact",
+            target_id=artifact_id,
+        )
+    except (GoogleSheetsFailure, RuntimeError, ValueError):
+        current_app.logger.warning("google_sheets_authorization_unavailable")
+        if request.accept_mimetypes.best == "application/json":
+            return jsonify(error="google_failed"), 503
+        return redirect(f"/reports/{report_id}?notice=google_failed", code=303)
+
+
+@report_blueprint.get("/integrations/google/callback")
+def google_sheets_callback():
+    """Exchange one OAuth code, upload one exact artifact, then leave the callback."""
+    context = g.authorization_context
+    raw_state = request.args.get("state", "")
+    try:
+        state = _google_state_serializer().loads(
+            raw_state,
+            max_age=_GOOGLE_STATE_MAX_AGE_SECONDS,
+        )
+        if not isinstance(state, dict) or set(state) != {
+            "account_id",
+            "organization_id",
+            "report_id",
+            "snapshot_id",
+            "artifact_id",
+            "nonce",
+        }:
+            raise ValueError("invalid state")
+        report_id = uuid.UUID(state["report_id"])
+        snapshot_id = uuid.UUID(state["snapshot_id"])
+        artifact_id = uuid.UUID(state["artifact_id"])
+        if (
+            state["account_id"] != str(context.account_id)
+            or state["organization_id"] != str(context.organization_id)
+            or str(uuid.UUID(state["nonce"])) != state["nonce"]
+        ):
+            raise ValueError("state context mismatch")
+    except (BadData, TypeError, ValueError, KeyError, AttributeError):
+        current_app.logger.warning("google_sheets_callback_invalid_state")
+        return redirect("/reports?notice=google_failed", code=303)
+
+    if request.args.get("error"):
+        return redirect(f"/reports/{report_id}?notice=google_cancelled", code=303)
+    code = request.args.get("code", "")
+    try:
+        with _session_factory().begin() as session:
+            artifact = resolve_authorized_artifact(
+                session,
+                organization_id=context.organization_id,
+                report_id=report_id,
+                snapshot_id=snapshot_id,
+                artifact_id=artifact_id,
+            )
+        payload = _load_artifact_payload(artifact)
+        workbook_name = workbook_download_name(artifact.report_name)
+        access_token = _google_sheets_client().exchange_code(code)
+        destination = _google_sheets_client().import_workbook(
+            access_token=access_token,
+            workbook_name=workbook_name,
+            payload=payload,
+        )
+        with _session_factory().begin() as session:
+            current = resolve_authorized_artifact(
+                session,
+                organization_id=context.organization_id,
+                report_id=report_id,
+                snapshot_id=snapshot_id,
+                artifact_id=artifact_id,
+            )
+            if current != artifact:
+                raise ReportLibraryFailure("not_found")
+            append_security_audit_event(
+                session,
+                actor_account_id=context.account_id,
+                organization_id=context.organization_id,
+                target_type="artifact",
+                target_id=artifact.id,
+                action="artifact.download",
+                outcome="succeeded",
+                reason="google_sheets_exported",
+            )
+        return redirect(destination, code=303)
+    except ReportLibraryFailure:
+        return _html_not_found(
+            context,
+            target_type="artifact",
+            target_id=artifact_id,
+        )
+    except (GoogleSheetsFailure, RuntimeError, ValueError, SQLAlchemyError) as exc:
+        current_app.logger.warning(
+            "google_sheets_export_failed category=%s",
+            type(exc).__name__,
+        )
+        return redirect(f"/reports/{report_id}?notice=google_failed", code=303)
 
 
 @report_blueprint.get("/reports/<uuid:report_id>/status")
@@ -816,6 +973,7 @@ def register_report_routes(
     session_factory=None,
     issue_download_ack_proof=None,
     artifact_reader=None,
+    google_sheets_client=None,
 ):
     app.extensions["roster_scout_report_session_factory"] = (
         session_factory
@@ -830,4 +988,16 @@ def register_report_routes(
         "roster_scout_artifact_reader",
         artifact_reader or _unconfigured_artifact_reader,
     )
+    app.extensions.setdefault(
+        "roster_scout_google_sheets_oauth",
+        google_sheets_client or GoogleSheetsOAuthClient.from_environ(),
+    )
+    @app.context_processor
+    def _google_sheets_template_context():
+        return {
+            "google_sheets_oauth_configured": app.extensions[
+                "roster_scout_google_sheets_oauth"
+            ].configured
+        }
+
     app.register_blueprint(report_blueprint)

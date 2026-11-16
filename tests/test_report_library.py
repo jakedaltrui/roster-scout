@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 import unittest
 import re
+from urllib.parse import parse_qs, urlsplit
 from types import SimpleNamespace
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
@@ -264,7 +265,7 @@ class SharedLibraryTests(unittest.TestCase):
         self.assertIn(b"No opponent reports yet", response.data)
         self.assertIn(b"Your scouting workspace", response.data)
         self.assertIn(b"Create your first report", response.data)
-        self.assertIn(b"Opponent_Roster_Stats.xlsx", response.data)
+        self.assertIn(b"Opponent Stats MM-DD-YY.xlsx", response.data)
         self.assertIn(b"Fielding", response.data)
         self.assertNotIn(b"roster-scout-dog-outlined", response.data.split(b"<main", 1)[1])
 
@@ -679,6 +680,9 @@ class FailedBuildRetryTests(unittest.TestCase):
         self.original_artifact_reader = self.app_module.app.extensions.get(
             "roster_scout_artifact_reader"
         )
+        self.original_google_sheets_client = self.app_module.app.extensions.get(
+            "roster_scout_google_sheets_oauth"
+        )
 
     def tearDown(self):
         if self.original_artifact_reader is None:
@@ -688,6 +692,14 @@ class FailedBuildRetryTests(unittest.TestCase):
         else:
             self.app_module.app.extensions["roster_scout_artifact_reader"] = (
                 self.original_artifact_reader
+            )
+        if self.original_google_sheets_client is None:
+            self.app_module.app.extensions.pop(
+                "roster_scout_google_sheets_oauth", None
+            )
+        else:
+            self.app_module.app.extensions["roster_scout_google_sheets_oauth"] = (
+                self.original_google_sheets_client
             )
         SharedLibraryTests.tearDown(self)
 
@@ -926,6 +938,10 @@ class FailedBuildRetryTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data, first_payload)
+        self.assertIn(
+            f"Artifact Antelopes Stats {datetime.now(UTC).strftime('%m-%d-%y')}.xlsx",
+            response.headers["Content-Disposition"],
+        )
         self.assertEqual(reader.call_args_list, [(("immutable/first.xlsx",), {})])
         receipt = response.headers["X-Roster-Scout-Download-Event-ID"]
         proof = response.headers["X-Roster-Scout-Download-Ack-Proof"]
@@ -987,6 +1003,134 @@ class FailedBuildRetryTests(unittest.TestCase):
             without_csrf_tokens(absent.get_data()),
         )
         self.assertEqual(reader.call_count, 1)
+
+    def test_google_sheets_oauth_is_state_bound_and_exports_exact_artifact(self):
+        from hashlib import sha256
+        from roster_scout.models import SecurityAuditEvent
+
+        payload = b"PK-exact-saved-workbook"
+        organization_id, accounts = self._organization(
+            "Sheets University", ("coach@example.edu", "member")
+        )
+        report_id = self._report(organization_id, "Sheets Sharks", 511)
+        snapshot_id = self._snapshot(
+            organization_id, report_id, "ready", self.now - timedelta(hours=1)
+        )
+        artifact_id = self._artifact(
+            organization_id, snapshot_id, "immutable/sheets.xlsx", payload
+        )
+        self.app_module.app.extensions["roster_scout_artifact_reader"] = Mock(
+            return_value=payload
+        )
+        oauth = Mock()
+        oauth.configured = True
+        oauth.authorization_url.side_effect = (
+            lambda *, state: f"https://accounts.google.test/oauth?state={state}"
+        )
+        oauth.exchange_code.return_value = "access-token"
+        oauth.import_workbook.return_value = (
+            "https://docs.google.com/spreadsheets/d/sheet_id-123456789/edit"
+        )
+        self.app_module.app.extensions["roster_scout_google_sheets_oauth"] = oauth
+        client, credential = self._client_with_credential(
+            accounts[0], organization_id
+        )
+        export_path = (
+            f"/reports/{report_id}/snapshots/{snapshot_id}"
+            f"/artifacts/{artifact_id}/google-sheets"
+        )
+
+        json_started = client.post(
+            export_path,
+            data={"csrf_token": self._csrf_token(credential)},
+            headers={"Accept": "application/json"},
+        )
+
+        self.assertEqual(json_started.status_code, 200)
+        self.assertTrue(
+            json_started.get_json()["authorization_url"].startswith(
+                "https://accounts.google.test/oauth?state="
+            )
+        )
+
+        started = client.post(
+            export_path,
+            data={"csrf_token": self._csrf_token(credential)},
+        )
+
+        self.assertEqual(started.status_code, 303)
+        state = parse_qs(urlsplit(started.headers["Location"]).query)["state"][0]
+        completed = client.get(
+            "/integrations/google/callback",
+            query_string={"state": state, "code": "authorization-code"},
+        )
+        self.assertEqual(completed.status_code, 303)
+        self.assertEqual(
+            completed.headers["Location"],
+            "https://docs.google.com/spreadsheets/d/sheet_id-123456789/edit",
+        )
+        oauth.exchange_code.assert_called_once_with("authorization-code")
+        oauth.import_workbook.assert_called_once()
+        exported = oauth.import_workbook.call_args.kwargs
+        self.assertEqual(exported["payload"], payload)
+        self.assertRegex(
+            exported["workbook_name"],
+            r"^Sheets Sharks Stats \d{2}-\d{2}-\d{2}\.xlsx$",
+        )
+        with self.Session() as session:
+            audit = session.scalar(
+                select(SecurityAuditEvent).where(
+                    SecurityAuditEvent.reason == "google_sheets_exported"
+                )
+            )
+        self.assertEqual(audit.target_id, artifact_id)
+        self.assertEqual(audit.outcome, "succeeded")
+        self.assertNotIn("authorization-code", str(audit.__dict__))
+        self.assertNotIn("access-token", str(audit.__dict__))
+
+    def test_google_sheets_state_cannot_cross_accounts_or_organizations(self):
+        payload = b"PK-private-workbook"
+        first_org, first_accounts = self._organization(
+            "First Sheets University", ("first@example.edu", "member")
+        )
+        second_org, second_accounts = self._organization(
+            "Second Sheets University", ("second@example.edu", "member")
+        )
+        report_id = self._report(first_org, "Private Pelicans", 512)
+        snapshot_id = self._snapshot(
+            first_org, report_id, "ready", self.now - timedelta(hours=1)
+        )
+        artifact_id = self._artifact(
+            first_org, snapshot_id, "immutable/private.xlsx", payload
+        )
+        oauth = Mock()
+        oauth.configured = True
+        oauth.authorization_url.side_effect = (
+            lambda *, state: f"https://accounts.google.test/oauth?state={state}"
+        )
+        self.app_module.app.extensions["roster_scout_google_sheets_oauth"] = oauth
+        first_client, first_credential = self._client_with_credential(
+            first_accounts[0], first_org
+        )
+        started = first_client.post(
+            f"/reports/{report_id}/snapshots/{snapshot_id}"
+            f"/artifacts/{artifact_id}/google-sheets",
+            data={"csrf_token": self._csrf_token(first_credential)},
+        )
+        state = parse_qs(urlsplit(started.headers["Location"]).query)["state"][0]
+        second_client, _ = self._client_with_credential(
+            second_accounts[0], second_org
+        )
+
+        rejected = second_client.get(
+            "/integrations/google/callback",
+            query_string={"state": state, "code": "foreign-code"},
+        )
+
+        self.assertEqual(rejected.status_code, 303)
+        self.assertEqual(rejected.headers["Location"], "/reports?notice=google_failed")
+        oauth.exchange_code.assert_not_called()
+        oauth.import_workbook.assert_not_called()
 
     def test_foreign_or_missing_artifact_is_identical_and_never_read_or_rebuilt(self):
         first_id, first_accounts = self._organization(

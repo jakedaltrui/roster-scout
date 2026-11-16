@@ -36,6 +36,20 @@
       && !/[^\x20-\x7e]/.test(value);
   }
 
+  function downloadNameFromResponse(response, fallback = "Opponent Stats.xlsx") {
+    const disposition = response?.headers?.get?.("Content-Disposition") || "";
+    const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+    const plain = disposition.match(/filename="?([^";]+)"?/i);
+    if (encoded) {
+      try {
+        return decodeURIComponent(encoded[1]);
+      } catch (_error) {
+        return fallback;
+      }
+    }
+    return plain ? plain[1] : fallback;
+  }
+
   function createSafeStorage(storageCandidate) {
     const shadow = new Map();
     let useShadowOnly = false;
@@ -530,7 +544,10 @@
     forms.forEach((form) => {
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
-        const button = form.querySelector('button[type="submit"]');
+        const exportTarget = form.dataset.exportTarget || "excel";
+        const button = exportTarget === "google-sheets"
+          ? form.querySelector("[data-google-sheets-trigger]")
+          : event.submitter || form.querySelector('button[type="submit"]');
         const label = button && button.querySelector("[data-download-label]");
         const status = form.querySelector("[data-download-status]");
         const originalLabel = label
@@ -554,11 +571,11 @@
               credentials: "same-origin",
               body: new windowObject.FormData(form),
             }),
-            initiateDownload: (blob) => {
+            initiateDownload: (blob, response) => {
               const objectUrl = windowObject.URL.createObjectURL(blob);
               const anchor = documentObject.createElement("a");
               anchor.href = objectUrl;
-              anchor.download = "roster-scout-report.xlsx";
+              anchor.download = downloadNameFromResponse(response);
               anchor.hidden = true;
               documentObject.body.appendChild(anchor);
               anchor.click();
@@ -577,10 +594,14 @@
             throw new Error("The saved workbook could not be prepared.");
           }
           if (status) {
-            status.textContent = "Download started.";
-            windowObject.setTimeout(() => {
-              if (status.textContent === "Download started.") status.textContent = "";
-            }, 4000);
+            status.textContent = exportTarget === "google-sheets"
+              ? "Workbook downloaded. In Google Sheets, choose File → Import → Upload."
+              : "Download started.";
+            if (exportTarget !== "google-sheets") {
+              windowObject.setTimeout(() => {
+                if (status.textContent === "Download started.") status.textContent = "";
+              }, 4000);
+            }
           }
         } catch (_error) {
           if (status) {
@@ -610,6 +631,7 @@
     classifyAcknowledgementResponse,
     createSafeStorage,
     createDownloadTracker,
+    downloadNameFromResponse,
     retryPendingDownloadAcknowledgement,
     runAuthenticatedSnapshotDownload,
     runDownloadSubmission,

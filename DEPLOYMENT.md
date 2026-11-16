@@ -123,6 +123,24 @@ closed. It does not fall back to the fake provider. Never place credential
 values in `.env.example`, `fly.toml`, source, logs, screenshots, or release
 evidence.
 
+### Google Sheets export
+
+Native Google Sheets export is optional and independent of Roster Scout sign-in.
+Create a Google Cloud **Web application** OAuth client, enable the Google Drive
+API, and register this exact redirect URI:
+
+`https://roster-scout.fly.dev/integrations/google/callback`
+
+Store the client values only in the hosting secret manager as
+`GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET`. The integration asks
+for only `https://www.googleapis.com/auth/drive.file`, exchanges one online
+authorization code, converts the exact authorized XLSX artifact into a native
+Google Sheet, and immediately redirects to it. Roster Scout does not request a
+refresh token and does not persist Google access tokens. When the two secrets
+are absent, the product retains the manual download-and-import fallback. A
+partial secret configuration fails startup rather than silently weakening the
+boundary.
+
 Run the deterministic identity and route-gate verification locally without a
 WorkOS workspace:
 
@@ -582,6 +600,8 @@ production prerequisites remain independently blocked until verified.
 | `WORKOS_CLIENT_ID` | required in `workos` mode | WorkOS AuthKit client identifier |
 | `WORKOS_REDIRECT_URI` | required in `workos` mode | Exact HTTPS callback URL ending in `/auth/callback` |
 | `WORKOS_COOKIE_PASSWORD` | required in `workos` mode | High-entropy key for sealed provider session state |
+| `GOOGLE_OAUTH_CLIENT_ID` | optional | Google Web application OAuth client for native Sheets export; configure with the exact callback URI |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | optional | Google OAuth client secret stored only in the hosting secret manager |
 | `ROSTER_SCOUT_ARTIFACT_BACKEND` | unset locally; `s3` on Fly | `filesystem` for local Compose/tests or private S3-compatible storage for hosted app/worker |
 | `ROSTER_SCOUT_ARTIFACT_DIRECTORY` | required for `filesystem` | Absolute shared local/Compose directory for immutable snapshot workbooks |
 | `ROSTER_SCOUT_ARTIFACT_BUCKET` / `BUCKET_NAME` | required for `s3` | Private workbook bucket name; `fly storage create` installs `BUCKET_NAME` |

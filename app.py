@@ -58,6 +58,7 @@ from roster_scout.workbooks import (
     create_workbook as create_canonical_workbook,
     load_ncaa_logo_png,
     logo_palette as canonical_logo_palette,
+    workbook_download_name,
 )
 from roster_scout.identity import (
     FakeIdentityProvider,
@@ -1205,7 +1206,7 @@ def scrape():
         if division in {"d1", "d2", "d3"}:
             branding = _ncaa_workbook_branding(body, team_label)
         workbook_bytes = _create_workbook(hitters, pitchers, branding=branding)
-        filename = f"{_safe_filename(team_label)}_Baseball_{date.today().isoformat()}.xlsx"
+        filename = workbook_download_name(team_label)
 
         response = send_file(
             workbook_bytes,
@@ -1247,12 +1248,6 @@ def scrape():
     except Exception:
         app.logger.exception("Unexpected workbook generation failure")
         return _json_error("Roster Scout could not build that workbook.", 500)
-
-
-def _safe_filename(value: str) -> str:
-    """Return a readable filename component without path or shell characters."""
-    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", value.strip()).strip("._")
-    return cleaned or "Roster"
 
 
 def _excel_value(header: str, value):
