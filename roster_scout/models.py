@@ -2090,7 +2090,7 @@ class RequestLedger(UUIDPrimaryKey, Base):
                 "outcome",
                 (
                     "planned", "cache_hit", "live_complete", "live_failed",
-                    "budget_exhausted", "capacity_exhausted",
+                    "budget_exhausted", "capacity_exhausted", "interrupted",
                 ),
             ),
             name="ck_request_ledgers_outcome",

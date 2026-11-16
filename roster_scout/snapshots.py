@@ -15,6 +15,7 @@ from .models import (
     Player,
     PlayerTeamSeason,
     Report,
+    ReportJob,
     ReportSection,
     ReportSnapshot,
     RequestLedger,
@@ -374,7 +375,21 @@ def publish_snapshot(session, snapshot_id):
             RequestLedger.organization_id == snapshot.organization_id,
         )
     ))
-    if any(item.outcome == "planned" for item in request_ledgers):
+    current_generation = session.scalar(
+        select(ReportJob.dispatch_generation).where(
+            ReportJob.result_snapshot_id == snapshot.id,
+            ReportJob.organization_id == snapshot.organization_id,
+        )
+    )
+    effective_request_ledgers = (
+        [
+            item for item in request_ledgers
+            if item.dispatch_generation == current_generation
+        ]
+        if current_generation is not None
+        else request_ledgers
+    )
+    if any(item.outcome == "planned" for item in effective_request_ledgers):
         raise SnapshotPublicationError("request ledger contains unsettled work")
     by_name = {section.section: section for section in sections}
     materialized_supplemental_families = {
@@ -384,7 +399,7 @@ def publish_snapshot(session, snapshot_id):
     }
     requested_supplemental_families = {
         item.family
-        for item in request_ledgers
+        for item in effective_request_ledgers
         if item.family in materialized_supplemental_families
     }
     missing_requested_statuses = requested_supplemental_families - by_name.keys()
@@ -741,7 +756,7 @@ def publish_snapshot(session, snapshot_id):
         required_ledger_families.update({
             "history:batting", "history:pitching", "history:fielding",
         })
-    ledger_families = {item.family for item in request_ledgers}
+    ledger_families = {item.family for item in effective_request_ledgers}
     missing_required_phase3_family = phase3_contract and (
         not required_phase3_sections <= set(by_name)
         or not required_ledger_families <= ledger_families
@@ -749,8 +764,11 @@ def publish_snapshot(session, snapshot_id):
     supplemental_incomplete = missing_required_phase3_family or any(
         not section.critical and section.status != "complete" for section in sections
     ) or any(scope.status != "complete" for scope in computed_scopes) or any(
-        item.outcome in {"live_failed", "budget_exhausted", "capacity_exhausted"}
-        for item in request_ledgers
+        item.outcome in {
+            "live_failed", "budget_exhausted", "capacity_exhausted",
+            "interrupted",
+        }
+        for item in effective_request_ledgers
     )
     snapshot.status = "partial" if supplemental_incomplete else "ready"
     snapshot.published_at = datetime.now(UTC)

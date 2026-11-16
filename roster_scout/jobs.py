@@ -923,6 +923,22 @@ def reconcile_stale_report_jobs(
                 ):
                     generation = job.dispatch_generation
                     if job.started_generation == generation:
+                        session.execute(
+                            update(RequestLedger)
+                            .where(
+                                RequestLedger.job_id == job.id,
+                                RequestLedger.organization_id
+                                == job.organization_id,
+                                RequestLedger.dispatch_generation == generation,
+                                RequestLedger.outcome == "planned",
+                            )
+                            .values(
+                                outcome="interrupted",
+                                completed_at=now,
+                                safe_category="worker_interrupted",
+                            )
+                            .execution_options(synchronize_session=False)
+                        )
                         close_report_dispatches(
                             session,
                             job.id,
@@ -972,6 +988,22 @@ def reconcile_stale_report_jobs(
                             ]
                             job.finished_at = now
                     elif job.started_generation < generation:
+                        session.execute(
+                            update(RequestLedger)
+                            .where(
+                                RequestLedger.job_id == job.id,
+                                RequestLedger.organization_id
+                                == job.organization_id,
+                                RequestLedger.dispatch_generation < generation,
+                                RequestLedger.outcome == "planned",
+                            )
+                            .values(
+                                outcome="interrupted",
+                                completed_at=now,
+                                safe_category="worker_interrupted",
+                            )
+                            .execution_options(synchronize_session=False)
+                        )
                         job.status = "retrying"
                         close_report_dispatches(session, job.id, now=now)
                         ensure_report_dispatch(
