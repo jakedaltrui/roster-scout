@@ -1,8 +1,8 @@
 ---
 phase: 03
 slug: detailed-ncaa-intelligence
-status: draft
-nyquist_compliant: false
+status: approved
+nyquist_compliant: true
 wave_0_complete: false
 created: 2026-11-15
 ---
@@ -35,32 +35,30 @@ created: 2026-11-15
 
 ---
 
-## Requirement Verification Map
+## Per-Task Verification Map
 
-Plan/task and threat references are assigned once the executable plans are written. Every requirement below must be mapped to at least one concrete task before execution begins.
-
-| Requirement | Secure Behavior | Test Type | Automated Command | File Exists | Status |
-|-------------|-----------------|-----------|-------------------|-------------|--------|
-| STAT-01 | Metric inputs remain snapshot- and tenant-owned | unit + DB integration | `uv run python -m unittest tests.test_detailed_stats.HitterMetricTests -v` | ❌ W0 | ⬜ pending |
-| STAT-02 | Metric inputs remain snapshot- and tenant-owned | unit + DB integration | `uv run python -m unittest tests.test_detailed_stats.PitcherMetricTests -v` | ❌ W0 | ⬜ pending |
-| STAT-03 | Untrusted fielding/catcher HTML is validated before persistence | parser + DB integration | `uv run python -m unittest tests.test_ncaa_detail.FieldingTests -v` | ❌ W0 | ⬜ pending |
-| STAT-04 | Zero, missing, and undefined values never collapse into one state | unit/property table | `uv run python -m unittest tests.test_detailed_stats.DenominatorSemanticsTests -v` | ❌ W0 | ⬜ pending |
-| STAT-05 | wOBA is unavailable without verified season/division constants | unit + DB integration | `uv run python -m unittest tests.test_detailed_stats.ConstantMetricTests.test_woba -v` | ❌ W0 | ⬜ pending |
-| STAT-06 | FIP is unavailable without verified season/division constants | unit + DB integration | `uv run python -m unittest tests.test_detailed_stats.ConstantMetricTests.test_fip -v` | ❌ W0 | ⬜ pending |
-| STAT-07 | Method version, exact inputs, samples, and source evidence are immutable | DB integration | `uv run python -m unittest tests.test_detailed_stats.MethodologyPersistenceTests -v` | ❌ W0 | ⬜ pending |
-| STAT-08 | D1/D2/D3 use one validated schema and availability vocabulary | fixture contract | `uv run python -m unittest tests.test_phase3_release.DivisionParityTests -v` | ❌ W0 | ⬜ pending |
-| SPLT-01 | Batting split identifiers and labels are discovered and contract-checked | parser + canonical fixture | `uv run python -m unittest tests.test_ncaa_detail.BattingSplitTests -v` | ❌ W0 | ⬜ pending |
-| SPLT-02 | Pitching splits publish exact facts or explicit unavailability | parser + canonical fixture | `uv run python -m unittest tests.test_ncaa_detail.PitchingSplitTests -v` | ❌ W0 | ⬜ pending |
-| SPLT-03 | Split code, label, type, source, and status are immutable and tenant-bound | DB integration | `uv run python -m unittest tests.test_ncaa_detail.SplitProvenanceTests -v` | ❌ W0 | ⬜ pending |
-| SPLT-04 | Stale or wrong-season split identifiers are rejected | parser contract | `uv run python -m unittest tests.test_ncaa_detail.SplitDiscoveryTests -v` | ❌ W0 | ⬜ pending |
-| SPLT-05 | Missing splits are unavailable or partial, never fabricated as zero | unit + DB integration | `uv run python -m unittest tests.test_ncaa_detail.SplitAvailabilityTests -v` | ❌ W0 | ⬜ pending |
-| HIST-01 | Transfer history preserves exact school, team, division, season, and source | parser + DB integration | `uv run python -m unittest tests.test_player_history.CareerSeasonTests -v` | ❌ W0 | ⬜ pending |
-| HIST-02 | Career aggregates include only compatible available rows | unit | `uv run python -m unittest tests.test_player_history.CareerAggregateTests -v` | ❌ W0 | ⬜ pending |
-| HIST-03 | Current-season typed game logs are linked to the stable player identity | parser + DB integration | `uv run python -m unittest tests.test_player_history.GameLogTests -v` | ❌ W0 | ⬜ pending |
-| HIST-04 | Missing history or games disclose exact completeness state | unit + DB integration | `uv run python -m unittest tests.test_player_history.HistoryCompletenessTests -v` | ❌ W0 | ⬜ pending |
-| HIST-05 | Request ledger, cache, concurrency, retry, and budget controls prevent unbounded collection | job integration | `uv run python -m unittest tests.test_report_jobs tests.test_player_history.CollectionBudgetTests -v` | Partial + ❌ W0 detail | ⬜ pending |
-| HIST-06 | Every drill path is tenant-isolated and resolves within one immutable snapshot | DB integration | `uv run python -m unittest tests.test_player_history.SnapshotDrillPathTests -v` | ❌ W0 | ⬜ pending |
-| OPS-03 | Diagnostics remain sanitized while exposing actionable stuck/failure/capacity state | unit + integration | `uv run python -m unittest tests.test_phase3_release.OperatorDiagnosticsTests -v` | ❌ W0 | ⬜ pending |
+| Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
+|---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
+| 03-01-02 | 01 | 1 | STAT-01 | T-03-01-01/02 | Hitter metric inputs/results stay typed, auditable, and tenant-owned | unit + DB integration | `uv run python -m unittest tests.test_detailed_stats.HitterMetricTests -v` | ❌ W0 | ⬜ pending |
+| 03-01-02 | 01 | 1 | STAT-02 | T-03-01-01/02 | Pitcher metric inputs/results stay typed, auditable, and tenant-owned | unit + DB integration | `uv run python -m unittest tests.test_detailed_stats.PitcherMetricTests -v` | ❌ W0 | ⬜ pending |
+| 03-02-02 | 02 | 2 | STAT-03 | T-03-02-01/03 | Untrusted fielding/catcher HTML is validated before tenant-bound persistence | parser + DB integration | `uv run python -m unittest tests.test_ncaa_detail.FieldingTests -v` | ❌ W0 | ⬜ pending |
+| 03-01-02 | 01 | 1 | STAT-04 | T-03-01-01 | Zero, missing, undefined, and incompatible states never collapse | unit/property table | `uv run python -m unittest tests.test_detailed_stats.DenominatorSemanticsTests -v` | ❌ W0 | ⬜ pending |
+| 03-01-02 | 01 | 1 | STAT-05 | T-03-01-03 | wOBA remains unavailable without versioned verified NCAA weights | unit + DB integration | `uv run python -m unittest tests.test_detailed_stats.ConstantMetricTests.test_woba -v` | ❌ W0 | ⬜ pending |
+| 03-01-02 | 01 | 1 | STAT-06 | T-03-01-03 | FIP remains unavailable without a versioned verified NCAA constant | unit + DB integration | `uv run python -m unittest tests.test_detailed_stats.ConstantMetricTests.test_fip -v` | ❌ W0 | ⬜ pending |
+| 03-01-02 | 01 | 1 | STAT-07 | T-03-01-03 | Method version, exact inputs, sample, and source evidence persist immutably | DB integration | `uv run python -m unittest tests.test_detailed_stats.MethodologyPersistenceTests -v` | ❌ W0 | ⬜ pending |
+| 03-08-03 | 08 | 8 | STAT-08 | T-03-08-01/02 | D1/D2/D3 share one schema, status vocabulary, and isolation contract | fixture + release contract | `uv run python -m unittest tests.test_phase3_release.DivisionParityTests -v` | ❌ W0 | ⬜ pending |
+| 03-04-02 | 04 | 4 | SPLT-01 | T-03-04-01/02 | Seven batting split codes use discovered source identity and typed ownership | parser + canonical fixture | `uv run python -m unittest tests.test_ncaa_detail.BattingSplitTests -v` | ❌ W0 | ⬜ pending |
+| 03-04-02 | 04 | 4 | SPLT-02 | T-03-04-01/02 | Seven pitching split codes publish exact facts or explicit unavailability | parser + canonical fixture | `uv run python -m unittest tests.test_ncaa_detail.PitchingSplitTests -v` | ❌ W0 | ⬜ pending |
+| 03-04-02 | 04 | 4 | SPLT-03 | T-03-04-02/03 | Split code/label/type/source/status are immutable and tenant-bound | DB integration | `uv run python -m unittest tests.test_ncaa_detail.SplitProvenanceTests -v` | ❌ W0 | ⬜ pending |
+| 03-03-02 | 03 | 3 | SPLT-04 | T-03-03-02 | Per-season/type discovery rejects stale or mismatched identifiers | parser contract | `uv run python -m unittest tests.test_ncaa_detail.SplitDiscoveryTests -v` | ❌ W0 | ⬜ pending |
+| 03-04-03 | 04 | 4 | SPLT-05 | T-03-04-03 | Missing split is an unavailable/partial scope with no synthetic zero facts | unit + DB integration | `uv run python -m unittest tests.test_ncaa_detail.SplitAvailabilityTests -v` | ❌ W0 | ⬜ pending |
+| 03-05-02 | 05 | 5 | HIST-01 | T-03-05-01/02 | Transfer history preserves exact school/team/division/season/source | parser + DB integration | `uv run python -m unittest tests.test_player_history.CareerSeasonTests -v` | ❌ W0 | ⬜ pending |
+| 03-05-02 | 05 | 5 | HIST-02 | T-03-05-05 | Career aggregate includes only exact compatible available rows | unit + DB integration | `uv run python -m unittest tests.test_player_history.CareerAggregateTests -v` | ❌ W0 | ⬜ pending |
+| 03-05-02 | 05 | 5 | HIST-03 | T-03-05-01/02 | Current-season typed game logs link through stable player and audited game identity | parser + DB integration | `uv run python -m unittest tests.test_player_history.GameLogTests -v` | ❌ W0 | ⬜ pending |
+| 03-05-03 | 05 | 5 | HIST-04 | T-03-05-05 | Missing history/games disclose exact section completeness | unit + DB integration | `uv run python -m unittest tests.test_player_history.HistoryCompletenessTests -v` | ❌ W0 | ⬜ pending |
+| 03-07-02 | 07 | 7 | HIST-05 | T-03-07-01/04 | One durable ledger bounds cache/live requests, concurrency, retry, and budget | job integration | `uv run python -m unittest tests.test_report_jobs tests.test_player_history.CollectionBudgetTests -v` | Existing base + ❌ W0 detail | ⬜ pending |
+| 03-05-03 | 05 | 5 | HIST-06 | T-03-05-03 | Every drill path is authorized and resolves within one immutable snapshot | DB integration | `uv run python -m unittest tests.test_player_history.SnapshotDrillPathTests -v` | ❌ W0 | ⬜ pending |
+| 03-07-03 | 07 | 7 | OPS-03 | T-03-07-02 | Diagnostics expose safe lifecycle/budget/capacity metadata and no customer data | unit + integration | `uv run python -m unittest tests.test_phase3_release.OperatorDiagnosticsTests -v` | ❌ W0 | ⬜ pending |
 
 ### Required Edge-Case Matrix
 
@@ -99,22 +97,18 @@ Plan/task and threat references are assigned once the executable plans are writt
 
 ## Manual-Only Verifications
 
-| Behavior | Requirement | Why Manual | Test Instructions |
-|----------|-------------|------------|-------------------|
-| Live NCAA split-ID discovery | SPLT-04 | Live identifiers are upstream-owned and may drift independently of fixtures | Run the approved live capture against one D1, D2, and D3 team; confirm discovered identifiers resolve to the expected typed header and store sanitized fixtures before enabling the parser contract |
-
-All persisted behavior, metric semantics, scope membership, tenancy, and release gates otherwise require automated verification.
+All phase behaviors have automated verification. Plan 03-03 runs the live D1/D2/D3 fixture capture as a blocking automated source-discovery command before split implementation.
 
 ---
 
 ## Validation Sign-Off
 
-- [ ] Every planned task has an automated verify command or explicit Wave 0 dependency
-- [ ] Sampling continuity: no three consecutive tasks without automated verification
-- [ ] Wave 0 covers every missing test and fixture reference
-- [ ] No watch-mode flags
-- [ ] Focused feedback latency remains under 120 seconds
-- [ ] Every Phase 3 requirement is represented in a plan frontmatter `requirements` field
-- [ ] `nyquist_compliant: true` is set after final plan-to-test mapping
+- [x] Every planned task has an automated verify command or explicit Wave 0 dependency
+- [x] Sampling continuity: no three consecutive tasks without automated verification
+- [x] Wave 0 plans cover every missing test and fixture reference
+- [x] No watch-mode flags
+- [x] Focused feedback latency target remains under 120 seconds
+- [x] Every Phase 3 requirement is represented in a plan frontmatter `requirements` field
+- [x] `nyquist_compliant: true` is set after final plan-to-test mapping
 
-**Approval:** pending executable-plan mapping
+**Approval:** approved for execution 2026-11-15; `wave_0_complete` remains false until execution creates and greens the listed assets
