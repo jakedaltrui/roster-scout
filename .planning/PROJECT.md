@@ -35,10 +35,10 @@ A baseball staff can reliably turn fragmented opponent data into a trustworthy, 
 - ✓ Visitors can select an opponent publicly; report generation and delivery require a secure authenticated school session — Phase 02.1
 - ✓ Provider-verified `.edu` roots and ordinary school subdomains join one shared school organization, with exact aliases and invitations for exceptions — Phase 02.1
 - ✓ Saved reports expose dated immutable snapshots, and explicit refresh creates a linked successor without changing prior evidence — Phase 2
+- ✓ NCAA snapshots expose auditable season, fielding, derived, situational split, last-10, conference-only, career, and game-level intelligence—or an explicit unavailable state—through one tenant-scoped canonical model — Phase 3
 
 ### Active
 
-- [ ] Reports include expanded batting, pitching, fielding, derived, split, career, and game-log statistics
 - [ ] One canonical analytics model supplies both the formatted Excel workbook and the embedded Power BI report
 - [ ] Customers can review an opponent-branded embedded dashboard and download the corresponding complete Excel snapshot
 - [ ] Decide future organization pricing, plans, entitlements, and subscription ownership after the core product flow is validated
@@ -107,4 +107,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-13 after corrective Phase 02.1 completion*
+*Last updated: 2026-11-16 after Phase 3 completion*
