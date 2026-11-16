@@ -365,6 +365,55 @@ class CollectionBudgetTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     budget.plan("fielding", unsafe)
 
+    def test_shared_player_page_reserves_once_and_settles_every_family(self):
+        from roster_scout.jobs import CollectionBudget, load_phase3_collection_limits
+
+        budget = CollectionBudget(load_phase3_collection_limits({
+            "PHASE3_LIVE_PAGE_BUDGET": "1",
+        }))
+        entries = tuple(
+            budget.plan(f"history:{stat_type}", f"ncaa:player:456:{stat_type}")
+            for stat_type in ("batting", "pitching", "fielding")
+        )
+        self.assertTrue(budget.reserve_live(entries, page_count=1))
+        self.assertEqual(budget.remaining, 0)
+        for entry in entries:
+            budget.settle(entry, outcome="live_complete")
+        self.assertEqual(budget.live_count, 1)
+        self.assertEqual(budget.unsettled, frozenset())
+
+    def test_concurrent_reservations_cannot_overbook_one_live_slot(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier
+        from roster_scout.jobs import CollectionBudget, load_phase3_collection_limits
+
+        budget = CollectionBudget(load_phase3_collection_limits({
+            "PHASE3_LIVE_PAGE_BUDGET": "1",
+        }))
+        entries = tuple(
+            budget.plan("splits", f"ncaa:split:{index}")
+            for index in range(2)
+        )
+        barrier = Barrier(3)
+
+        def reserve(entry):
+            barrier.wait()
+            return budget.reserve_live((entry,), page_count=1)
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(reserve, entry) for entry in entries]
+            barrier.wait()
+            reserved = [future.result() for future in futures]
+
+        self.assertEqual(sorted(reserved), [False, True])
+        for entry, succeeded in zip(entries, reserved):
+            budget.settle(
+                entry,
+                outcome="live_complete" if succeeded else "budget_exhausted",
+            )
+        self.assertEqual(budget.live_count, 1)
+        self.assertEqual(budget.unsettled, frozenset())
+
     def test_one_request_per_stable_player_type_and_no_per_season_refetch(self):
         from roster_scraper import plan_ncaa_player_detail_requests
 
