@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 03-04-PLAN.md
-last_updated: "2026-11-16T08:15:16.317Z"
+stopped_at: Completed 03-06-PLAN.md
+last_updated: "2026-11-16T09:11:30.476Z"
 last_activity: 2026-11-16
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 70
-  completed_plans: 65
+  completed_plans: 66
   percent: 50
 ---
 
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-11-13)
 ## Current Position
 
 Phase: 03 (detailed-ncaa-intelligence) — EXECUTING
-Plan: 5 of 9
+Plan: 6 of 9
 Status: Ready to execute
 Last activity: 2026-11-16
 
-Progress: [█████████░] 93%
+Progress: [█████████░] 94%
 
 ## Performance Metrics
 
@@ -252,6 +252,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 03]: Normalize discovered NCAA split labels to stable typed codes while retaining exact source label and numeric identifier.
 - [Phase 03]: Persist unavailable and failed split scopes with safe reasons and no facts or synthetic metric zeros.
 - [Phase 03]: Validate seven-scope family and source/fact/metric parity before immutable snapshot publication.
+- [Phase 03]: Production Game identity accepts only exact source contest IDs; deterministic fallback identity remains fixture-test-only.
+- [Phase 03]: Game-log families become complete only through an explicit complete_stat_types declaration; row presence never implies exhaustive evidence.
+- [Phase 03]: Computed scope publication validates exact same-snapshot membership and every contributing game-log fact.
 
 ### Pending Todos
 
@@ -311,9 +314,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 03 P02 | 30 min | 3 tasks | 13 files |
 | Phase 03 P03 | 78m | 3 tasks | 16 files |
 | Phase 03 P04 | 21m | 3 tasks | 9 files |
+| Phase 03 P06 | 47min | 3 tasks | 13 files |
 
 ## Session Continuity
 
-Last session: 2026-11-16T08:15:16.308Z
-Stopped at: Completed 03-04-PLAN.md
+Last session: 2026-11-16T09:11:30.466Z
+Stopped at: Completed 03-06-PLAN.md
 Resume file: None
