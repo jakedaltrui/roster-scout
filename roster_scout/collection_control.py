@@ -1,0 +1,27 @@
+"""Shared, sanitized control signals for bounded Phase 3 collection."""
+
+from __future__ import annotations
+
+import math
+import time
+
+
+class CollectionBudgetExceeded(RuntimeError):
+    """A source request was refused before issuance by the durable budget."""
+
+
+class CollectionDeadlineExceeded(RuntimeError):
+    """The configured build wall-time expired before more source work."""
+
+
+def remaining_timeout_seconds(
+    deadline_monotonic: float | None,
+    navigation_timeout_seconds: int,
+) -> int:
+    """Return a positive timeout capped by both navigation and build limits."""
+    if deadline_monotonic is None:
+        return navigation_timeout_seconds
+    remaining = deadline_monotonic - time.monotonic()
+    if remaining <= 0:
+        raise CollectionDeadlineExceeded("phase3_collection_deadline_exceeded")
+    return max(1, min(navigation_timeout_seconds, math.ceil(remaining)))

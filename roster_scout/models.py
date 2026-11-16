@@ -1913,6 +1913,12 @@ class ReportJob(UUIDPrimaryKey, Timestamped, Base):
     started_generation: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
+    phase3_live_pages_consumed: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )
+    phase3_collection_started_at: Mapped[object | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     enqueued_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
     broker_message_id: Mapped[str | None] = mapped_column(String(100))
     started_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
@@ -1948,6 +1954,10 @@ class ReportJob(UUIDPrimaryKey, Timestamped, Base):
         CheckConstraint(
             "started_generation <= dispatch_generation",
             name="ck_report_jobs_started_generation_current",
+        ),
+        CheckConstraint(
+            "phase3_live_pages_consumed BETWEEN 0 AND 500",
+            name="ck_report_jobs_phase3_live_pages_consumed_bounded",
         ),
     )
 
@@ -2032,6 +2042,9 @@ class RequestLedger(UUIDPrimaryKey, Base):
     organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     job_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     snapshot_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    dispatch_generation: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
     family: Mapped[str] = mapped_column(String(50), nullable=False)
     source_identity: Mapped[str] = mapped_column(String(200), nullable=False)
     request_kind: Mapped[str] = mapped_column(String(16), nullable=False)
@@ -2040,10 +2053,14 @@ class RequestLedger(UUIDPrimaryKey, Base):
     completed_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
     safe_category: Mapped[str | None] = mapped_column(String(100))
     budget_remaining: Mapped[int] = mapped_column(Integer, nullable=False)
+    pages_consumed: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     __table_args__ = (
         UniqueConstraint(
-            "organization_id", "job_id", "family", "source_identity",
-            name="uq_request_ledgers_job_family_source",
+            "organization_id", "job_id", "dispatch_generation",
+            "family", "source_identity",
+            name="uq_request_ledgers_job_generation_family_source",
         ),
         ForeignKeyConstraint(
             ["job_id", "organization_id"],
@@ -2087,12 +2104,25 @@ class RequestLedger(UUIDPrimaryKey, Base):
             name="ck_request_ledgers_budget_remaining",
         ),
         CheckConstraint(
+            "dispatch_generation >= 1",
+            name="ck_request_ledgers_dispatch_generation_positive",
+        ),
+        CheckConstraint(
+            "pages_consumed BETWEEN 0 AND 500",
+            name="ck_request_ledgers_pages_consumed_bounded",
+        ),
+        CheckConstraint(
             "(outcome = 'planned' AND completed_at IS NULL) OR "
             "(outcome <> 'planned' AND completed_at IS NOT NULL "
             "AND completed_at >= started_at)",
             name="ck_request_ledgers_lifecycle",
         ),
-        Index("ix_request_ledgers_job", "job_id", "started_at"),
+        Index(
+            "ix_request_ledgers_job",
+            "job_id",
+            "dispatch_generation",
+            "started_at",
+        ),
     )
 
 

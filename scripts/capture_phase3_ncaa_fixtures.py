@@ -23,13 +23,18 @@ import requests
 
 from bs4 import BeautifulSoup
 
-
 if __file__ == "<stdin>":
     PROJECT_ROOT = Path.cwd().resolve()
 else:
     PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+
+from roster_scout.collection_control import (
+    CollectionBudgetExceeded,
+    CollectionDeadlineExceeded,
+    remaining_timeout_seconds,
+)
 
 FIXTURE_ROOT = (PROJECT_ROOT / "tests" / "fixtures" / "ncaa_detail").resolve()
 NCAA_ORIGIN = "https://stats.ncaa.org"
@@ -121,7 +126,7 @@ class CaptureLimits:
     def validate(self) -> None:
         if not 1 <= self.max_pages <= 8:
             raise ValueError("capture page limit is invalid")
-        if not 15 <= self.timeout_seconds <= 300:
+        if not 5 <= self.timeout_seconds <= 300:
             raise ValueError("capture timeout is invalid")
         if not 4 * 1024 <= self.max_output_bytes <= 1024 * 1024:
             raise ValueError("capture output limit is invalid")
@@ -1149,7 +1154,13 @@ def _schedule_table(raw_html: str):
     return candidates[0]
 
 
-def _bounded_schedule_fetch(source_url: str, limits: CaptureLimits) -> str:
+def _bounded_schedule_fetch(
+    source_url: str,
+    limits: CaptureLimits,
+    *,
+    request_reserver=None,
+    deadline_monotonic=None,
+) -> str:
     """Fetch one schedule in the configured Browserless session without a stat-grid gate."""
     _validate_browserless_configuration()
     parsed = urlparse(source_url)
@@ -1166,7 +1177,10 @@ def _bounded_schedule_fetch(source_url: str, limits: CaptureLimits) -> str:
         "BROWSERLESS_UNBLOCK_ENDPOINT",
         "https://production-sfo.browserless.io/chromium/unblock",
     )
-    timeout_ms = min(limits.timeout_seconds * 1000, 120000)
+    boundary_timeout = remaining_timeout_seconds(
+        deadline_monotonic, limits.timeout_seconds
+    )
+    timeout_ms = min(boundary_timeout * 1000, 120000)
     query = urlencode({
         "token": token,
         "proxy": os.environ.get("BROWSERLESS_PROXY", "residential"),
@@ -1178,6 +1192,8 @@ def _bounded_schedule_fetch(source_url: str, limits: CaptureLimits) -> str:
     browser = None
     playwright = None
     try:
+        if request_reserver is not None:
+            request_reserver("schedule")
         response = requests.post(
             f"{endpoint}?{query}",
             json={
@@ -1188,7 +1204,7 @@ def _bounded_schedule_fetch(source_url: str, limits: CaptureLimits) -> str:
                 "screenshot": False,
                 "ttl": 60000,
             },
-            timeout=(timeout_ms / 1000) + 30,
+            timeout=boundary_timeout,
         )
         if response.status_code != 200:
             raise CaptureUnavailable(CAPTURE_FAILURE, stage="schedule_session")
@@ -1206,7 +1222,7 @@ def _bounded_schedule_fetch(source_url: str, limits: CaptureLimits) -> str:
                 + quote(token, safe="")
             )
             browser = playwright.chromium.connect_over_cdp(
-                authenticated_ws, timeout=30000
+                authenticated_ws, timeout=min(30000, timeout_ms)
             )
             pages = [page for context in browser.contexts for page in context.pages]
             if not pages:
@@ -1215,8 +1231,19 @@ def _bounded_schedule_fetch(source_url: str, limits: CaptureLimits) -> str:
                 (candidate for candidate in pages if "stats.ncaa.org" in candidate.url),
                 pages[0],
             )
-            rs._accept_ncaa_terms(page, source_url)
-            deadline = time.monotonic() + min(limits.timeout_seconds, 45)
+            rs._accept_ncaa_terms(
+                page,
+                source_url,
+                request_reserver=(
+                    (lambda: request_reserver("schedule"))
+                    if request_reserver is not None else None
+                ),
+                timeout_seconds=boundary_timeout,
+            )
+            deadline = min(
+                deadline_monotonic or float("inf"),
+                time.monotonic() + min(limits.timeout_seconds, 45),
+            )
             content = ""
             while time.monotonic() < deadline:
                 content = page.content()
@@ -1227,7 +1254,11 @@ def _bounded_schedule_fetch(source_url: str, limits: CaptureLimits) -> str:
                     page.wait_for_timeout(1000)
             _schedule_table(content)
             return content
-    except CaptureUnavailable:
+    except (
+        CaptureUnavailable,
+        CollectionBudgetExceeded,
+        CollectionDeadlineExceeded,
+    ):
         raise
     except Exception as exc:
         raise CaptureUnavailable(CAPTURE_FAILURE, stage="schedule_fetch") from exc
@@ -1715,7 +1746,14 @@ def sanitize_player_detail(
     return output
 
 
-def _bounded_player_fetch(urls: dict[str, str], player_id: str, limits: CaptureLimits):
+def _bounded_player_fetch(
+    urls: dict[str, str],
+    player_id: str,
+    limits: CaptureLimits,
+    *,
+    request_reserver=None,
+    deadline_monotonic=None,
+):
     """Fetch category pages in one configured Browserless session without #stat_grid."""
     _validate_browserless_configuration()
     if len(urls) > limits.max_pages:
@@ -1735,7 +1773,10 @@ def _bounded_player_fetch(urls: dict[str, str], player_id: str, limits: CaptureL
         "BROWSERLESS_UNBLOCK_ENDPOINT",
         "https://production-sfo.browserless.io/chromium/unblock",
     )
-    timeout_ms = min(limits.timeout_seconds * 1000, 120000)
+    boundary_timeout = remaining_timeout_seconds(
+        deadline_monotonic, limits.timeout_seconds
+    )
+    timeout_ms = min(boundary_timeout * 1000, 120000)
     query = urlencode({
         "token": token,
         "proxy": os.environ.get("BROWSERLESS_PROXY", "residential"),
@@ -1748,13 +1789,16 @@ def _bounded_player_fetch(urls: dict[str, str], player_id: str, limits: CaptureL
     playwright = None
     try:
         first_url = next(iter(urls.values()))
+        first_key = next(iter(urls))
+        if request_reserver is not None:
+            request_reserver(f"history:{first_key}")
         response = requests.post(
             f"{endpoint}?{query}",
             json={
                 "url": first_url, "browserWSEndpoint": True, "cookies": True,
                 "content": True, "screenshot": False, "ttl": 60000,
             },
-            timeout=(timeout_ms / 1000) + 30,
+            timeout=boundary_timeout,
         )
         if response.status_code != 200:
             raise CaptureUnavailable(CAPTURE_FAILURE, stage="player_session")
@@ -1769,7 +1813,7 @@ def _bounded_player_fetch(urls: dict[str, str], player_id: str, limits: CaptureL
             browser = playwright.chromium.connect_over_cdp(
                 ws_endpoint + ("&" if "?" in ws_endpoint else "?")
                 + "token=" + quote(token, safe=""),
-                timeout=30000,
+                timeout=min(30000, timeout_ms),
             )
             pages = [page for context in browser.contexts for page in context.pages]
             if not pages:
@@ -1780,15 +1824,46 @@ def _bounded_player_fetch(urls: dict[str, str], player_id: str, limits: CaptureL
             )
             for key, source_url in urls.items():
                 if page.url != source_url:
-                    page.goto(source_url, wait_until="domcontentloaded", timeout=60000)
-                rs._accept_ncaa_terms(page, source_url)
-                page.wait_for_selector(
-                    f"#career_totals_{player}_player", timeout=45000
+                    if request_reserver is not None:
+                        request_reserver(f"history:{key}")
+                    current_timeout = remaining_timeout_seconds(
+                        deadline_monotonic, limits.timeout_seconds
+                    )
+                    page.goto(
+                        source_url,
+                        wait_until="domcontentloaded",
+                        timeout=current_timeout * 1000,
+                    )
+                rs._accept_ncaa_terms(
+                    page,
+                    source_url,
+                    request_reserver=(
+                        (lambda key=key: request_reserver(f"history:{key}"))
+                        if request_reserver is not None else None
+                    ),
+                    timeout_seconds=current_timeout,
                 )
-                page.wait_for_selector(f"#game_log_{player}_player", timeout=45000)
+                current_timeout = remaining_timeout_seconds(
+                    deadline_monotonic, limits.timeout_seconds
+                )
+                page.wait_for_selector(
+                    f"#career_totals_{player}_player",
+                    timeout=current_timeout * 1000,
+                )
+                current_timeout = remaining_timeout_seconds(
+                    deadline_monotonic, limits.timeout_seconds
+                )
+                page.wait_for_selector(
+                    f"#game_log_{player}_player",
+                    timeout=current_timeout * 1000,
+                )
                 rendered[key] = page.content()
         return rendered
-    except CaptureUnavailable:
+    except (
+        CaptureUnavailable,
+        CollectionBudgetExceeded,
+        CollectionDeadlineExceeded,
+    ):
         raise
     except Exception as exc:
         raise CaptureUnavailable(CAPTURE_FAILURE, stage="player_fetch") from exc

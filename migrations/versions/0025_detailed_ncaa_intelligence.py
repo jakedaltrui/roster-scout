@@ -273,6 +273,28 @@ def _create_player_history_tables():
 
 def upgrade():
     op.add_column(
+        "report_jobs",
+        sa.Column(
+            "phase3_live_pages_consumed",
+            sa.Integer(),
+            nullable=False,
+            server_default="0",
+        ),
+    )
+    op.add_column(
+        "report_jobs",
+        sa.Column(
+            "phase3_collection_started_at",
+            sa.DateTime(timezone=True),
+            nullable=True,
+        ),
+    )
+    op.create_check_constraint(
+        "ck_report_jobs_phase3_live_pages_consumed_bounded",
+        "report_jobs",
+        "phase3_live_pages_consumed BETWEEN 0 AND 500",
+    )
+    op.add_column(
         "report_snapshots",
         sa.Column(
             "collection_contract_version",
@@ -1021,6 +1043,12 @@ def upgrade():
         sa.Column("organization_id", sa.Uuid(), nullable=False),
         sa.Column("job_id", sa.Uuid(), nullable=False),
         sa.Column("snapshot_id", sa.Uuid(), nullable=False),
+        sa.Column(
+            "dispatch_generation",
+            sa.Integer(),
+            nullable=False,
+            server_default="1",
+        ),
         sa.Column("family", sa.String(length=50), nullable=False),
         sa.Column("source_identity", sa.String(length=200), nullable=False),
         sa.Column("request_kind", sa.String(length=16), nullable=False),
@@ -1029,6 +1057,12 @@ def upgrade():
         sa.Column("completed_at", sa.DateTime(timezone=True)),
         sa.Column("safe_category", sa.String(length=100)),
         sa.Column("budget_remaining", sa.Integer(), nullable=False),
+        sa.Column(
+            "pages_consumed",
+            sa.Integer(),
+            nullable=False,
+            server_default="0",
+        ),
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.ForeignKeyConstraint(
             ["job_id", "organization_id"],
@@ -1066,6 +1100,14 @@ def upgrade():
             name="ck_request_ledgers_budget_remaining",
         ),
         sa.CheckConstraint(
+            "dispatch_generation >= 1",
+            name="ck_request_ledgers_dispatch_generation_positive",
+        ),
+        sa.CheckConstraint(
+            "pages_consumed BETWEEN 0 AND 500",
+            name="ck_request_ledgers_pages_consumed_bounded",
+        ),
+        sa.CheckConstraint(
             "(outcome = 'planned' AND completed_at IS NULL) OR "
             "(outcome <> 'planned' AND completed_at IS NOT NULL "
             "AND completed_at >= started_at)",
@@ -1073,12 +1115,15 @@ def upgrade():
         ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint(
-            "organization_id", "job_id", "family", "source_identity",
-            name="uq_request_ledgers_job_family_source",
+            "organization_id", "job_id", "dispatch_generation",
+            "family", "source_identity",
+            name="uq_request_ledgers_job_generation_family_source",
         ),
     )
     op.create_index(
-        "ix_request_ledgers_job", "request_ledgers", ["job_id", "started_at"]
+        "ix_request_ledgers_job",
+        "request_ledgers",
+        ["job_id", "dispatch_generation", "started_at"],
     )
     op.execute(
         """
@@ -1249,6 +1294,18 @@ def downgrade():
     op.execute("DROP TABLE IF EXISTS external_refresh_diagnostics")
     op.execute("DROP FUNCTION IF EXISTS enforce_external_refresh_diagnostic_transition()")
     op.execute("DROP TABLE IF EXISTS request_ledgers")
+    op.execute(
+        "ALTER TABLE report_jobs DROP CONSTRAINT IF EXISTS "
+        "ck_report_jobs_phase3_live_pages_consumed_bounded"
+    )
+    op.execute(
+        "ALTER TABLE report_jobs DROP COLUMN IF EXISTS "
+        "phase3_live_pages_consumed"
+    )
+    op.execute(
+        "ALTER TABLE report_jobs DROP COLUMN IF EXISTS "
+        "phase3_collection_started_at"
+    )
 
     op.execute(
         "DROP TRIGGER IF EXISTS trg_metric_values_lock_constant_set "

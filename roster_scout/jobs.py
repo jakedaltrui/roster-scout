@@ -5,6 +5,7 @@ import json
 import os
 import random
 import re
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -49,6 +50,11 @@ from .models import (
     Team,
     TeamSeason,
 )
+from .collection_control import (
+    CollectionBudgetExceeded,
+    CollectionDeadlineExceeded,
+    remaining_timeout_seconds,
+)
 from .snapshots import SnapshotPublicationError, publish_snapshot
 from .repositories import (
     acknowledge_report_dispatch,
@@ -74,6 +80,7 @@ SAFE_FAILURE_MESSAGES = {
     "core_section_failed": "A required report section could not be validated.",
     "unexpected": "The report build failed unexpectedly.",
     "retry_exhausted": "The report build exhausted its retry limit.",
+    "collection_timeout": "The report build exceeded its collection time limit.",
 }
 
 _SAFE_LEDGER_TOKEN = re.compile(r"^[a-z0-9][a-z0-9:_-]{0,199}$")
@@ -127,14 +134,21 @@ class CollectionBudgetEntry:
 class CollectionBudget:
     """One build-local ledger for cache and live supplemental request families."""
 
-    def __init__(self, limits):
+    def __init__(self, limits, *, initial_live_count=0):
+        if (
+            isinstance(initial_live_count, bool)
+            or not isinstance(initial_live_count, int)
+            or initial_live_count < 0
+            or initial_live_count > limits.live_page_budget
+        ):
+            raise ValueError("request_budget_reservation_invalid")
         self.limits = limits
         self._lock = RLock()
         self._planned = set()
         self._settled = set()
         self._reserved = set()
         self.cache_count = 0
-        self.live_count = 0
+        self.live_count = initial_live_count
 
     @property
     def remaining(self):
@@ -162,7 +176,7 @@ class CollectionBudget:
         if (
             isinstance(page_count, bool)
             or not isinstance(page_count, int)
-            or page_count < 1
+            or page_count < 0
         ):
             raise ValueError("request_budget_reservation_invalid")
         with self._lock:
@@ -183,6 +197,17 @@ class CollectionBudget:
             self._reserved.update(entries)
             return True
 
+    def sync_live_count(self, consumed):
+        if (
+            isinstance(consumed, bool)
+            or not isinstance(consumed, int)
+            or consumed < self.live_count
+            or consumed > self.limits.live_page_budget
+        ):
+            raise ValueError("request_budget_reservation_invalid")
+        with self._lock:
+            self.live_count = consumed
+
     def settle(self, entry, *, outcome):
         with self._lock:
             if entry not in self._planned or entry in self._settled:
@@ -200,8 +225,6 @@ class CollectionBudget:
                     self.live_count += 1
             elif outcome != "budget_exhausted":
                 raise ValueError("request_ledger_outcome_invalid")
-            elif entry in self._reserved:
-                raise ValueError("request_ledger_lifecycle_invalid")
             self._reserved.discard(entry)
             self._settled.add(entry)
             return self.remaining
@@ -213,10 +236,12 @@ def _record_request_ledger(
     job_id,
     snapshot_id,
     organization_id,
+    dispatch_generation,
     entry,
     request_kind,
     outcome,
     budget_remaining,
+    pages_consumed=0,
     safe_category=None,
     started_at=None,
 ):
@@ -227,6 +252,7 @@ def _record_request_ledger(
             select(RequestLedger).where(
                 RequestLedger.organization_id == organization_id,
                 RequestLedger.job_id == job_id,
+                RequestLedger.dispatch_generation == dispatch_generation,
                 RequestLedger.family == entry.family,
                 RequestLedger.source_identity == entry.source_identity,
             ).with_for_update()
@@ -236,6 +262,7 @@ def _record_request_ledger(
                 organization_id=organization_id,
                 job_id=job_id,
                 snapshot_id=snapshot_id,
+                dispatch_generation=dispatch_generation,
                 family=entry.family,
                 source_identity=entry.source_identity,
                 request_kind=request_kind,
@@ -244,6 +271,7 @@ def _record_request_ledger(
                 completed_at=None if outcome == "planned" else now,
                 safe_category=safe_category,
                 budget_remaining=budget_remaining,
+                pages_consumed=pages_consumed,
             )
             session.add(stored)
             return
@@ -253,6 +281,7 @@ def _record_request_ledger(
                 or stored.outcome != outcome
                 or stored.safe_category != safe_category
                 or stored.budget_remaining != budget_remaining
+                or stored.pages_consumed != pages_consumed
             ):
                 raise DeterministicJobError("schema_validation")
             return
@@ -261,12 +290,46 @@ def _record_request_ledger(
         stored.completed_at = None if outcome == "planned" else now
         stored.safe_category = safe_category
         stored.budget_remaining = budget_remaining
+        stored.pages_consumed = pages_consumed
 
 
 def _request_source_identity(family, *parts):
     material = "\x1f".join("" if part is None else str(part) for part in parts)
     digest = hashlib.sha256(material.encode("utf-8")).hexdigest()
     return f"ncaa:{str(family).replace(':', '_')}:{digest}"
+
+
+def _reserve_job_live_pages(
+    session_factory,
+    *,
+    job_id,
+    dispatch_generation,
+    page_count,
+    page_budget,
+):
+    """Atomically reserve durable per-build capacity before source requests."""
+    if (
+        isinstance(page_count, bool)
+        or not isinstance(page_count, int)
+        or page_count < 1
+    ):
+        raise ValueError("request_budget_reservation_invalid")
+    with session_factory.begin() as session:
+        job = session.scalar(
+            select(ReportJob).where(ReportJob.id == job_id).with_for_update()
+        )
+        if (
+            job is None
+            or job.dispatch_generation != dispatch_generation
+            or job.status in TERMINAL_JOB_STATUSES
+        ):
+            raise DeterministicJobError("schema_validation")
+        consumed = job.phase3_live_pages_consumed
+        if consumed + page_count > page_budget:
+            return None
+        job.phase3_live_pages_consumed = consumed + page_count
+        session.flush()
+        return page_budget - job.phase3_live_pages_consumed
 
 
 class RetryableJobError(RuntimeError):
@@ -2736,7 +2799,6 @@ def run_report_job(session_factory, job_id, generation=None, *, collector):
 def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset()):
     """Collect live NCAA sections or reuse only same-job version-matched evidence."""
     limits = load_phase3_collection_limits()
-    budget = CollectionBudget(limits)
     from roster_scraper import (
         NcaaAccessError,
         NcaaError,
@@ -2751,10 +2813,37 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
 
     job_uuid = uuid.UUID(str(job_id))
     cache_entries = []
+    collection_now = _utcnow()
+    with session_factory.begin() as session:
+        collection_job = session.scalar(
+            select(ReportJob).where(ReportJob.id == job_uuid).with_for_update()
+        )
+        if collection_job is None:
+            raise DeterministicJobError(
+                "schema_validation", "Report job does not exist."
+            )
+        if collection_job.phase3_collection_started_at is None:
+            collection_job.phase3_collection_started_at = collection_now
+            session.flush()
+        elapsed_seconds = max(
+            0.0,
+            (
+                collection_now - collection_job.phase3_collection_started_at
+            ).total_seconds(),
+        )
+    remaining_wall_seconds = limits.wall_time_seconds - elapsed_seconds
+    if remaining_wall_seconds <= 0:
+        raise DeterministicJobError("collection_timeout")
+    deadline_monotonic = time.monotonic() + remaining_wall_seconds
     with session_factory() as session:
         job = session.get(ReportJob, job_uuid)
         if job is None:
             raise DeterministicJobError("schema_validation", "Report job does not exist.")
+        dispatch_generation = job.dispatch_generation
+        budget = CollectionBudget(
+            limits,
+            initial_live_count=job.phase3_live_pages_consumed,
+        )
         report = session.get(Report, job.report_id)
         team_season = session.get(TeamSeason, report.team_season_id)
         team = session.get(Team, team_season.team_id)
@@ -2829,6 +2918,7 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
             job_id=job_uuid,
             snapshot_id=snapshot_id,
             organization_id=job.organization_id,
+            dispatch_generation=dispatch_generation,
             entry=entry,
             request_kind="cache",
             outcome="cache_hit",
@@ -2838,34 +2928,24 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
     if not missing_core and not fielding_missing and not split_missing and not phase3_missing:
         return reconstructed
 
-    def begin_live_batch(requests, *, page_count):
+    page_counts = {}
+
+    def begin_live_batch(requests):
         entries = {
             family: budget.plan(
                 family, _request_source_identity(family, *identity_parts)
             )
             for family, identity_parts in requests
         }
-        if not budget.reserve_live(entries.values(), page_count=page_count):
-            for entry in entries.values():
-                budget.settle(entry, outcome="budget_exhausted")
-                _record_request_ledger(
-                    session_factory,
-                    job_id=job_uuid,
-                    snapshot_id=snapshot_id,
-                    organization_id=job.organization_id,
-                    entry=entry,
-                    request_kind="planned",
-                    outcome="budget_exhausted",
-                    budget_remaining=budget.remaining,
-                    safe_category="request_budget_exhausted",
-                )
-            return None
+        budget.reserve_live(entries.values(), page_count=0)
         for entry in entries.values():
+            page_counts[entry] = 0
             _record_request_ledger(
                 session_factory,
                 job_id=job_uuid,
                 snapshot_id=snapshot_id,
                 organization_id=job.organization_id,
+                dispatch_generation=dispatch_generation,
                 entry=entry,
                 request_kind="planned",
                 outcome="planned",
@@ -2876,7 +2956,6 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
     def begin_live(family, *identity_parts):
         entries = begin_live_batch(
             ((family, identity_parts),),
-            page_count=1,
         )
         return None if entries is None else entries[family]
 
@@ -2887,12 +2966,66 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
             job_id=job_uuid,
             snapshot_id=snapshot_id,
             organization_id=job.organization_id,
+            dispatch_generation=dispatch_generation,
             entry=entry,
             request_kind="live",
             outcome=outcome,
             budget_remaining=remaining,
+            pages_consumed=page_counts.get(entry, 0),
             safe_category=safe_category,
         )
+
+    def request_reserver(entries):
+        def reserve(family):
+            remaining_timeout_seconds(
+                deadline_monotonic,
+                limits.navigation_timeout_seconds,
+            )
+            entry = entries.get(family)
+            if entry is None:
+                raise DeterministicJobError("schema_validation")
+            remaining = _reserve_job_live_pages(
+                session_factory,
+                job_id=job_uuid,
+                dispatch_generation=dispatch_generation,
+                page_count=1,
+                page_budget=limits.live_page_budget,
+            )
+            if remaining is None:
+                raise CollectionBudgetExceeded(
+                    "phase3_request_budget_exhausted"
+                )
+            page_counts[entry] += 1
+            budget.sync_live_count(limits.live_page_budget - remaining)
+            _record_request_ledger(
+                session_factory,
+                job_id=job_uuid,
+                snapshot_id=snapshot_id,
+                organization_id=job.organization_id,
+                dispatch_generation=dispatch_generation,
+                entry=entry,
+                request_kind="planned",
+                outcome="planned",
+                budget_remaining=remaining,
+                pages_consumed=page_counts[entry],
+            )
+        return reserve
+
+    def exhaust_live(entries):
+        for entry in entries.values():
+            finish_live(
+                entry,
+                outcome="budget_exhausted",
+                safe_category="request_budget_exhausted",
+            )
+
+    def timeout_live(entries):
+        for entry in entries.values():
+            finish_live(
+                entry,
+                outcome="live_failed",
+                safe_category="collection_timeout",
+            )
 
     def finalized_sections():
         if budget.unsettled:
@@ -2914,7 +3047,6 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
                 )
                 for family in sorted(missing_core)
             ),
-            page_count=len(missing_core),
         )
         if core_entries is None:
             fetched.extend(
@@ -2931,6 +3063,9 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
                 "division": division,
                 "year": year,
                 "force_refresh": True,
+                "request_reserver": request_reserver(core_entries),
+                "navigation_timeout_seconds": limits.navigation_timeout_seconds,
+                "deadline_monotonic": deadline_monotonic,
             }
             if (
                 fielding_requested
@@ -2951,6 +3086,20 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
                 else RetryableJobError
             )
             raise error_type(category, evidence=exc.evidence) from None
+        except CollectionBudgetExceeded:
+            exhaust_live(core_entries)
+            fetched.extend(
+                CollectedSection.failed(
+                    family,
+                    critical=True,
+                    category="request_budget_exhausted",
+                )
+                for family in sorted(missing_core)
+            )
+            return finalized_sections()
+        except CollectionDeadlineExceeded:
+            timeout_live(core_entries)
+            raise DeterministicJobError("collection_timeout") from None
         except BrowserCapacityExceeded as exc:
             for entry in core_entries.values():
                 finish_live(
@@ -3001,12 +3150,39 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
                     year=year,
                     force_refresh=True,
                     section_names=frozenset({"fielding"}),
+                    request_reserver=request_reserver(
+                        {"fielding": fielding_entry}
+                    ),
+                    navigation_timeout_seconds=limits.navigation_timeout_seconds,
+                    deadline_monotonic=deadline_monotonic,
                 )
                 fielding_sections = to_collected_sections(fielding_collection)
                 if {section.name for section in fielding_sections} != {"fielding"}:
                     raise DeterministicJobError("schema_validation")
                 finish_live(fielding_entry, outcome="live_complete")
                 fetched.extend(fielding_sections)
+            except CollectionBudgetExceeded:
+                exhaust_live({"fielding": fielding_entry})
+                fetched.append(CollectedSection.supplemental_failure(
+                    "fielding",
+                    status="unavailable",
+                    category="request_budget_exhausted",
+                    collected_at=_utcnow(),
+                    source_team_id=source_team_id,
+                    source_season_id=source_season_id,
+                    source_season_team_id=season_team_id,
+                ))
+            except CollectionDeadlineExceeded:
+                timeout_live({"fielding": fielding_entry})
+                fetched.append(CollectedSection.supplemental_failure(
+                    "fielding",
+                    status="unavailable",
+                    category="collection_timeout",
+                    collected_at=_utcnow(),
+                    source_team_id=source_team_id,
+                    source_season_id=source_season_id,
+                    source_season_team_id=season_team_id,
+                ))
             except _NcaaFailureEvidenceError as exc:
                 evidence = exc.evidence
                 finish_live(
@@ -3119,7 +3295,14 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
         schedule_finished = False
         try:
             schedule = collect_ncaa_schedule_evidence(
-                season_team_id, division=division, year=year
+                season_team_id,
+                division=division,
+                year=year,
+                request_reserver=request_reserver(
+                    {"schedule": schedule_entry}
+                ),
+                navigation_timeout_seconds=limits.navigation_timeout_seconds,
+                deadline_monotonic=deadline_monotonic,
             )
             finish_live(schedule_entry, outcome="live_complete")
             schedule_finished = True
@@ -3141,7 +3324,6 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
                             ("fielding", discovered_fielding_id),
                         )
                     ),
-                    page_count=1,
                 )
                 if history_entries is None:
                     history_complete = False
@@ -3152,7 +3334,18 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
                         player_id,
                         division=division,
                         year=year,
+                        request_reserver=request_reserver(history_entries),
+                        navigation_timeout_seconds=(
+                            limits.navigation_timeout_seconds
+                        ),
+                        deadline_monotonic=deadline_monotonic,
                     )
+                except CollectionBudgetExceeded:
+                    history_complete = False
+                    exhaust_live(history_entries)
+                except CollectionDeadlineExceeded:
+                    history_complete = False
+                    timeout_live(history_entries)
                 except (NcaaAccessError, NcaaError, ValueError):
                     history_complete = False
                     for entry in history_entries.values():
@@ -3183,6 +3376,42 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
                 complete_stat_types=complete_stat_types,
             ))
             fetched.extend(history_sections)
+        except CollectionBudgetExceeded:
+            if not schedule_finished:
+                exhaust_live({"schedule": schedule_entry})
+            for name in (
+                "schedule", "game_logs:batting", "game_logs:pitching",
+                "game_logs:fielding", "history:batting", "history:pitching",
+                "history:fielding",
+            ):
+                fetched.append(CollectedSection.supplemental_failure(
+                    name,
+                    status="unavailable",
+                    category="request_budget_exhausted",
+                    collected_at=_utcnow(),
+                    source_team_id=source_team_id,
+                    source_season_id=source_season_id,
+                    source_season_team_id=season_team_id,
+                    source_stat_category_id=name,
+                ))
+        except CollectionDeadlineExceeded:
+            if not schedule_finished:
+                timeout_live({"schedule": schedule_entry})
+            for name in (
+                "schedule", "game_logs:batting", "game_logs:pitching",
+                "game_logs:fielding", "history:batting", "history:pitching",
+                "history:fielding",
+            ):
+                fetched.append(CollectedSection.supplemental_failure(
+                    name,
+                    status="unavailable",
+                    category="collection_timeout",
+                    collected_at=_utcnow(),
+                    source_team_id=source_team_id,
+                    source_season_id=source_season_id,
+                    source_season_team_id=season_team_id,
+                    source_stat_category_id=name,
+                ))
         except (NcaaAccessError, NcaaError, ValueError):
             if not schedule_finished:
                 finish_live(
@@ -3218,7 +3447,6 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
                 )
                 for stat_type, category_id in sorted(split_category_ids.items())
             ),
-            page_count=len(split_category_ids),
         )
         if split_entries is None:
             fetched.extend(unavailable_collected_split_sections(
@@ -3253,6 +3481,9 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
                 season_team_id,
                 division=division,
                 year=year,
+                request_reserver=request_reserver(split_entries),
+                navigation_timeout_seconds=limits.navigation_timeout_seconds,
+                deadline_monotonic=deadline_monotonic,
             )
             fetched.extend(to_collected_split_sections(
                 split_results,
@@ -3260,6 +3491,28 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
             ))
             for entry in split_entries.values():
                 finish_live(entry, outcome="live_complete")
+        except CollectionBudgetExceeded:
+            exhaust_live(split_entries)
+            fetched.extend(unavailable_collected_split_sections(
+                source_team_id=source_team_id,
+                source_season_id=source_season_id,
+                source_season_team_id=season_team_id,
+                category_ids=split_category_ids,
+                status="unavailable",
+                reason="request_budget_exhausted",
+                collected_at=_utcnow(),
+            ))
+        except CollectionDeadlineExceeded:
+            timeout_live(split_entries)
+            fetched.extend(unavailable_collected_split_sections(
+                source_team_id=source_team_id,
+                source_season_id=source_season_id,
+                source_season_team_id=season_team_id,
+                category_ids=split_category_ids,
+                status="unavailable",
+                reason="collection_timeout",
+                collected_at=_utcnow(),
+            ))
         except _NcaaFailureEvidenceError as exc:
             category = exc.evidence.failure_category
             for entry in split_entries.values():
