@@ -1285,6 +1285,42 @@ def _contest_id_from_row(row) -> str | None:
     return next(iter(identifiers), None)
 
 
+def _schedule_is_complete(raw_html: str, table, *, game_count: int) -> bool:
+    soup = BeautifulSoup(raw_html, "html.parser")
+    declared = table.get("data-total-games") or table.get("data-total-rows")
+    if not str(declared or "").isdigit() or int(declared) != game_count:
+        return False
+    pagination = soup.select('[rel="next"], .pagination .next, [data-page]')
+    for item in pagination:
+        classes = {str(value).casefold() for value in (item.get("class") or ())}
+        disabled = (
+            "disabled" in classes
+            or item.get("aria-disabled") == "true"
+            or item.has_attr("disabled")
+        )
+        if item.get("rel") == ["next"] and not disabled:
+            return False
+        page = item.get("data-page")
+        if page is not None and (not str(page).isdigit() or int(page) > 1):
+            return False
+    return True
+
+
+def _schedule_venue(row, opponent_cell, opponent_text: str) -> str:
+    declared = row.get("data-venue") or opponent_cell.get("data-venue")
+    if declared is not None:
+        normalized = str(declared).strip().casefold()
+        if normalized not in {"home", "away", "neutral"}:
+            raise CaptureUnavailable(CAPTURE_FAILURE, stage="schedule_venue")
+        return normalized
+    normalized = opponent_text.casefold()
+    if normalized.startswith("@"):
+        return "away"
+    if re.match(r"^vs\.?\s", normalized) or "neutral site" in normalized:
+        return "neutral"
+    return "home"
+
+
 def sanitize_schedule(
     raw_html: str,
     *,
@@ -1321,11 +1357,13 @@ def sanitize_schedule(
         if row is header_row or "grey_heading" in (row.get("class") or []):
             continue
         cells = row.find_all(["th", "td"], recursive=False)
-        if not cells or len(cells) < max(date_index, opponent_index, result_index or 0) + 1:
+        if not cells:
             continue
+        if len(cells) < max(date_index, opponent_index, result_index or 0) + 1:
+            raise CaptureUnavailable(CAPTURE_FAILURE, stage="schedule_row_shape")
         date_text = cells[date_index].get_text(" ", strip=True)
         if not date_text:
-            continue
+            raise CaptureUnavailable(CAPTURE_FAILURE, stage="schedule_row_date")
         game_date = _schedule_date(date_text, season_year=year)
         opponent_cell = cells[opponent_index]
         opponent = None
@@ -1348,14 +1386,14 @@ def sanitize_schedule(
         elif re.match(r"^[wlt]\b", lowered):
             status = "completed"
         elif normalized_result:
-            status = "scheduled"
+            raise CaptureUnavailable(CAPTURE_FAILURE, stage="schedule_result")
         else:
             status = "scheduled"
         contest_id = _contest_id_from_row(row)
         if status == "completed" and contest_id is None:
             raise CaptureUnavailable(CAPTURE_FAILURE, stage="schedule_completed_identity")
         opponent_text = re.sub(r"\s+", " ", opponent_cell.get_text(" ", strip=True)).strip()
-        venue = "away" if opponent_text.startswith("@") else "home"
+        venue = _schedule_venue(row, opponent_cell, opponent_text)
         games.append({
             "source_game_id": contest_id,
             "date": game_date,
@@ -1382,7 +1420,10 @@ def sanitize_schedule(
     attrs = {
         "data-captured-at": captured_at,
         "data-division": f"d{report_team['division']}",
-        "data-schedule-complete": "true",
+        "data-schedule-complete": (
+            "true" if _schedule_is_complete(raw_html, table, game_count=len(games))
+            else "false"
+        ),
         "data-schedule-contract-version": SCHEDULE_CONTRACT_VERSION,
         "data-season-id": season,
         "data-season-team-id": season_team,

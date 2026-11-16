@@ -292,6 +292,89 @@ class FixtureCaptureSafetyTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     api.build_ncaa_url(team_id, category_id)
 
+    @staticmethod
+    def _schedule_catalog():
+        return ({
+            "team_id": "234",
+            "season_team_id": "614606",
+            "conference_id": "821",
+            "division": "1",
+            "year": "2026",
+        }, {
+            "team_id": "235",
+            "season_team_id": "614607",
+            "conference_id": "821",
+            "division": "1",
+            "year": "2026",
+        })
+
+    @staticmethod
+    def _raw_schedule(*, total="1", result="W 4-2", opponent="vs. Opponent", extra=""):
+        return f"""
+        <table data-total-games="{total}">
+          <thead><tr><th>Date</th><th>Opponent</th><th>Result</th></tr></thead>
+          <tbody>
+            <tr data-venue="neutral"><td>03/01/2026</td>
+              <td><a href="/teams/614607">{opponent}</a></td>
+              <td><a href="/contests/99">{result}</a></td></tr>
+            {extra}
+          </tbody>
+        </table>
+        """
+
+    def test_schedule_capture_proves_completeness_and_preserves_neutral_site(self):
+        api = self.capture_api()
+        sanitized = api.sanitize_schedule(
+            self._raw_schedule(),
+            season_id="17040",
+            team_id="234",
+            season_team_id="614606",
+            division="1",
+            catalog=self._schedule_catalog(),
+            captured_at="2026-11-16T00:00:00Z",
+        )
+        self.assertIn('data-schedule-complete="true"', sanitized)
+        self.assertIn('data-venue="neutral"', sanitized)
+
+        truncated = api.sanitize_schedule(
+            self._raw_schedule(total="2"),
+            season_id="17040",
+            team_id="234",
+            season_team_id="614606",
+            division="1",
+            catalog=self._schedule_catalog(),
+            captured_at="2026-11-16T00:00:00Z",
+        )
+        self.assertIn('data-schedule-complete="false"', truncated)
+
+    def test_schedule_capture_rejects_pagination_unknown_results_and_malformed_rows(self):
+        api = self.capture_api()
+        paginated = self._raw_schedule() + '<a rel="next" href="?page=2">Next</a>'
+        sanitized = api.sanitize_schedule(
+            paginated,
+            season_id="17040",
+            team_id="234",
+            season_team_id="614606",
+            division="1",
+            catalog=self._schedule_catalog(),
+            captured_at="2026-11-16T00:00:00Z",
+        )
+        self.assertIn('data-schedule-complete="false"', sanitized)
+        for raw in (
+            self._raw_schedule(result="mystery result"),
+            self._raw_schedule(extra="<tr><td>03/02/2026</td></tr>"),
+        ):
+            with self.subTest(raw=raw[-80:]), self.assertRaises(api.CaptureUnavailable):
+                api.sanitize_schedule(
+                    raw,
+                    season_id="17040",
+                    team_id="234",
+                    season_team_id="614606",
+                    division="1",
+                    catalog=self._schedule_catalog(),
+                    captured_at="2026-11-16T00:00:00Z",
+                )
+
     def test_control_sanitizer_removes_secrets_scripts_and_unrelated_people(self):
         api = self.capture_api()
         raw = """
