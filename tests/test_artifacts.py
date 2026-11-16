@@ -395,6 +395,158 @@ class ArtifactContractTests(unittest.TestCase):
             pitchers[0]["_player_url"], "https://stats.ncaa.org/players/9001"
         )
 
+    def test_canonical_projection_uses_exact_snapshot_facts_metrics_and_scopes(self):
+        from roster_scout.artifacts import _project_snapshot_workbook_rows
+
+        player_id = uuid.uuid4()
+        batting_source_id = uuid.uuid4()
+        pitching_source_id = uuid.uuid4()
+        last_ten_batting_id = uuid.uuid4()
+        conference_batting_id = uuid.uuid4()
+        last_ten_pitching_id = uuid.uuid4()
+        conference_pitching_id = uuid.uuid4()
+        player = SimpleNamespace(
+            id=player_id,
+            display_name="Taylor Canonical",
+            jersey_number="12",
+            position="OF/RHP",
+        )
+        batting_source = SimpleNamespace(
+            id=batting_source_id,
+            player_team_season_id=player_id,
+            section="batting",
+            source_player_id="9001",
+            source_url="https://stats.ncaa.org/teams/701",
+            raw_values={
+                "Yr": "Jr",
+                "player_url": "https://stats.ncaa.org/players/9001",
+            },
+        )
+        pitching_source = SimpleNamespace(
+            id=pitching_source_id,
+            player_team_season_id=player_id,
+            section="pitching",
+            source_player_id="9001",
+            source_url="https://stats.ncaa.org/teams/701",
+            raw_values={"W": "5", "L": "2", "SV": "1"},
+        )
+        batting = SimpleNamespace(
+            player_team_season_id=player_id,
+            source_record_id=batting_source_id,
+            games=32,
+            games_started=31,
+            plate_appearances=140,
+            at_bats=119,
+            runs=29,
+            hits=41,
+            doubles=8,
+            triples=2,
+            home_runs=7,
+            runs_batted_in=34,
+            walks=16,
+            hit_by_pitch=3,
+            strikeouts=20,
+            sacrifice_flies=2,
+            sacrifice_hits=0,
+            stolen_bases=9,
+        )
+        pitching = SimpleNamespace(
+            player_team_season_id=player_id,
+            source_record_id=pitching_source_id,
+            appearances=12,
+            games_started=7,
+            innings_outs=131,
+            hits_allowed=37,
+            earned_runs=14,
+            walks=12,
+            strikeouts=51,
+            home_runs_allowed=3,
+            hit_batters=2,
+            batters_faced=183,
+            opponent_at_bats=166,
+            opponent_sacrifice_flies=2,
+        )
+
+        def scope(scope_id, code, stat_type, status, games):
+            return SimpleNamespace(
+                id=scope_id,
+                scope_code=code,
+                stat_type=stat_type,
+                status=status,
+                actual_game_count=games,
+            )
+
+        scopes = (
+            scope(last_ten_batting_id, "last_10", "batting", "complete", 10),
+            scope(conference_batting_id, "conference", "batting", "unavailable", None),
+            scope(last_ten_pitching_id, "last_10", "pitching", "partial", 8),
+            scope(conference_pitching_id, "conference", "pitching", "failed", None),
+        )
+        scoped_batting = (SimpleNamespace(
+            statistic_scope_id=last_ten_batting_id,
+            player_team_season_id=player_id,
+            counts_json={
+                "plate_appearances": 44,
+                "at_bats": 38,
+                "hits": 14,
+                "doubles": 3,
+                "triples": 0,
+                "home_runs": 2,
+                "walks": 5,
+                "hit_by_pitch": 1,
+                "strikeouts": 5,
+                "sacrifice_flies": 0,
+                "sacrifice_hits": 0,
+            },
+        ),)
+
+        hitters, pitchers = _project_snapshot_workbook_rows(
+            (player,),
+            (batting_source, pitching_source),
+            (batting,),
+            (pitching,),
+            (),
+            scopes,
+            scoped_batting,
+            (),
+        )
+
+        self.assertEqual(hitters[0]["_player_id"], "9001")
+        self.assertEqual(
+            hitters[0]["_player_url"], "https://stats.ncaa.org/players/9001"
+        )
+        self.assertEqual(hitters[0]["G"], 32)
+        self.assertEqual(hitters[0]["OPS"], "1.043")
+        self.assertEqual(hitters[0]["Last 10 G"], 10)
+        self.assertEqual(hitters[0]["Last 10 AVG"], "0.368")
+        self.assertEqual(hitters[0]["Last 10 Status"], "Complete")
+        self.assertEqual(hitters[0]["Conference Status"], "Unavailable")
+        self.assertEqual(pitchers[0]["IP"], "43.2")
+        self.assertEqual(pitchers[0]["K/9"], "10.51")
+        self.assertEqual(pitchers[0]["Last 10 Status"], "Partial")
+        self.assertEqual(pitchers[0]["Conference Status"], "Failed")
+        self.assertNotIn("Last 10 ERA", pitchers[0])
+
+    def test_artifact_schema_bump_accepts_exact_historical_keys(self):
+        from roster_scout.artifacts import (
+            ARTIFACT_SCHEMA_VERSION,
+            _validated_object_key,
+            artifact_object_key,
+        )
+
+        organization_id = uuid.uuid4()
+        report_id = uuid.uuid4()
+        snapshot_id = uuid.uuid4()
+        current = artifact_object_key(organization_id, report_id, snapshot_id)
+        historical = (
+            f"organizations/{organization_id}/reports/{report_id}/snapshots/"
+            f"{snapshot_id}/workbooks/roster-scout-basic-xlsx-v1.xlsx"
+        )
+
+        self.assertEqual(ARTIFACT_SCHEMA_VERSION, "detailed-two-sheet-xlsx-v2")
+        self.assertIn(ARTIFACT_SCHEMA_VERSION, current)
+        self.assertEqual(_validated_object_key(historical), historical)
+
 
 class ArtifactLifecycleTests(_PostgreSQLJobTestCase):
     def _published_artifact(self):
