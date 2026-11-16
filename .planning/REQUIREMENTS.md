@@ -71,8 +71,8 @@
 
 ### Career and Game Logs
 
-- [ ] **HIST-01**: A player's career view lists each available season with school, team ID, division, and season statistics under the stable NCAA player identity.
-- [ ] **HIST-02**: A career aggregate is labeled separately from individual season rows and is recomputed only from available compatible facts.
+- [x] **HIST-01**: A player's career view lists each available season with school, team ID, division, and season statistics under the stable NCAA player identity.
+- [x] **HIST-02**: A career aggregate is labeled separately from individual season rows and is recomputed only from available compatible facts.
 - [x] **HIST-03**: Player game logs identify date, opponent, opponent ID when available, and available batting, pitching, and fielding lines.
 - [x] **HIST-04**: Missing historical seasons or games are disclosed in section completeness instead of being silently omitted.
 - [ ] **HIST-05**: Career and game-log collection uses bounded concurrency, source caching, request budgets, and retry/backoff controls.
