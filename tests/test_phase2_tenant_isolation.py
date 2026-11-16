@@ -404,6 +404,7 @@ class UntrustedScopeInputTests(_TenantIsolationCase):
             "readyz",
             "demo",
             "privacy",
+            "google_site_verification",
             "auth.login",
             "auth.start",
             "auth.callback",

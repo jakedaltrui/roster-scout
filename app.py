@@ -750,6 +750,12 @@ def privacy():
     return render_template("privacy.html", **_public_shell_context())
 
 
+@app.route("/googlef5f782c107ff7f57.html")
+def google_site_verification():
+    """Prove production URL-prefix ownership for the Google OAuth brand."""
+    return "google-site-verification: googlef5f782c107ff7f57.html\n"
+
+
 @app.route("/healthz")
 def healthz():
     return jsonify({"status": "ok"})
@@ -804,6 +810,7 @@ _PUBLIC_ENDPOINTS = frozenset({
     "readyz",
     "demo",
     "privacy",
+    "google_site_verification",
     "acknowledge_workbook_download",
     "auth.login",
     "auth.start",
