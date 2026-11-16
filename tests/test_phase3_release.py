@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import uuid
 import unittest
 from datetime import UTC, datetime, timedelta
@@ -40,6 +41,96 @@ PHASE3_SNAPSHOT_TABLES = {
     "fielding_game_log_facts",
     "request_ledgers",
 }
+
+
+class ReleaseSubprocessEnvironmentTests(unittest.TestCase):
+    """The release gate never forwards parent credentials to child processes."""
+
+    SAFE_RUNTIME = {
+        "HOME": "/safe/home",
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        "PATH": "/safe/bin",
+        "TMPDIR": "/safe/tmp",
+    }
+    DATABASE_URL = (
+        "postgresql+psycopg://release:disposable@127.0.0.1/roster_scout_test"
+    )
+    SECRET_ENVIRONMENT = {
+        "BROWSERLESS_TOKEN": "browserless-secret",
+        "WORKOS_API_KEY": "workos-secret",
+        "GOOGLE_CLIENT_SECRET": "google-secret",
+        "AWS_SECRET_ACCESS_KEY": "storage-secret",
+        "ROSTER_SCOUT_ARTIFACT_SECRET_ACCESS_KEY": "artifact-secret",
+        "FLY_API_TOKEN": "fly-secret",
+        "ROSTER_SCOUT_SESSION_SECRET": "session-secret",
+        "ROSTER_SCOUT_DOWNLOAD_ACK_SECRET": "signing-secret",
+        "HTTPS_PROXY": "https://proxy-secret.invalid",
+        "NO_PROXY": "secret.internal",
+        "ARBITRARY_PARENT_VALUE": "arbitrary-secret",
+    }
+
+    def _capture_release_environments(self):
+        from scripts import validate_phase3_release as validator
+
+        parent_environment = {
+            **self.SAFE_RUNTIME,
+            "DATABASE_URL": self.DATABASE_URL,
+            "PHASE2_DESTRUCTIVE_DATABASE": "local-disposable",
+            **self.SECRET_ENVIRONMENT,
+        }
+        captured = {}
+
+        def capture(label, _command, *, environment):
+            captured[label] = environment
+
+        with patch.dict("os.environ", parent_environment, clear=True), patch.object(
+            validator, "_validate_database"
+        ), patch.object(validator, "_validate_required_paths"), patch.object(
+            validator, "_run", side_effect=capture
+        ):
+            self.assertEqual(validator.main(), 0)
+        return validator, captured
+
+    def test_every_release_child_omits_parent_secrets_and_arbitrary_values(self):
+        validator, captured = self._capture_release_environments()
+
+        self.assertEqual(
+            set(captured),
+            {label for label, _command in validator.release_command_manifest(sys.executable)},
+        )
+        for label, environment in captured.items():
+            with self.subTest(label=label):
+                self.assertTrue(self.SECRET_ENVIRONMENT.keys().isdisjoint(environment))
+                self.assertEqual(
+                    {name: environment.get(name) for name in self.SAFE_RUNTIME},
+                    self.SAFE_RUNTIME,
+                )
+                self.assertLessEqual(
+                    set(environment),
+                    {
+                        *self.SAFE_RUNTIME,
+                        "DATABASE_URL",
+                        "PHASE2_DESTRUCTIVE_DATABASE",
+                    },
+                )
+
+    def test_database_and_destructive_sentinel_reach_only_required_children(self):
+        validator, captured = self._capture_release_environments()
+
+        for label, environment in captured.items():
+            with self.subTest(label=label):
+                if label in validator.DATABASE_COMMAND_LABELS:
+                    self.assertEqual(environment.get("DATABASE_URL"), self.DATABASE_URL)
+                else:
+                    self.assertNotIn("DATABASE_URL", environment)
+                if label in validator.DESTRUCTIVE_SENTINEL_COMMAND_LABELS:
+                    self.assertEqual(
+                        environment.get("PHASE2_DESTRUCTIVE_DATABASE"),
+                        "local-disposable",
+                    )
+                else:
+                    self.assertNotIn("PHASE2_DESTRUCTIVE_DATABASE", environment)
 
 
 class MigrationLifecycleTests(unittest.TestCase):

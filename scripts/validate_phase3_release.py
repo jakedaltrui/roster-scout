@@ -18,6 +18,32 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_MIGRATION_HEAD = "0025"
 SAFE_DATABASE_ERROR = "phase3_test_database_unavailable"
 
+# Release children get a deliberately small environment. In particular, do not
+# add provider, storage, authentication, proxy, signing, or generic Python/Git
+# variables here: those values are not inputs to the deterministic release gate.
+SAFE_RUNTIME_ENVIRONMENT_KEYS = (
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "PATH",
+    "TEMP",
+    "TMP",
+    "TMPDIR",
+)
+
+DATABASE_COMMAND_LABELS = frozenset({
+    "Alembic upgrade to head",
+    f"Alembic current revision is {EXPECTED_MIGRATION_HEAD}",
+    "Revision 0024 to 0025 preservation and lifecycle",
+    "Alembic model drift check",
+    "Phase 3 focused parity, lineage, tenant, and security gates",
+    "Inherited Phase 2.1 customer and security gate",
+    "Clean-process full unittest discovery",
+})
+DESTRUCTIVE_SENTINEL_COMMAND_LABELS = frozenset({
+    "Inherited Phase 2.1 customer and security gate",
+})
+
 MIGRATION_TESTS = (
     "tests.test_phase3_release.MigrationLifecycleTests",
 )
@@ -222,6 +248,26 @@ def _validate_required_paths() -> None:
         raise SystemExit("phase3_required_file_missing")
 
 
+def _subprocess_environment(
+    parent_environment: dict[str, str],
+    *,
+    label: str,
+) -> dict[str, str]:
+    """Build the exact non-secret environment required by one release child."""
+    environment = {
+        name: parent_environment[name]
+        for name in SAFE_RUNTIME_ENVIRONMENT_KEYS
+        if parent_environment.get(name)
+    }
+    if label in DATABASE_COMMAND_LABELS:
+        environment["DATABASE_URL"] = parent_environment["DATABASE_URL"]
+    if label in DESTRUCTIVE_SENTINEL_COMMAND_LABELS:
+        environment["PHASE2_DESTRUCTIVE_DATABASE"] = parent_environment[
+            "PHASE2_DESTRUCTIVE_DATABASE"
+        ]
+    return environment
+
+
 def _python_sources() -> list[str]:
     roots = [
         PROJECT_ROOT / "app.py",
@@ -280,11 +326,15 @@ def _run(label: str, command: list[str], *, environment: dict[str, str]) -> None
 
 
 def main() -> int:
-    environment = os.environ.copy()
-    _validate_database(environment)
+    parent_environment = dict(os.environ)
+    _validate_database(parent_environment)
     _validate_required_paths()
     for label, command in release_command_manifest(sys.executable):
-        _run(label, command, environment=environment)
+        _run(
+            label,
+            command,
+            environment=_subprocess_environment(parent_environment, label=label),
+        )
     print("\nPhase 3 release gate passed.", flush=True)
     print("Production remains unchanged and deployment is not authorized.", flush=True)
     return 0
