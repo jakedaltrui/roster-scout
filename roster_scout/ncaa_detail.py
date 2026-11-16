@@ -951,6 +951,46 @@ def split_label_code(value: str, stat_type: str) -> str | None:
     return None
 
 
+_LIVE_SPLIT_IDENTIFIER_ATTRIBUTES = frozenset({
+    "data-context-id",
+    "data-situation-id",
+    "data-split-id",
+    "data-stat-seq",
+    "data-summary-id",
+})
+_LIVE_SPLIT_IDENTIFIER_QUERY = re.compile(
+    r"^(?:context|situation|split|stat[_-]?seq|summary)(?:_id)?$", re.I
+)
+
+
+def _live_split_identifier(element, *, excluded: set[str]) -> str | None:
+    candidates = set()
+    for name in _LIVE_SPLIT_IDENTIFIER_ATTRIBUTES:
+        raw = element.get(name)
+        values = raw if isinstance(raw, list) else (raw,)
+        candidates.update(
+            str(value) for value in values
+            if value is not None and str(value).isdigit() and str(value) not in excluded
+        )
+    if element.name == "option":
+        value = str(element.get("value") or "")
+        if value.isdigit() and value not in excluded:
+            candidates.add(value)
+    parsed = urlparse(element.get("href") or "")
+    if parsed.scheme and (parsed.scheme != "https" or parsed.netloc != "stats.ncaa.org"):
+        return None
+    for key, values in parse_qs(parsed.query, keep_blank_values=False).items():
+        if not _LIVE_SPLIT_IDENTIFIER_QUERY.fullmatch(key):
+            continue
+        candidates.update(
+            value for value in values
+            if value.isdigit() and value not in excluded
+        )
+    if len(candidates) > 1:
+        raise SplitContractError("schema_validation")
+    return next(iter(candidates), None)
+
+
 def discover_live_split_controls(
     html: str,
     *,
@@ -993,19 +1033,9 @@ def discover_live_split_controls(
         code = split_label_code(visible, stat_type)
         if code is None:
             continue
-        candidates = []
-        for name, raw in element.attrs.items():
-            if name.lower().startswith("on"):
-                continue
-            candidates.extend(raw if isinstance(raw, list) else [raw])
-        parsed = urlparse(element.get("href") or "")
-        for key, values in parse_qs(parsed.query).items():
-            if re.search(r"split|situat|summary|stat[_-]?seq|context", key, re.I):
-                candidates.extend(values)
-        identifier = next(
-            (str(item) for item in candidates if str(item).isdigit() and str(item) not in excluded),
-            None,
-        )
+        identifier = _live_split_identifier(element, excluded=excluded)
+        if code in found and identifier is not None and found[code] not in {None, identifier}:
+            raise SplitContractError("schema_validation")
         if code not in found or (found[code] is None and identifier is not None):
             found[code] = identifier
     now = collected_at or datetime.now(UTC)

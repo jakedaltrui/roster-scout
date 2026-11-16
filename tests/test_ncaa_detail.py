@@ -514,6 +514,63 @@ class SplitDiscoveryTests(unittest.TestCase):
             with self.subTest(division=division):
                 self._validate_contract(*self._load(division), division)
 
+    def test_live_discovery_ignores_noisy_numeric_attributes_and_rejects_ambiguity(self):
+        api = fielding_api()
+        html = """
+        <table id="stat_grid"><thead><tr><th>Player</th><th>AB</th><th>H</th></tr></thead></table>
+        <button tabindex="7" data-stat-seq="123" aria-rowindex="9">Vs LHP</button>
+        """
+        scopes = api.discover_live_split_controls(
+            html,
+            season_id="17040",
+            season_team_id="614606",
+            stat_type="batting",
+            source_stat_category_id="15867",
+        )
+        self.assertEqual(
+            next(item for item in scopes if item.scope_code == "vs_lhp").source_identifier,
+            "123",
+        )
+        ambiguous = html.replace(
+            'data-stat-seq="123"',
+            'data-stat-seq="123" data-split-id="124"',
+        )
+        with self.assertRaises(api.SplitContractError):
+            api.discover_live_split_controls(
+                ambiguous,
+                season_id="17040",
+                season_team_id="614606",
+                stat_type="batting",
+                source_stat_category_id="15867",
+            )
+
+    def test_capture_discovery_uses_only_documented_identifier_attributes(self):
+        api = FixtureCaptureSafetyTests.capture_api()
+        html = (
+            '<button tabindex="7" data-stat-seq="123" aria-rowindex="9">'
+            'Vs LHP</button>'
+        )
+        observations = api.discover_split_controls(
+            html,
+            season_id="17040",
+            season_team_id="614606",
+            stat_type="batting",
+        )
+        self.assertEqual(
+            next(item for item in observations if item["canonical_label"] == "vs_lhp")["identifier"],
+            "123",
+        )
+        with self.assertRaises(api.CaptureUnavailable):
+            api.discover_split_controls(
+                html.replace(
+                    'data-stat-seq="123"',
+                    'data-stat-seq="123" data-split-id="124"',
+                ),
+                season_id="17040",
+                season_team_id="614606",
+                stat_type="batting",
+            )
+
     def test_rejects_stale_wrong_type_wrong_season_and_wrong_header_candidates(self):
         manifest, controls = self._load("d1")
         mutations = []

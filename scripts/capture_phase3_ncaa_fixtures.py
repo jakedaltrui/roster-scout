@@ -212,17 +212,22 @@ def _normalize_label(text: str, stat_type: str) -> str | None:
 
 
 def _candidate_identifier(element, *, excluded: set[str]) -> str | None:
-    direct_values = []
-    for name, value in element.attrs.items():
-        if name.lower().startswith("on"):
-            continue
-        if isinstance(value, list):
-            direct_values.extend(str(item) for item in value)
-        else:
-            direct_values.append(str(value))
-    for value in direct_values:
+    identifier_attributes = {
+        "data-context-id", "data-situation-id", "data-split-id",
+        "data-stat-seq", "data-summary-id",
+    }
+    candidates = set()
+    for name in identifier_attributes:
+        raw = element.get(name)
+        values = raw if isinstance(raw, list) else (raw,)
+        candidates.update(
+            str(value) for value in values
+            if value is not None and str(value).isdigit() and str(value) not in excluded
+        )
+    if element.name == "option":
+        value = str(element.get("value") or "")
         if value.isdigit() and value not in excluded:
-            return value
+            candidates.add(value)
     href = element.get("href") or ""
     parsed = urlparse(href)
     if parsed.scheme and (parsed.scheme != "https" or parsed.netloc != "stats.ncaa.org"):
@@ -232,8 +237,10 @@ def _candidate_identifier(element, *, excluded: set[str]) -> str | None:
             continue
         for value in values:
             if value.isdigit() and value not in excluded:
-                return value
-    return None
+                candidates.add(value)
+    if len(candidates) > 1:
+        raise CaptureUnavailable(CAPTURE_FAILURE, stage="split_control_identity")
+    return next(iter(candidates), None)
 
 
 def discover_split_controls(
@@ -265,6 +272,8 @@ def discover_split_controls(
         identifier = _candidate_identifier(element, excluded=excluded)
         if identifier is None and element.parent is not None:
             identifier = _candidate_identifier(element.parent, excluded=excluded)
+        if label in found and identifier is not None and found[label] not in {None, identifier}:
+            raise CaptureUnavailable(CAPTURE_FAILURE, stage="split_control_identity")
         if label not in found or (found[label] is None and identifier is not None):
             found[label] = identifier
 
