@@ -287,7 +287,7 @@ Plans:
 4. wOBA and FIP use verified versioned NCAA season/division inputs or return an explanatory unavailable state; no MLB constants are silently substituted.
 5. Collection respects request budgets, bounded concurrency, caching, and retry/backoff while operators can identify unavailable or failed sections.
 
-**Plans:** 8 plans
+**Plans:** 9 plans
 
 Plans:
 
@@ -295,9 +295,10 @@ Plans:
 - [ ] 03-02-PLAN.md — Acquire, normalize, persist, and partially publish NCAA fielding across D1/D2/D3.
 - [ ] 03-03-PLAN.md — Capture and certify current NCAA split controls before implementation.
 - [ ] 03-04-PLAN.md — Persist seven batting and pitching split families with explicit availability.
+- [ ] 03-06-PLAN.md — Own the canonical Game contract and add exact last-10 and season-correct conference-only scopes.
 - [ ] 03-05-PLAN.md — Add stable-player career seasons, aggregates, and current-season game logs.
-- [ ] 03-06-PLAN.md — Add exact last-10 and season-correct conference-only scopes.
-- [ ] 03-07-PLAN.md — Enforce shared request budgets and privacy-safe operator diagnostics.
+- [ ] 03-09-PLAN.md — Expose the protected same-snapshot player detail JSON contract.
+- [ ] 03-07-PLAN.md — Enforce shared request budgets and persisted privacy-safe operational/external-refresh diagnostics.
 - [ ] 03-08-PLAN.md — Finalize revision 0025 and run the disposable-PostgreSQL Phase 3 release gate.
 
 ### Phase 4: Detailed Excel Report
@@ -356,6 +357,6 @@ Plans:
 | 1. Canonical Snapshot Foundation | 41/41 | Complete | 2026-11-11 |
 | 2. Identity, Organizations, and Report Library | 16/16 | Complete   | 2026-11-13 |
 | 02.1 Restore public homepage and school-domain sign-in flow | 4/4 | Complete | 2026-11-13 |
-| 3. Detailed NCAA Intelligence | 0/8 | Not started | - |
+| 3. Detailed NCAA Intelligence | 0/9 | Not started | - |
 | 4. Detailed Excel Report | 0/3 | Not started | - |
 | 5. Embedded Opponent Dashboard | 0/4 | Not started | - |

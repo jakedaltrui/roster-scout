@@ -38,7 +38,7 @@
 ### the agent's Discretion
 - Choose the exact normalized table layout, migration split, request-budget values, bounded concurrency, retry cadence, and cache keys while preserving the locked provenance, immutability, availability, and D1/D2/D3 parity rules.
 - Choose whether last-10 and conference calculations share a generic scoped-fact representation with source-provided splits or use a closely related typed model, provided both retain exact scope membership and never duplicate metric formulas.
-- Choose safe display labels and machine codes for section/scope availability. Phase 3 does not implement the customer-facing workbook or dashboard layout.
+- Choose safe display labels and machine codes for section/scope availability. Phase 3 does not implement the customer-facing workbook or dashboard layout; it does expose the minimum HIST-06 backend contract as a protected, organization-authorized snapshot/player JSON drill endpoint over immutable same-snapshot data.
 
 ### Deferred Ideas (OUT OF SCOPE)
 
@@ -69,8 +69,8 @@
 | HIST-03 | Player game logs identify date, opponent, opponent ID when available, and available batting, pitching, and fielding lines. | Parse current player `#game_log_{player_id}_player` grids for batting/pitching/fielding and link them to an audited team schedule game when the match is unique. [CITED: https://github.com/billpetti/baseballr/blob/master/R/ncaa_game_logs.R] |
 | HIST-04 | Missing historical seasons or games are disclosed in section completeness instead of being silently omitted. | Represent missing stable ID, missing table, ambiguous team/game link, and budget exhaustion as explicit section/scope state. [VERIFIED: codebase grep] |
 | HIST-05 | Career and game-log collection uses bounded concurrency, source caching, request budgets, and retry/backoff controls. | Reuse the Browserless slot, job retry, section cache, and source-contract mechanisms; add a per-build request ledger. [VERIFIED: codebase grep] |
-| HIST-06 | A customer can drill from a roster player into season, split, career, and game-log views for the same snapshot. | Every fact path begins at snapshot + stable Player and reaches season/scope/game facts without a second identity system. [VERIFIED: codebase grep] |
-| OPS-03 | Operators can identify stuck jobs, failed Power BI refreshes, unavailable source sections, and capacity exhaustion without reading customer data. | Add metadata-only diagnostics for job age, request budget, section status/reason, upstream category, and capacity exhaustion; Power BI refresh remains Phase 5 but the diagnostics model must reserve its category. [VERIFIED: codebase grep] |
+| HIST-06 | A customer can drill from a roster player into season, split, career, and game-log views for the same snapshot. | Every fact path begins at snapshot + stable Player and reaches season/scope/game facts without a second identity system; Phase 3 exposes that projection through a protected organization-authorized snapshot/player JSON endpoint, without adding dashboard UI. [VERIFIED: codebase grep] |
+| OPS-03 | Operators can identify stuck jobs, failed Power BI refreshes, unavailable source sections, and capacity exhaustion without reading customer data. | Persist provider-neutral `ExternalRefreshDiagnostic` attempts and add metadata-only diagnostics for job age, request budget, section status/reason, upstream category, capacity exhaustion, and seeded or Phase-5-written failed `power_bi` records. Phase 5 still owns refresh orchestration, authentication, and polling. [VERIFIED: codebase grep] |
 </phase_requirements>
 
 ## Summary
@@ -112,7 +112,7 @@ No project-defined `.codex/skills/` or `.agents/skills/` were present. [VERIFIED
 | Library / component | Version | Purpose | Why Standard |
 |---------------------|---------|---------|--------------|
 | Python | 3.14.7 available | Collectors, canonicalization, workers, tests | Existing application runtime. [VERIFIED: environment probe] |
-| Flask | 3.1.3 | Existing application boundary | Already pinned; Phase 3 does not add customer-facing routes. [VERIFIED: PyPI registry] |
+| Flask | 3.1.3 | Existing application boundary | Already pinned; Phase 3 adds only the protected organization-authorized snapshot/player JSON detail route required for HIST-06, not a new dashboard surface. [VERIFIED: PyPI registry] |
 | SQLAlchemy | 2.1.6 pinned | Typed models and caller-owned transactions | Existing canonical persistence pattern; PyPI showed 2.1.8 as latest during research, but this phase should not mix a framework upgrade into schema work. [VERIFIED: PyPI registry] |
 | Alembic | 1.20.1 | Additive schema migrations | Existing migration head is `0024`. [VERIFIED: environment probe] |
 | PostgreSQL + psycopg | psycopg 3.3.6 pinned | Immutable canonical data and constraints | Existing production authority and composite ownership enforcement. [VERIFIED: codebase grep] |
@@ -192,7 +192,9 @@ roster_scout/
 ├── canonical.py              # source rows -> typed counts and identities
 ├── metrics.py                # one Decimal-based metric registry/engine
 ├── ncaa_detail.py            # category/split/player/schedule parsing contracts
+├── player_detail.py          # authorized immutable same-snapshot detail projection
 ├── scopes.py                 # last-10/conference selection and aggregation
+├── report_routes.py          # protected HIST-06 snapshot/player JSON route
 ├── jobs.py                   # section orchestration, budget, cache, publication
 └── snapshots.py              # extended integrity and completeness checks
 migrations/versions/
@@ -566,8 +568,8 @@ The NCAA schedule tooling exposes season-specific team and opponent conference I
 | HIST-03 | Current-season batting/pitching/fielding game logs | parser + DB integration | `uv run python -m unittest tests.test_player_history.GameLogTests -v` | ❌ Wave 0 |
 | HIST-04 | Missing history/games disclose completeness | unit + DB integration | `uv run python -m unittest tests.test_player_history.HistoryCompletenessTests -v` | ❌ Wave 0 |
 | HIST-05 | Request ledger, cache, concurrency, retry/budget | job integration | `uv run python -m unittest tests.test_report_jobs tests.test_player_history.CollectionBudgetTests -v` | Existing base + ❌ Wave 0 detail |
-| HIST-06 | One player drills to all same-snapshot views | DB integration | `uv run python -m unittest tests.test_player_history.SnapshotDrillPathTests -v` | ❌ Wave 0 |
-| OPS-03 | Safe stuck/failure/capacity diagnostics | unit + integration | `uv run python -m unittest tests.test_phase3_release.OperatorDiagnosticsTests -v` | ❌ Wave 0 |
+| HIST-06 | Protected organization-authorized player drill to all same-snapshot views | route + DB integration | `uv run python -m unittest tests.test_report_library.SnapshotPlayerDetailRouteTests tests.test_player_history.SnapshotDrillPathTests -v` | ❌ Wave 0 |
+| OPS-03 | Safe stuck/failure/capacity and persisted external-refresh diagnostics | unit + integration | `uv run python -m unittest tests.test_phase3_release.OperatorDiagnosticsTests tests.test_phase3_release.ExternalRefreshDiagnosticTests -v` | ❌ Wave 0 |
 
 ### Required Edge-Case Matrix
 
@@ -641,7 +643,7 @@ ASVS category names follow the OWASP ASVS project; exact requirement numbers sho
 
 ## Operations and Observability
 
-Add a metadata-only operator projection/CLI that reports job ID, state, attempt/generation, age/heartbeat, result snapshot ID, each requested section/scope state and safe reason, request budget used/remaining, cache/live counts, Browserless capacity category, and next retry time. [ASSUMED] It must omit player names, raw rows, exception text, query strings, credentials, and organization/customer content. [VERIFIED: codebase grep]
+Add a metadata-only operator projection/CLI that reports job ID, state, attempt/generation, age/heartbeat, result snapshot ID, each requested section/scope state and safe reason, request budget used/remaining, cache/live counts, Browserless capacity category, next retry time, and persisted provider-neutral `ExternalRefreshDiagnostic` attempt metadata. The CLI must identify seeded or Phase-5-written failed `power_bi` records by provider/status/safe category/timestamps/attempt/opaque correlation ID while omitting player names, raw rows, provider payloads, exception text, query strings, credentials, and organization/customer content. Phase 5—not Phase 3—owns provider authentication, orchestration, triggering, and polling. [ASSUMED]
 
 Define stuck conditions as configuration, not ad hoc queries: queued without dispatch/heartbeat past the existing stale threshold, running past the existing running timeout, retrying past `next_attempt_at`, and a request ledger without progress past its navigation timeout. [ASSUMED] Reuse `reconcile_stale_report_jobs()` for repair; diagnostics should observe and explain, not mutate by default. [VERIFIED: codebase grep]
 
@@ -656,7 +658,7 @@ Define stuck conditions as configuration, not ad hoc queries: queued without dis
 | A5 | Player game-log rows can be uniquely linked to schedule games with date/opponent/result plus explicit doubleheader evidence. | Schedule-First Identity | High; capture live fixtures and mark ambiguous rows partial. |
 | A6 | Career grid source links or season lookup can resolve each historical team ID exactly. | Player Fan-Out | High; if not, the affected career row must be partial/unavailable. |
 | A7 | Proposed availability/reason code vocabulary is acceptable. | Availability | Medium; codes may be renamed but must stay machine-safe and semantically distinct. |
-| A8 | A reusable metadata-only projection plus `inspect_report_jobs.py` as the minimum OPS-03 surface is selected. | Operations | Resolved in Plans 03-07/03-08; later adapters may consume the same safe projection. |
+| A8 | A persisted provider-neutral `ExternalRefreshDiagnostic` plus reusable metadata-only projection and `inspect_report_jobs.py` are the minimum OPS-03 surface. | Operations | Resolved in Plans 03-07/03-08; the CLI inspects seeded or Phase-5-written failed `power_bi` rows while Phase 5 retains orchestration/auth/polling. |
 | A9 | Proposed expanded count columns, scope fields, request-ledger fields, and exact new module/table names fit the final schema. | Data Shape / Project Structure | Medium; preserve semantics if names or normalization change. |
 | A10 | The proposed `MetricResult` API and metric status vocabulary are the right implementation form. | Metric Pattern | Medium; equivalent typed result objects are acceptable. |
 | A11 | Summing compatible counts before recalculating rates is the required career/scoped aggregation behavior for every listed rate. | Pitfalls | Medium; verify each metric's compatibility rules with golden fixtures. |
@@ -675,8 +677,11 @@ Define stuck conditions as configuration, not ad hoc queries: queued without dis
 3. **Historical team identity — resolved as exact identity or partial/unavailable.**
    - Selected outcome: A career row is accepted with authoritative team identity only from a source link or exact season-specific lookup. Text-only ambiguous teams and ambiguous current-season game links remain partial/unavailable with exact reasons; they are never guessed or name-linked across seasons. [VERIFIED: plan 03-05]
 
-4. **Operator diagnostics surface — resolved as reusable metadata projection plus CLI minimum.**
-   - Selected outcome: Models/services expose a provider-neutral safe metadata projection for job, section, request-budget, capacity, and external refresh attempts; `scripts/inspect_report_jobs.py` is the minimum read-only operator surface. The projection excludes customer/raw/secret data and can support later structured metrics or internal adapters without changing Phase 3 canonical semantics. [VERIFIED: plans 03-07 and 03-08]
+4. **Customer player drill contract — resolved as a protected backend projection.**
+   - Selected outcome: Phase 3 exposes the minimum HIST-06 customer contract as a protected, organization-authorized snapshot/player JSON endpoint over immutable stored season, split, career, and game-log data. Cross-organization substitutions fail as absence; Phase 5 still owns dashboard presentation. [VERIFIED: plan 03-09]
+
+5. **Operator diagnostics surface — resolved as reusable metadata projection plus CLI minimum.**
+   - Selected outcome: Phase 3 persists provider-neutral `ExternalRefreshDiagnostic` attempts and exposes a safe metadata projection for job, section, request-budget, capacity, and external refresh state; `scripts/inspect_report_jobs.py` is the minimum read-only operator surface and must diagnose seeded or Phase-5-written failed `power_bi` rows. The projection excludes customer/raw/provider-secret data. Phase 5 retains refresh orchestration, authentication, triggering, and polling. [VERIFIED: plans 03-07 and 03-08]
 
 ## Sources
 

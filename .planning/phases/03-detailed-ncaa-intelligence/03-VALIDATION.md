@@ -21,7 +21,7 @@ created: 2026-11-15
 | **Config file** | None; tests are discovered from `tests/` |
 | **Quick run command** | `uv run python -m unittest tests.test_detailed_stats tests.test_ncaa_detail tests.test_scoped_stats tests.test_player_history tests.test_report_library.SnapshotPlayerDetailRouteTests -v` |
 | **Full suite command** | `uv run python -m unittest discover -s tests -v` |
-| **Phase gate command** | `PHASE2_DESTRUCTIVE_DATABASE=local-disposable DATABASE_URL=postgresql+psycopg://..._test uv run python scripts/validate_phase3_release.py` |
+| **Phase gate command** | `uv run python scripts/prepare_phase3_test_database.py --ensure && uv run python scripts/validate_phase3_release.py` |
 | **Estimated runtime** | Quick target: under 120 seconds; full/release target: under 15 minutes |
 
 ---
@@ -46,19 +46,19 @@ created: 2026-11-15
 | 03-01-02 | 01 | 1 | STAT-05 | T-03-01-03 | wOBA remains unavailable without versioned verified NCAA weights | unit + DB integration | `uv run python -m unittest tests.test_detailed_stats.ConstantMetricTests.test_woba -v` | ❌ W0 | ⬜ pending |
 | 03-01-02 | 01 | 1 | STAT-06 | T-03-01-03 | FIP remains unavailable without a versioned verified NCAA constant | unit + DB integration | `uv run python -m unittest tests.test_detailed_stats.ConstantMetricTests.test_fip -v` | ❌ W0 | ⬜ pending |
 | 03-01-03 | 01 | 1 | STAT-07 | T-03-01-03/04 | Method version, exact inputs/sample/source, and verified constant-set lineage persist immutably | job + DB integration | `uv run python -m unittest tests.test_report_jobs.FullSeasonMetricPublicationTests tests.test_detailed_stats.MethodologyPersistenceTests -v` | ❌ W0 | ⬜ pending |
-| 03-08-03 | 08 | 8 | STAT-08 | T-03-08-01/02 | D1/D2/D3 share one schema, status vocabulary, and isolation contract | fixture + release contract | `uv run python -m unittest tests.test_phase3_release.DivisionParityTests -v` | ❌ W0 | ⬜ pending |
+| 03-08-03 | 08 | 9 | STAT-08 | T-03-08-01/02 | D1/D2/D3 share one schema, status vocabulary, and isolation contract | fixture + release contract | `uv run python -m unittest tests.test_phase3_release.DivisionParityTests -v` | ❌ W0 | ⬜ pending |
 | 03-04-02 | 04 | 4 | SPLT-01 | T-03-04-01/02 | Seven batting split codes use discovered source identity and typed ownership | parser + canonical fixture | `uv run python -m unittest tests.test_ncaa_detail.BattingSplitTests -v` | ❌ W0 | ⬜ pending |
 | 03-04-02 | 04 | 4 | SPLT-02 | T-03-04-01/02 | Seven pitching split codes publish exact facts or explicit unavailability | parser + canonical fixture | `uv run python -m unittest tests.test_ncaa_detail.PitchingSplitTests -v` | ❌ W0 | ⬜ pending |
 | 03-04-02 | 04 | 4 | SPLT-03 | T-03-04-02/03 | Split code/label/type/source/status are immutable and tenant-bound | DB integration | `uv run python -m unittest tests.test_ncaa_detail.SplitProvenanceTests -v` | ❌ W0 | ⬜ pending |
 | 03-03-03 | 03 | 3 | SPLT-04 | T-03-03-02 | Per-season/type control plus result-grid discovery rejects stale/mismatched identifiers and records explicit source absence | live capture + parser contract | `uv run python -m unittest tests.test_ncaa_detail.SplitDiscoveryTests.test_certified_result_grid_contract -v` | ❌ W0 | ⬜ pending |
 | 03-04-03 | 04 | 4 | SPLT-05 | T-03-04-03 | Missing split is an unavailable/partial scope with no synthetic zero facts | unit + DB integration | `uv run python -m unittest tests.test_ncaa_detail.SplitAvailabilityTests -v` | ❌ W0 | ⬜ pending |
-| 03-05-02 | 05 | 5 | HIST-01 | T-03-05-01/02 | Transfer history preserves exact school/team/division/season/source | parser + DB integration | `uv run python -m unittest tests.test_player_history.CareerSeasonTests -v` | ❌ W0 | ⬜ pending |
-| 03-05-02 | 05 | 5 | HIST-02 | T-03-05-05 | Career aggregate includes only exact compatible available rows | unit + DB integration | `uv run python -m unittest tests.test_player_history.CareerAggregateTests -v` | ❌ W0 | ⬜ pending |
-| 03-05-02 | 05 | 5 | HIST-03 | T-03-05-01/02 | Current-season typed game logs link through stable player and audited game identity | parser + DB integration | `uv run python -m unittest tests.test_player_history.GameLogTests -v` | ❌ W0 | ⬜ pending |
-| 03-05-03 | 05 | 5 | HIST-04 | T-03-05-05 | Missing history/games disclose exact section completeness | unit + DB integration | `uv run python -m unittest tests.test_player_history.HistoryCompletenessTests -v` | ❌ W0 | ⬜ pending |
-| 03-07-02 | 07 | 7 | HIST-05 | T-03-07-01/04 | One durable ledger bounds cache/live requests, concurrency, retry, and budget | job integration | `uv run python -m unittest tests.test_report_jobs tests.test_player_history.CollectionBudgetTests -v` | Existing base + ❌ W0 detail | ⬜ pending |
-| 03-05-03 | 05 | 5 | HIST-06 | T-03-05-03/06 | Protected JSON drill paths authorize report/snapshot/player and resolve immutable season/split/career/game views | route + DB integration | `uv run python -m unittest tests.test_report_library.SnapshotPlayerDetailRouteTests tests.test_player_history.SnapshotDrillPathTests -v` | ❌ W0 | ⬜ pending |
-| 03-07-03 | 07 | 7 | OPS-03 | T-03-07-02/05 | Diagnostics expose safe lifecycle/budget/capacity and seeded failed-Power-BI attempt metadata without customer data | unit + integration | `uv run python -m unittest tests.test_phase3_release.OperatorDiagnosticsTests tests.test_phase3_release.ExternalRefreshDiagnosticTests -v` | ❌ W0 | ⬜ pending |
+| 03-05-02 | 05 | 6 | HIST-01 | T-03-05-01/02 | Transfer history preserves exact school/team/division/season/source | parser + DB integration | `uv run python -m unittest tests.test_player_history.CareerSeasonTests -v` | ❌ W0 | ⬜ pending |
+| 03-05-02 | 05 | 6 | HIST-02 | T-03-05-05 | Career aggregate includes only exact compatible available rows | unit + DB integration | `uv run python -m unittest tests.test_player_history.CareerAggregateTests -v` | ❌ W0 | ⬜ pending |
+| 03-05-02 | 05 | 6 | HIST-03 | T-03-05-02/03 | Current-season typed game logs link through the one schedule-derived canonical Game | parser + DB integration | `uv run python -m unittest tests.test_player_history.GameLogTests -v` | ❌ W0 | ⬜ pending |
+| 03-05-02 | 05 | 6 | HIST-04 | T-03-05-05 | Missing history/games disclose exact section completeness | unit + DB integration | `uv run python -m unittest tests.test_player_history.HistoryCompletenessTests -v` | ❌ W0 | ⬜ pending |
+| 03-07-02 | 07 | 8 | HIST-05 | T-03-07-01/04 | One durable ledger bounds cache/live requests, concurrency, retry, and budget | job integration | `uv run python -m unittest tests.test_report_jobs tests.test_player_history.CollectionBudgetTests -v` | Existing base + ❌ W0 detail | ⬜ pending |
+| 03-09-02 | 09 | 7 | HIST-06 | T-03-09-01/02/04 | Protected JSON drill paths authorize report/snapshot/player and resolve immutable season/split/career/game views | route + DB integration | `uv run python -m unittest tests.test_report_library.SnapshotPlayerDetailRouteTests tests.test_player_history.SnapshotDrillPathTests -v` | ❌ W0 | ⬜ pending |
+| 03-07-03 | 07 | 8 | OPS-03 | T-03-07-02/05 | Diagnostics expose safe lifecycle/budget/capacity and seeded failed-Power-BI attempt metadata without customer data | unit + integration | `uv run python -m unittest tests.test_phase3_release.OperatorDiagnosticsTests tests.test_phase3_release.ExternalRefreshDiagnosticTests -v` | ❌ W0 | ⬜ pending |
 
 ### Required Edge-Case Matrix
 
@@ -86,6 +86,8 @@ created: 2026-11-15
 ## Wave 0 Requirements
 
 - [ ] `tests/fixtures/ncaa_detail/{d1,d2,d3}/` — sanitized current-layout team fielding, split controls plus batting/pitching result-or-absence evidence, player career/game logs, and schedule pages
+- [ ] `scripts/capture_phase3_ncaa_fixtures.py --preflight` — secret-safe configured Browserless endpoint/token readiness with fixed `phase3_browserless_unavailable`
+- [ ] `scripts/prepare_phase3_test_database.py --ensure` — executor-owned `_test` PostgreSQL bootstrap/readiness with migration permission and fixed `phase3_test_database_unavailable`
 - [ ] `tests/test_detailed_stats.py` — formula table, input lineage, constants, and zero/missing/undefined semantics
 - [ ] `tests/test_ncaa_detail.py` — parser/source contracts and all split availability states
 - [ ] `tests/test_scoped_stats.py` — exact last-10 and conference membership plus aggregation
