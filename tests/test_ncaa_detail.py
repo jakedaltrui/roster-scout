@@ -349,17 +349,38 @@ class FixtureCaptureSafetyTests(unittest.TestCase):
 
     def test_schedule_capture_rejects_pagination_unknown_results_and_malformed_rows(self):
         api = self.capture_api()
-        paginated = self._raw_schedule() + '<a rel="next" href="?page=2">Next</a>'
-        sanitized = api.sanitize_schedule(
-            paginated,
-            season_id="17040",
-            team_id="234",
-            season_team_id="614606",
-            division="1",
-            catalog=self._schedule_catalog(),
-            captured_at="2026-11-16T00:00:00Z",
-        )
-        self.assertIn('data-schedule-complete="false"', sanitized)
+        for control in (
+            '<a rel="next" href="?page=2">Next</a>',
+            '<nav class="pagination"><span class="next"><a href="?page=2">Next</a></span></nav>',
+            '<nav class="pagination"><a class="next" href="?page=2">Next</a></nav>',
+            '<nav class="pagination"><a data-page="not-a-page">Next</a></nav>',
+        ):
+            with self.subTest(control=control):
+                sanitized = api.sanitize_schedule(
+                    self._raw_schedule() + control,
+                    season_id="17040",
+                    team_id="234",
+                    season_team_id="614606",
+                    division="1",
+                    catalog=self._schedule_catalog(),
+                    captured_at="2026-11-16T00:00:00Z",
+                )
+                self.assertIn('data-schedule-complete="false"', sanitized)
+        for control in (
+            '<nav class="pagination"><span class="next disabled"><a href="?page=2">Next</a></span></nav>',
+            '<nav class="pagination"><span class="next"><a aria-disabled="true" href="?page=2">Next</a></span></nav>',
+        ):
+            with self.subTest(control=control):
+                sanitized = api.sanitize_schedule(
+                    self._raw_schedule() + control,
+                    season_id="17040",
+                    team_id="234",
+                    season_team_id="614606",
+                    division="1",
+                    catalog=self._schedule_catalog(),
+                    captured_at="2026-11-16T00:00:00Z",
+                )
+                self.assertIn('data-schedule-complete="true"', sanitized)
         for raw in (
             self._raw_schedule(result="mystery result"),
             self._raw_schedule(extra="<tr><td>03/02/2026</td></tr>"),

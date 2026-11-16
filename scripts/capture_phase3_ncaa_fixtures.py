@@ -1290,18 +1290,24 @@ def _schedule_is_complete(raw_html: str, table, *, game_count: int) -> bool:
     declared = table.get("data-total-games") or table.get("data-total-rows")
     if not str(declared or "").isdigit() or int(declared) != game_count:
         return False
-    pagination = soup.select('[rel="next"], .pagination .next, [data-page]')
-    for item in pagination:
+
+    def disabled(item) -> bool:
         classes = {str(value).casefold() for value in (item.get("class") or ())}
-        disabled = (
+        return (
             "disabled" in classes
-            or item.get("aria-disabled") == "true"
+            or str(item.get("aria-disabled") or "").casefold() == "true"
             or item.has_attr("disabled")
         )
-        if item.get("rel") == ["next"] and not disabled:
+
+    for control in soup.select('[rel~="next"], .pagination .next'):
+        linked_controls = control.select("a, button")
+        if not disabled(control) and (
+            not linked_controls or any(not disabled(item) for item in linked_controls)
+        ):
             return False
+    for item in soup.select("[data-page]"):
         page = item.get("data-page")
-        if page is not None and (not str(page).isdigit() or int(page) > 1):
+        if not str(page or "").isdigit() or int(page) > 1:
             return False
     return True
 
