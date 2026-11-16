@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 03-09-PLAN.md
-last_updated: "2026-11-16T10:15:14.255Z"
+stopped_at: Completed 03-07-PLAN.md
+last_updated: "2026-11-16T10:39:05.600Z"
 last_activity: 2026-11-16
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 70
-  completed_plans: 68
+  completed_plans: 69
   percent: 50
 ---
 
@@ -30,7 +30,7 @@ Plan: 8 of 9
 Status: Ready to execute
 Last activity: 2026-11-16
 
-Progress: [██████████] 97%
+Progress: [██████████] 99%
 
 ## Performance Metrics
 
@@ -261,6 +261,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 03]: Organization identity for player drill reads comes only from the revalidated server authorization context; request UUIDs are selectors, not authority.
 - [Phase 03]: Foreign and mixed player-drill substitutions use one audited snapshot-target 404 so organizations, reports, snapshots, and players are not enumerated.
 - [Phase 03]: Player drill responses expose fixed canonical projections and exclude raw source rows and source URLs.
+- [Phase 03]: Request-ledger source identities are SHA-256-derived safe tokens over validated source-contract fields. — Prevents URLs, player/customer values, and provider payloads from entering operator metadata.
+- [Phase 03]: External refresh identity is immutable with one pending-to-terminal lifecycle. — Allows Phase 5 operational attempts after publication without tenant or provider identity drift.
+- [Phase 03]: Operator diagnostics are read-only metadata projections. — Keeps reconciliation as the sole repair path and prevents diagnostics from mutating customer jobs.
 
 ### Pending Todos
 
@@ -323,9 +326,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 03 P06 | 47min | 3 tasks | 13 files |
 | Phase 03 P05 | 41min | 2 tasks | 11 files |
 | Phase 03 P09 | 15min | 2 tasks | 5 files |
+| Phase 03 P07 | 20min | 3 tasks | 8 files |
 
 ## Session Continuity
 
-Last session: 2026-11-16T10:15:14.246Z
-Stopped at: Completed 03-09-PLAN.md
+Last session: 2026-11-16T10:39:05.592Z
+Stopped at: Completed 03-07-PLAN.md
 Resume file: None

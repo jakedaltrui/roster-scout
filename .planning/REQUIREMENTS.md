@@ -75,7 +75,7 @@
 - [x] **HIST-02**: A career aggregate is labeled separately from individual season rows and is recomputed only from available compatible facts.
 - [x] **HIST-03**: Player game logs identify date, opponent, opponent ID when available, and available batting, pitching, and fielding lines.
 - [x] **HIST-04**: Missing historical seasons or games are disclosed in section completeness instead of being silently omitted.
-- [ ] **HIST-05**: Career and game-log collection uses bounded concurrency, source caching, request budgets, and retry/backoff controls.
+- [x] **HIST-05**: Career and game-log collection uses bounded concurrency, source caching, request budgets, and retry/backoff controls.
 - [x] **HIST-06**: A customer can drill from a roster player into season, split, career, and game-log views for the same snapshot.
 
 ### Excel Report
@@ -110,7 +110,7 @@
 - [ ] **SECU-06**: Production readiness includes automated cross-organization denial tests and a manual two-organization Power BI RLS verification.
 - [x] **OPS-01**: Report jobs apply bounded retries and never run more NCAA browser sessions than the configured capacity permits.
 - [x] **OPS-02**: Successful source responses and normalized sections are cached with schema/version keys to control upstream requests and rebuild cost.
-- [ ] **OPS-03**: Operators can identify stuck jobs, failed Power BI refreshes, unavailable source sections, and capacity exhaustion without reading customer data.
+- [x] **OPS-03**: Operators can identify stuck jobs, failed Power BI refreshes, unavailable source sections, and capacity exhaustion without reading customer data.
 - [x] **OPS-04**: Database migrations and snapshot schema upgrades preserve existing published snapshots or explicitly migrate them with verification.
 - [x] **OPS-05**: Existing current-season D1/D2/D3 selector and basic workbook behavior remain covered by regression tests throughout the migration.
 
