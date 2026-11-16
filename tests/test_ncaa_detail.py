@@ -129,14 +129,20 @@ class FieldingTests(unittest.TestCase):
             with self.subTest(html=html[:80]):
                 self.assert_failure(html, "source_blocked" if "stat_grid" not in html else "schema_validation")
 
-    def test_verified_empty_requires_a_valid_fielding_grid(self):
-        empty = fixture("d2").replace(
+    def test_verified_empty_requires_source_authored_empty_marker(self):
+        header_only = fixture("d2").replace(
             '<tr>\n          <td><a href="/players/22001">D Two Infielder</a></td>\n'
             '          <td>22</td><td>21</td><td>31</td><td>46</td><td>3</td>\n'
             '          <td>80</td><td>7</td><td>.963</td>\n        </tr>',
             "",
         )
-        section = self.parse(empty)
+        self.assert_failure(header_only, "schema_validation")
+
+        explicit_empty = header_only.replace(
+            "<tbody>",
+            '<tbody><tr><td colspan="9">No statistics available</td></tr>',
+        )
+        section = self.parse(explicit_empty)
         self.assertTrue(section.verified_empty)
         self.assertEqual(section.rows, ())
 

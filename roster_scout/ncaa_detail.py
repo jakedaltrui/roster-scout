@@ -1516,10 +1516,12 @@ def parse_fielding_page(
     player_index = headers.index("player")
     digest = hashlib.sha256(html.encode("utf-8")).hexdigest()
     rows = []
+    saw_empty_marker = False
     body_rows = table.select("tbody tr") or table.find_all("tr")[1:]
     for source_row in body_rows:
         marker = _normalized(source_row.get_text(" ", strip=True))
         if marker in _EMPTY_MARKERS:
+            saw_empty_marker = True
             continue
         cells = source_row.find_all(["th", "td"], recursive=False)
         if len(cells) != len(headers):
@@ -1557,12 +1559,17 @@ def parse_fielding_page(
             payload_sha256=digest,
         ))
 
+    if not rows and not saw_empty_marker:
+        raise FieldingParseError("schema_validation")
+    if rows and saw_empty_marker:
+        raise FieldingParseError("schema_validation")
+
     return FieldingSection(
         name="fielding",
         source_url=source_url,
         stat_category_id=stat_category_id,
         html_sha256=digest,
         rows=tuple(rows),
-        verified_empty=not rows,
+        verified_empty=saw_empty_marker,
         collected_at=collected_at or datetime.now(UTC),
     )
