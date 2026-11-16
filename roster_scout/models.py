@@ -1475,6 +1475,248 @@ class ScopedFieldingFact(UUIDPrimaryKey, Base):
     )
 
 
+class CareerSeasonFact(UUIDPrimaryKey, Base):
+    __tablename__ = "career_season_facts"
+    organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    player_team_season_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    source_record_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    row_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    stat_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    season_label: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_season_id: Mapped[str | None] = mapped_column(String(100))
+    school_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    source_season_team_id: Mapped[str | None] = mapped_column(String(100))
+    division: Mapped[str | None] = mapped_column(String(16))
+    source_stat_category_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    counts_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    rates_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    at_bats: Mapped[int | None] = mapped_column(Integer)
+    hits: Mapped[int | None] = mapped_column(Integer)
+    innings_outs: Mapped[int | None] = mapped_column(Integer)
+    earned_runs: Mapped[int | None] = mapped_column(Integer)
+    putouts: Mapped[int | None] = mapped_column(Integer)
+    assists: Mapped[int | None] = mapped_column(Integer)
+    errors: Mapped[int | None] = mapped_column(Integer)
+    total_chances: Mapped[int | None] = mapped_column(Integer)
+    __table_args__ = (
+        UniqueConstraint(
+            "snapshot_id", "player_team_season_id", "stat_type", "row_id",
+            name="uq_career_season_facts_snapshot_player_type_row",
+        ),
+        ForeignKeyConstraint(
+            ["snapshot_id", "organization_id"],
+            ["report_snapshots.id", "report_snapshots.organization_id"],
+            name="fk_career_season_facts_snapshot_organization",
+        ),
+        ForeignKeyConstraint(
+            ["player_team_season_id", "snapshot_id", "organization_id"],
+            ["player_team_seasons.id", "player_team_seasons.snapshot_id", "player_team_seasons.organization_id"],
+            name="fk_career_season_facts_player_snapshot_organization",
+        ),
+        ForeignKeyConstraint(
+            ["source_record_id", "player_team_season_id", "snapshot_id", "organization_id"],
+            ["source_records.id", "source_records.player_team_season_id", "source_records.snapshot_id", "source_records.organization_id"],
+            name="fk_career_season_facts_source_identity",
+        ),
+        CheckConstraint(
+            _allowed("stat_type", ("batting", "pitching", "fielding")),
+            name="ck_career_season_facts_stat_type",
+        ),
+        CheckConstraint(
+            "division IS NULL OR division IN ('d1', 'd2', 'd3')",
+            name="ck_career_season_facts_division",
+        ),
+        CheckConstraint("char_length(row_id) = 64", name="ck_career_season_facts_row_id_length"),
+        CheckConstraint("jsonb_typeof(counts_json) = 'object'", name="ck_career_season_facts_counts_object"),
+        CheckConstraint("jsonb_typeof(rates_json) = 'object'", name="ck_career_season_facts_rates_object"),
+        *(
+            CheckConstraint(
+                f"{column} IS NULL OR {column} >= 0",
+                name=f"ck_career_season_facts_{column}_nonnegative",
+            )
+            for column in (
+                "at_bats", "hits", "innings_outs", "earned_runs", "putouts",
+                "assists", "errors", "total_chances",
+            )
+        ),
+        CheckConstraint(
+            "hits IS NULL OR at_bats IS NULL OR hits <= at_bats",
+            name="ck_career_season_facts_hits_lte_at_bats",
+        ),
+        {"info": {"database_triggers": ("trg_career_season_facts_immutable",)}},
+    )
+
+
+class CareerAggregate(UUIDPrimaryKey, Base):
+    __tablename__ = "career_aggregates"
+    organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    player_team_season_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    stat_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    availability_reason: Mapped[str | None] = mapped_column(String(100))
+    definition_version: Mapped[str] = mapped_column(String(50), nullable=False)
+    counts_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    included_row_ids: Mapped[list] = mapped_column(JSONB, nullable=False)
+    excluded_rows_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    __table_args__ = (
+        UniqueConstraint(
+            "snapshot_id", "player_team_season_id", "stat_type",
+            name="uq_career_aggregates_snapshot_player_type",
+        ),
+        ForeignKeyConstraint(
+            ["snapshot_id", "organization_id"],
+            ["report_snapshots.id", "report_snapshots.organization_id"],
+            name="fk_career_aggregates_snapshot_organization",
+        ),
+        ForeignKeyConstraint(
+            ["player_team_season_id", "snapshot_id", "organization_id"],
+            ["player_team_seasons.id", "player_team_seasons.snapshot_id", "player_team_seasons.organization_id"],
+            name="fk_career_aggregates_player_snapshot_organization",
+        ),
+        CheckConstraint(
+            _allowed("stat_type", ("batting", "pitching", "fielding")),
+            name="ck_career_aggregates_stat_type",
+        ),
+        CheckConstraint(
+            _allowed("status", ("complete", "partial", "unavailable")),
+            name="ck_career_aggregates_status",
+        ),
+        CheckConstraint(
+            "(status = 'complete' AND availability_reason IS NULL) OR "
+            "(status <> 'complete' AND availability_reason IS NOT NULL)",
+            name="ck_career_aggregates_reason_status",
+        ),
+        CheckConstraint("jsonb_typeof(counts_json) = 'object'", name="ck_career_aggregates_counts_object"),
+        CheckConstraint("jsonb_typeof(included_row_ids) = 'array'", name="ck_career_aggregates_included_array"),
+        CheckConstraint("jsonb_typeof(excluded_rows_json) = 'object'", name="ck_career_aggregates_excluded_object"),
+        {"info": {"database_triggers": ("trg_career_aggregates_immutable",)}},
+    )
+
+
+def _game_log_constraints(table_name: str, count_columns: tuple[str, ...]):
+    return (
+        UniqueConstraint(
+            "snapshot_id", "player_team_season_id", "game_id",
+            name=f"uq_{table_name}_snapshot_player_game",
+        ),
+        ForeignKeyConstraint(
+            ["snapshot_id", "organization_id"],
+            ["report_snapshots.id", "report_snapshots.organization_id"],
+            name=f"fk_{table_name}_snapshot_organization",
+        ),
+        ForeignKeyConstraint(
+            ["player_team_season_id", "snapshot_id", "organization_id"],
+            ["player_team_seasons.id", "player_team_seasons.snapshot_id", "player_team_seasons.organization_id"],
+            name=f"fk_{table_name}_player_snapshot_organization",
+        ),
+        ForeignKeyConstraint(
+            ["source_record_id", "player_team_season_id", "snapshot_id", "organization_id"],
+            ["source_records.id", "source_records.player_team_season_id", "source_records.snapshot_id", "source_records.organization_id"],
+            name=f"fk_{table_name}_source_identity",
+        ),
+        ForeignKeyConstraint(
+            ["game_id", "snapshot_id", "organization_id"],
+            ["games.id", "games.snapshot_id", "games.organization_id"],
+            name=f"fk_{table_name}_game_owner",
+        ),
+        CheckConstraint("char_length(row_id) = 64", name=f"ck_{table_name}_row_id_length"),
+        CheckConstraint("jsonb_typeof(counts_json) = 'object'", name=f"ck_{table_name}_counts_object"),
+        *(
+            CheckConstraint(
+                f"{column} IS NULL OR {column} >= 0",
+                name=f"ck_{table_name}_{column}_nonnegative",
+            )
+            for column in count_columns
+        ),
+    )
+
+
+class BattingGameLogFact(UUIDPrimaryKey, Base):
+    __tablename__ = "batting_game_log_facts"
+    organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    player_team_season_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    source_record_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    game_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    row_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    at_bats: Mapped[int | None] = mapped_column(Integer)
+    hits: Mapped[int | None] = mapped_column(Integer)
+    runs: Mapped[int | None] = mapped_column(Integer)
+    home_runs: Mapped[int | None] = mapped_column(Integer)
+    walks: Mapped[int | None] = mapped_column(Integer)
+    strikeouts: Mapped[int | None] = mapped_column(Integer)
+    counts_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    __table_args__ = (
+        *_game_log_constraints(
+            "batting_game_log_facts",
+            ("at_bats", "hits", "runs", "home_runs", "walks", "strikeouts"),
+        ),
+        CheckConstraint(
+            "hits IS NULL OR at_bats IS NULL OR hits <= at_bats",
+            name="ck_batting_game_log_facts_hits_lte_at_bats",
+        ),
+        {"info": {"database_triggers": ("trg_batting_game_log_facts_immutable",)}},
+    )
+
+
+class PitchingGameLogFact(UUIDPrimaryKey, Base):
+    __tablename__ = "pitching_game_log_facts"
+    organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    player_team_season_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    source_record_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    game_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    row_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    innings_outs: Mapped[int | None] = mapped_column(Integer)
+    hits_allowed: Mapped[int | None] = mapped_column(Integer)
+    runs_allowed: Mapped[int | None] = mapped_column(Integer)
+    earned_runs: Mapped[int | None] = mapped_column(Integer)
+    walks: Mapped[int | None] = mapped_column(Integer)
+    strikeouts: Mapped[int | None] = mapped_column(Integer)
+    batters_faced: Mapped[int | None] = mapped_column(Integer)
+    counts_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    __table_args__ = (
+        *_game_log_constraints(
+            "pitching_game_log_facts",
+            (
+                "innings_outs", "hits_allowed", "runs_allowed", "earned_runs",
+                "walks", "strikeouts", "batters_faced",
+            ),
+        ),
+        {"info": {"database_triggers": ("trg_pitching_game_log_facts_immutable",)}},
+    )
+
+
+class FieldingGameLogFact(UUIDPrimaryKey, Base):
+    __tablename__ = "fielding_game_log_facts"
+    organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    player_team_season_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    source_record_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    game_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    row_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    putouts: Mapped[int | None] = mapped_column(Integer)
+    assists: Mapped[int | None] = mapped_column(Integer)
+    errors: Mapped[int | None] = mapped_column(Integer)
+    total_chances: Mapped[int | None] = mapped_column(Integer)
+    passed_balls: Mapped[int | None] = mapped_column(Integer)
+    stolen_base_attempts: Mapped[int | None] = mapped_column(Integer)
+    caught_stealing_by: Mapped[int | None] = mapped_column(Integer)
+    counts_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    __table_args__ = (
+        *_game_log_constraints(
+            "fielding_game_log_facts",
+            (
+                "putouts", "assists", "errors", "total_chances", "passed_balls",
+                "stolen_base_attempts", "caught_stealing_by",
+            ),
+        ),
+        {"info": {"database_triggers": ("trg_fielding_game_log_facts_immutable",)}},
+    )
+
+
 class MetricDefinition(UUIDPrimaryKey, Timestamped, Base):
     __tablename__ = "metric_definitions"
     code: Mapped[str] = mapped_column(String(100), nullable=False)

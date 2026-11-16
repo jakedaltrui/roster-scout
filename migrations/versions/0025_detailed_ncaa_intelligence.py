@@ -63,6 +63,213 @@ def _drop_count_columns(table_name, columns):
         op.drop_column(table_name, column)
 
 
+def _history_owner_constraints(table_name, *, source_record=False):
+    constraints = [
+        sa.ForeignKeyConstraint(
+            ["snapshot_id", "organization_id"],
+            ["report_snapshots.id", "report_snapshots.organization_id"],
+            name=f"fk_{table_name}_snapshot_organization",
+        ),
+        sa.ForeignKeyConstraint(
+            ["player_team_season_id", "snapshot_id", "organization_id"],
+            [
+                "player_team_seasons.id", "player_team_seasons.snapshot_id",
+                "player_team_seasons.organization_id",
+            ],
+            name=f"fk_{table_name}_player_snapshot_organization",
+        ),
+    ]
+    if source_record:
+        constraints.append(sa.ForeignKeyConstraint(
+            [
+                "source_record_id", "player_team_season_id", "snapshot_id",
+                "organization_id",
+            ],
+            [
+                "source_records.id", "source_records.player_team_season_id",
+                "source_records.snapshot_id", "source_records.organization_id",
+            ],
+            name=f"fk_{table_name}_source_identity",
+        ))
+    return tuple(constraints)
+
+
+def _create_player_history_tables():
+    op.create_table(
+        "career_season_facts",
+        sa.Column("organization_id", sa.Uuid(), nullable=False),
+        sa.Column("snapshot_id", sa.Uuid(), nullable=False),
+        sa.Column("player_team_season_id", sa.Uuid(), nullable=False),
+        sa.Column("source_record_id", sa.Uuid(), nullable=False),
+        sa.Column("row_id", sa.String(length=64), nullable=False),
+        sa.Column("stat_type", sa.String(length=16), nullable=False),
+        sa.Column("season_label", sa.String(length=32), nullable=False),
+        sa.Column("source_season_id", sa.String(length=100)),
+        sa.Column("school_name", sa.String(length=200), nullable=False),
+        sa.Column("source_season_team_id", sa.String(length=100)),
+        sa.Column("division", sa.String(length=16)),
+        sa.Column("source_stat_category_id", sa.String(length=100), nullable=False),
+        sa.Column("counts_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.Column("rates_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        *(sa.Column(column, sa.Integer()) for column in (
+            "at_bats", "hits", "innings_outs", "earned_runs", "putouts",
+            "assists", "errors", "total_chances",
+        )),
+        sa.Column("id", sa.Uuid(), nullable=False),
+        sa.CheckConstraint(
+            "stat_type IN ('batting', 'pitching', 'fielding')",
+            name="ck_career_season_facts_stat_type",
+        ),
+        sa.CheckConstraint(
+            "division IS NULL OR division IN ('d1', 'd2', 'd3')",
+            name="ck_career_season_facts_division",
+        ),
+        sa.CheckConstraint(
+            "char_length(row_id) = 64", name="ck_career_season_facts_row_id_length"
+        ),
+        sa.CheckConstraint(
+            "jsonb_typeof(counts_json) = 'object'",
+            name="ck_career_season_facts_counts_object",
+        ),
+        sa.CheckConstraint(
+            "jsonb_typeof(rates_json) = 'object'",
+            name="ck_career_season_facts_rates_object",
+        ),
+        *(sa.CheckConstraint(
+            f"{column} IS NULL OR {column} >= 0",
+            name=f"ck_career_season_facts_{column}_nonnegative",
+        ) for column in (
+            "at_bats", "hits", "innings_outs", "earned_runs", "putouts",
+            "assists", "errors", "total_chances",
+        )),
+        sa.CheckConstraint(
+            "hits IS NULL OR at_bats IS NULL OR hits <= at_bats",
+            name="ck_career_season_facts_hits_lte_at_bats",
+        ),
+        *_history_owner_constraints("career_season_facts", source_record=True),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint(
+            "snapshot_id", "player_team_season_id", "stat_type", "row_id",
+            name="uq_career_season_facts_snapshot_player_type_row",
+        ),
+    )
+
+    op.create_table(
+        "career_aggregates",
+        sa.Column("organization_id", sa.Uuid(), nullable=False),
+        sa.Column("snapshot_id", sa.Uuid(), nullable=False),
+        sa.Column("player_team_season_id", sa.Uuid(), nullable=False),
+        sa.Column("stat_type", sa.String(length=16), nullable=False),
+        sa.Column("status", sa.String(length=20), nullable=False),
+        sa.Column("availability_reason", sa.String(length=100)),
+        sa.Column("definition_version", sa.String(length=50), nullable=False),
+        sa.Column("counts_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.Column("included_row_ids", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.Column("excluded_rows_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.Column("id", sa.Uuid(), nullable=False),
+        sa.CheckConstraint(
+            "stat_type IN ('batting', 'pitching', 'fielding')",
+            name="ck_career_aggregates_stat_type",
+        ),
+        sa.CheckConstraint(
+            "status IN ('complete', 'partial', 'unavailable')",
+            name="ck_career_aggregates_status",
+        ),
+        sa.CheckConstraint(
+            "(status = 'complete' AND availability_reason IS NULL) OR "
+            "(status <> 'complete' AND availability_reason IS NOT NULL)",
+            name="ck_career_aggregates_reason_status",
+        ),
+        sa.CheckConstraint(
+            "jsonb_typeof(counts_json) = 'object'",
+            name="ck_career_aggregates_counts_object",
+        ),
+        sa.CheckConstraint(
+            "jsonb_typeof(included_row_ids) = 'array'",
+            name="ck_career_aggregates_included_array",
+        ),
+        sa.CheckConstraint(
+            "jsonb_typeof(excluded_rows_json) = 'object'",
+            name="ck_career_aggregates_excluded_object",
+        ),
+        *_history_owner_constraints("career_aggregates"),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint(
+            "snapshot_id", "player_team_season_id", "stat_type",
+            name="uq_career_aggregates_snapshot_player_type",
+        ),
+    )
+
+    game_log_columns = {
+        "batting_game_log_facts": (
+            "at_bats", "hits", "runs", "home_runs", "walks", "strikeouts",
+        ),
+        "pitching_game_log_facts": (
+            "innings_outs", "hits_allowed", "runs_allowed", "earned_runs",
+            "walks", "strikeouts", "batters_faced",
+        ),
+        "fielding_game_log_facts": (
+            "putouts", "assists", "errors", "total_chances", "passed_balls",
+            "stolen_base_attempts", "caught_stealing_by",
+        ),
+    }
+    for table_name, count_columns in game_log_columns.items():
+        constraints = [
+            sa.CheckConstraint(
+                f"{column} IS NULL OR {column} >= 0",
+                name=f"ck_{table_name}_{column}_nonnegative",
+            )
+            for column in count_columns
+        ]
+        if table_name == "batting_game_log_facts":
+            constraints.append(sa.CheckConstraint(
+                "hits IS NULL OR at_bats IS NULL OR hits <= at_bats",
+                name="ck_batting_game_log_facts_hits_lte_at_bats",
+            ))
+        op.create_table(
+            table_name,
+            sa.Column("organization_id", sa.Uuid(), nullable=False),
+            sa.Column("snapshot_id", sa.Uuid(), nullable=False),
+            sa.Column("player_team_season_id", sa.Uuid(), nullable=False),
+            sa.Column("source_record_id", sa.Uuid(), nullable=False),
+            sa.Column("game_id", sa.Uuid(), nullable=False),
+            sa.Column("row_id", sa.String(length=64), nullable=False),
+            *(sa.Column(column, sa.Integer()) for column in count_columns),
+            sa.Column("counts_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+            sa.Column("id", sa.Uuid(), nullable=False),
+            sa.CheckConstraint(
+                "char_length(row_id) = 64", name=f"ck_{table_name}_row_id_length"
+            ),
+            sa.CheckConstraint(
+                "jsonb_typeof(counts_json) = 'object'",
+                name=f"ck_{table_name}_counts_object",
+            ),
+            *constraints,
+            *_history_owner_constraints(table_name, source_record=True),
+            sa.ForeignKeyConstraint(
+                ["game_id", "snapshot_id", "organization_id"],
+                ["games.id", "games.snapshot_id", "games.organization_id"],
+                name=f"fk_{table_name}_game_owner",
+            ),
+            sa.PrimaryKeyConstraint("id"),
+            sa.UniqueConstraint(
+                "snapshot_id", "player_team_season_id", "game_id",
+                name=f"uq_{table_name}_snapshot_player_game",
+            ),
+        )
+
+    for table_name in (
+        "career_season_facts", "career_aggregates",
+        "batting_game_log_facts", "pitching_game_log_facts",
+        "fielding_game_log_facts",
+    ):
+        op.execute(f"""
+            CREATE TRIGGER trg_{table_name}_immutable
+            BEFORE INSERT OR UPDATE OR DELETE ON {table_name}
+            FOR EACH ROW EXECUTE FUNCTION reject_published_snapshot_child_mutation()
+        """)
+
+
 def upgrade():
     op.drop_constraint(
         "ck_report_sections_status", "report_sections", type_="check"
@@ -277,6 +484,8 @@ def upgrade():
         FOR EACH ROW EXECUTE FUNCTION reject_published_snapshot_child_mutation()
         """
     )
+
+    _create_player_history_tables()
 
     op.create_table(
         "statistic_scopes",
@@ -907,6 +1116,16 @@ def downgrade():
         "DROP TRIGGER IF EXISTS trg_statistic_scopes_immutable ON statistic_scopes"
     )
     op.drop_table("statistic_scopes")
+    for table_name in (
+        "fielding_game_log_facts", "pitching_game_log_facts",
+        "batting_game_log_facts", "career_aggregates", "career_season_facts",
+    ):
+        op.execute(
+            f"DROP TRIGGER IF EXISTS trg_{table_name}_immutable ON {table_name}"
+        )
+        # Phase 3 plans share this unreleased migration while it is assembled.
+        # A disposable developer database may have an earlier 0025 shape.
+        op.execute(f"DROP TABLE IF EXISTS {table_name}")
     op.execute("DROP TABLE IF EXISTS games")
     op.execute("DROP TABLE IF EXISTS season_conference_evidence")
 

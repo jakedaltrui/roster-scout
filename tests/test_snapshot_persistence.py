@@ -58,6 +58,11 @@ SNAPSHOT_CHILD_TABLES = (
     "scoped_batting_facts",
     "scoped_pitching_facts",
     "scoped_fielding_facts",
+    "career_season_facts",
+    "career_aggregates",
+    "batting_game_log_facts",
+    "pitching_game_log_facts",
+    "fielding_game_log_facts",
     "metric_values",
 )
 

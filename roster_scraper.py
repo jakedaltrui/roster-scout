@@ -150,6 +150,87 @@ class NcaaTableParseResult:
     rows: tuple[dict, ...]
     verified_empty: bool
 
+
+@dataclass(frozen=True)
+class NcaaPlayerDetailRequest:
+    source_player_id: str
+    stat_type: str
+    source_stat_category_id: str
+    source_url: str
+
+
+@dataclass(frozen=True)
+class NcaaPlayerDetailRequestPlan:
+    scheduled: tuple[NcaaPlayerDetailRequest, ...]
+    remaining: tuple[NcaaPlayerDetailRequest, ...]
+    reused_keys: frozenset[tuple[str, str]]
+    unavailable_player_count: int
+    status: str
+    reason: str | None
+
+
+def plan_ncaa_player_detail_requests(
+    source_player_ids,
+    category_ids: dict[str, str],
+    *,
+    request_budget: int,
+    completed_keys=frozenset(),
+) -> NcaaPlayerDetailRequestPlan:
+    """Plan one category fetch per stable player/type for a single build."""
+    from roster_scout.ncaa_detail import build_player_detail_url
+
+    if isinstance(request_budget, bool) or not isinstance(request_budget, int):
+        raise ValueError("player detail request budget must be an integer")
+    if request_budget < 0 or request_budget > 10000:
+        raise ValueError("player detail request budget is outside the safe range")
+    expected_types = ("batting", "pitching", "fielding")
+    if set(category_ids) != set(expected_types):
+        raise ValueError("player detail categories are incomplete")
+    normalized_categories = {}
+    for stat_type in expected_types:
+        value = str(category_ids[stat_type] or "")
+        if not value.isdigit():
+            raise ValueError("player detail category IDs must be numeric")
+        normalized_categories[stat_type] = value
+    unique_players = []
+    unavailable = 0
+    seen = set()
+    for value in source_player_ids:
+        player_id = str(value or "")
+        if not player_id.isdigit():
+            unavailable += 1
+            continue
+        if player_id not in seen:
+            seen.add(player_id)
+            unique_players.append(player_id)
+    valid_completed = frozenset(
+        (str(player_id), str(stat_type))
+        for player_id, stat_type in completed_keys
+        if str(player_id) in seen and str(stat_type) in expected_types
+    )
+    pending = []
+    for player_id in unique_players:
+        for stat_type in expected_types:
+            if (player_id, stat_type) in valid_completed:
+                continue
+            category_id = normalized_categories[stat_type]
+            pending.append(NcaaPlayerDetailRequest(
+                source_player_id=player_id,
+                stat_type=stat_type,
+                source_stat_category_id=category_id,
+                source_url=build_player_detail_url(player_id, category_id),
+            ))
+    scheduled = tuple(pending[:request_budget])
+    remaining = tuple(pending[request_budget:])
+    return NcaaPlayerDetailRequestPlan(
+        scheduled=scheduled,
+        remaining=remaining,
+        reused_keys=valid_completed,
+        unavailable_player_count=unavailable,
+        status="partial" if remaining else "complete",
+        reason="request_budget_exhausted" if remaining else None,
+    )
+
 CURRENT_YEAR = datetime.now().year
 CLASS_TO_GRAD = {
     "fr": CURRENT_YEAR + 3, "so": CURRENT_YEAR + 2,

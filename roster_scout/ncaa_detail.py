@@ -13,7 +13,12 @@ from urllib.parse import parse_qs, urlparse
 
 from bs4 import BeautifulSoup
 
-from .metrics import MetricResult, calculate_metric
+from .metrics import (
+    METRIC_DEFINITIONS,
+    MetricResult,
+    aggregate_compatible_counts,
+    calculate_metric,
+)
 
 
 NCAA_BASE = "https://stats.ncaa.org"
@@ -22,6 +27,7 @@ SPLIT_CONTROL_CONTRACT_VERSION = "ncaa-split-controls-v1"
 SPLIT_RESULT_CONTRACT_VERSION = "ncaa-split-result-v1"
 SPLIT_SCOPE_KIND = "source_split"
 SCHEDULE_CONTRACT_VERSION = "ncaa-schedule-v1"
+PLAYER_DETAIL_CONTRACT_VERSION = "ncaa-player-detail-v1"
 SPLIT_CODES = {
     "batting": (
         "vs_lhp", "vs_rhp", "runners_on", "bases_empty",
@@ -117,6 +123,18 @@ class ScheduleContractError(ValueError):
         message = {
             "schema_validation": "NCAA schedule schema validation failed.",
             "source_identity_mismatch": "NCAA schedule source identity did not match.",
+        }[category]
+        super().__init__(message)
+
+
+class PlayerDetailContractError(ValueError):
+    """Fixed-category rejection for sanitized stable-player evidence."""
+
+    def __init__(self, category: str):
+        self.category = category
+        message = {
+            "schema_validation": "NCAA player detail schema validation failed.",
+            "source_identity_mismatch": "NCAA player detail source identity did not match.",
         }[category]
         super().__init__(message)
 
@@ -257,6 +275,82 @@ class ScheduleEvidence:
 
 
 @dataclass(frozen=True)
+class CareerSeasonRow:
+    row_id: str
+    identity_key: str
+    source_player_id: str
+    stat_type: str
+    season_label: str
+    source_season_id: str | None
+    school_name: str
+    source_season_team_id: str | None
+    division: str | None
+    source_stat_category_id: str
+    source_path: str
+    source_payload_sha256: str
+    counts: MappingProxyType
+    rates: MappingProxyType
+
+
+@dataclass(frozen=True)
+class CurrentSeasonGameLogRow:
+    row_id: str
+    identity_key: str
+    source_player_id: str
+    stat_type: str
+    source_season_id: str
+    game_date: date
+    opponent_label: str
+    opponent_season_team_id: str | None
+    source_game_id: str | None
+    source_stat_category_id: str
+    source_path: str
+    source_payload_sha256: str
+    counts: MappingProxyType
+    rates: MappingProxyType
+
+
+@dataclass(frozen=True)
+class ParsedPlayerDetail:
+    identity_key: str
+    source_player_id: str
+    source_path: str
+    active_season_id: str
+    active_season_year: int
+    active_season_team_id: str
+    division: str
+    collected_at: datetime
+    career_seasons: tuple[CareerSeasonRow, ...]
+    game_logs: tuple[CurrentSeasonGameLogRow, ...]
+
+
+@dataclass(frozen=True)
+class CareerAggregateResult:
+    stat_type: str
+    status: str
+    reason: str | None
+    counts: dict
+    metrics: dict[str, MetricResult]
+    included_row_ids: tuple[str, ...]
+    excluded_rows: dict[str, str]
+
+
+@dataclass(frozen=True)
+class HistoryAvailability:
+    status: str
+    reason: str | None
+    completed: int
+
+
+@dataclass(frozen=True)
+class LinkedGameLog:
+    row: CurrentSeasonGameLogRow
+    source_game_id: str | None
+    game_identity: str | None
+    link_status: str
+
+
+@dataclass(frozen=True)
 class FieldingRow:
     row_ordinal: int
     source_url: str
@@ -301,6 +395,375 @@ class FieldingSection:
             ),
             verified_empty=self.verified_empty,
         )
+
+
+_HISTORY_COUNT_HEADERS = {
+    "batting": {
+        "g": "games", "gp": "games", "r": "runs", "ab": "at_bats",
+        "h": "hits", "2b": "doubles", "3b": "triples", "tb": "total_bases",
+        "hr": "home_runs", "rbi": "runs_batted_in", "bb": "walks",
+        "hbp": "hit_by_pitch", "sf": "sacrifice_flies",
+        "sh": "sacrifice_hits", "k": "strikeouts", "cs": "caught_stealing",
+        "sb": "stolen_bases", "gdp": "grounded_double_plays",
+    },
+    "pitching": {
+        "app": "appearances", "gp": "appearances", "gs": "games_started",
+        "h": "hits_allowed", "r": "runs_allowed", "er": "earned_runs",
+        "bb": "walks", "so": "strikeouts", "bf": "batters_faced",
+        "p-oab": "opponent_at_bats", "hr-a": "home_runs_allowed",
+        "hb": "hit_batters", "w": "wins", "l": "losses", "sv": "saves",
+        "pitches": "pitches",
+    },
+    "fielding": {
+        "g": "games", "gp": "games", "po": "putouts", "a": "assists",
+        "tc": "total_chances", "e": "errors", "pb": "passed_balls",
+        "sba": "stolen_base_attempts", "csb": "caught_stealing_by",
+        "idp": "double_plays", "tp": "triple_plays",
+    },
+}
+_HISTORY_RATE_HEADERS = {
+    "batting": {
+        "ba": "batting_average", "obpct": "on_base_percentage",
+        "slgpct": "slugging_percentage",
+    },
+    "pitching": {"era": "earned_run_average"},
+    "fielding": {"fldpct": "fielding_percentage", "sbapct": "stolen_base_rate"},
+}
+_CAREER_REQUIRED_COUNTS = {
+    "batting": ("hits", "at_bats"),
+    "pitching": ("earned_runs", "innings_outs"),
+    "fielding": ("putouts", "assists", "errors", "total_chances"),
+}
+
+
+def build_player_detail_url(player_id: str, stat_category_id: str) -> str:
+    """Build the only permitted stable-player endpoint from numeric identities."""
+    if not re.fullmatch(r"\d+", str(player_id or "")):
+        raise ValueError("player ID must be numeric")
+    if not re.fullmatch(r"\d+", str(stat_category_id or "")):
+        raise ValueError("player stat category ID must be numeric")
+    return (
+        f"{NCAA_BASE}/players/{player_id}"
+        f"?year_stat_category_id={stat_category_id}"
+    )
+
+
+def history_availability(source_player_id: str | None) -> HistoryAvailability:
+    if not source_player_id or not re.fullmatch(r"\d+", str(source_player_id)):
+        return HistoryAvailability("unavailable", "missing_stable_player_id", 0)
+    return HistoryAvailability("pending", None, 0)
+
+
+def _history_count(value: str) -> int | None:
+    text = str(value or "").strip()
+    if text.casefold() in _EMPTY_VALUES:
+        return None
+    # Some NCAA game-log cells expose a truncated linked record (for example
+    # ``1/``) instead of a count.  Treat it as unavailable rather than guessing.
+    if re.fullmatch(r"\d+/", text):
+        return None
+    if not re.fullmatch(r"\d+", text):
+        raise PlayerDetailContractError("schema_validation")
+    return int(text)
+
+
+def _history_decimal(value: str) -> Decimal | None:
+    text = str(value or "").strip()
+    if text.casefold() in _EMPTY_VALUES:
+        return None
+    try:
+        parsed = Decimal(text)
+    except InvalidOperation as exc:
+        raise PlayerDetailContractError("schema_validation") from exc
+    if parsed < 0:
+        raise PlayerDetailContractError("schema_validation")
+    return parsed
+
+
+def _history_values(node, stat_type: str) -> tuple[MappingProxyType, MappingProxyType]:
+    counts = {}
+    rates = {}
+    seen = set()
+    for value_node in node.find_all("value", recursive=False):
+        header = _normalized(value_node.get("data-source-header") or "")
+        if not header or header in seen:
+            raise PlayerDetailContractError("schema_validation")
+        seen.add(header)
+        text = value_node.get_text(" ", strip=True)
+        if header == "ip" and stat_type == "pitching":
+            try:
+                from .canonical import innings_to_outs
+
+                counts["innings_outs"] = innings_to_outs(text)
+            except ValueError as exc:
+                raise PlayerDetailContractError("schema_validation") from exc
+        elif header in _HISTORY_COUNT_HEADERS[stat_type]:
+            counts[_HISTORY_COUNT_HEADERS[stat_type][header]] = _history_count(text)
+        elif header in _HISTORY_RATE_HEADERS[stat_type]:
+            rates[_HISTORY_RATE_HEADERS[stat_type][header]] = _history_decimal(text)
+    return MappingProxyType(counts), MappingProxyType(rates)
+
+
+def _history_date(value: str, active_year: int) -> date:
+    match = re.fullmatch(r"(\d{2}/\d{2}/\d{4})(?:\s*\(\d+\))?", value or "")
+    if match is None:
+        raise PlayerDetailContractError("schema_validation")
+    try:
+        parsed = datetime.strptime(match.group(1), "%m/%d/%Y").date()
+    except ValueError as exc:
+        raise PlayerDetailContractError("schema_validation") from exc
+    if parsed.year != active_year:
+        raise PlayerDetailContractError("source_identity_mismatch")
+    return parsed
+
+
+def parse_player_detail_fixture(
+    html: str,
+    *,
+    expected_player_id: str,
+    expected_season_id: str,
+    expected_season_team_id: str,
+    expected_division: str,
+) -> ParsedPlayerDetail:
+    """Parse the secret-free capture contract and reject guessed identities."""
+    expected_values = (
+        expected_player_id, expected_season_id, expected_season_team_id
+    )
+    if any(not re.fullmatch(r"\d+", str(value or "")) for value in expected_values):
+        raise ValueError("expected player detail identities must be numeric")
+    division = str(expected_division).lower().removeprefix("d")
+    if division not in {"1", "2", "3"}:
+        raise ValueError("expected division is invalid")
+    soup = BeautifulSoup(html, "html.parser")
+    root = soup.find("player-detail")
+    if root is None or soup.find("script") is not None:
+        raise PlayerDetailContractError("schema_validation")
+    expected_path = f"/players/{expected_player_id}"
+    identity = (
+        root.get("data-player-detail-contract-version"),
+        root.get("data-player-id"),
+        root.get("data-report-season-id"),
+        root.get("data-report-season-team-id"),
+        root.get("data-report-division"),
+        root.get("data-source-path"),
+    )
+    if identity != (
+        PLAYER_DETAIL_CONTRACT_VERSION,
+        expected_player_id,
+        expected_season_id,
+        expected_season_team_id,
+        f"d{division}",
+        expected_path,
+    ):
+        raise PlayerDetailContractError("source_identity_mismatch")
+    try:
+        active_year = int(root.get("data-report-season-year") or "")
+    except ValueError as exc:
+        raise PlayerDetailContractError("schema_validation") from exc
+    if not 2000 <= active_year <= 2100:
+        raise PlayerDetailContractError("schema_validation")
+    try:
+        collected_at = _iso_datetime(root.get("data-captured-at") or "")
+    except SplitContractError as exc:
+        raise PlayerDetailContractError("schema_validation") from exc
+    sections = root.find_all("stat-section", recursive=False)
+    by_type = {item.get("data-stat-type"): item for item in sections}
+    if len(sections) != 3 or set(by_type) != {"batting", "pitching", "fielding"}:
+        raise PlayerDetailContractError("schema_validation")
+    identity_key = f"ncaa:{expected_player_id}"
+    career_rows = []
+    game_rows = []
+    for stat_type in ("batting", "pitching", "fielding"):
+        section = by_type[stat_type]
+        category_id = section.get("data-source-stat-category-id") or ""
+        payload_sha256 = section.get("data-source-payload-sha256") or ""
+        if not category_id.isdigit() or not re.fullmatch(r"[0-9a-f]{64}", payload_sha256):
+            raise PlayerDetailContractError("schema_validation")
+        career = section.find("career-totals", recursive=False)
+        game_log = section.find("game-log", recursive=False)
+        if career is None or game_log is None:
+            raise PlayerDetailContractError("schema_validation")
+        career_identities = set()
+        for row in career.find_all("row", recursive=False):
+            season_label = row.get("data-season-label") or ""
+            school_name = row.get("data-school-label") or ""
+            season_team_id = row.get("data-source-season-team-id") or None
+            source_season_id = row.get("data-source-season-id") or None
+            row_division = row.get("data-division") or None
+            if (
+                not season_label or not school_name
+                or (season_team_id is not None and not season_team_id.isdigit())
+                or (source_season_id is not None and not source_season_id.isdigit())
+                or (row_division is not None and row_division not in {"d1", "d2", "d3"})
+            ):
+                raise PlayerDetailContractError("schema_validation")
+            if season_team_id == expected_season_team_id and (
+                source_season_id != expected_season_id or row_division != f"d{division}"
+            ):
+                raise PlayerDetailContractError("source_identity_mismatch")
+            source_identity = (season_label, season_team_id)
+            if source_identity in career_identities:
+                raise PlayerDetailContractError("schema_validation")
+            career_identities.add(source_identity)
+            counts, rates = _history_values(row, stat_type)
+            if not counts and not rates:
+                continue
+            row_id = hashlib.sha256(
+                f"{expected_player_id}:{stat_type}:{season_label}:{season_team_id}".encode()
+            ).hexdigest()
+            career_rows.append(CareerSeasonRow(
+                row_id=row_id,
+                identity_key=identity_key,
+                source_player_id=expected_player_id,
+                stat_type=stat_type,
+                season_label=season_label,
+                source_season_id=source_season_id,
+                school_name=school_name,
+                source_season_team_id=season_team_id,
+                division=row_division,
+                source_stat_category_id=category_id,
+                source_path=expected_path,
+                source_payload_sha256=payload_sha256,
+                counts=counts,
+                rates=rates,
+            ))
+        game_identities = set()
+        for row in game_log.find_all("row", recursive=False):
+            date_label = row.get("data-date-label") or ""
+            opponent_label = row.get("data-opponent-label") or ""
+            opponent_team_id = row.get("data-opponent-season-team-id") or None
+            source_game_id = row.get("data-source-game-id") or None
+            if (
+                not opponent_label
+                or (opponent_team_id is not None and not opponent_team_id.isdigit())
+                or (source_game_id is not None and not source_game_id.isdigit())
+            ):
+                raise PlayerDetailContractError("schema_validation")
+            game_date = _history_date(date_label, active_year)
+            counts, rates = _history_values(row, stat_type)
+            if not counts and not rates:
+                continue
+            if all(value is None for value in (*counts.values(), *rates.values())):
+                continue
+            source_identity = (source_game_id, game_date, opponent_team_id)
+            if source_identity in game_identities:
+                raise PlayerDetailContractError("schema_validation")
+            game_identities.add(source_identity)
+            row_id = hashlib.sha256(
+                f"{expected_player_id}:{stat_type}:{source_game_id}:{game_date}:"
+                f"{opponent_team_id}".encode()
+            ).hexdigest()
+            game_rows.append(CurrentSeasonGameLogRow(
+                row_id=row_id,
+                identity_key=identity_key,
+                source_player_id=expected_player_id,
+                stat_type=stat_type,
+                source_season_id=expected_season_id,
+                game_date=game_date,
+                opponent_label=opponent_label,
+                opponent_season_team_id=opponent_team_id,
+                source_game_id=source_game_id,
+                source_stat_category_id=category_id,
+                source_path=expected_path,
+                source_payload_sha256=payload_sha256,
+                counts=counts,
+                rates=rates,
+            ))
+    return ParsedPlayerDetail(
+        identity_key=identity_key,
+        source_player_id=expected_player_id,
+        source_path=expected_path,
+        active_season_id=expected_season_id,
+        active_season_year=active_year,
+        active_season_team_id=expected_season_team_id,
+        division=f"d{division}",
+        collected_at=collected_at,
+        career_seasons=tuple(career_rows),
+        game_logs=tuple(game_rows),
+    )
+
+
+def aggregate_career_seasons(
+    rows,
+    *,
+    stat_type: str,
+    metric_codes: tuple[str, ...] = (),
+) -> CareerAggregateResult:
+    if stat_type not in _CAREER_REQUIRED_COUNTS:
+        raise ValueError("career aggregate stat type is invalid")
+    included = []
+    excluded = {}
+    required = _CAREER_REQUIRED_COUNTS[stat_type]
+    for row in rows:
+        if row.stat_type != stat_type:
+            excluded[row.row_id] = "incompatible_stat_type"
+        elif not row.source_season_team_id:
+            excluded[row.row_id] = "missing_team_identity"
+        elif not row.division:
+            excluded[row.row_id] = "missing_division"
+        elif not row.source_season_id:
+            excluded[row.row_id] = "missing_season_identity"
+        elif any(row.counts.get(key) is None for key in required):
+            excluded[row.row_id] = "missing_required_count"
+        else:
+            included.append(row)
+    if not included:
+        return CareerAggregateResult(
+            stat_type=stat_type,
+            status="unavailable",
+            reason="no_compatible_seasons",
+            counts={},
+            metrics={},
+            included_row_ids=(),
+            excluded_rows=excluded,
+        )
+    counts = aggregate_compatible_counts([
+        {
+            key: value
+            for key, value in row.counts.items()
+            if key not in METRIC_DEFINITIONS
+        }
+        for row in included
+    ])
+    metrics = {code: calculate_metric(code, counts) for code in metric_codes}
+    return CareerAggregateResult(
+        stat_type=stat_type,
+        status="complete" if not excluded else "partial",
+        reason=None if not excluded else "incompatible_seasons_excluded",
+        counts=counts,
+        metrics=metrics,
+        included_row_ids=tuple(row.row_id for row in included),
+        excluded_rows=excluded,
+    )
+
+
+def link_current_season_game_logs(rows, games) -> tuple[LinkedGameLog, ...]:
+    """Link only exact contest IDs; labels and dates never create game identity."""
+    games_by_source = {}
+    duplicate_ids = set()
+    for game in games:
+        if game.source_game_id is None:
+            continue
+        if game.source_game_id in games_by_source:
+            duplicate_ids.add(game.source_game_id)
+        games_by_source[game.source_game_id] = game
+    output = []
+    for row in rows:
+        source_game_id = row.source_game_id
+        linked = (
+            source_game_id is not None
+            and source_game_id in games_by_source
+            and source_game_id not in duplicate_ids
+        )
+        output.append(LinkedGameLog(
+            row=row,
+            source_game_id=source_game_id,
+            game_identity=source_game_id if linked else None,
+            link_status="linked" if linked else (
+                "ambiguous" if source_game_id in duplicate_ids else "unmatched"
+            ),
+        ))
+    return tuple(output)
 
 
 def build_fielding_url(season_team_id: str, stat_category_id: str) -> str:

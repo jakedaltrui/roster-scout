@@ -106,6 +106,18 @@ class CanonicalSplitCollection:
 
 
 @dataclass(frozen=True)
+class CanonicalPlayerHistory:
+    """One stable NCAA player identity across typed career and game facts."""
+
+    identity_key: str
+    source_player_id: str
+    career_seasons: tuple
+    career_aggregates: tuple
+    game_logs: tuple
+    completeness: MappingProxyType
+
+
+@dataclass(frozen=True)
 class _IdentityGroup:
     rows: tuple[NcaaSourceRow, ...]
     identity_status: str
@@ -587,6 +599,53 @@ def canonicalize_split_result(result) -> CanonicalSplitCollection:
         status=result.status,
         reason=result.reason,
         facts=tuple(facts),
+    )
+
+
+def canonicalize_player_history(detail, games) -> CanonicalPlayerHistory:
+    """Canonicalize parsed history without creating name-based identity or games."""
+    from .ncaa_detail import aggregate_career_seasons, link_current_season_game_logs
+
+    expected_identity = f"ncaa:{detail.source_player_id}"
+    all_rows = (*detail.career_seasons, *detail.game_logs)
+    if detail.identity_key != expected_identity or any(
+        row.identity_key != expected_identity
+        or row.source_player_id != detail.source_player_id
+        for row in all_rows
+    ):
+        raise IdentityConflictError(
+            "player history rows do not share the authoritative NCAA player ID"
+        )
+
+    aggregates = tuple(
+        aggregate_career_seasons(
+            detail.career_seasons,
+            stat_type=stat_type,
+            metric_codes=metric_codes,
+        )
+        for stat_type, metric_codes in (
+            ("batting", ("avg",)),
+            ("pitching", ("era",)),
+            ("fielding", ()),
+        )
+    )
+    linked_logs = link_current_season_game_logs(detail.game_logs, games)
+    unmatched = sum(item.link_status != "linked" for item in linked_logs)
+    unavailable = sum(item.status == "unavailable" for item in aggregates)
+    partial = unmatched > 0 or unavailable > 0 or any(
+        item.status == "partial" for item in aggregates
+    )
+    return CanonicalPlayerHistory(
+        identity_key=expected_identity,
+        source_player_id=detail.source_player_id,
+        career_seasons=detail.career_seasons,
+        career_aggregates=aggregates,
+        game_logs=linked_logs,
+        completeness=MappingProxyType({
+            "status": "partial" if partial else "complete",
+            "unlinked_game_logs": unmatched,
+            "unavailable_aggregates": unavailable,
+        }),
     )
 
 

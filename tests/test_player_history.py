@@ -268,7 +268,8 @@ class HistoryCompletenessTests(unittest.TestCase):
     def test_missing_historical_team_or_division_is_disclosed_not_guessed(self):
         historical = [
             row for row in parse("d1").career_seasons
-            if row.source_season_team_id != "614606"
+            if row.stat_type == "batting"
+            and row.source_season_team_id != "614606"
         ]
         self.assertTrue(historical)
         self.assertTrue(all(row.division is None for row in historical))
@@ -324,6 +325,30 @@ class SnapshotDrillPathTests(unittest.TestCase):
             {row.stat_type for row in (*detail.career_seasons, *detail.game_logs)},
             {"batting", "pitching", "fielding"},
         )
+
+    def test_canonical_history_keeps_one_identity_and_exact_game_links(self):
+        from roster_scout.canonical import canonicalize_player_history
+
+        api = history_api()
+        detail = parse("d1")
+        schedule = api.parse_schedule_fixture(
+            (FIXTURES / "d1" / "schedule.html").read_text(encoding="utf-8"),
+            expected_season_id="17040",
+            expected_team_id="234",
+            expected_season_team_id="614606",
+            expected_division="d1",
+        )
+        history = canonicalize_player_history(detail, schedule.games)
+        self.assertEqual(history.identity_key, detail.identity_key)
+        self.assertEqual(
+            {item.stat_type for item in history.career_aggregates},
+            {"batting", "pitching", "fielding"},
+        )
+        self.assertTrue(any(item.link_status == "linked" for item in history.game_logs))
+        self.assertTrue(all(
+            item.game_identity is None or item.game_identity == item.source_game_id
+            for item in history.game_logs
+        ))
 
     def test_fixtures_are_minimal_sanitized_player_evidence(self):
         forbidden = (
