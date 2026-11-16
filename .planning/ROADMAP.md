@@ -9,7 +9,7 @@ Roster Scout v2.0 is delivered in five dependency-ordered slices. The roadmap fi
 - [x] **Phase 1: Canonical Snapshot Foundation** - Persist provenance-rich immutable snapshots through durable report jobs. (completed 2026-11-11)
 - [x] **Phase 2: Identity, Organizations, and Report Library** - Gate Roster Scout behind passwordless organization access and versioned report workflows. (completed 2026-11-13)
 - [x] **Phase 02.1: Restore public homepage and school-domain sign-in flow** - Reestablish the polished homepage as the primary product, authenticate at generation, auto-join verified school domains, and keep the portal minimal. (INSERTED)
-- [ ] **Phase 3: Detailed NCAA Intelligence** - Add fielding, advanced metrics, situational splits, career history, and game logs.
+- [x] **Phase 3: Detailed NCAA Intelligence** - Add fielding, advanced metrics, situational splits, career history, and game logs. (completed 2026-11-16)
 - [ ] **Phase 4: Detailed Excel Report** - Deliver the exact detailed snapshot as a branded ten-sheet workbook.
 - [ ] **Phase 5: Embedded Opponent Dashboard** - Securely embed the opponent-branded Power BI report and harden production delivery.
 
@@ -287,7 +287,7 @@ Plans:
 4. wOBA and FIP use verified versioned NCAA season/division inputs or return an explanatory unavailable state; no MLB constants are silently substituted.
 5. Collection respects request budgets, bounded concurrency, caching, and retry/backoff while operators can identify unavailable or failed sections.
 
-**Plans:** 8/9 plans executed
+**Plans:** 9/9 plans complete
 
 Plans:
 
@@ -299,7 +299,7 @@ Plans:
 - [x] 03-05-PLAN.md — Add stable-player career seasons, aggregates, and current-season game logs.
 - [x] 03-09-PLAN.md — Expose the protected same-snapshot player detail JSON contract.
 - [x] 03-07-PLAN.md — Enforce shared request budgets and persisted privacy-safe operational/external-refresh diagnostics.
-- [ ] 03-08-PLAN.md — Finalize revision 0025 and run the disposable-PostgreSQL Phase 3 release gate.
+- [x] 03-08-PLAN.md — Finalize revision 0025 and run the disposable-PostgreSQL Phase 3 release gate.
 
 ### Phase 4: Detailed Excel Report
 
@@ -357,6 +357,6 @@ Plans:
 | 1. Canonical Snapshot Foundation | 41/41 | Complete | 2026-11-11 |
 | 2. Identity, Organizations, and Report Library | 16/16 | Complete   | 2026-11-13 |
 | 02.1 Restore public homepage and school-domain sign-in flow | 4/4 | Complete | 2026-11-13 |
-| 3. Detailed NCAA Intelligence | 8/9 | In Progress|  |
+| 3. Detailed NCAA Intelligence | 9/9 | Complete   | 2026-11-16 |
 | 4. Detailed Excel Report | 0/3 | Not started | - |
 | 5. Embedded Opponent Dashboard | 0/4 | Not started | - |
