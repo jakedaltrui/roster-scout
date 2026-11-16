@@ -41,6 +41,7 @@ INVALID_FAILURE = "phase3_capture_invalid"
 MAX_RAW_PAGE_BYTES = 2 * 1024 * 1024
 RESULT_CONTRACT_VERSION = "ncaa-split-result-v1"
 SCHEDULE_CONTRACT_VERSION = "ncaa-schedule-v1"
+PLAYER_DETAIL_CONTRACT_VERSION = "ncaa-player-detail-v1"
 
 CANONICAL_LABELS = {
     "batting": (
@@ -169,6 +170,12 @@ def build_schedule_url(team_id: str, season_id: str) -> str:
     team = _numeric(team_id, "team ID")
     season = _numeric(season_id, "season ID")
     return f"{NCAA_ORIGIN}/team/{team}/{season}"
+
+
+def build_player_url(player_id: str, category_id: str) -> str:
+    player = _numeric(player_id, "player ID")
+    category = _numeric(category_id, "category ID")
+    return f"{NCAA_ORIGIN}/players/{player}?year_stat_category_id={category}"
 
 
 def validate_capture_request(
@@ -462,6 +469,9 @@ def _season_categories(season_id: str) -> dict[str, str]:
         "batting": _numeric(matches[0].get("batting_id"), "batting category ID"),
         "pitching": _numeric(matches[0].get("pitching_id"), "pitching category ID"),
     }
+    fielding = matches[0].get("fielding_id")
+    if fielding:
+        categories["fielding"] = _numeric(fielding, "fielding category ID")
     return categories
 
 
@@ -1457,6 +1467,332 @@ def capture_schedule(
     return bundle
 
 
+def _validate_approved_player(request: CaptureRequest, player_id: str) -> str:
+    player = _numeric(player_id, "player ID")
+    if os.environ.get("PHASE3_APPROVED_PLAYER_ID") == player:
+        return player
+    fixture_dir = request.output_dir
+    approved = set()
+    for name in ("batting_split_result.html", "pitching_split_result.html"):
+        try:
+            approved.update(re.findall(r"/players/(\d+)", (fixture_dir / name).read_text(
+                encoding="utf-8"
+            )))
+        except OSError as exc:
+            raise CaptureUnavailable(CAPTURE_FAILURE, stage="player_approval") from exc
+    if player not in approved:
+        raise CaptureUnavailable(CAPTURE_FAILURE, stage="player_approval")
+    return player
+
+
+def _player_table(raw_html: str, player_id: str, kind: str):
+    soup = BeautifulSoup(raw_html, "html.parser")
+    table = soup.find(id=f"{kind}_{player_id}_player")
+    if table is None:
+        raise CaptureUnavailable(CAPTURE_FAILURE, stage=f"player_{kind}_table")
+    header_rows = table.select("thead tr")
+    header = header_rows[-1] if header_rows else table.find("tr")
+    if header is None:
+        raise CaptureUnavailable(CAPTURE_FAILURE, stage=f"player_{kind}_headers")
+    headers = [
+        re.sub(r"\s+", " ", cell.get_text(" ", strip=True))
+        for cell in header.find_all(["th", "td"], recursive=False)
+    ]
+    required = ("year", "team") if kind == "career_totals" else (
+        "date", "opponent", "result"
+    )
+    normalized = [value.casefold() for value in headers]
+    if any(normalized.count(value) != 1 for value in required):
+        raise CaptureUnavailable(CAPTURE_FAILURE, stage=f"player_{kind}_headers")
+    rows = table.select("tbody tr") or table.find_all("tr")[1:]
+    return headers, normalized, rows
+
+
+def _safe_cell_text(cell) -> str:
+    value = re.sub(r"\s+", " ", cell.get_text(" ", strip=True)).strip()
+    if len(value) > 160 or re.search(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}", value):
+        raise CaptureUnavailable(CAPTURE_FAILURE, stage="player_cell_value")
+    return value
+
+
+def _safe_numeric_link(cell, patterns: tuple[tuple[str, str], ...]) -> dict[str, str]:
+    found = {}
+    for link in cell.find_all("a", href=True):
+        parsed = urlparse(link.get("href", ""))
+        if parsed.scheme or parsed.netloc or parsed.query or parsed.fragment:
+            raise CaptureUnavailable(CAPTURE_FAILURE, stage="player_cell_link")
+        for attribute, pattern in patterns:
+            match = re.fullmatch(pattern, parsed.path)
+            if match:
+                value = match.group(1)
+                if attribute in found and found[attribute] != value:
+                    raise CaptureUnavailable(CAPTURE_FAILURE, stage="player_cell_link")
+                found[attribute] = value
+                break
+    return found
+
+
+def sanitize_player_detail(
+    pages: dict[str, str],
+    *,
+    player_id: str,
+    season_id: str,
+    season_team_id: str,
+    season_year: int,
+    division: str,
+    categories: dict[str, str],
+    captured_at: str,
+) -> str:
+    player = _numeric(player_id, "player ID")
+    season = _numeric(season_id, "season ID")
+    report_team = _numeric(season_team_id, "season team ID")
+    if set(pages) != set(categories) or set(categories) != {
+        "batting", "pitching", "fielding"
+    }:
+        raise CaptureUnavailable(CAPTURE_FAILURE, stage="player_page_types")
+    if not 2000 <= int(season_year) <= 2100:
+        raise ValueError("season year is invalid")
+    division_value = str(division).lower().removeprefix("d")
+    if division_value not in {"1", "2", "3"}:
+        raise ValueError("division is invalid")
+    root_attrs = {
+        "data-captured-at": captured_at,
+        "data-player-detail-contract-version": PLAYER_DETAIL_CONTRACT_VERSION,
+        "data-player-id": player,
+        "data-report-division": f"d{division_value}",
+        "data-report-season-id": season,
+        "data-report-season-team-id": report_team,
+        "data-report-season-year": str(season_year),
+        "data-source-path": f"/players/{player}",
+    }
+    root_text = " ".join(
+        f'{key}="{html_module.escape(value, quote=True)}"'
+        for key, value in sorted(root_attrs.items())
+    )
+    lines = [f"<player-detail {root_text}>"]
+    for stat_type in ("batting", "pitching", "fielding"):
+        raw_html = pages[stat_type]
+        if not isinstance(raw_html, str) or len(raw_html.encode("utf-8")) > MAX_RAW_PAGE_BYTES:
+            raise CaptureUnavailable(CAPTURE_FAILURE, stage="player_page_payload")
+        category_id = _numeric(categories[stat_type], "category ID")
+        lines.append(
+            f'  <stat-section data-source-payload-sha256="{hashlib.sha256(raw_html.encode("utf-8")).hexdigest()}" '
+            f'data-source-stat-category-id="{category_id}" data-stat-type="{stat_type}">'
+        )
+        for kind, output_tag in (("career_totals", "career-totals"), ("game_log", "game-log")):
+            headers, normalized, rows = _player_table(raw_html, player, kind)
+            lines.append(f"    <{output_tag}>")
+            for ordinal, row in enumerate(rows):
+                cells = row.find_all(["th", "td"], recursive=False)
+                if len(cells) != len(headers):
+                    # NCAA appends aggregate rows whose first cell spans the
+                    # Date/Opponent/Result identity columns. They are not
+                    # individual games and must never enter the fixture.
+                    if any(cell.get("colspan") for cell in cells):
+                        continue
+                    marker = re.sub(
+                        r"\s+", " ", row.get_text(" ", strip=True)
+                    ).strip().casefold()
+                    if marker in {
+                        "", "no data", "no data available", "no results found",
+                        "no statistics available",
+                    }:
+                        continue
+                    raise CaptureUnavailable(CAPTURE_FAILURE, stage=f"player_{kind}_shape")
+                values = [_safe_cell_text(cell) for cell in cells]
+                if not any(values):
+                    continue
+                attrs = {"data-row-ordinal": str(ordinal)}
+                if kind == "career_totals":
+                    attrs.update({
+                        "data-season-label": values[normalized.index("year")],
+                        "data-school-label": values[normalized.index("team")],
+                    })
+                    attrs.update(_safe_numeric_link(
+                        cells[normalized.index("team")],
+                        (("data-source-season-team-id", r"/teams/(\d+)"),),
+                    ))
+                    if attrs.get("data-source-season-team-id") == report_team:
+                        attrs["data-division"] = f"d{division_value}"
+                        attrs["data-source-season-id"] = season
+                else:
+                    attrs.update({
+                        "data-date-label": values[normalized.index("date")],
+                        "data-opponent-label": values[normalized.index("opponent")],
+                    })
+                    attrs.update(_safe_numeric_link(
+                        cells[normalized.index("opponent")],
+                        (("data-opponent-season-team-id", r"/teams/(\d+)"),),
+                    ))
+                    attrs.update(_safe_numeric_link(
+                        cells[normalized.index("result")],
+                        (("data-source-game-id", r"/contests/(\d+)/box_score"),),
+                    ))
+                attr_text = " ".join(
+                    f'{key}="{html_module.escape(value, quote=True)}"'
+                    for key, value in sorted(attrs.items())
+                )
+                lines.append(f"      <row {attr_text}>")
+                identity_headers = {"year", "team"} if kind == "career_totals" else {
+                    "date", "opponent", "result"
+                }
+                for header, code, value in zip(headers, normalized, values, strict=True):
+                    if code in identity_headers:
+                        continue
+                    lines.append(
+                        f'        <value data-source-header="{html_module.escape(header, quote=True)}">'
+                        f"{html_module.escape(value)}</value>"
+                    )
+                lines.append("      </row>")
+            lines.append(f"    </{output_tag}>")
+        lines.append("  </stat-section>")
+    lines.append("</player-detail>")
+    output = "\n".join(lines) + "\n"
+    lowered = output.casefold()
+    if any(value in lowered for value in (
+        "token=", "cookie", "authorization", "browserless", "<script", "password"
+    )):
+        raise CaptureUnavailable(CAPTURE_FAILURE, stage="player_sanitization")
+    return output
+
+
+def _bounded_player_fetch(urls: dict[str, str], player_id: str, limits: CaptureLimits):
+    """Fetch category pages in one configured Browserless session without #stat_grid."""
+    _validate_browserless_configuration()
+    if len(urls) > limits.max_pages:
+        raise ValueError("capture page count exceeds the validated limit")
+    player = _numeric(player_id, "player ID")
+    for url in urls.values():
+        parsed = urlparse(url)
+        if (
+            parsed.scheme != "https"
+            or parsed.netloc != "stats.ncaa.org"
+            or parsed.path != f"/players/{player}"
+            or set(parse_qs(parsed.query)) != {"year_stat_category_id"}
+        ):
+            raise ValueError("player source is not approved")
+    token = os.environ["BROWSERLESS_TOKEN"]
+    endpoint = os.environ.get(
+        "BROWSERLESS_UNBLOCK_ENDPOINT",
+        "https://production-sfo.browserless.io/chromium/unblock",
+    )
+    timeout_ms = min(limits.timeout_seconds * 1000, 120000)
+    query = urlencode({
+        "token": token,
+        "proxy": os.environ.get("BROWSERLESS_PROXY", "residential"),
+        "proxyCountry": os.environ.get("BROWSERLESS_PROXY_COUNTRY", "us"),
+        "proxySticky": "true",
+        "timeout": str(timeout_ms),
+        "emulationOs": os.environ.get("BROWSERLESS_EMULATION_OS", "windows"),
+    })
+    browser = None
+    playwright = None
+    try:
+        first_url = next(iter(urls.values()))
+        response = requests.post(
+            f"{endpoint}?{query}",
+            json={
+                "url": first_url, "browserWSEndpoint": True, "cookies": True,
+                "content": True, "screenshot": False, "ttl": 60000,
+            },
+            timeout=(timeout_ms / 1000) + 30,
+        )
+        if response.status_code != 200:
+            raise CaptureUnavailable(CAPTURE_FAILURE, stage="player_session")
+        ws_endpoint = response.json()["browserWSEndpoint"]
+        from patchright.sync_api import sync_playwright
+        import roster_scraper as rs
+        from usage_limits import browserless_slot
+
+        rendered = {}
+        with browserless_slot():
+            playwright = sync_playwright().start()
+            browser = playwright.chromium.connect_over_cdp(
+                ws_endpoint + ("&" if "?" in ws_endpoint else "?")
+                + "token=" + quote(token, safe=""),
+                timeout=30000,
+            )
+            pages = [page for context in browser.contexts for page in context.pages]
+            if not pages:
+                raise CaptureUnavailable(CAPTURE_FAILURE, stage="player_page")
+            page = next(
+                (candidate for candidate in pages if "stats.ncaa.org" in candidate.url),
+                pages[0],
+            )
+            for key, source_url in urls.items():
+                if page.url != source_url:
+                    page.goto(source_url, wait_until="domcontentloaded", timeout=60000)
+                rs._accept_ncaa_terms(page, source_url)
+                page.wait_for_selector(
+                    f"#career_totals_{player}_player", timeout=45000
+                )
+                page.wait_for_selector(f"#game_log_{player}_player", timeout=45000)
+                rendered[key] = page.content()
+        return rendered
+    except CaptureUnavailable:
+        raise
+    except Exception as exc:
+        raise CaptureUnavailable(CAPTURE_FAILURE, stage="player_fetch") from exc
+    finally:
+        try:
+            if browser is not None:
+                try:
+                    browser.new_browser_cdp_session().send("Browser.close")
+                finally:
+                    browser.close()
+        finally:
+            if playwright is not None:
+                playwright.stop()
+
+
+def capture_player_detail(
+    *,
+    season_id: str,
+    season_team_id: str,
+    division: str,
+    player_id: str,
+    output_dir: str | Path,
+    limits: CaptureLimits | None = None,
+    write: bool = True,
+) -> dict:
+    request = validate_capture_request(
+        season_id=season_id,
+        season_team_id=season_team_id,
+        division=division,
+        output_dir=output_dir,
+        limits=limits or CaptureLimits(max_pages=3),
+    )
+    player = _validate_approved_player(request, player_id)
+    categories = _season_categories(request.season_id)
+    if set(categories) != {"batting", "pitching", "fielding"}:
+        raise CaptureUnavailable(CAPTURE_FAILURE, stage="player_categories")
+    urls = {
+        stat_type: build_player_url(player, category_id)
+        for stat_type, category_id in categories.items()
+    }
+    pages = _bounded_player_fetch(urls, player, request.limits)
+    captured_at = datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+    content = sanitize_player_detail(
+        pages,
+        player_id=player,
+        season_id=request.season_id,
+        season_team_id=request.season_team_id,
+        season_year=int(next(
+            row["year"] for row in _catalog_rows_for_season(request.season_id)
+            if row["season_team_id"] == request.season_team_id
+        )),
+        division=request.division,
+        categories=categories,
+        captured_at=captured_at,
+    )
+    if len(content.encode("utf-8")) > request.limits.max_output_bytes:
+        raise CaptureUnavailable(CAPTURE_FAILURE, stage="player_output")
+    bundle = {"player_detail.html": content}
+    if write:
+        _atomic_write(request.output_dir / "player_detail.html", content)
+    return bundle
+
+
 def _remote_command(args: argparse.Namespace) -> list[str]:
     command = ["python", "-", "--remote-worker"]
     if args.preflight:
@@ -1479,6 +1815,16 @@ def _remote_command(args: argparse.Namespace) -> list[str]:
             "--capture-split-results",
             "--bundle-stdout",
         ])
+    elif args.capture_player_detail:
+        command.extend([
+            "--season-id", args.season_id,
+            "--season-team-id", args.season_team_id,
+            "--division", args.division,
+            "--player-id", args.player_id,
+            "--output-dir", args.output_dir,
+            "--capture-player-detail",
+            "--bundle-stdout",
+        ])
     else:
         command.extend([
             "--season-id", args.season_id,
@@ -1496,13 +1842,15 @@ def _run_on_existing_fly_runtime(args: argparse.Namespace) -> int:
         # Validate the fixed default probe before opening the remote command.
         CaptureLimits(max_pages=1).validate()
     else:
-        validate_capture_request(
+        request = validate_capture_request(
             season_id=args.season_id,
             season_team_id=args.season_team_id,
             division=args.division,
             output_dir=args.output_dir,
             limits=CaptureLimits(),
         )
+        if args.capture_player_detail:
+            _validate_approved_player(request, args.player_id)
     try:
         source = Path(__file__).read_text(encoding="utf-8")
         roster_source = (PROJECT_ROOT / "roster_scraper.py").read_text(
@@ -1530,6 +1878,10 @@ def _run_on_existing_fly_runtime(args: argparse.Namespace) -> int:
             + (
                 f"os.environ['PHASE3_CONTROL_MANIFEST_JSON'] = {manifest_text!r}\n"
                 if manifest_text is not None else ""
+            )
+            + (
+                f"os.environ['PHASE3_APPROVED_PLAYER_ID'] = {args.player_id!r}\n"
+                if args.capture_player_detail else ""
             )
             + "script_globals = {'__name__': '__main__', "
               "'__file__': '/app/scripts/capture_phase3_ncaa_fixtures.py'}\n"
@@ -1568,6 +1920,8 @@ def _run_on_existing_fly_runtime(args: argparse.Namespace) -> int:
         bundle = json.loads(result.stdout)
         if args.capture_split_results:
             expected_files = {"batting_split_result.html", "pitching_split_result.html"}
+        elif args.capture_player_detail:
+            expected_files = {"player_detail.html"}
         elif args.capture_schedule:
             expected_files = {"schedule.html"}
         else:
@@ -1600,6 +1954,8 @@ def _parser() -> SafeArgumentParser:
     parser.add_argument("--controls-only", action="store_true")
     parser.add_argument("--capture-split-results", action="store_true")
     parser.add_argument("--capture-schedule", action="store_true")
+    parser.add_argument("--capture-player-detail", action="store_true")
+    parser.add_argument("--player-id")
     parser.add_argument("--remote-worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--bundle-stdout", action="store_true", help=argparse.SUPPRESS)
     return parser
@@ -1615,7 +1971,10 @@ def _should_use_fly(args: argparse.Namespace) -> bool:
 
 def run(args: argparse.Namespace) -> int:
     if args.preflight:
-        if any((args.season_id, args.season_team_id, args.division, args.output_dir)):
+        if any((
+            args.season_id, args.season_team_id, args.division, args.output_dir,
+            args.player_id,
+        )):
             raise ValueError("preflight does not accept capture arguments")
         if _should_use_fly(args):
             return _run_on_existing_fly_runtime(args)
@@ -1624,28 +1983,39 @@ def run(args: argparse.Namespace) -> int:
         return 0
 
     if sum(bool(value) for value in (
-        args.controls_only, args.capture_split_results, args.capture_schedule
+        args.controls_only, args.capture_split_results, args.capture_schedule,
+        args.capture_player_detail,
     )) > 1:
         raise ValueError("capture modes are mutually exclusive")
-    if not any((args.controls_only, args.capture_split_results, args.capture_schedule)):
+    if not any((
+        args.controls_only, args.capture_split_results, args.capture_schedule,
+        args.capture_player_detail,
+    )):
         raise ValueError("capture mode is required")
     if not all((args.season_id, args.season_team_id, args.division, args.output_dir)):
         raise ValueError("capture identity is incomplete")
+    if args.capture_player_detail != bool(args.player_id):
+        raise ValueError("player capture identity is incomplete")
     if _should_use_fly(args):
         return _run_on_existing_fly_runtime(args)
     if args.controls_only:
         capture = capture_controls
     elif args.capture_split_results:
         capture = capture_split_results
+    elif args.capture_player_detail:
+        capture = capture_player_detail
     else:
         capture = capture_schedule
-    bundle = capture(
+    capture_kwargs = dict(
         season_id=args.season_id,
         season_team_id=args.season_team_id,
         division=args.division,
         output_dir=args.output_dir,
         write=not args.bundle_stdout,
     )
+    if args.capture_player_detail:
+        capture_kwargs["player_id"] = args.player_id
+    bundle = capture(**capture_kwargs)
     if args.bundle_stdout:
         print(json.dumps(bundle, sort_keys=True, separators=(",", ":")))
     return 0
