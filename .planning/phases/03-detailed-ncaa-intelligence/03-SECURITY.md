@@ -18,9 +18,9 @@ unregistered_flags: 0
 
 ## SECURED
 
-**Phase:** 3 — Detailed NCAA Intelligence  
-**Threats Closed:** 47/47  
-**ASVS Level:** 1  
+**Phase:** 3 — Detailed NCAA Intelligence
+**Threats Closed:** 47/47
+**ASVS Level:** 1
 **Blocking policy:** high
 
 All 38 declared `mitigate` threats are present in implementation and executable tests. The nine plan-authored package-supply-chain acceptances are documented below. There are no open or transferred risks and no unregistered threat flags.
