@@ -592,6 +592,43 @@ class FixtureCaptureSafetyTests(unittest.TestCase):
         checkbox.check.assert_not_called()
         page.goto.assert_not_called()
 
+    def test_terms_locator_action_receives_exact_remaining_timeout(self):
+        import roster_scraper as scraper
+        from roster_scout.collection_control import CollectionDeadlineExceeded
+
+        clock = [200.0]
+        configured = []
+        page = Mock()
+        page.url = "https://stats.ncaa.org/stats_terms"
+        page.set_default_timeout.side_effect = configured.append
+        checkbox = Mock()
+        button = Mock()
+
+        def blocked_count():
+            clock[0] += configured[-1] / 1000
+            return 1
+
+        checkbox.count.side_effect = blocked_count
+        button.count.return_value = 1
+        page.locator.side_effect = lambda selector: {
+            "#terms_accepted": checkbox,
+            "#stats-access-button": button,
+        }[selector]
+
+        with patch.object(scraper.time, "monotonic", side_effect=lambda: clock[0]):
+            with self.assertRaises(CollectionDeadlineExceeded):
+                scraper._accept_ncaa_terms(
+                    page,
+                    "https://stats.ncaa.org/teams/614606/season_to_date_stats",
+                    timeout_seconds=45,
+                    deadline_monotonic=203.0,
+                )
+
+        self.assertEqual(configured, [3000])
+        self.assertEqual(clock[0], 203.0)
+        button.count.assert_not_called()
+        checkbox.check.assert_not_called()
+
     def test_manifest_is_allowlisted_sorted_and_contains_no_raw_source(self):
         api = self.capture_api()
         manifest = api.build_fixture_manifest(

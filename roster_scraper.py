@@ -36,6 +36,7 @@ from pathlib import Path
 from roster_scout.collection_control import (
     CollectionBudgetExceeded,
     CollectionDeadlineExceeded,
+    deadline_aware_sleep,
     remaining_timeout_milliseconds,
     remaining_timeout_seconds,
 )
@@ -1646,26 +1647,34 @@ def _request_ncaa_http(
     *,
     request_reserver=None,
     timeout_seconds=None,
+    deadline_monotonic=None,
 ):
     last_response = None
-    timeout = timeout_seconds or int(
+    timeout_limit = timeout_seconds or int(
         os.environ.get("NCAA_HTTP_TIMEOUT_SECONDS", "60")
     )
     for attempt in range(3):
         if request_reserver is not None:
             request_reserver()
+        timeout = remaining_timeout_milliseconds(
+            deadline_monotonic, timeout_limit
+        ) / 1000
         try:
             response = session.get(
                 url, headers=NCAA_HEADERS, timeout=timeout, allow_redirects=True
             )
         except requests.RequestException as exc:
+            remaining_timeout_milliseconds(
+                deadline_monotonic, timeout_limit
+            )
             raise NcaaAccessError(
                 "NCAA request could not reach the configured network path."
             ) from exc
+        remaining_timeout_milliseconds(deadline_monotonic, timeout_limit)
         last_response = response
         if response.status_code not in (429, 503):
             break
-        time.sleep(2 ** attempt)
+        deadline_aware_sleep(2 ** attempt, deadline_monotonic)
     return last_response
 
 
@@ -1675,9 +1684,10 @@ def _accept_ncaa_terms_http(
     *,
     request_reserver=None,
     timeout_seconds=None,
+    deadline_monotonic=None,
 ) -> None:
     """Accept NCAA terms while preserving Site Unblocker and NCAA sessions."""
-    timeout = timeout_seconds or int(
+    timeout_limit = timeout_seconds or int(
         os.environ.get("NCAA_HTTP_TIMEOUT_SECONDS", "60")
     )
     terms_url = f"{NCAA_BASE}/stats_terms"
@@ -1691,6 +1701,9 @@ def _accept_ncaa_terms_http(
     if form is None:
         if request_reserver is not None:
             request_reserver()
+        timeout = remaining_timeout_milliseconds(
+            deadline_monotonic, timeout_limit
+        ) / 1000
         try:
             response = session.get(
                 terms_url,
@@ -1699,7 +1712,11 @@ def _accept_ncaa_terms_http(
                 allow_redirects=True,
             )
         except requests.RequestException as exc:
+            remaining_timeout_milliseconds(
+                deadline_monotonic, timeout_limit
+            )
             raise NcaaAccessError("NCAA terms page could not be reached.") from exc
+        remaining_timeout_milliseconds(deadline_monotonic, timeout_limit)
 
         if response.status_code != 200:
             raise NcaaAccessError(
@@ -1741,6 +1758,9 @@ def _accept_ncaa_terms_http(
     for attempt in range(3):
         if request_reserver is not None:
             request_reserver()
+        timeout = remaining_timeout_milliseconds(
+            deadline_monotonic, timeout_limit
+        ) / 1000
         try:
             accepted = session.post(
                 urljoin(response.url, form.get("action")),
@@ -1750,10 +1770,14 @@ def _accept_ncaa_terms_http(
                 allow_redirects=False,
             )
         except requests.RequestException as exc:
+            remaining_timeout_milliseconds(
+                deadline_monotonic, timeout_limit
+            )
             raise NcaaAccessError("NCAA terms acceptance failed.") from exc
+        remaining_timeout_milliseconds(deadline_monotonic, timeout_limit)
         if accepted.status_code != 550:
             break
-        time.sleep(2 ** attempt)
+        deadline_aware_sleep(2 ** attempt, deadline_monotonic)
     if accepted.status_code not in (200, 302, 303):
         raise NcaaAccessError(
             f"NCAA terms acceptance returned HTTP {accepted.status_code}."
@@ -1766,12 +1790,14 @@ def _fetch_ncaa_http(
     *,
     request_reserver=None,
     timeout_seconds=None,
+    deadline_monotonic=None,
 ) -> str:
     last_response = _request_ncaa_http(
         url,
         session,
         request_reserver=request_reserver,
         timeout_seconds=timeout_seconds,
+        deadline_monotonic=deadline_monotonic,
     )
 
     needs_terms_flow = (
@@ -1793,6 +1819,7 @@ def _fetch_ncaa_http(
             last_response,
             request_reserver=request_reserver,
             timeout_seconds=timeout_seconds,
+            deadline_monotonic=deadline_monotonic,
         )
         session._ncaa_terms_accepted = True
         last_response = _request_ncaa_http(
@@ -1800,11 +1827,12 @@ def _fetch_ncaa_http(
             session,
             request_reserver=request_reserver,
             timeout_seconds=timeout_seconds,
+            deadline_monotonic=deadline_monotonic,
         )
 
     delay = float(os.environ.get("NCAA_REQUEST_DELAY_SECONDS", "1"))
     if delay > 0:
-        time.sleep(delay)
+        deadline_aware_sleep(delay, deadline_monotonic)
 
     if last_response is None:
         raise NcaaAccessError("NCAA did not return a response.")
@@ -1909,7 +1937,14 @@ def _accept_ncaa_terms(
 
     checkbox = page.locator("#terms_accepted")
     button = page.locator("#stats-access-button")
-    if checkbox.count() != 1 or button.count() != 1:
+    if (
+        _bounded_playwright_action(
+            page, checkbox.count, deadline_monotonic, timeout_seconds
+        ) != 1
+        or _bounded_playwright_action(
+            page, button.count, deadline_monotonic, timeout_seconds
+        ) != 1
+    ):
         raise NcaaAccessError("NCAA returned an unrecognized terms verification page.")
 
     # NCAA rejects immediate synthetic submissions. A short dwell before and
@@ -1919,19 +1954,32 @@ def _accept_ncaa_terms(
     _bounded_browser_wait(
         page, max(dwell_ms, 0), deadline_monotonic, timeout_seconds
     )
-    checkbox.check()
+    _bounded_playwright_action(
+        page, checkbox.check, deadline_monotonic, timeout_seconds
+    )
     _bounded_browser_wait(page, 2000, deadline_monotonic, timeout_seconds)
-    if button.is_enabled():
-        button.click()
+    if _bounded_playwright_action(
+        page, button.is_enabled, deadline_monotonic, timeout_seconds
+    ):
+        _bounded_playwright_action(
+            page, button.click, deadline_monotonic, timeout_seconds
+        )
     else:
         # Site Unblocker's rendered response can arrive after NCAA's
         # DOMContentLoaded listener would normally enable the button. The form
         # is otherwise complete and the checked field carries NCAA's signed
         # value, so submit that native form directly.
         form = page.locator("form[action='/stats_terms']")
-        if form.count() != 1:
+        if _bounded_playwright_action(
+            page, form.count, deadline_monotonic, timeout_seconds
+        ) != 1:
             raise NcaaAccessError("NCAA returned an unrecognized terms form.")
-        form.evaluate("form => form.submit()")
+        _bounded_playwright_action(
+            page,
+            lambda: form.evaluate("form => form.submit()"),
+            deadline_monotonic,
+            timeout_seconds,
+        )
     current_timeout_ms = remaining_timeout_milliseconds(
         deadline_monotonic, timeout_seconds
     )
@@ -1970,6 +2018,30 @@ def _bounded_browser_wait(
     remaining_timeout_milliseconds(
         deadline_monotonic, navigation_timeout_seconds
     )
+
+
+def _bounded_playwright_action(
+    page,
+    action,
+    deadline_monotonic,
+    navigation_timeout_seconds,
+):
+    """Run one Playwright action under its exact remaining auto-wait budget."""
+    timeout_ms = remaining_timeout_milliseconds(
+        deadline_monotonic, navigation_timeout_seconds
+    )
+    page.set_default_timeout(timeout_ms)
+    try:
+        result = action()
+    except Exception:
+        remaining_timeout_milliseconds(
+            deadline_monotonic, navigation_timeout_seconds
+        )
+        raise
+    remaining_timeout_milliseconds(
+        deadline_monotonic, navigation_timeout_seconds
+    )
+    return result
 
 
 def _fetch_ncaa_browser_pages(
@@ -2028,9 +2100,15 @@ def _fetch_ncaa_browser_pages_locked(
                 "locale": "en-US",
                 "timezone_id": "America/Chicago",
                 "no_viewport": True,
+                "timeout": remaining_timeout_milliseconds(
+                    deadline_monotonic, navigation_timeout_seconds
+                ),
             })
             context = playwright.chromium.launch_persistent_context(
                 str(profile_path), **context_options
+            )
+            remaining_timeout_milliseconds(
+                deadline_monotonic, navigation_timeout_seconds
             )
             page = context.pages[0] if context.pages else context.new_page()
             preloaded_url = None
@@ -2169,12 +2247,13 @@ def _fetch_ncaa_browserless_pages(
         "https://production-sfo.browserless.io/chromium/unblock",
     )
     from roster_scout.collection_control import remaining_timeout_seconds
-    boundary_timeout = remaining_timeout_seconds(
+    boundary_timeout_ms = remaining_timeout_milliseconds(
         deadline_monotonic, navigation_timeout_seconds
     )
+    boundary_timeout = boundary_timeout_ms / 1000
     timeout_ms = min(
         int(os.environ.get("BROWSERLESS_TIMEOUT_MILLISECONDS", "120000")),
-        boundary_timeout * 1000,
+        boundary_timeout_ms,
     )
     query = urlencode({
         "token": token,
@@ -2200,7 +2279,13 @@ def _fetch_ncaa_browserless_pages(
             timeout=boundary_timeout,
         )
     except requests.RequestException as exc:
+        remaining_timeout_milliseconds(
+            deadline_monotonic, navigation_timeout_seconds
+        )
         raise NcaaAccessError("Browserless could not start the NCAA session.") from exc
+    remaining_timeout_milliseconds(
+        deadline_monotonic, navigation_timeout_seconds
+    )
     if response.status_code == 429:
         from usage_limits import BrowserCapacityExceeded
         raise BrowserCapacityExceeded("Roster Scout is busy. Please try again shortly.")
@@ -2218,7 +2303,13 @@ def _fetch_ncaa_browserless_pages(
     browser = None
     playwright = None
     try:
+        remaining_timeout_milliseconds(
+            deadline_monotonic, navigation_timeout_seconds
+        )
         playwright = sync_playwright().start()
+        remaining_timeout_milliseconds(
+            deadline_monotonic, navigation_timeout_seconds
+        )
         authenticated_ws = (
             ws_endpoint
             + ("&" if "?" in ws_endpoint else "?")
@@ -2227,7 +2318,15 @@ def _fetch_ncaa_browserless_pages(
         )
         browser = playwright.chromium.connect_over_cdp(
             authenticated_ws,
-            timeout=min(30000, boundary_timeout * 1000),
+            timeout=min(
+                30000,
+                remaining_timeout_milliseconds(
+                    deadline_monotonic, navigation_timeout_seconds
+                ),
+            ),
+        )
+        remaining_timeout_milliseconds(
+            deadline_monotonic, navigation_timeout_seconds
         )
         pages = [
             page
@@ -2414,6 +2513,7 @@ def _fetch_ncaa_pages(
                     session,
                     request_reserver=reserve,
                     timeout_seconds=timeout,
+                    deadline_monotonic=deadline_monotonic,
                 )
         except _NcaaFailureEvidenceError as exc:
             blocked[key] = url

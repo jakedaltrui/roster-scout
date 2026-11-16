@@ -1178,10 +1178,11 @@ def _bounded_schedule_fetch(
         "BROWSERLESS_UNBLOCK_ENDPOINT",
         "https://production-sfo.browserless.io/chromium/unblock",
     )
-    boundary_timeout = remaining_timeout_seconds(
+    boundary_timeout_ms = remaining_timeout_milliseconds(
         deadline_monotonic, limits.timeout_seconds
     )
-    timeout_ms = min(boundary_timeout * 1000, 120000)
+    boundary_timeout = boundary_timeout_ms / 1000
+    timeout_ms = min(boundary_timeout_ms, 120000)
     query = urlencode({
         "token": token,
         "proxy": os.environ.get("BROWSERLESS_PROXY", "residential"),
@@ -1207,6 +1208,9 @@ def _bounded_schedule_fetch(
             },
             timeout=boundary_timeout,
         )
+        remaining_timeout_milliseconds(
+            deadline_monotonic, limits.timeout_seconds
+        )
         if response.status_code != 200:
             raise CaptureUnavailable(CAPTURE_FAILURE, stage="schedule_session")
         ws_endpoint = response.json()["browserWSEndpoint"]
@@ -1215,7 +1219,13 @@ def _bounded_schedule_fetch(
         from usage_limits import browserless_slot
 
         with browserless_slot():
+            remaining_timeout_milliseconds(
+                deadline_monotonic, limits.timeout_seconds
+            )
             playwright = sync_playwright().start()
+            remaining_timeout_milliseconds(
+                deadline_monotonic, limits.timeout_seconds
+            )
             authenticated_ws = (
                 ws_endpoint
                 + ("&" if "?" in ws_endpoint else "?")
@@ -1223,7 +1233,16 @@ def _bounded_schedule_fetch(
                 + quote(token, safe="")
             )
             browser = playwright.chromium.connect_over_cdp(
-                authenticated_ws, timeout=min(30000, timeout_ms)
+                authenticated_ws,
+                timeout=min(
+                    30000,
+                    remaining_timeout_milliseconds(
+                        deadline_monotonic, limits.timeout_seconds
+                    ),
+                ),
+            )
+            remaining_timeout_milliseconds(
+                deadline_monotonic, limits.timeout_seconds
             )
             pages = [page for context in browser.contexts for page in context.pages]
             if not pages:
@@ -1778,10 +1797,11 @@ def _bounded_player_fetch(
         "BROWSERLESS_UNBLOCK_ENDPOINT",
         "https://production-sfo.browserless.io/chromium/unblock",
     )
-    boundary_timeout = remaining_timeout_seconds(
+    boundary_timeout_ms = remaining_timeout_milliseconds(
         deadline_monotonic, limits.timeout_seconds
     )
-    timeout_ms = min(boundary_timeout * 1000, 120000)
+    boundary_timeout = boundary_timeout_ms / 1000
+    timeout_ms = min(boundary_timeout_ms, 120000)
     query = urlencode({
         "token": token,
         "proxy": os.environ.get("BROWSERLESS_PROXY", "residential"),
@@ -1805,6 +1825,9 @@ def _bounded_player_fetch(
             },
             timeout=boundary_timeout,
         )
+        remaining_timeout_milliseconds(
+            deadline_monotonic, limits.timeout_seconds
+        )
         if response.status_code != 200:
             raise CaptureUnavailable(CAPTURE_FAILURE, stage="player_session")
         ws_endpoint = response.json()["browserWSEndpoint"]
@@ -1814,11 +1837,25 @@ def _bounded_player_fetch(
 
         rendered = {}
         with browserless_slot():
+            remaining_timeout_milliseconds(
+                deadline_monotonic, limits.timeout_seconds
+            )
             playwright = sync_playwright().start()
+            remaining_timeout_milliseconds(
+                deadline_monotonic, limits.timeout_seconds
+            )
             browser = playwright.chromium.connect_over_cdp(
                 ws_endpoint + ("&" if "?" in ws_endpoint else "?")
                 + "token=" + quote(token, safe=""),
-                timeout=min(30000, timeout_ms),
+                timeout=min(
+                    30000,
+                    remaining_timeout_milliseconds(
+                        deadline_monotonic, limits.timeout_seconds
+                    ),
+                ),
+            )
+            remaining_timeout_milliseconds(
+                deadline_monotonic, limits.timeout_seconds
             )
             pages = [page for context in browser.contexts for page in context.pages]
             if not pages:

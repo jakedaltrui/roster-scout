@@ -39,3 +39,22 @@ def remaining_timeout_milliseconds(
     if remaining <= 0:
         raise CollectionDeadlineExceeded("phase3_collection_deadline_exceeded")
     return min(maximum, remaining)
+
+
+def deadline_aware_sleep(
+    requested_seconds: float,
+    deadline_monotonic: float | None,
+) -> None:
+    """Sleep at most to the absolute deadline and fail when the delay is cut short."""
+    if requested_seconds <= 0:
+        return
+    if deadline_monotonic is None:
+        time.sleep(requested_seconds)
+        return
+    remaining = deadline_monotonic - time.monotonic()
+    if remaining <= 0:
+        raise CollectionDeadlineExceeded("phase3_collection_deadline_exceeded")
+    actual = min(requested_seconds, remaining)
+    time.sleep(actual)
+    if actual < requested_seconds or time.monotonic() >= deadline_monotonic:
+        raise CollectionDeadlineExceeded("phase3_collection_deadline_exceeded")

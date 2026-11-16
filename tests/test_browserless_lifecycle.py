@@ -136,6 +136,57 @@ class BrowserlessLifecycleTests(unittest.TestCase):
                     )
             self.assertEqual(calls, ['batting', 'pitching'])
 
+    def test_session_post_crossing_deadline_never_starts_cdp(self):
+        clock = [300.0]
+        response = MagicMock(status_code=200)
+        response.json.return_value = {
+            'browserWSEndpoint': 'wss://example.test/browser'
+        }
+        starter = MagicMock()
+
+        def blocked_post(*_args, **_kwargs):
+            clock[0] += 3.1
+            return response
+
+        with patch.dict(os.environ, {'BROWSERLESS_TOKEN': 'test'}), patch.object(
+            rs.time, 'monotonic', side_effect=lambda: clock[0]
+        ), patch(
+            'requests.post', side_effect=blocked_post
+        ), patch(
+            'patchright.sync_api.sync_playwright', return_value=starter
+        ):
+            with self.assertRaises(CollectionDeadlineExceeded):
+                rs._fetch_ncaa_browserless_pages(
+                    {'batting': 'https://stats.ncaa.org/test'},
+                    deadline_monotonic=303.0,
+                    navigation_timeout_seconds=45,
+                )
+
+        starter.assert_not_called()
+        self.assertEqual(clock[0], 303.1)
+
+    def test_direct_http_retry_sleep_stops_at_build_deadline(self):
+        clock = [400.0]
+        session = MagicMock()
+        session.get.return_value = SimpleNamespace(status_code=429)
+
+        def advance(seconds):
+            clock[0] += seconds
+
+        with patch.object(
+            rs.time, 'monotonic', side_effect=lambda: clock[0]
+        ), patch.object(rs.time, 'sleep', side_effect=advance):
+            with self.assertRaises(CollectionDeadlineExceeded):
+                rs._request_ncaa_http(
+                    'https://stats.ncaa.org/test',
+                    session,
+                    timeout_seconds=45,
+                    deadline_monotonic=402.5,
+                )
+
+        self.assertEqual(session.get.call_count, 2)
+        self.assertEqual(clock[0], 402.5)
+
     def test_upstream_429_becomes_capacity_error_without_retry(self):
         with patch.dict(os.environ, {'BROWSERLESS_TOKEN': 'test'}), patch(
             'requests.post', return_value=SimpleNamespace(status_code=429)
