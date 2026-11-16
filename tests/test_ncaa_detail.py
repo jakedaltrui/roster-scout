@@ -624,10 +624,273 @@ class FixtureCaptureSafetyTests(unittest.TestCase):
                     deadline_monotonic=203.0,
                 )
 
-        self.assertEqual(configured, [3000])
+        self.assertEqual(configured, [3000, 3000, 3000])
         self.assertEqual(clock[0], 203.0)
         button.count.assert_not_called()
         checkbox.check.assert_not_called()
+
+    def test_schedule_boundaries_preserve_deadline_exhaustion(self):
+        api = self.capture_api()
+        from roster_scout.collection_control import CollectionDeadlineExceeded
+
+        source_url = "https://stats.ncaa.org/team/234/17040"
+        for stage in ("post", "cdp", "content"):
+            with self.subTest(stage=stage):
+                clock = [100.0]
+                response = Mock(status_code=200)
+                response.json.return_value = {
+                    "browserWSEndpoint": "wss://example.test/browser"
+                }
+                page = Mock()
+                page.url = source_url
+                page.content.return_value = self._raw_schedule()
+                browser = Mock()
+                browser.contexts = [Mock(pages=[page])]
+                playwright = Mock()
+                playwright.chromium.connect_over_cdp.return_value = browser
+                starter = Mock()
+                starter.start.return_value = playwright
+
+                def expire(*_args, error_type=RuntimeError, **_kwargs):
+                    clock[0] = 105.0
+                    raise error_type("blocked boundary")
+
+                if stage == "post":
+                    post = Mock(
+                        side_effect=lambda *_a, **_k: expire(
+                            error_type=requests.Timeout
+                        )
+                    )
+                else:
+                    post = Mock(return_value=response)
+                if stage == "cdp":
+                    playwright.chromium.connect_over_cdp.side_effect = expire
+                if stage == "content":
+                    page.content.side_effect = expire
+
+                with patch.dict(os.environ, {
+                    "BROWSERLESS_TOKEN": "test-only-token",
+                    "NCAA_BROWSER_PROVIDER": "browserless",
+                }, clear=False), patch.object(
+                    api.time, "monotonic", side_effect=lambda: clock[0]
+                ), patch.object(
+                    api.requests, "post", post
+                ), patch(
+                    "patchright.sync_api.sync_playwright",
+                    return_value=starter,
+                ):
+                    with self.assertRaises(CollectionDeadlineExceeded):
+                        api._bounded_schedule_fetch(
+                            source_url,
+                            api.CaptureLimits(max_pages=1, timeout_seconds=30),
+                            deadline_monotonic=105.0,
+                        )
+
+                self.assertEqual(clock[0], 105.0)
+
+    def test_player_boundaries_preserve_deadline_exhaustion(self):
+        api = self.capture_api()
+        from roster_scout.collection_control import CollectionDeadlineExceeded
+
+        player_id = "9698671"
+        urls = {
+            key: api.build_player_url(player_id, category)
+            for key, category in {
+                "batting": "15867",
+                "pitching": "15868",
+                "fielding": "15869",
+            }.items()
+        }
+        for stage in ("post", "cdp", "navigation", "selector", "content"):
+            with self.subTest(stage=stage):
+                clock = [200.0]
+                response = Mock(status_code=200)
+                response.json.return_value = {
+                    "browserWSEndpoint": "wss://example.test/browser"
+                }
+                page = Mock()
+                page.url = urls["batting"]
+                page.content.return_value = "<html>player detail</html>"
+                page.goto.side_effect = (
+                    lambda url, **_kwargs: setattr(page, "url", url)
+                )
+                browser = Mock()
+                browser.contexts = [Mock(pages=[page])]
+                playwright = Mock()
+                playwright.chromium.connect_over_cdp.return_value = browser
+                starter = Mock()
+                starter.start.return_value = playwright
+
+                def expire(*_args, error_type=RuntimeError, **_kwargs):
+                    clock[0] = 205.0
+                    raise error_type("blocked boundary")
+
+                if stage == "post":
+                    post = Mock(
+                        side_effect=lambda *_a, **_k: expire(
+                            error_type=requests.Timeout
+                        )
+                    )
+                else:
+                    post = Mock(return_value=response)
+                if stage == "cdp":
+                    playwright.chromium.connect_over_cdp.side_effect = expire
+                if stage == "navigation":
+                    page.goto.side_effect = expire
+                if stage == "selector":
+                    page.wait_for_selector.side_effect = expire
+                if stage == "content":
+                    page.content.side_effect = expire
+
+                with patch.dict(os.environ, {
+                    "BROWSERLESS_TOKEN": "test-only-token",
+                    "NCAA_BROWSER_PROVIDER": "browserless",
+                }, clear=False), patch.object(
+                    api.time, "monotonic", side_effect=lambda: clock[0]
+                ), patch.object(
+                    api.requests, "post", post
+                ), patch(
+                    "patchright.sync_api.sync_playwright",
+                    return_value=starter,
+                ):
+                    with self.assertRaises(CollectionDeadlineExceeded):
+                        api._bounded_player_fetch(
+                            urls,
+                            player_id,
+                            api.CaptureLimits(max_pages=3, timeout_seconds=30),
+                            deadline_monotonic=205.0,
+                        )
+
+                self.assertEqual(clock[0], 205.0)
+
+    def test_terms_navigation_boundaries_preserve_deadline_exhaustion(self):
+        import roster_scraper as scraper
+        from roster_scout.collection_control import CollectionDeadlineExceeded
+
+        target = "https://stats.ncaa.org/teams/614606/season_to_date_stats"
+        for stage in ("locator", "load_state", "navigation"):
+            with self.subTest(stage=stage):
+                clock = [300.0]
+                checkbox = Mock()
+                checkbox.count.return_value = 1
+                button = Mock()
+                button.count.return_value = 1
+                button.is_enabled.return_value = True
+                page = Mock()
+                page.url = "https://stats.ncaa.org/stats_terms"
+                page.locator.side_effect = lambda selector: {
+                    "#terms_accepted": checkbox,
+                    "#stats-access-button": button,
+                }[selector]
+
+                def expire(*_args, **_kwargs):
+                    clock[0] = 305.0
+                    raise RuntimeError("blocked boundary")
+
+                if stage == "locator":
+                    page.locator.side_effect = expire
+                elif stage == "load_state":
+                    page.wait_for_load_state.side_effect = expire
+                else:
+                    page.goto.side_effect = expire
+
+                with patch.dict(
+                    os.environ, {"NCAA_TERMS_DWELL_MILLISECONDS": "0"}, clear=False
+                ), patch.object(
+                    scraper.time, "monotonic", side_effect=lambda: clock[0]
+                ):
+                    with self.assertRaises(CollectionDeadlineExceeded):
+                        scraper._accept_ncaa_terms(
+                            page,
+                            target,
+                            timeout_seconds=30,
+                            deadline_monotonic=305.0,
+                        )
+
+                self.assertEqual(clock[0], 305.0)
+
+    def test_split_control_boundaries_preserve_deadline_exhaustion(self):
+        import roster_scraper as scraper
+        from roster_scout.collection_control import CollectionDeadlineExceeded
+
+        batting = """
+        <table id="stat_grid"><thead><tr><th>Player</th><th>AB</th><th>H</th>
+        </tr></thead><tbody></tbody></table>
+        <button class="sport_stat_menu_option_4" data-sport-stat-id="4"
+          data-split-id="4">
+          vs. Left-Handed Pitchers
+        </button>
+        """
+        pitching = """
+        <table id="stat_grid"><thead><tr><th>Player</th><th>IP</th><th>ERA</th>
+        </tr></thead><tbody></tbody></table>
+        """
+        team = {
+            "season_id": "17040", "season_team_id": "614606", "division": "1"
+        }
+        season = {"id": "17040", "batting_id": "15867", "pitching_id": "15868"}
+
+        for stage in (
+            "locator", "count", "attribute", "label", "click", "content"
+        ):
+            with self.subTest(stage=stage):
+                clock = [400.0]
+                control = Mock()
+                control.count.return_value = 1
+                control.get_attribute.return_value = "4"
+                control.inner_text.return_value = "vs. Left-Handed Pitchers"
+                page = Mock()
+                page.locator.return_value = control
+                page.content.return_value = batting
+
+                def expire(*_args, **_kwargs):
+                    clock[0] = 405.0
+                    raise RuntimeError("blocked boundary")
+
+                target = {
+                    "locator": page.locator,
+                    "count": control.count,
+                    "attribute": control.get_attribute,
+                    "label": control.inner_text,
+                    "click": control.evaluate,
+                    "content": page.content,
+                }[stage]
+                target.side_effect = expire
+                fetch_calls = [0]
+
+                def transport(urls, *, page_consumer=None, **_kwargs):
+                    fetch_calls[0] += 1
+                    if page_consumer is None:
+                        return {"batting": batting, "pitching": pitching}
+                    key = next(iter(urls))
+                    page_consumer(
+                        key=key,
+                        page=page,
+                        source_url=urls[key],
+                        html=batting,
+                    )
+                    return {key: batting}
+
+                with patch.object(
+                    scraper.time, "monotonic", side_effect=lambda: clock[0]
+                ), patch.object(
+                    scraper, "_find_ncaa_team_by_season_id", return_value=team
+                ), patch.object(
+                    scraper, "_find_ncaa_season", return_value=season
+                ), patch.object(
+                    scraper, "_fetch_ncaa_pages", side_effect=transport
+                ):
+                    with self.assertRaises(CollectionDeadlineExceeded):
+                        scraper.collect_ncaa_split_results(
+                            "614606",
+                            division=1,
+                            year=2026,
+                            navigation_timeout_seconds=30,
+                            deadline_monotonic=405.0,
+                        )
+
+                self.assertEqual(fetch_calls[0], 2)
+                self.assertEqual(clock[0], 405.0)
 
     def test_manifest_is_allowlisted_sorted_and_contains_no_raw_source(self):
         api = self.capture_api()

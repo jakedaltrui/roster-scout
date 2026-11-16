@@ -39,6 +39,7 @@ from roster_scout.collection_control import (
     deadline_aware_sleep,
     remaining_timeout_milliseconds,
     remaining_timeout_seconds,
+    run_with_deadline,
 )
 
 # ── Constants ──────────────────────────────────────────────────────────────────
@@ -1935,8 +1936,18 @@ def _accept_ncaa_terms(
     if not page.url.rstrip("/").endswith("/stats_terms"):
         return
 
-    checkbox = page.locator("#terms_accepted")
-    button = page.locator("#stats-access-button")
+    checkbox = _bounded_playwright_action(
+        page,
+        lambda: page.locator("#terms_accepted"),
+        deadline_monotonic,
+        timeout_seconds,
+    )
+    button = _bounded_playwright_action(
+        page,
+        lambda: page.locator("#stats-access-button"),
+        deadline_monotonic,
+        timeout_seconds,
+    )
     if (
         _bounded_playwright_action(
             page, checkbox.count, deadline_monotonic, timeout_seconds
@@ -1969,7 +1980,12 @@ def _accept_ncaa_terms(
         # DOMContentLoaded listener would normally enable the button. The form
         # is otherwise complete and the checked field carries NCAA's signed
         # value, so submit that native form directly.
-        form = page.locator("form[action='/stats_terms']")
+        form = _bounded_playwright_action(
+            page,
+            lambda: page.locator("form[action='/stats_terms']"),
+            deadline_monotonic,
+            timeout_seconds,
+        )
         if _bounded_playwright_action(
             page, form.count, deadline_monotonic, timeout_seconds
         ) != 1:
@@ -1980,22 +1996,24 @@ def _accept_ncaa_terms(
             deadline_monotonic,
             timeout_seconds,
         )
-    current_timeout_ms = remaining_timeout_milliseconds(
-        deadline_monotonic, timeout_seconds
-    )
-    page.wait_for_load_state(
-        "domcontentloaded", timeout=current_timeout_ms
+    run_with_deadline(
+        lambda allowance: page.wait_for_load_state(
+            "domcontentloaded", timeout=allowance
+        ),
+        deadline_monotonic,
+        timeout_seconds,
     )
     _bounded_browser_wait(page, 2000, deadline_monotonic, timeout_seconds)
     if request_reserver is not None:
         request_reserver()
-    current_timeout_ms = remaining_timeout_milliseconds(
-        deadline_monotonic, timeout_seconds
-    )
-    page.goto(
-        target_url,
-        wait_until="domcontentloaded",
-        timeout=current_timeout_ms,
+    run_with_deadline(
+        lambda allowance: page.goto(
+            target_url,
+            wait_until="domcontentloaded",
+            timeout=allowance,
+        ),
+        deadline_monotonic,
+        timeout_seconds,
     )
 
 
@@ -2011,12 +2029,12 @@ def _bounded_browser_wait(
             deadline_monotonic, navigation_timeout_seconds
         )
         return
-    allowance = remaining_timeout_milliseconds(
-        deadline_monotonic, navigation_timeout_seconds
-    )
-    page.wait_for_timeout(min(requested_milliseconds, allowance))
-    remaining_timeout_milliseconds(
-        deadline_monotonic, navigation_timeout_seconds
+    run_with_deadline(
+        lambda allowance: page.wait_for_timeout(
+            min(requested_milliseconds, allowance)
+        ),
+        deadline_monotonic,
+        navigation_timeout_seconds,
     )
 
 
@@ -2027,21 +2045,13 @@ def _bounded_playwright_action(
     navigation_timeout_seconds,
 ):
     """Run one Playwright action under its exact remaining auto-wait budget."""
-    timeout_ms = remaining_timeout_milliseconds(
-        deadline_monotonic, navigation_timeout_seconds
+    def bounded(allowance):
+        page.set_default_timeout(allowance)
+        return action()
+
+    return run_with_deadline(
+        bounded, deadline_monotonic, navigation_timeout_seconds
     )
-    page.set_default_timeout(timeout_ms)
-    try:
-        result = action()
-    except Exception:
-        remaining_timeout_milliseconds(
-            deadline_monotonic, navigation_timeout_seconds
-        )
-        raise
-    remaining_timeout_milliseconds(
-        deadline_monotonic, navigation_timeout_seconds
-    )
-    return result
 
 
 def _fetch_ncaa_browser_pages(
@@ -2250,7 +2260,6 @@ def _fetch_ncaa_browserless_pages(
     boundary_timeout_ms = remaining_timeout_milliseconds(
         deadline_monotonic, navigation_timeout_seconds
     )
-    boundary_timeout = boundary_timeout_ms / 1000
     timeout_ms = min(
         int(os.environ.get("BROWSERLESS_TIMEOUT_MILLISECONDS", "120000")),
         boundary_timeout_ms,
@@ -2266,17 +2275,21 @@ def _fetch_ncaa_browserless_pages(
     try:
         if request_reserver is not None:
             request_reserver(first_key)
-        response = requests.post(
-            f"{endpoint}?{query}",
-            json={
-                "url": first_url,
-                "browserWSEndpoint": True,
-                "cookies": True,
-                "content": True,
-                "screenshot": False,
-                "ttl": 60000,
-            },
-            timeout=boundary_timeout,
+        response = run_with_deadline(
+            lambda allowance: requests.post(
+                f"{endpoint}?{query}",
+                json={
+                    "url": first_url,
+                    "browserWSEndpoint": True,
+                    "cookies": True,
+                    "content": True,
+                    "screenshot": False,
+                    "ttl": 60000,
+                },
+                timeout=allowance / 1000,
+            ),
+            deadline_monotonic,
+            navigation_timeout_seconds,
         )
     except requests.RequestException as exc:
         remaining_timeout_milliseconds(
@@ -2306,9 +2319,10 @@ def _fetch_ncaa_browserless_pages(
         remaining_timeout_milliseconds(
             deadline_monotonic, navigation_timeout_seconds
         )
-        playwright = sync_playwright().start()
-        remaining_timeout_milliseconds(
-            deadline_monotonic, navigation_timeout_seconds
+        playwright = run_with_deadline(
+            lambda _allowance: sync_playwright().start(),
+            deadline_monotonic,
+            navigation_timeout_seconds,
         )
         authenticated_ws = (
             ws_endpoint
@@ -2316,17 +2330,13 @@ def _fetch_ncaa_browserless_pages(
             + "token="
             + quote(token, safe="")
         )
-        browser = playwright.chromium.connect_over_cdp(
-            authenticated_ws,
-            timeout=min(
-                30000,
-                remaining_timeout_milliseconds(
-                    deadline_monotonic, navigation_timeout_seconds
-                ),
+        browser = run_with_deadline(
+            lambda allowance: playwright.chromium.connect_over_cdp(
+                authenticated_ws,
+                timeout=min(30000, allowance),
             ),
-        )
-        remaining_timeout_milliseconds(
-            deadline_monotonic, navigation_timeout_seconds
+            deadline_monotonic,
+            navigation_timeout_seconds,
         )
         pages = [
             page
@@ -2347,7 +2357,9 @@ def _fetch_ncaa_browserless_pages(
                 (lambda: request_reserver(first_key))
                 if request_reserver is not None else None
             ),
-            timeout_seconds=boundary_timeout,
+            timeout_seconds=remaining_timeout_seconds(
+                deadline_monotonic, navigation_timeout_seconds
+            ),
             deadline_monotonic=deadline_monotonic,
         )
         verify_seconds = min(
@@ -2361,12 +2373,14 @@ def _fetch_ncaa_browserless_pages(
             if page.url != url:
                 if request_reserver is not None:
                     request_reserver(key)
-                page.goto(
-                    url,
-                    wait_until="domcontentloaded",
-                    timeout=remaining_timeout_milliseconds(
-                        deadline_monotonic, navigation_timeout_seconds
+                run_with_deadline(
+                    lambda allowance: page.goto(
+                        url,
+                        wait_until="domcontentloaded",
+                        timeout=allowance,
                     ),
+                    deadline_monotonic,
+                    navigation_timeout_seconds,
                 )
             _accept_ncaa_terms(
                 page,
@@ -2384,7 +2398,12 @@ def _fetch_ncaa_browserless_pages(
             deadline = time.monotonic() + current_timeout
             html = ""
             while time.monotonic() < deadline:
-                html = page.content()
+                html = _bounded_playwright_action(
+                    page,
+                    page.content,
+                    deadline_monotonic,
+                    navigation_timeout_seconds,
+                )
                 if _has_ncaa_stat_grid(html):
                     break
                 _bounded_browser_wait(
@@ -2402,17 +2421,24 @@ def _fetch_ncaa_browserless_pages(
                 rendered[key] = html
             else:
                 try:
-                    rendered[key] = page_consumer(
-                        key=key,
-                        page=page,
-                        source_url=url,
-                        html=html,
+                    rendered[key] = run_with_deadline(
+                        lambda _allowance: page_consumer(
+                            key=key,
+                            page=page,
+                            source_url=url,
+                            html=html,
+                        ),
+                        deadline_monotonic,
+                        navigation_timeout_seconds,
                     )
                 except (CollectionBudgetExceeded, CollectionDeadlineExceeded):
                     raise
                 except NcaaAccessError:
                     raise
                 except Exception as exc:
+                    remaining_timeout_milliseconds(
+                        deadline_monotonic, navigation_timeout_seconds
+                    )
                     raise NcaaAccessError(
                         "Browserless NCAA page extraction failed."
                     ) from exc
@@ -2421,6 +2447,9 @@ def _fetch_ncaa_browserless_pages(
     except NcaaAccessError:
         raise
     except Exception as exc:
+        remaining_timeout_milliseconds(
+            deadline_monotonic, navigation_timeout_seconds
+        )
         # Do not include Browserless exception text: WebSocket failures can
         # contain the authenticated endpoint.
         raise NcaaAccessError("Browserless NCAA browser session failed.") from exc
@@ -3090,25 +3119,63 @@ def collect_ncaa_split_results(
             if scope.stat_type != key:
                 continue
             selector = f".sport_stat_menu_option_{scope.source_identifier}"
-            control = page.locator(selector)
-            if control.count() != 1:
+            control = _bounded_playwright_action(
+                page,
+                lambda: page.locator(selector),
+                deadline_monotonic,
+                navigation_timeout_seconds,
+            )
+            if _bounded_playwright_action(
+                page,
+                control.count,
+                deadline_monotonic,
+                navigation_timeout_seconds,
+            ) != 1:
                 raise NcaaSchemaError("NCAA split control changed.")
             if (
-                control.get_attribute("data-sport-stat-id")
+                _bounded_playwright_action(
+                    page,
+                    lambda: control.get_attribute("data-sport-stat-id"),
+                    deadline_monotonic,
+                    navigation_timeout_seconds,
+                )
                 != scope.source_identifier
-                or split_label_code(control.inner_text(), scope.stat_type)
+                or split_label_code(
+                    _bounded_playwright_action(
+                        page,
+                        control.inner_text,
+                        deadline_monotonic,
+                        navigation_timeout_seconds,
+                    ),
+                    scope.stat_type,
+                )
                 != scope.scope_code
             ):
                 raise NcaaSchemaError("NCAA split control identity changed.")
             if request_reserver is not None:
                 request_reserver(f"splits:{scope.stat_type}")
-            control.evaluate("element => element.click()")
+            _bounded_playwright_action(
+                page,
+                lambda: control.evaluate("element => element.click()"),
+                deadline_monotonic,
+                navigation_timeout_seconds,
+            )
             _bounded_browser_wait(
                 page, 250, deadline_monotonic,
                 navigation_timeout_seconds,
             )
-            rendered[candidate_key] = page.content()
-        return page.content()
+            rendered[candidate_key] = _bounded_playwright_action(
+                page,
+                page.content,
+                deadline_monotonic,
+                navigation_timeout_seconds,
+            )
+        return _bounded_playwright_action(
+            page,
+            page.content,
+            deadline_monotonic,
+            navigation_timeout_seconds,
+        )
 
     if candidates:
         active_types = {

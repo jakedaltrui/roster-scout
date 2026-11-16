@@ -84,6 +84,22 @@ FOCUSED_TESTS = (
         "test_terms_locator_action_receives_exact_remaining_timeout"
     ),
     (
+        "tests.test_ncaa_detail.FixtureCaptureSafetyTests."
+        "test_schedule_boundaries_preserve_deadline_exhaustion"
+    ),
+    (
+        "tests.test_ncaa_detail.FixtureCaptureSafetyTests."
+        "test_player_boundaries_preserve_deadline_exhaustion"
+    ),
+    (
+        "tests.test_ncaa_detail.FixtureCaptureSafetyTests."
+        "test_terms_navigation_boundaries_preserve_deadline_exhaustion"
+    ),
+    (
+        "tests.test_ncaa_detail.FixtureCaptureSafetyTests."
+        "test_split_control_boundaries_preserve_deadline_exhaustion"
+    ),
+    (
         "tests.test_browserless_lifecycle.BrowserlessLifecycleTests."
         "test_public_transport_preserves_collection_control_signals"
     ),

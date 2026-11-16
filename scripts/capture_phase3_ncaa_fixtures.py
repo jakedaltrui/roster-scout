@@ -35,6 +35,7 @@ from roster_scout.collection_control import (
     CollectionDeadlineExceeded,
     remaining_timeout_milliseconds,
     remaining_timeout_seconds,
+    run_with_deadline,
 )
 
 FIXTURE_ROOT = (PROJECT_ROOT / "tests" / "fixtures" / "ncaa_detail").resolve()
@@ -1181,7 +1182,6 @@ def _bounded_schedule_fetch(
     boundary_timeout_ms = remaining_timeout_milliseconds(
         deadline_monotonic, limits.timeout_seconds
     )
-    boundary_timeout = boundary_timeout_ms / 1000
     timeout_ms = min(boundary_timeout_ms, 120000)
     query = urlencode({
         "token": token,
@@ -1196,20 +1196,21 @@ def _bounded_schedule_fetch(
     try:
         if request_reserver is not None:
             request_reserver("schedule")
-        response = requests.post(
-            f"{endpoint}?{query}",
-            json={
-                "url": source_url,
-                "browserWSEndpoint": True,
-                "cookies": True,
-                "content": True,
-                "screenshot": False,
-                "ttl": 60000,
-            },
-            timeout=boundary_timeout,
-        )
-        remaining_timeout_milliseconds(
-            deadline_monotonic, limits.timeout_seconds
+        response = run_with_deadline(
+            lambda allowance: requests.post(
+                f"{endpoint}?{query}",
+                json={
+                    "url": source_url,
+                    "browserWSEndpoint": True,
+                    "cookies": True,
+                    "content": True,
+                    "screenshot": False,
+                    "ttl": 60000,
+                },
+                timeout=allowance / 1000,
+            ),
+            deadline_monotonic,
+            limits.timeout_seconds,
         )
         if response.status_code != 200:
             raise CaptureUnavailable(CAPTURE_FAILURE, stage="schedule_session")
@@ -1222,9 +1223,10 @@ def _bounded_schedule_fetch(
             remaining_timeout_milliseconds(
                 deadline_monotonic, limits.timeout_seconds
             )
-            playwright = sync_playwright().start()
-            remaining_timeout_milliseconds(
-                deadline_monotonic, limits.timeout_seconds
+            playwright = run_with_deadline(
+                lambda _allowance: sync_playwright().start(),
+                deadline_monotonic,
+                limits.timeout_seconds,
             )
             authenticated_ws = (
                 ws_endpoint
@@ -1232,17 +1234,13 @@ def _bounded_schedule_fetch(
                 + "token="
                 + quote(token, safe="")
             )
-            browser = playwright.chromium.connect_over_cdp(
-                authenticated_ws,
-                timeout=min(
-                    30000,
-                    remaining_timeout_milliseconds(
-                        deadline_monotonic, limits.timeout_seconds
-                    ),
+            browser = run_with_deadline(
+                lambda allowance: playwright.chromium.connect_over_cdp(
+                    authenticated_ws,
+                    timeout=min(30000, allowance),
                 ),
-            )
-            remaining_timeout_milliseconds(
-                deadline_monotonic, limits.timeout_seconds
+                deadline_monotonic,
+                limits.timeout_seconds,
             )
             pages = [page for context in browser.contexts for page in context.pages]
             if not pages:
@@ -1258,7 +1256,7 @@ def _bounded_schedule_fetch(
                     (lambda: request_reserver("schedule"))
                     if request_reserver is not None else None
                 ),
-                timeout_seconds=boundary_timeout,
+                timeout_seconds=limits.timeout_seconds,
                 deadline_monotonic=deadline_monotonic,
             )
             deadline = min(
@@ -1267,7 +1265,12 @@ def _bounded_schedule_fetch(
             )
             content = ""
             while time.monotonic() < deadline:
-                content = page.content()
+                content = rs._bounded_playwright_action(
+                    page,
+                    page.content,
+                    deadline_monotonic,
+                    limits.timeout_seconds,
+                )
                 try:
                     _schedule_table(content)
                     break
@@ -1285,6 +1288,9 @@ def _bounded_schedule_fetch(
     ):
         raise
     except Exception as exc:
+        remaining_timeout_milliseconds(
+            deadline_monotonic, limits.timeout_seconds
+        )
         raise CaptureUnavailable(CAPTURE_FAILURE, stage="schedule_fetch") from exc
     finally:
         try:
@@ -1800,7 +1806,6 @@ def _bounded_player_fetch(
     boundary_timeout_ms = remaining_timeout_milliseconds(
         deadline_monotonic, limits.timeout_seconds
     )
-    boundary_timeout = boundary_timeout_ms / 1000
     timeout_ms = min(boundary_timeout_ms, 120000)
     query = urlencode({
         "token": token,
@@ -1817,16 +1822,17 @@ def _bounded_player_fetch(
         first_key = next(iter(urls))
         if request_reserver is not None:
             request_reserver(f"history:{first_key}")
-        response = requests.post(
-            f"{endpoint}?{query}",
-            json={
-                "url": first_url, "browserWSEndpoint": True, "cookies": True,
-                "content": True, "screenshot": False, "ttl": 60000,
-            },
-            timeout=boundary_timeout,
-        )
-        remaining_timeout_milliseconds(
-            deadline_monotonic, limits.timeout_seconds
+        response = run_with_deadline(
+            lambda allowance: requests.post(
+                f"{endpoint}?{query}",
+                json={
+                    "url": first_url, "browserWSEndpoint": True, "cookies": True,
+                    "content": True, "screenshot": False, "ttl": 60000,
+                },
+                timeout=allowance / 1000,
+            ),
+            deadline_monotonic,
+            limits.timeout_seconds,
         )
         if response.status_code != 200:
             raise CaptureUnavailable(CAPTURE_FAILURE, stage="player_session")
@@ -1840,22 +1846,19 @@ def _bounded_player_fetch(
             remaining_timeout_milliseconds(
                 deadline_monotonic, limits.timeout_seconds
             )
-            playwright = sync_playwright().start()
-            remaining_timeout_milliseconds(
-                deadline_monotonic, limits.timeout_seconds
+            playwright = run_with_deadline(
+                lambda _allowance: sync_playwright().start(),
+                deadline_monotonic,
+                limits.timeout_seconds,
             )
-            browser = playwright.chromium.connect_over_cdp(
-                ws_endpoint + ("&" if "?" in ws_endpoint else "?")
-                + "token=" + quote(token, safe=""),
-                timeout=min(
-                    30000,
-                    remaining_timeout_milliseconds(
-                        deadline_monotonic, limits.timeout_seconds
-                    ),
+            browser = run_with_deadline(
+                lambda allowance: playwright.chromium.connect_over_cdp(
+                    ws_endpoint + ("&" if "?" in ws_endpoint else "?")
+                    + "token=" + quote(token, safe=""),
+                    timeout=min(30000, allowance),
                 ),
-            )
-            remaining_timeout_milliseconds(
-                deadline_monotonic, limits.timeout_seconds
+                deadline_monotonic,
+                limits.timeout_seconds,
             )
             pages = [page for context in browser.contexts for page in context.pages]
             if not pages:
@@ -1871,12 +1874,14 @@ def _bounded_player_fetch(
                 if page.url != source_url:
                     if request_reserver is not None:
                         request_reserver(f"history:{key}")
-                    page.goto(
-                        source_url,
-                        wait_until="domcontentloaded",
-                        timeout=remaining_timeout_milliseconds(
-                            deadline_monotonic, limits.timeout_seconds
+                    run_with_deadline(
+                        lambda allowance: page.goto(
+                            source_url,
+                            wait_until="domcontentloaded",
+                            timeout=allowance,
                         ),
+                        deadline_monotonic,
+                        limits.timeout_seconds,
                     )
                 rs._accept_ncaa_terms(
                     page,
@@ -1888,19 +1893,28 @@ def _bounded_player_fetch(
                     timeout_seconds=current_timeout,
                     deadline_monotonic=deadline_monotonic,
                 )
-                page.wait_for_selector(
-                    f"#career_totals_{player}_player",
-                    timeout=remaining_timeout_milliseconds(
-                        deadline_monotonic, limits.timeout_seconds
+                run_with_deadline(
+                    lambda allowance: page.wait_for_selector(
+                        f"#career_totals_{player}_player",
+                        timeout=allowance,
                     ),
+                    deadline_monotonic,
+                    limits.timeout_seconds,
                 )
-                page.wait_for_selector(
-                    f"#game_log_{player}_player",
-                    timeout=remaining_timeout_milliseconds(
-                        deadline_monotonic, limits.timeout_seconds
+                run_with_deadline(
+                    lambda allowance: page.wait_for_selector(
+                        f"#game_log_{player}_player",
+                        timeout=allowance,
                     ),
+                    deadline_monotonic,
+                    limits.timeout_seconds,
                 )
-                rendered[key] = page.content()
+                rendered[key] = rs._bounded_playwright_action(
+                    page,
+                    page.content,
+                    deadline_monotonic,
+                    limits.timeout_seconds,
+                )
         return rendered
     except (
         CaptureUnavailable,
@@ -1909,6 +1923,9 @@ def _bounded_player_fetch(
     ):
         raise
     except Exception as exc:
+        remaining_timeout_milliseconds(
+            deadline_monotonic, limits.timeout_seconds
+        )
         raise CaptureUnavailable(CAPTURE_FAILURE, stage="player_fetch") from exc
     finally:
         try:
