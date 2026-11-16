@@ -552,7 +552,7 @@ class AttemptGenerationDeliveryTests(PostgreSQLJobTestCase):
             2,
             collector=Mock(return_value=PublicationTests.successful_sections()),
         )
-        self.assertEqual(snapshot.status, "ready")
+        self.assertEqual(snapshot.status, "partial")
         with self.Session() as session:
             stored = session.get(ReportJob, job.id)
             self.assertEqual(stored.attempt_count, 2)
@@ -842,7 +842,7 @@ class CrashAfterGenerationCasRecoveryTests(PostgreSQLJobTestCase):
                     )
                 )
             )
-            self.assertEqual(stored.status, "ready")
+            self.assertEqual(stored.status, "partial")
             self.assertEqual(stored.attempt_count, 2)
             self.assertEqual(stored.started_generation, 2)
             self.assertEqual(stored.dispatch_generation, 2)
@@ -1568,7 +1568,7 @@ class ParserContractRecoveryTests(PostgreSQLJobTestCase):
         snapshot = run_report_job(
             self.Session, job.id, collector=duplicate_collector
         )
-        self.assertEqual(snapshot.status, "ready")
+        self.assertEqual(snapshot.status, "partial")
         duplicate_collector.assert_not_called()
         with self.Session() as session:
             sections = list(session.scalars(select(ReportSection)))
@@ -1649,12 +1649,12 @@ class FinalAttemptEvidenceRecoveryTests(PostgreSQLJobTestCase):
 
         collector = Mock(side_effect=AssertionError("finalization collected twice"))
         snapshot = run_report_job(self.Session, job.id, collector=collector)
-        self.assertEqual(snapshot.status, "ready")
+        self.assertEqual(snapshot.status, "partial")
         collector.assert_not_called()
         with self.Session() as session:
             stored = session.get(ReportJob, job.id)
             self.assertEqual(stored.attempt_count, expected_attempts)
-            self.assertEqual(stored.status, "ready")
+            self.assertEqual(stored.status, "partial")
 
     def test_max_attempts_one_replays_complete_evidence_without_collection(self):
         job = self.crash_after_source_commit(max_attempts=1, attempt_count=0)
@@ -2050,7 +2050,7 @@ class ConcurrentExecutionClaimTests(PostgreSQLJobTestCase):
         with self.Session() as session:
             stored = session.get(ReportJob, job.id)
             self.assertEqual(stored.attempt_count, 1)
-            self.assertEqual(stored.status, "ready")
+            self.assertEqual(stored.status, "partial")
             self.assertIsNone(stored.failure_category)
             self.assertIsNone(stored.failure_message)
             self.assertEqual(
@@ -2131,7 +2131,7 @@ class CeleryConcurrentDeliveryTests(PostgreSQLJobTestCase):
         with self.Session() as session:
             stored = session.get(ReportJob, job.id)
             self.assertEqual(stored.attempt_count, 1)
-            self.assertEqual(stored.status, "ready")
+            self.assertEqual(stored.status, "partial")
             self.assertIsNone(stored.failure_category)
             self.assertIsNone(stored.failure_message)
             self.assertEqual(
@@ -2500,7 +2500,7 @@ class FailureEvidenceIntegrationTests(PostgreSQLJobTestCase):
             job.id,
             collector=lambda *_args, **_kwargs: PublicationTests.successful_sections(),
         )
-        self.assertEqual(snapshot.status, "ready")
+        self.assertEqual(snapshot.status, "partial")
         with self.Session() as session:
             self.assertEqual(
                 session.scalar(select(func.count()).select_from(FailureEvidence)), 0
@@ -3324,7 +3324,7 @@ class ComputedScopePublicationTests(PostgreSQLJobTestCase):
             self.Session, second_job.id,
             collector=Mock(return_value=self._sections(12)),
         )
-        self.assertEqual((first.status, second.status), ("ready", "ready"))
+        self.assertEqual((first.status, second.status), ("partial", "partial"))
         with self.Session() as session:
             scopes = list(session.scalars(select(StatisticScope).where(
                 StatisticScope.scope_kind == "computed_game"
