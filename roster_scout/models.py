@@ -1786,6 +1786,11 @@ class MetricConstantSet(UUIDPrimaryKey, Timestamped, Base):
             name="ck_metric_constant_sets_values_object",
         ),
         CheckConstraint(
+            "(metric_code = 'woba' AND constant_type = 'weight_set') OR "
+            "(metric_code = 'fip' AND constant_type = 'additive_constant')",
+            name="ck_metric_constant_sets_code_type",
+        ),
+        CheckConstraint(
             "(verification_status = 'verified' AND verified_at IS NOT NULL) OR "
             "(verification_status <> 'verified' AND verified_at IS NULL "
             "AND verified_by_account_id IS NULL)",

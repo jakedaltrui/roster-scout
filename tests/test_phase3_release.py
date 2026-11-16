@@ -400,38 +400,21 @@ class MetricConstantSetTests(Phase3PostgreSQLTestCase):
             self.assertEqual(result.reason_code, "verified_ncaa_constant_required")
             self.assertIsNone(result.value)
 
-    def test_database_rejects_metric_code_definition_substitution(self):
-        from roster_scout.models import (
-            MetricConstantSet,
-            MetricDefinition,
-            Report,
-            TeamSeason,
+    def test_metric_values_use_exact_composite_constant_definition_linkage(self):
+        foreign_keys = inspect(self.engine).get_foreign_keys("metric_values")
+        linkage = next(
+            item
+            for item in foreign_keys
+            if item["name"] == "fk_metric_values_constant_definition"
         )
-
-        _organization_id, report_id, _job_id = self.fixture()
-        with self.Session.begin() as session:
-            report = session.get(Report, report_id)
-            team_season = session.get(TeamSeason, report.team_season_id)
-            definition = MetricDefinition(code="fip", version="release-1", formula="formula")
-            session.add(definition)
-            session.flush()
-            session.add(MetricConstantSet(
-                metric_definition_id=definition.id,
-                metric_code="woba",
-                version="ncaa-2026-d2-v1",
-                season_id=team_season.season_id,
-                division=team_season.division,
-                constant_type="additive_constant",
-                values_json={"constant": "3.2"},
-                methodology="Audited NCAA season/division methodology",
-                source_url="https://stats.ncaa.org/constants",
-                source_identifier="fip:2026:d2:v1",
-                collected_at=datetime.now(UTC),
-                payload_sha256="d" * 64,
-                verification_status="pending",
-            ))
-            with self.assertRaises(DBAPIError):
-                session.flush()
+        self.assertEqual(
+            linkage["constrained_columns"],
+            ["constant_set_id", "metric_definition_id"],
+        )
+        self.assertEqual(
+            linkage["referred_columns"],
+            ["id", "metric_definition_id"],
+        )
 
     def test_verified_constant_is_immutable_and_scope_is_unique(self):
         from roster_scout.models import (

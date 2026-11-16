@@ -371,6 +371,21 @@ def publish_snapshot(session, snapshot_id):
     if any(item.outcome == "planned" for item in request_ledgers):
         raise SnapshotPublicationError("request ledger contains unsettled work")
     by_name = {section.section: section for section in sections}
+    materialized_supplemental_families = {
+        "fielding",
+        "splits:batting",
+        "splits:pitching",
+    }
+    requested_supplemental_families = {
+        item.family
+        for item in request_ledgers
+        if item.family in materialized_supplemental_families
+    }
+    missing_requested_statuses = requested_supplemental_families - by_name.keys()
+    if missing_requested_statuses:
+        raise SnapshotPublicationError(
+            "requested supplemental family lacks materialized status"
+        )
     for required in ("batting", "pitching"):
         section = by_name.get(required)
         if section is None or not section.critical or section.status != "complete":

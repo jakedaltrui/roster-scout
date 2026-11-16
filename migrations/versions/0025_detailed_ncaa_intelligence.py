@@ -13,6 +13,7 @@ revision = "0025"
 down_revision = "0024"
 branch_labels = None
 depends_on = None
+PHASE3_SCHEMA_FINALIZED = True
 
 
 BATTING_COUNT_COLUMNS = (
@@ -852,6 +853,11 @@ def upgrade():
             name="ck_metric_constant_sets_values_object",
         ),
         sa.CheckConstraint(
+            "(metric_code = 'woba' AND constant_type = 'weight_set') OR "
+            "(metric_code = 'fip' AND constant_type = 'additive_constant')",
+            name="ck_metric_constant_sets_code_type",
+        ),
+        sa.CheckConstraint(
             "(verification_status = 'verified' AND verified_at IS NOT NULL) OR "
             "(verification_status <> 'verified' AND verified_at IS NULL "
             "AND verified_by_account_id IS NULL)",
@@ -1239,6 +1245,12 @@ def downgrade():
         "ON metric_constant_sets"
     )
     op.execute("DROP FUNCTION IF EXISTS reject_locked_metric_constant_set_mutation()")
+    # Compatibility cleanup for an earlier unreleased 0025 draft.
+    op.execute(
+        "DROP TRIGGER IF EXISTS trg_metric_constant_sets_definition "
+        "ON metric_constant_sets"
+    )
+    op.execute("DROP FUNCTION IF EXISTS enforce_metric_constant_set_definition()")
 
     # The legacy column must be restored before the detailed lineage columns
     # disappear. Published metric rows are normally immutable, so suspend only
