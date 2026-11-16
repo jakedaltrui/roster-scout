@@ -5,10 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
+import html as html_module
 import hashlib
 import re
 from types import MappingProxyType
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from bs4 import BeautifulSoup
 
@@ -48,6 +49,17 @@ _SPLIT_DISPLAY_LABELS = {
 _SPLIT_UNAVAILABLE_REASONS = frozenset(
     {"source_not_published", "source_identifier_not_found"}
 )
+_LIVE_LABEL_PATTERNS = {
+    "vs_lhp": (r"\bvs\.?\s*(?:lhp|left[- ]handed pitchers?)\b",),
+    "vs_rhp": (r"\bvs\.?\s*(?:rhp|right[- ]handed pitchers?)\b",),
+    "vs_lhb": (r"\bvs\.?\s*(?:lhb|left[- ]handed (?:batters?|hitters?))\b",),
+    "vs_rhb": (r"\bvs\.?\s*(?:rhb|right[- ]handed (?:batters?|hitters?))\b",),
+    "runners_on": (r"\brunners?\s+on\b", r"\bhits?[- ]ab\s+with\s+runners?\s+o(?:b|n)\b"),
+    "bases_empty": (r"\bbases?\s+empty\b", r"\bno\s+runners?\s+on\b"),
+    "bases_loaded": (r"\bbases?\s+loaded\b",),
+    "risp": (r"\brunners?\s+in\s+scoring\s+position\b", r"\brisp\b", r"\b(?:h|hits?)[- ]ab\s+scorepos\b"),
+    "two_outs": (r"\b(?:two|2)\s+outs?\b", r"\bw2outs?\b"),
+}
 _REQUIRED_HEADERS = ("player", "g", "gs", "po", "a", "e", "tc", "dp", "fpct")
 _OPTIONAL_HEADERS = ("pb", "sba", "csb")
 _COUNT_FIELDS = {
@@ -397,6 +409,97 @@ def discover_split_controls(
     return tuple(output)
 
 
+def split_label_code(value: str, stat_type: str) -> str | None:
+    normalized = _normalized(value)
+    for code in split_codes(stat_type):
+        if any(re.search(pattern, normalized, re.I) for pattern in _LIVE_LABEL_PATTERNS[code]):
+            return code
+    return None
+
+
+def discover_live_split_controls(
+    html: str,
+    *,
+    season_id: str,
+    season_team_id: str,
+    stat_type: str,
+    source_stat_category_id: str,
+    collected_at: datetime | None = None,
+) -> tuple[DiscoveredSplitScope, ...]:
+    """Discover current numeric controls without assuming historical split IDs."""
+    if not html or "access denied" in html.casefold():
+        raise SplitContractError("source_blocked")
+    if any(
+        not re.fullmatch(r"\d+", str(value or ""))
+        for value in (season_id, season_team_id, source_stat_category_id)
+    ):
+        raise ValueError("NCAA split source identities must be numeric")
+    soup = BeautifulSoup(html, "html.parser")
+    table = soup.select_one("#stat_grid")
+    if table is None:
+        raise SplitContractError("source_blocked")
+    header_rows = table.select("thead tr")
+    header_row = header_rows[-1] if header_rows else table.find("tr")
+    headers = [
+        _normalized(cell.get_text(" ", strip=True))
+        for cell in header_row.find_all(["th", "td"], recursive=False)
+    ] if header_row is not None else []
+    required = {"player", "ab", "h"} if stat_type == "batting" else {"player", "ip", "era"}
+    if any(headers.count(value) != 1 for value in required):
+        raise SplitContractError("schema_validation")
+    excluded = {season_id, season_team_id, source_stat_category_id}
+    found = {}
+    for element in soup.find_all(["option", "a", "button", "input", "label"]):
+        visible = " ".join(filter(None, (
+            element.get_text(" ", strip=True),
+            element.get("value", "") if element.name == "input" else "",
+            element.get("title", ""),
+            element.get("aria-label", ""),
+        )))
+        code = split_label_code(visible, stat_type)
+        if code is None:
+            continue
+        candidates = []
+        for name, raw in element.attrs.items():
+            if name.lower().startswith("on"):
+                continue
+            candidates.extend(raw if isinstance(raw, list) else [raw])
+        parsed = urlparse(element.get("href") or "")
+        for key, values in parse_qs(parsed.query).items():
+            if re.search(r"split|situat|summary|stat[_-]?seq|context", key, re.I):
+                candidates.extend(values)
+        identifier = next(
+            (str(item) for item in candidates if str(item).isdigit() and str(item) not in excluded),
+            None,
+        )
+        if code not in found or (found[code] is None and identifier is not None):
+            found[code] = identifier
+    now = collected_at or datetime.now(UTC)
+    source_path = f"/teams/{season_team_id}/season_to_date_stats"
+    return tuple(
+        DiscoveredSplitScope(
+            scope_kind=SPLIT_SCOPE_KIND,
+            scope_code=code,
+            display_label=_SPLIT_DISPLAY_LABELS[code],
+            stat_type=stat_type,
+            source_label=_SPLIT_SOURCE_LABELS[code],
+            source_identifier=found.get(code),
+            source_path=source_path,
+            source_url=(
+                build_split_url(season_team_id, source_stat_category_id, found[code])
+                if found.get(code) else None
+            ),
+            source_season_id=season_id,
+            source_season_team_id=season_team_id,
+            source_stat_category_id=source_stat_category_id,
+            status="pending" if found.get(code) else "unavailable",
+            reason=None if found.get(code) else "source_identifier_not_found",
+            collected_at=now,
+        )
+        for code in split_codes(stat_type)
+    )
+
+
 def parse_split_result(
     html: str,
     *,
@@ -541,6 +644,130 @@ def parse_split_result(
         rows=tuple(output),
         metric_results=tuple(metrics),
     )
+
+
+def parse_live_split_result(
+    html: str,
+    *,
+    discovered_scope: DiscoveredSplitScope,
+) -> ParsedSplitResult:
+    """Normalize one current NCAA presentation grid into the certified contract."""
+    identifier = discovered_scope.source_identifier
+    if identifier is None:
+        checksum = hashlib.sha256(
+            f"{discovered_scope.stat_type}:{discovered_scope.scope_code}:{discovered_scope.reason}".encode()
+        ).hexdigest()
+        return ParsedSplitResult(
+            scope_kind=SPLIT_SCOPE_KIND,
+            scope_code=discovered_scope.scope_code,
+            display_label=discovered_scope.display_label,
+            stat_type=discovered_scope.stat_type,
+            source_identifier=None,
+            source_path=discovered_scope.source_path,
+            source_url=None,
+            source_season_id=discovered_scope.source_season_id,
+            source_season_team_id=discovered_scope.source_season_team_id,
+            source_stat_category_id=discovered_scope.source_stat_category_id,
+            source_payload_sha256=checksum,
+            fixture_sha256=checksum,
+            status="unavailable",
+            reason=discovered_scope.reason or "source_identifier_not_found",
+            collected_at=discovered_scope.collected_at,
+            rows=(),
+            metric_results=(),
+        )
+    if not html or "access denied" in html.casefold():
+        raise SplitContractError("source_blocked")
+    soup = BeautifulSoup(html, "html.parser")
+    table = soup.select_one("#stat_grid")
+    if table is None:
+        raise SplitContractError("source_blocked")
+    header_rows = table.select("thead tr")
+    header_row = header_rows[-1] if header_rows else table.find("tr")
+    headers = [
+        _normalized(cell.get_text(" ", strip=True))
+        for cell in header_row.find_all(["th", "td"], recursive=False)
+    ] if header_row is not None else []
+    ab_header = "ab" if discovered_scope.stat_type == "batting" else "p-oab"
+    if headers.count("h") != 1 or headers.count(ab_header) != 1:
+        raise SplitContractError("schema_validation")
+    extracted = {}
+    for node in soup.select(f".sport_stat_{identifier}"):
+        stat_row = node if node.name == "tr" else node.find_parent("tr")
+        if stat_row is None:
+            continue
+        player_row = stat_row
+        while player_row is not None and not re.fullmatch(
+            r"player_\d+", str(player_row.get("id") or "")
+        ):
+            player_row = player_row.find_previous_sibling("tr")
+        if player_row is None:
+            raise SplitContractError("schema_validation")
+        link = player_row.find("a", href=re.compile(r"^/players/\d+$"))
+        if link is not None:
+            player_path = link.get("href")
+        else:
+            match = re.fullmatch(r"player_(\d+)", str(player_row.get("id") or ""))
+            if match is None:
+                raise SplitContractError("schema_validation")
+            player_path = f"/players/{match.group(1)}"
+        cells = stat_row.find_all(["th", "td"], recursive=False)
+        offset = len(headers) - len(cells)
+        hit_index = headers.index("h") - offset
+        ab_index = headers.index(ab_header) - offset
+        if min(offset, hit_index, ab_index) < 0 or max(hit_index, ab_index) >= len(cells):
+            raise SplitContractError("schema_validation")
+        hit_text = cells[hit_index].get_text(" ", strip=True)
+        ab_text = cells[ab_index].get_text(" ", strip=True)
+        if hit_text in {"", "-", "--"} and ab_text.isdigit():
+            hit_text = "0"
+        if ab_text in {"", "-", "--"} and hit_text == "0":
+            ab_text = "0"
+        hits = _parse_split_count(hit_text)
+        at_bats = _parse_split_count(ab_text)
+        if hits > at_bats:
+            raise SplitContractError("schema_validation")
+        extracted[player_path] = (hits, at_bats)
+    checksum = hashlib.sha256(html.encode("utf-8")).hexdigest()
+    captured = discovered_scope.collected_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    attrs = {
+        "data-canonical-label": discovered_scope.source_label,
+        "data-captured-at": captured,
+        "data-division": "live",
+        "data-identifier": identifier,
+        "data-result-contract-version": SPLIT_RESULT_CONTRACT_VERSION,
+        "data-season-id": discovered_scope.source_season_id,
+        "data-season-team-id": discovered_scope.source_season_team_id,
+        "data-source-path": discovered_scope.source_path,
+        "data-source-payload-sha256": checksum,
+        "data-source-stat-category-id": discovered_scope.source_stat_category_id,
+        "data-stat-type": discovered_scope.stat_type,
+    }
+    if not extracted:
+        attrs.update({"data-status": "unavailable", "data-reason": "source_not_published"})
+        attr_text = " ".join(
+            f'{key}="{html_module.escape(value, quote=True)}"'
+            for key, value in sorted(attrs.items())
+        )
+        return parse_split_result(f"<split-result {attr_text}></split-result>", discovered_scope=discovered_scope)
+    attrs["data-status"] = "complete"
+    attr_text = " ".join(
+        f'{key}="{html_module.escape(value, quote=True)}"'
+        for key, value in sorted(attrs.items())
+    )
+    rows = "".join(
+        f'<tr><td><a href="{path}">Player {index}</a></td><td>{hits}</td><td>{at_bats}</td></tr>'
+        for index, (path, (hits, at_bats)) in enumerate(
+            sorted(extracted.items(), key=lambda item: int(item[0].rsplit("/", 1)[1])),
+            start=1,
+        )
+    )
+    normalized = (
+        f"<split-result {attr_text}><table id=\"split_result_grid\">"
+        "<thead><tr><th>Player</th><th>H</th><th>AB</th></tr></thead>"
+        f"<tbody>{rows}</tbody></table></split-result>"
+    )
+    return parse_split_result(normalized, discovered_scope=discovered_scope)
 
 
 def _parse_split_count(value: str) -> int:

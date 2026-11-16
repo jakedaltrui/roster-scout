@@ -31,6 +31,9 @@ from .models import (
     ReportSnapshot,
     Season,
     SourceRecord,
+    ScopedBattingFact,
+    ScopedPitchingFact,
+    StatisticScope,
     Team,
     TeamSeason,
 )
@@ -109,6 +112,7 @@ class CollectedSection:
     schema_version: str = SCHEMA_VERSION
     status: str = "complete"
     failure_category: str | None = None
+    scopes: tuple["CollectedScope", ...] = field(default_factory=tuple)
 
     @classmethod
     def failed(cls, name, *, critical, category):
@@ -151,6 +155,24 @@ class CollectedSection:
 
 
 @dataclass(frozen=True)
+class CollectedScope:
+    scope_code: str
+    display_label: str
+    stat_type: str
+    source_identifier: str | None
+    source_path: str
+    source_url: str | None
+    source_season_id: str
+    source_season_team_id: str
+    source_stat_category_id: str
+    status: str
+    reason: str | None
+    collected_at: datetime
+    source_payload_sha256: str | None = None
+    sample: dict = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class DispatchDrainResult:
     claimed: int = 0
     published: int = 0
@@ -166,6 +188,126 @@ class ReconciliationResult:
 
 def _utcnow():
     return datetime.now(UTC)
+
+
+def to_collected_split_sections(results, *, source_team_id):
+    """Materialize all seven requested scopes per stat type for one build."""
+    from .ncaa_detail import SPLIT_CODES
+
+    by_type = {}
+    for result in results:
+        by_type.setdefault(result.stat_type, []).append(result)
+    sections = []
+    for stat_type, expected_codes in SPLIT_CODES.items():
+        typed = by_type.get(stat_type, [])
+        by_code = {result.scope_code: result for result in typed}
+        if set(by_code) != set(expected_codes) or len(typed) != len(expected_codes):
+            raise DeterministicJobError("schema_validation")
+        ordered = [by_code[code] for code in expected_codes]
+        rows = []
+        scopes = []
+        for result in ordered:
+            scopes.append(CollectedScope(
+                scope_code=result.scope_code,
+                display_label=result.display_label,
+                stat_type=result.stat_type,
+                source_identifier=result.source_identifier,
+                source_path=result.source_path,
+                source_url=result.source_url,
+                source_season_id=result.source_season_id,
+                source_season_team_id=result.source_season_team_id,
+                source_stat_category_id=result.source_stat_category_id,
+                status=result.status,
+                reason=result.reason,
+                collected_at=result.collected_at,
+                source_payload_sha256=result.source_payload_sha256,
+                sample={"row_count": len(result.rows)},
+            ))
+            for row in result.rows:
+                values = {
+                    "Player": row.raw_values["Player"],
+                    "H": str(row.hits if stat_type == "batting" else row.hits_allowed),
+                    "AB": str(row.at_bats),
+                    "scope_code": result.scope_code,
+                    "stat_type": stat_type,
+                    "sample": dict(row.sample),
+                    "_player_id": row.source_player_id,
+                    "_player_url": row.source_player_url,
+                    "_payload_sha256": row.source_payload_sha256,
+                }
+                rows.append(values)
+        complete = all(scope.status == "complete" for scope in scopes)
+        first = ordered[0]
+        sections.append(CollectedSection(
+            name=f"splits:{stat_type}",
+            critical=False,
+            rows=tuple(rows),
+            verified_empty=complete and not rows,
+            source_url=(
+                f"https://stats.ncaa.org{first.source_path}"
+                if first.source_path else None
+            ),
+            source_team_id=str(source_team_id),
+            source_season_id=first.source_season_id,
+            source_season_team_id=first.source_season_team_id,
+            source_stat_category_id=first.source_stat_category_id,
+            collected_at=min(scope.collected_at for scope in scopes),
+            status="complete" if complete else "partial",
+            failure_category=None if complete else "split_scope_incomplete",
+            scopes=tuple(scopes),
+        ))
+    return tuple(sections)
+
+
+def unavailable_collected_split_sections(
+    *,
+    source_team_id,
+    source_season_id,
+    source_season_team_id,
+    category_ids,
+    status,
+    reason,
+    collected_at,
+):
+    """Persist all requested scopes when bounded live collection cannot complete."""
+    from .ncaa_detail import SPLIT_CODES, _SPLIT_DISPLAY_LABELS
+
+    if status not in {"unavailable", "failed"}:
+        raise ValueError("split failure status is invalid")
+    sections = []
+    source_path = f"/teams/{source_season_team_id}/season_to_date_stats"
+    for stat_type, codes in SPLIT_CODES.items():
+        scopes = tuple(
+            CollectedScope(
+                scope_code=code,
+                display_label=_SPLIT_DISPLAY_LABELS[code],
+                stat_type=stat_type,
+                source_identifier=None,
+                source_path=source_path,
+                source_url=None,
+                source_season_id=source_season_id,
+                source_season_team_id=source_season_team_id,
+                source_stat_category_id=category_ids[stat_type],
+                status=status,
+                reason=reason,
+                collected_at=collected_at,
+            )
+            for code in codes
+        )
+        sections.append(CollectedSection(
+            name=f"splits:{stat_type}",
+            critical=False,
+            source_url=f"https://stats.ncaa.org{source_path}",
+            source_team_id=source_team_id,
+            source_season_id=source_season_id,
+            source_season_team_id=source_season_team_id,
+            source_stat_category_id=category_ids[stat_type],
+            collected_at=collected_at,
+            status="partial",
+            failure_category=reason,
+            scopes=scopes,
+        ))
+    return tuple(sections)
 
 
 def bounded_retry_delay(attempt_count, *, jitter=None):
@@ -550,6 +692,42 @@ def _matching_cached_sections(session, job, cached):
                 continue
             if key.source_url == expected_url:
                 matched[key.section] = section
+            continue
+        if key.section in {"splits:batting", "splits:pitching"}:
+            from .ncaa_detail import SPLIT_CODES, build_split_url
+
+            stat_type = key.section.removeprefix("splits:")
+            scopes = list(session.scalars(
+                select(StatisticScope).where(
+                    StatisticScope.snapshot_id == section.snapshot_id,
+                    StatisticScope.organization_id == job.organization_id,
+                    StatisticScope.stat_type == stat_type,
+                    StatisticScope.status == "complete",
+                    StatisticScope.schema_version == SCHEMA_VERSION,
+                    StatisticScope.parser_version == PARSER_VERSION,
+                )
+            ))
+            if {scope.scope_code for scope in scopes} != set(SPLIT_CODES[stat_type]):
+                continue
+            try:
+                valid = all(
+                    scope.source_season_id == season.source_season_id
+                    and scope.source_season_team_id
+                    == team_season.source_season_team_id
+                    and scope.source_stat_category_id
+                    == expected_categories[stat_type]
+                    and scope.source_url
+                    == build_split_url(
+                        team_season.source_season_team_id,
+                        expected_categories[stat_type],
+                        scope.source_identifier,
+                    )
+                    for scope in scopes
+                )
+            except ValueError:
+                valid = False
+            if valid:
+                matched[key.section] = section
     return matched
 
 
@@ -568,6 +746,11 @@ def _reconstruct_cached_sections(session, snapshot, matching):
     by_section = {}
     for record in records:
         by_section.setdefault(record.section, []).append(record)
+    persisted_scopes = list(session.scalars(
+        select(StatisticScope)
+        .where(StatisticScope.snapshot_id == snapshot.id)
+        .order_by(StatisticScope.stat_type, StatisticScope.scope_code)
+    ))
 
     reconstructed = []
     for name in sorted(matching):
@@ -611,6 +794,26 @@ def _reconstruct_cached_sections(session, snapshot, matching):
             collected_at=section.collected_at,
             parser_version=section.parser_version,
             schema_version=section.schema_version,
+            scopes=tuple(
+                CollectedScope(
+                    scope_code=scope.scope_code,
+                    display_label=scope.display_label,
+                    stat_type=scope.stat_type,
+                    source_identifier=scope.source_identifier,
+                    source_path=scope.source_path,
+                    source_url=scope.source_url,
+                    source_season_id=scope.source_season_id,
+                    source_season_team_id=scope.source_season_team_id,
+                    source_stat_category_id=scope.source_stat_category_id,
+                    status=scope.status,
+                    reason=scope.availability_reason,
+                    collected_at=scope.collected_at,
+                    source_payload_sha256=scope.source_payload_sha256,
+                    sample=scope.sample_json,
+                )
+                for scope in persisted_scopes
+                if section.section == f"splits:{scope.stat_type}"
+            ),
         ))
     return tuple(reconstructed)
 
@@ -661,6 +864,27 @@ def _collected_section_signature(collected):
         collected.source_stat_category_id,
         collected.schema_version,
         collected.parser_version,
+        tuple(
+            (
+                scope.scope_code,
+                scope.display_label,
+                scope.stat_type,
+                scope.source_identifier,
+                scope.source_path,
+                scope.source_url,
+                scope.source_season_id,
+                scope.source_season_team_id,
+                scope.source_stat_category_id,
+                scope.status,
+                scope.reason,
+                scope.collected_at,
+                scope.source_payload_sha256,
+                scope.sample,
+            )
+            for scope in sorted(
+                collected.scopes, key=lambda item: (item.stat_type, item.scope_code)
+            )
+        ),
         tuple(records),
     )
 
@@ -690,6 +914,30 @@ def _persisted_section_signature(session, snapshot, section):
             .order_by(SourceRecord.row_ordinal)
         )
     )
+    scopes = tuple(
+        (
+            scope.scope_code,
+            scope.display_label,
+            scope.stat_type,
+            scope.source_identifier,
+            scope.source_path,
+            scope.source_url,
+            scope.source_season_id,
+            scope.source_season_team_id,
+            scope.source_stat_category_id,
+            scope.status,
+            scope.availability_reason,
+            scope.collected_at,
+            scope.source_payload_sha256,
+            scope.sample_json,
+        )
+        for scope in session.scalars(
+            select(StatisticScope)
+            .where(StatisticScope.snapshot_id == snapshot.id)
+            .order_by(StatisticScope.stat_type, StatisticScope.scope_code)
+        )
+        if section.section == f"splits:{scope.stat_type}"
+    )
     return (
         section.section,
         section.critical,
@@ -705,6 +953,7 @@ def _persisted_section_signature(session, snapshot, section):
         section.source_stat_category_id,
         section.schema_version,
         section.parser_version,
+        scopes,
         records,
     )
 
@@ -756,6 +1005,14 @@ def _persist_sections(session, job, snapshot, sections):
                     SourceRecord.section == collected.name,
                 )
             )
+            if collected.scopes:
+                session.execute(
+                    delete(StatisticScope).where(
+                        StatisticScope.snapshot_id == snapshot.id,
+                        StatisticScope.stat_type
+                        == collected.name.removeprefix("splits:"),
+                    )
+                )
             for key, value in values.items():
                 setattr(section, key, value)
         elif _persisted_section_signature(
@@ -765,7 +1022,49 @@ def _persist_sections(session, job, snapshot, sections):
         else:
             continue
 
-        if collected.status != "complete" or not collected.rows:
+        if collected.scopes:
+            expected_codes = {
+                "batting": {
+                    "vs_lhp", "vs_rhp", "runners_on", "bases_empty",
+                    "bases_loaded", "risp", "two_outs",
+                },
+                "pitching": {
+                    "vs_lhb", "vs_rhb", "runners_on", "bases_empty",
+                    "bases_loaded", "risp", "two_outs",
+                },
+            }
+            stat_type = collected.name.removeprefix("splits:")
+            if (
+                stat_type not in expected_codes
+                or {scope.scope_code for scope in collected.scopes}
+                != expected_codes[stat_type]
+                or any(scope.stat_type != stat_type for scope in collected.scopes)
+            ):
+                raise DeterministicJobError("schema_validation")
+            for scope in collected.scopes:
+                session.add(StatisticScope(
+                    organization_id=job.organization_id,
+                    snapshot_id=snapshot.id,
+                    scope_kind="source_split",
+                    scope_code=scope.scope_code,
+                    stat_type=scope.stat_type,
+                    display_label=scope.display_label,
+                    source_identifier=scope.source_identifier,
+                    source_path=scope.source_path,
+                    source_url=scope.source_url,
+                    source_season_id=scope.source_season_id,
+                    source_season_team_id=scope.source_season_team_id,
+                    source_stat_category_id=scope.source_stat_category_id,
+                    status=scope.status,
+                    availability_reason=scope.reason,
+                    collected_at=scope.collected_at,
+                    parser_version=collected.parser_version,
+                    schema_version=collected.schema_version,
+                    sample_json=scope.sample,
+                    source_payload_sha256=scope.source_payload_sha256,
+                ))
+
+        if (collected.status != "complete" and not collected.scopes) or not collected.rows:
             continue
         for ordinal, row in enumerate(collected.rows):
             raw_values, payload_sha256 = _source_row_values(collected, row)
@@ -810,7 +1109,11 @@ def _persist_canonical(session, job, snapshot, sections):
     team_season = session.get(TeamSeason, report.team_season_id)
     team = session.get(Team, team_season.team_id)
     season = session.get(Season, team_season.season_id)
-    complete = [item for item in sections if item.status == "complete"]
+    complete = [
+        item for item in sections
+        if item.status == "complete"
+        and item.name in {"batting", "pitching", "fielding"}
+    ]
     if not complete:
         return
     collected_at = min(
@@ -1110,6 +1413,116 @@ def _persist_canonical(session, job, snapshot, sections):
             constant_set_id=constant_set_id,
         ))
 
+    split_sections = [item for item in sections if item.scopes]
+    if split_sections:
+        identity_by_source = {
+            item.source_player_id: identities[item.identity_key]
+            for item in canonical.players
+            if item.source_player_id is not None
+        }
+        avg_definition_id = metric_definition_ids.get(("avg", DEFINITION_VERSION))
+        if avg_definition_id is None:
+            avg_definition_id = session.scalar(
+                postgresql_insert(MetricDefinition)
+                .values(
+                    id=uuid.uuid4(),
+                    code="avg",
+                    version=DEFINITION_VERSION,
+                    formula=METRIC_DEFINITIONS["avg"].formula,
+                )
+                .on_conflict_do_nothing(
+                    constraint="uq_metric_definitions_code_version"
+                )
+                .returning(MetricDefinition.id)
+            )
+            if avg_definition_id is None:
+                avg_definition_id = session.scalar(
+                    select(MetricDefinition.id).where(
+                        MetricDefinition.code == "avg",
+                        MetricDefinition.version == DEFINITION_VERSION,
+                    )
+                )
+        if avg_definition_id is None:
+            raise RuntimeError("split metric definition conflict was not visible")
+
+        scopes = {
+            (scope.stat_type, scope.scope_code): scope
+            for scope in session.scalars(
+                select(StatisticScope).where(
+                    StatisticScope.snapshot_id == snapshot.id,
+                    StatisticScope.organization_id == job.organization_id,
+                )
+            )
+        }
+        for collected in split_sections:
+            stat_type = collected.name.removeprefix("splits:")
+            records = list(session.scalars(
+                select(SourceRecord)
+                .where(
+                    SourceRecord.snapshot_id == snapshot.id,
+                    SourceRecord.organization_id == job.organization_id,
+                    SourceRecord.section == collected.name,
+                )
+                .order_by(SourceRecord.row_ordinal)
+            ))
+            for source in records:
+                scope_code = source.raw_values.get("scope_code")
+                scope = scopes.get((stat_type, scope_code))
+                identity = identity_by_source.get(source.source_player_id)
+                if scope is None or identity is None or scope.status != "complete":
+                    raise DeterministicJobError("schema_validation")
+                source.player_team_season_id = identity.id
+                session.flush()
+                try:
+                    hits = int(source.raw_values["H"])
+                    at_bats = int(source.raw_values["AB"])
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise DeterministicJobError("schema_validation") from exc
+                if hits < 0 or at_bats < 0 or hits > at_bats:
+                    raise DeterministicJobError("schema_validation")
+                sample = source.raw_values.get("sample")
+                if not isinstance(sample, dict) or sample.get("at_bats") != at_bats:
+                    raise DeterministicJobError("schema_validation")
+                fact_values = {
+                    "organization_id": job.organization_id,
+                    "snapshot_id": snapshot.id,
+                    "statistic_scope_id": scope.id,
+                    "player_team_season_id": identity.id,
+                    "source_record_id": source.id,
+                    "sample_json": sample,
+                }
+                if stat_type == "batting":
+                    session.add(ScopedBattingFact(
+                        at_bats=at_bats,
+                        hits=hits,
+                        **fact_values,
+                    ))
+                elif stat_type == "pitching":
+                    session.add(ScopedPitchingFact(
+                        opponent_at_bats=at_bats,
+                        hits_allowed=hits,
+                        **fact_values,
+                    ))
+                else:
+                    raise DeterministicJobError("schema_validation")
+                metric = calculate_metric(
+                    "avg", {"at_bats": at_bats, "hits": hits}
+                )
+                session.add(MetricValue(
+                    organization_id=job.organization_id,
+                    snapshot_id=snapshot.id,
+                    metric_definition_id=avg_definition_id,
+                    player_team_season_id=identity.id,
+                    statistic_scope_id=scope.id,
+                    value=metric.value,
+                    unavailable_reason=None,
+                    status=metric.status,
+                    reason_code=metric.reason_code,
+                    inputs_json=metric.inputs,
+                    sample_json=metric.sample,
+                    scope=f"split:{stat_type}:{scope.scope_code}",
+                ))
+
 
 def _classified_error(exc):
     from .canonical import IdentityConflictError
@@ -1408,6 +1821,7 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
         _NcaaFailureEvidenceError,
         _find_ncaa_season,
         collect_ncaa_by_id,
+        collect_ncaa_split_results,
     )
     from .canonical import to_collected_sections
 
@@ -1450,10 +1864,18 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
         fielding_requested = discovered_fielding_id.isdigit()
         missing_core = frozenset({"batting", "pitching"} - matching.keys())
         fielding_missing = fielding_requested and "fielding" not in matching
+        splits_requested = os.environ.get("NCAA_BROWSER_PROVIDER") == "browserless"
+        split_missing = splits_requested and not {
+            "splits:batting", "splits:pitching"
+        } <= matching.keys()
         source_team_id = team.source_team_id
         source_season_id = season.source_season_id
+        split_category_ids = {
+            "batting": team_season.batting_stat_category_id,
+            "pitching": team_season.pitching_stat_category_id,
+        }
 
-    if not missing_core and not fielding_missing:
+    if not missing_core and not fielding_missing and not split_missing:
         return reconstructed
 
     fetched = []
@@ -1526,6 +1948,38 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
                 source_team_id=source_team_id,
                 source_season_id=source_season_id,
                 source_season_team_id=season_team_id,
+            ))
+    if split_missing:
+        try:
+            split_results = collect_ncaa_split_results(
+                season_team_id,
+                division=division,
+                year=year,
+            )
+            fetched.extend(to_collected_split_sections(
+                split_results,
+                source_team_id=source_team_id,
+            ))
+        except _NcaaFailureEvidenceError as exc:
+            category = exc.evidence.failure_category
+            fetched.extend(unavailable_collected_split_sections(
+                source_team_id=source_team_id,
+                source_season_id=source_season_id,
+                source_season_team_id=season_team_id,
+                category_ids=split_category_ids,
+                status="failed" if category == "schema_validation" else "unavailable",
+                reason=category,
+                collected_at=exc.evidence.collected_at,
+            ))
+        except (NcaaAccessError, NcaaError, ValueError):
+            fetched.extend(unavailable_collected_split_sections(
+                source_team_id=source_team_id,
+                source_season_id=source_season_id,
+                source_season_team_id=season_team_id,
+                category_ids=split_category_ids,
+                status="unavailable",
+                reason="source_unavailable",
+                collected_at=_utcnow(),
             ))
     return tuple(sorted(
         (*reconstructed, *fetched), key=lambda section: section.name

@@ -17,6 +17,9 @@ from .models import (
     ReportSection,
     ReportSnapshot,
     SourceRecord,
+    ScopedBattingFact,
+    ScopedPitchingFact,
+    StatisticScope,
     TeamSeason,
 )
 from .metrics import DEFINITION_VERSION
@@ -396,6 +399,135 @@ def publish_snapshot(session, snapshot_id):
             raise SnapshotPublicationError(
                 "incomplete fielding status contains contradictory evidence"
             )
+
+    split_section_names = {"splits:batting", "splits:pitching"}
+    present_split_sections = split_section_names.intersection(by_name)
+    if present_split_sections and present_split_sections != split_section_names:
+        raise SnapshotPublicationError("both split section families are required")
+    if present_split_sections:
+        from .ncaa_detail import SPLIT_CODES
+
+        for stat_type in ("batting", "pitching"):
+            section_name = f"splits:{stat_type}"
+            section = by_name[section_name]
+            if section.critical:
+                raise SnapshotPublicationError("split sections must be supplemental")
+            scopes = list(session.scalars(
+                select(StatisticScope).where(
+                    StatisticScope.snapshot_id == snapshot.id,
+                    StatisticScope.organization_id == snapshot.organization_id,
+                    StatisticScope.stat_type == stat_type,
+                )
+            ))
+            if (
+                len(scopes) != len(SPLIT_CODES[stat_type])
+                or {scope.scope_code for scope in scopes}
+                != set(SPLIT_CODES[stat_type])
+            ):
+                raise SnapshotPublicationError(
+                    f"{stat_type} split scopes are incomplete"
+                )
+            all_complete = all(scope.status == "complete" for scope in scopes)
+            if section.status != ("complete" if all_complete else "partial"):
+                raise SnapshotPublicationError(
+                    f"{stat_type} split section status contradicts its scopes"
+                )
+            if all_complete and section.failure_category is not None:
+                raise SnapshotPublicationError(
+                    f"{stat_type} split section has a contradictory reason"
+                )
+            if not all_complete and not section.failure_category:
+                raise SnapshotPublicationError(
+                    f"{stat_type} split section lacks an availability reason"
+                )
+
+            fact_model = (
+                ScopedBattingFact if stat_type == "batting" else ScopedPitchingFact
+            )
+            source_count = session.scalar(
+                select(func.count()).select_from(SourceRecord).where(
+                    SourceRecord.snapshot_id == snapshot.id,
+                    SourceRecord.organization_id == snapshot.organization_id,
+                    SourceRecord.section == section_name,
+                )
+            )
+            fact_count = session.scalar(
+                select(func.count()).select_from(fact_model).where(
+                    fact_model.snapshot_id == snapshot.id,
+                    fact_model.organization_id == snapshot.organization_id,
+                )
+            )
+            metric_count = session.scalar(
+                select(func.count()).select_from(MetricValue).where(
+                    MetricValue.snapshot_id == snapshot.id,
+                    MetricValue.organization_id == snapshot.organization_id,
+                    MetricValue.statistic_scope_id.in_([scope.id for scope in scopes]),
+                )
+            )
+            if section.row_count != source_count or source_count != fact_count:
+                raise SnapshotPublicationError(
+                    f"{stat_type} split row/source/fact parity failed"
+                )
+            if metric_count != fact_count:
+                raise SnapshotPublicationError(
+                    f"{stat_type} split metric parity failed"
+                )
+            traced = session.scalar(
+                select(func.count(distinct(fact_model.id)))
+                .select_from(fact_model)
+                .join(
+                    StatisticScope,
+                    (StatisticScope.id == fact_model.statistic_scope_id)
+                    & (StatisticScope.snapshot_id == fact_model.snapshot_id)
+                    & (StatisticScope.organization_id == fact_model.organization_id),
+                )
+                .join(
+                    SourceRecord,
+                    (SourceRecord.id == fact_model.source_record_id)
+                    & (
+                        SourceRecord.player_team_season_id
+                        == fact_model.player_team_season_id
+                    )
+                    & (SourceRecord.snapshot_id == fact_model.snapshot_id)
+                    & (SourceRecord.organization_id == fact_model.organization_id)
+                    & (SourceRecord.section == section_name),
+                )
+                .where(
+                    fact_model.snapshot_id == snapshot.id,
+                    fact_model.organization_id == snapshot.organization_id,
+                    StatisticScope.status == "complete",
+                )
+            )
+            if traced != fact_count:
+                raise SnapshotPublicationError(
+                    f"{stat_type} split facts lack exact scope evidence"
+                )
+            for scope in scopes:
+                scoped_source_count = session.scalar(
+                    select(func.count()).select_from(SourceRecord).where(
+                        SourceRecord.snapshot_id == snapshot.id,
+                        SourceRecord.organization_id == snapshot.organization_id,
+                        SourceRecord.section == section_name,
+                        SourceRecord.raw_values["scope_code"].astext
+                        == scope.scope_code,
+                    )
+                )
+                scoped_fact_count = session.scalar(
+                    select(func.count()).select_from(fact_model).where(
+                        fact_model.snapshot_id == snapshot.id,
+                        fact_model.organization_id == snapshot.organization_id,
+                        fact_model.statistic_scope_id == scope.id,
+                    )
+                )
+                if scope.status == "complete":
+                    if scoped_source_count != scoped_fact_count:
+                        raise SnapshotPublicationError(
+                            "complete split scope evidence parity failed"
+                        )
+                elif scoped_source_count or scoped_fact_count:
+                    raise SnapshotPublicationError(
+                        "unavailable split scope contains fabricated facts"
+                    )
 
     _validate_detailed_metric_lineage(session, snapshot, sections)
 

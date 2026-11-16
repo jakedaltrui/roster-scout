@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import UTC, datetime
 from decimal import Decimal
 import hashlib
 import importlib
@@ -865,6 +866,308 @@ class SplitAvailabilityTests(_SplitContractMixin, unittest.TestCase):
             tuple(SCOPE_STATUSES),
             ("complete", "partial", "unavailable", "failed"),
         )
+
+
+class SplitPublicationTests(
+    _SplitContractMixin,
+    __import__("tests.test_report_jobs", fromlist=["PostgreSQLJobTestCase"])
+    .PostgreSQLJobTestCase,
+):
+    """Evidence-first split persistence and truthful partial publication."""
+
+    def collected_sections(self, *, all_available=False):
+        from roster_scout.jobs import (
+            CollectedSection,
+            PARSER_VERSION,
+            SCHEMA_VERSION,
+            to_collected_split_sections,
+        )
+
+        collected_at = datetime(2026, 11, 16, 7, 42, tzinfo=UTC)
+        shared = {
+            "Player": "Two Way Player",
+            "_player_id": "9698671",
+            "_player_url": "https://stats.ncaa.org/players/9698671",
+        }
+        core = (
+            CollectedSection(
+                name="batting",
+                critical=True,
+                rows=({
+                    **shared,
+                    "AB": "10", "H": "4", "BB": "1", "K": "2",
+                    "HBP": "0", "SF": "0", "SH": "0", "2B": "1",
+                    "3B": "0", "HR": "0", "TB": "5",
+                },),
+                source_url="https://stats.ncaa.org/batting",
+                source_team_id="234",
+                source_season_id="17040",
+                source_season_team_id="614606",
+                source_stat_category_id="15867",
+                collected_at=collected_at,
+                parser_version=PARSER_VERSION,
+                schema_version=SCHEMA_VERSION,
+            ),
+            CollectedSection(
+                name="pitching",
+                critical=True,
+                rows=({
+                    **shared,
+                    "IP": "3.0", "H": "2", "R": "1", "ER": "1",
+                    "BB": "1", "SO": "4", "HR": "0", "HBP": "0",
+                    "BF": "12", "AB": "10", "SF": "0", "ERA": "3.00",
+                },),
+                source_url="https://stats.ncaa.org/pitching",
+                source_team_id="234",
+                source_season_id="17040",
+                source_season_team_id="614606",
+                source_stat_category_id="15868",
+                collected_at=collected_at,
+                parser_version=PARSER_VERSION,
+                schema_version=SCHEMA_VERSION,
+            ),
+        )
+        split_results = []
+        for stat_type, representative in (("batting", "vs_lhp"), ("pitching", "vs_lhb")):
+            parsed = self.parse_result(stat_type, "d1")
+            row = next(item for item in parsed.rows if item.source_player_id == "9698671")
+            metric = next(
+                item for item in parsed.metric_results
+                if item.source_player_id == "9698671"
+            )
+            for scope in self.discovery(stat_type, "d1"):
+                if scope.scope_code == representative or all_available:
+                    split_results.append(replace(
+                        parsed,
+                        scope_code=scope.scope_code,
+                        display_label=scope.display_label,
+                        source_identifier=scope.source_identifier,
+                        source_url=scope.source_url,
+                        source_payload_sha256=hashlib.sha256(
+                            f"{stat_type}:{scope.scope_code}:complete".encode()
+                        ).hexdigest(),
+                        rows=(row,),
+                        metric_results=(metric,),
+                    ))
+                else:
+                    split_results.append(replace(
+                        parsed,
+                        scope_code=scope.scope_code,
+                        display_label=scope.display_label,
+                        source_identifier=scope.source_identifier,
+                        source_url=scope.source_url,
+                        source_payload_sha256=hashlib.sha256(
+                            f"{stat_type}:{scope.scope_code}:unavailable".encode()
+                        ).hexdigest(),
+                        status="unavailable",
+                        reason="source_not_published",
+                        rows=(),
+                        metric_results=(),
+                    ))
+        return (*core, *to_collected_split_sections(
+            split_results,
+            source_team_id="234",
+        ))
+
+    def test_fully_available_build_publishes_fourteen_traceable_scopes(self):
+        from sqlalchemy import func, select
+        from roster_scout.jobs import accept_report_job, run_report_job
+        from roster_scout.models import (
+            MetricValue,
+            ScopedBattingFact,
+            ScopedPitchingFact,
+            SourceRecord,
+            StatisticScope,
+        )
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session, organization_id, report_id, "split-complete", dispatch=None
+        )
+        snapshot = run_report_job(
+            self.Session,
+            job.id,
+            collector=lambda *_args, **_kwargs: self.collected_sections(
+                all_available=True
+            ),
+        )
+        self.assertEqual(snapshot.status, "ready")
+        with self.Session() as session:
+            self.assertEqual(session.scalar(
+                select(func.count()).select_from(StatisticScope).where(
+                    StatisticScope.snapshot_id == snapshot.id,
+                    StatisticScope.status == "complete",
+                )
+            ), 14)
+            self.assertEqual(session.scalar(
+                select(func.count()).select_from(ScopedBattingFact)
+            ), 7)
+            self.assertEqual(session.scalar(
+                select(func.count()).select_from(ScopedPitchingFact)
+            ), 7)
+            self.assertEqual(session.scalar(
+                select(func.count()).select_from(SourceRecord).where(
+                    SourceRecord.section.in_(("splits:batting", "splits:pitching"))
+                )
+            ), 14)
+            self.assertEqual(session.scalar(
+                select(func.count()).select_from(MetricValue).where(
+                    MetricValue.statistic_scope_id.is_not(None)
+                )
+            ), 14)
+
+    def test_mixed_split_availability_publishes_partial_with_exact_lineage(self):
+        from sqlalchemy import func, select
+        from roster_scout.jobs import accept_report_job, run_report_job
+        from roster_scout.models import (
+            MetricValue,
+            ScopedBattingFact,
+            ScopedPitchingFact,
+            SourceRecord,
+            StatisticScope,
+        )
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session, organization_id, report_id, "split-mixed", dispatch=None
+        )
+        snapshot = run_report_job(
+            self.Session,
+            job.id,
+            collector=lambda *_args, **_kwargs: self.collected_sections(),
+        )
+        self.assertEqual(snapshot.status, "partial")
+        with self.Session() as session:
+            scopes = list(session.scalars(
+                select(StatisticScope).where(StatisticScope.snapshot_id == snapshot.id)
+            ))
+            self.assertEqual(len(scopes), 14)
+            self.assertEqual(
+                {(scope.stat_type, scope.scope_code) for scope in scopes},
+                {
+                    (stat_type, code)
+                    for stat_type, codes in (
+                        ("batting", BattingSplitTests.CODES),
+                        ("pitching", PitchingSplitTests.CODES),
+                    )
+                    for code in codes
+                },
+            )
+            self.assertEqual(sum(scope.status == "complete" for scope in scopes), 2)
+            self.assertEqual(sum(scope.status == "unavailable" for scope in scopes), 12)
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(ScopedBattingFact)), 1
+            )
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(ScopedPitchingFact)), 1
+            )
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(MetricValue).where(
+                    MetricValue.statistic_scope_id.is_not(None)
+                )),
+                2,
+            )
+            split_sources = list(session.scalars(select(SourceRecord).where(
+                SourceRecord.section.in_(("splits:batting", "splits:pitching"))
+            )))
+            self.assertEqual(len(split_sources), 2)
+            self.assertTrue(all(row.player_team_season_id for row in split_sources))
+
+    def test_unavailable_scopes_persist_no_facts_or_metrics(self):
+        from sqlalchemy import func, select
+        from roster_scout.jobs import accept_report_job, run_report_job
+        from roster_scout.models import MetricValue, ScopedBattingFact, StatisticScope
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session, organization_id, report_id, "split-no-zero", dispatch=None
+        )
+        snapshot = run_report_job(
+            self.Session,
+            job.id,
+            collector=lambda *_args, **_kwargs: self.collected_sections(),
+        )
+        with self.Session() as session:
+            unavailable = session.scalar(select(StatisticScope).where(
+                StatisticScope.snapshot_id == snapshot.id,
+                StatisticScope.stat_type == "batting",
+                StatisticScope.scope_code == "bases_loaded",
+            ))
+            self.assertEqual(unavailable.status, "unavailable")
+            self.assertEqual(unavailable.availability_reason, "source_not_published")
+            self.assertEqual(session.scalar(
+                select(func.count()).select_from(ScopedBattingFact).where(
+                    ScopedBattingFact.statistic_scope_id == unavailable.id
+                )
+            ), 0)
+            self.assertEqual(session.scalar(
+                select(func.count()).select_from(MetricValue).where(
+                    MetricValue.statistic_scope_id == unavailable.id
+                )
+            ), 0)
+
+    def test_published_scope_and_typed_facts_are_immutable_and_owner_bound(self):
+        import uuid
+        from sqlalchemy import select, text
+        from sqlalchemy.exc import DBAPIError, IntegrityError
+        from roster_scout.jobs import accept_report_job, run_report_job
+        from roster_scout.models import (
+            ReportSnapshot,
+            ScopedBattingFact,
+            StatisticScope,
+        )
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session, organization_id, report_id, "split-owner", dispatch=None
+        )
+        snapshot = run_report_job(
+            self.Session,
+            job.id,
+            collector=lambda *_args, **_kwargs: self.collected_sections(
+                all_available=True
+            ),
+        )
+        with self.Session() as session:
+            scope = session.scalar(select(StatisticScope).where(
+                StatisticScope.snapshot_id == snapshot.id,
+                StatisticScope.stat_type == "batting",
+            ).limit(1))
+            fact = session.scalar(select(ScopedBattingFact).where(
+                ScopedBattingFact.statistic_scope_id == scope.id
+            ))
+            scope_id, fact_id = scope.id, fact.id
+            fact_values = {
+                "player_team_season_id": fact.player_team_season_id,
+                "source_record_id": fact.source_record_id,
+                "at_bats": fact.at_bats,
+                "hits": fact.hits,
+                "sample_json": fact.sample_json,
+            }
+        for statement, identifier in (
+            ("UPDATE statistic_scopes SET display_label = 'Changed' WHERE id = :id", scope_id),
+            ("DELETE FROM scoped_batting_facts WHERE id = :id", fact_id),
+        ):
+            with self.Session.begin() as session, self.assertRaises(DBAPIError):
+                session.execute(text(statement), {"id": identifier})
+
+        with self.Session.begin() as session:
+            other = ReportSnapshot(
+                organization_id=organization_id,
+                report_id=report_id,
+                schema_version="schema-1",
+            )
+            session.add(other)
+            session.flush()
+            with self.assertRaises(IntegrityError), session.begin_nested():
+                session.add(ScopedBattingFact(
+                    id=uuid.uuid4(),
+                    organization_id=organization_id,
+                    snapshot_id=other.id,
+                    statistic_scope_id=scope_id,
+                    **fact_values,
+                ))
+                session.flush()
 
 
 class FieldingPublicationTests(

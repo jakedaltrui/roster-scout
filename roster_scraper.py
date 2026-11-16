@@ -2560,6 +2560,86 @@ def collect_ncaa_by_id(
     return _collect_ncaa_team(team, year, section_names=section_names)
 
 
+def collect_ncaa_split_results(
+    season_team_id: str,
+    *,
+    division=None,
+    year: int | None = None,
+) -> tuple:
+    """Discover and collect all published split families through Browserless."""
+    from roster_scout.ncaa_detail import (
+        discover_live_split_controls,
+        parse_live_split_result,
+        split_label_code,
+    )
+
+    year = year or _current_ncaa_year()
+    team = _find_ncaa_team_by_season_id(
+        season_team_id, division=division, year=year
+    )
+    season = _find_ncaa_season(year)
+    categories = {
+        "batting": str(season["batting_id"]),
+        "pitching": str(season["pitching_id"]),
+    }
+    base_url = f"{NCAA_BASE}/teams/{team['season_team_id']}/season_to_date_stats"
+    urls = {
+        stat_type: f"{base_url}?year_stat_category_id={category_id}"
+        for stat_type, category_id in categories.items()
+    }
+    controls = _fetch_ncaa_pages(urls)
+    collected_at = datetime.now(timezone.utc)
+    discovered = tuple(
+        scope
+        for stat_type in ("batting", "pitching")
+        for scope in discover_live_split_controls(
+            controls[stat_type],
+            season_id=str(team.get("season_id") or season["id"]),
+            season_team_id=str(team["season_team_id"]),
+            stat_type=stat_type,
+            source_stat_category_id=categories[stat_type],
+            collected_at=collected_at,
+        )
+    )
+    candidates = {
+        f"{scope.stat_type}:{scope.scope_code}": scope
+        for scope in discovered
+        if scope.source_identifier is not None
+    }
+    def consume(*, key, page, source_url, html):
+        scope = candidates[key]
+        selector = f".sport_stat_menu_option_{scope.source_identifier}"
+        control = page.locator(selector)
+        if control.count() != 1:
+            raise NcaaSchemaError("NCAA split control changed.")
+        if (
+            control.get_attribute("data-sport-stat-id") != scope.source_identifier
+            or split_label_code(control.inner_text(), scope.stat_type)
+            != scope.scope_code
+        ):
+            raise NcaaSchemaError("NCAA split control identity changed.")
+        control.evaluate("element => element.click()")
+        page.wait_for_timeout(250)
+        return page.content()
+
+    rendered = (
+        _fetch_ncaa_pages(
+            {key: urls[scope.stat_type] for key, scope in candidates.items()},
+            page_consumer=consume,
+        )
+        if candidates else {}
+    )
+    return tuple(
+        parse_live_split_result(
+            rendered[f"{scope.stat_type}:{scope.scope_code}"]
+            if scope.source_identifier is not None
+            else controls[scope.stat_type],
+            discovered_scope=scope,
+        )
+        for scope in discovered
+    )
+
+
 def scrape_ncaa_by_name(
     team_name: str,
     division=None,
