@@ -17,6 +17,7 @@ from usage_limits import BrowserCapacityExceeded
 from .database import session_advisory_lock
 from .models import (
     BattingFact,
+    MetricConstantSet,
     MetricDefinition,
     MetricValue,
     PitchingFact,
@@ -821,6 +822,7 @@ def _persist_canonical(session, job, snapshot, sections):
         team_label=team.name,
     )
     canonical = canonicalize_ncaa_collection(collection)
+    from .metrics import DEFINITION_VERSION, METRIC_DEFINITIONS, calculate_metric
     source_by_key = {
         (record.section, record.row_ordinal): record
         for record in session.scalars(
@@ -888,10 +890,10 @@ def _persist_canonical(session, job, snapshot, sections):
         {
             (
                 metric.code,
-                f"{metric.definition_version}:{metric.provenance}",
-                metric.provenance,
+                metric.definition_version,
+                METRIC_DEFINITIONS[metric.code].formula,
             )
-            for metric in canonical.metrics
+            for metric in canonical.detailed_metrics
         }
     )
     for code, version, formula in metric_definitions:
@@ -937,10 +939,10 @@ def _persist_canonical(session, job, snapshot, sections):
                 snapshot_id=snapshot.id,
                 player_team_season_id=identity.id,
                 source_record_id=source.id,
-                **fact.values,
+                **fact.detailed_values,
             ))
         else:
-            values = dict(fact.values)
+            values = dict(fact.detailed_values)
             values.pop("innings_raw", None)
             session.add(PitchingFact(
                 organization_id=job.organization_id,
@@ -950,17 +952,69 @@ def _persist_canonical(session, job, snapshot, sections):
                 **values,
             ))
 
-    for metric in canonical.metrics:
-        version = f"{metric.definition_version}:{metric.provenance}"
+    verified_constants = {}
+    for code in ("woba", "fip"):
+        definition_id = metric_definition_ids.get((code, DEFINITION_VERSION))
+        if definition_id is None:
+            continue
+        matches = list(session.scalars(
+            select(MetricConstantSet).where(
+                MetricConstantSet.metric_definition_id == definition_id,
+                MetricConstantSet.metric_code == code,
+                MetricConstantSet.season_id == season.id,
+                MetricConstantSet.division == team_season.division,
+                MetricConstantSet.verification_status == "verified",
+            )
+        ))
+        if len(matches) == 1:
+            verified_constants[code] = matches[0]
+
+    for metric in canonical.detailed_metrics:
+        definition_id = metric_definition_ids[
+            (metric.code, metric.definition_version)
+        ]
+        value = metric.value
+        status = metric.status
+        reason_code = metric.reason_code
+        inputs = metric.inputs
+        sample = metric.sample
+        constant_set = verified_constants.get(metric.code)
+        constant_set_id = None
+        if constant_set is not None:
+            result = calculate_metric(
+                metric.code,
+                metric.inputs,
+                season_id=str(season.id),
+                division=team_season.division,
+                constant_set={
+                    "metric_code": constant_set.metric_code,
+                    "version": constant_set.version,
+                    "season_id": str(constant_set.season_id),
+                    "division": constant_set.division,
+                    "verification_status": constant_set.verification_status,
+                    "values": constant_set.values_json,
+                },
+            )
+            value = result.value
+            status = result.status
+            reason_code = result.reason_code
+            inputs = result.inputs
+            sample = result.sample
+            if result.status == "available":
+                constant_set_id = constant_set.id
         session.add(MetricValue(
             organization_id=job.organization_id,
             snapshot_id=snapshot.id,
-            metric_definition_id=metric_definition_ids[(metric.code, version)],
+            metric_definition_id=definition_id,
             player_team_season_id=identities[metric.identity_key].id,
-            value=metric.value,
-            unavailable_reason=(
-                "source value unavailable" if metric.value is None else None
-            ),
+            value=value,
+            unavailable_reason=None,
+            status=status,
+            reason_code=reason_code,
+            inputs_json=inputs,
+            sample_json=sample,
+            scope="full_season",
+            constant_set_id=constant_set_id,
         ))
 
 

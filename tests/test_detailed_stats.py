@@ -275,6 +275,20 @@ class ConstantMetricTests(unittest.TestCase):
                 self.assertEqual(result.status, "unavailable_constant")
                 self.assertIsNone(result.value)
 
+    def test_missing_constant_precedes_incomplete_count_inputs(self):
+        for code in ("woba", "fip"):
+            with self.subTest(code=code):
+                result = metric_api().calculate_metric(
+                    code,
+                    {},
+                    season_id="2026",
+                    division="d3",
+                )
+                self.assertEqual(result.status, "unavailable_constant")
+                self.assertEqual(
+                    result.reason_code, "verified_ncaa_constant_required"
+                )
+
 
 class MethodologyPersistenceTests(unittest.TestCase):
     def test_metric_result_retains_recomputation_lineage(self):

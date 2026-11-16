@@ -278,9 +278,37 @@ def upgrade():
         FOR EACH ROW EXECUTE FUNCTION reject_locked_metric_constant_set_mutation()
         """
     )
+    op.execute(
+        """
+        CREATE FUNCTION lock_metric_constant_set_reference()
+        RETURNS trigger AS $$
+        BEGIN
+            IF NEW.constant_set_id IS NOT NULL THEN
+                PERFORM 1
+                FROM metric_constant_sets
+                WHERE id = NEW.constant_set_id
+                FOR UPDATE;
+            END IF;
+            RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER trg_metric_values_lock_constant_set
+        BEFORE INSERT OR UPDATE OF constant_set_id ON metric_values
+        FOR EACH ROW EXECUTE FUNCTION lock_metric_constant_set_reference()
+        """
+    )
 
 
 def downgrade():
+    op.execute(
+        "DROP TRIGGER IF EXISTS trg_metric_values_lock_constant_set "
+        "ON metric_values"
+    )
+    op.execute("DROP FUNCTION IF EXISTS lock_metric_constant_set_reference()")
     op.execute(
         "DROP TRIGGER IF EXISTS trg_metric_constant_sets_append_only "
         "ON metric_constant_sets"

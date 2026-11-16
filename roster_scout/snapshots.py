@@ -6,17 +6,154 @@ from sqlalchemy import String, cast, distinct, func, or_, select, text
 
 from .models import (
     BattingFact,
+    MetricConstantSet,
+    MetricDefinition,
+    MetricValue,
     PitchingFact,
     Player,
     PlayerTeamSeason,
+    Report,
     ReportSection,
     ReportSnapshot,
     SourceRecord,
+    TeamSeason,
 )
+from .metrics import DEFINITION_VERSION
+
+
+_BATTING_METRIC_CODES = frozenset({
+    "pa",
+    "avg",
+    "obp",
+    "slg",
+    "ops",
+    "iso",
+    "batting_bb_pct",
+    "batting_k_pct",
+    "babip",
+    "singles",
+    "total_bases",
+    "woba",
+})
+_PITCHING_METRIC_CODES = frozenset({
+    "era",
+    "whip",
+    "k_per_9",
+    "bb_per_9",
+    "h_per_9",
+    "hr_per_9",
+    "k_bb",
+    "pitching_k_pct",
+    "pitching_bb_pct",
+    "babip_allowed",
+    "fip",
+})
+_CONSTANT_METRIC_CODES = frozenset({"woba", "fip"})
 
 
 class SnapshotPublicationError(ValueError):
     pass
+
+
+def _validate_detailed_metric_lineage(session, snapshot, sections):
+    """Require complete tagged lineage for durable detailed-season builds."""
+    durable_build = any(
+        section.section in {"batting", "pitching"}
+        and section.schema_version is not None
+        for section in sections
+    )
+    if not durable_build:
+        return
+
+    batting_players = set(session.scalars(
+        select(BattingFact.player_team_season_id).where(
+            BattingFact.snapshot_id == snapshot.id,
+            BattingFact.organization_id == snapshot.organization_id,
+        )
+    ))
+    pitching_players = set(session.scalars(
+        select(PitchingFact.player_team_season_id).where(
+            PitchingFact.snapshot_id == snapshot.id,
+            PitchingFact.organization_id == snapshot.organization_id,
+        )
+    ))
+    expected = {
+        (player_id, code)
+        for player_id in batting_players
+        for code in _BATTING_METRIC_CODES
+    } | {
+        (player_id, code)
+        for player_id in pitching_players
+        for code in _PITCHING_METRIC_CODES
+    }
+    rows = session.execute(
+        select(MetricValue, MetricDefinition, MetricConstantSet)
+        .join(
+            MetricDefinition,
+            MetricDefinition.id == MetricValue.metric_definition_id,
+        )
+        .outerjoin(
+            MetricConstantSet,
+            MetricConstantSet.id == MetricValue.constant_set_id,
+        )
+        .where(
+            MetricValue.snapshot_id == snapshot.id,
+            MetricValue.organization_id == snapshot.organization_id,
+            MetricValue.scope == "full_season",
+            MetricDefinition.version == DEFINITION_VERSION,
+        )
+    ).all()
+    actual = [
+        (metric.player_team_season_id, definition.code)
+        for metric, definition, _constant in rows
+    ]
+    if len(actual) != len(set(actual)) or set(actual) != expected:
+        raise SnapshotPublicationError(
+            "full-season detailed metric definitions are incomplete"
+        )
+
+    report = session.get(Report, snapshot.report_id)
+    team_season = session.get(TeamSeason, report.team_season_id)
+    for metric, definition, constant in rows:
+        if not definition.formula.strip():
+            raise SnapshotPublicationError("metric definition formula is missing")
+        if not isinstance(metric.inputs_json, dict) or not metric.inputs_json:
+            raise SnapshotPublicationError("metric inputs are missing")
+        if not isinstance(metric.sample_json, dict) or set(metric.sample_json) != {
+            "pa",
+            "ab",
+            "bf",
+            "outs",
+        }:
+            raise SnapshotPublicationError("metric sample lineage is missing")
+        if metric.status == "available":
+            if metric.value is None or metric.reason_code is not None:
+                raise SnapshotPublicationError("available metric lineage is invalid")
+        elif metric.value is not None or not metric.reason_code:
+            raise SnapshotPublicationError("unavailable metric lineage is invalid")
+
+        if constant is not None:
+            if (
+                definition.code not in _CONSTANT_METRIC_CODES
+                or constant.metric_definition_id != definition.id
+                or constant.metric_code != definition.code
+                or constant.season_id != team_season.season_id
+                or constant.division != team_season.division
+                or constant.verification_status != "verified"
+                or constant.verified_at is None
+            ):
+                raise SnapshotPublicationError(
+                    "metric constant set does not match definition, season, or division"
+                )
+        if definition.code in _CONSTANT_METRIC_CODES:
+            if metric.status == "available" and constant is None:
+                raise SnapshotPublicationError(
+                    "constant-dependent metric lacks a verified constant set"
+                )
+            if metric.status == "unavailable_constant" and constant is not None:
+                raise SnapshotPublicationError(
+                    "unavailable constant metric references a constant set"
+                )
 
 
 def publish_snapshot(session, snapshot_id):
@@ -175,6 +312,8 @@ def publish_snapshot(session, snapshot_id):
             raise SnapshotPublicationError(
                 f"{required} facts are not uniquely linked to snapshot-owned evidence"
             )
+
+    _validate_detailed_metric_lineage(session, snapshot, sections)
 
     authoritative_mismatch_count = session.scalar(
         select(func.count())

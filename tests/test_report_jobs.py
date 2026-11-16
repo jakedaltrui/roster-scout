@@ -8,10 +8,12 @@ import threading
 import unittest
 import uuid
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
+from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from tests.db_support import clean_database, require_test_database_url, upgrade_database
 
@@ -954,6 +956,459 @@ class PublicationTests(PostgreSQLJobTestCase):
         finally:
             celery_app.conf.task_always_eager = previous_eager
         self.assertTrue(result.successful())
+
+
+class FullSeasonMetricPublicationTests(PostgreSQLJobTestCase):
+    @staticmethod
+    def detailed_sections():
+        from roster_scout.jobs import CollectedSection, PARSER_VERSION, SCHEMA_VERSION
+
+        collected_at = datetime(2026, 4, 1, 18, 30, tzinfo=UTC)
+        batting_rows = (
+            {
+                "Player": "Complete Two Way",
+                "G": "12",
+                "GS": "11",
+                "AB": "10",
+                "R": "3",
+                "H": "4",
+                "2B": "1",
+                "3B": "1",
+                "HR": "1",
+                "RBI": "4",
+                "BB": "2",
+                "HBP": "1",
+                "K": "2",
+                "SF": "1",
+                "SH": "1",
+                "SB": "2",
+                "CS": "0",
+                "TB": "10",
+                "_player_id": "100",
+                "_player_url": "https://stats.ncaa.org/players/100",
+            },
+            {
+                "Player": "Available Zero",
+                "AB": "4",
+                "H": "0",
+                "2B": "0",
+                "3B": "0",
+                "HR": "0",
+                "BB": "0",
+                "HBP": "0",
+                "K": "1",
+                "SF": "0",
+                "SH": "0",
+                "_player_id": "101",
+            },
+            {
+                "Player": "Undefined Average",
+                "AB": "0",
+                "H": "0",
+                "2B": "0",
+                "3B": "0",
+                "HR": "0",
+                "BB": "0",
+                "HBP": "0",
+                "K": "0",
+                "SF": "0",
+                "SH": "0",
+                "_player_id": "102",
+            },
+            {
+                "Player": "Missing Average",
+                "AB": "-",
+                "H": "-",
+                "2B": "-",
+                "3B": "-",
+                "HR": "-",
+                "BB": "-",
+                "HBP": "-",
+                "K": "-",
+                "SF": "-",
+                "SH": "-",
+                "_player_id": "103",
+            },
+        )
+        pitching_rows = (
+            {
+                "Player": "Complete Two Way",
+                "APP": "5",
+                "GS": "2",
+                "IP": "7.0",
+                "H": "6",
+                "R": "3",
+                "ER": "2",
+                "BB": "3",
+                "SO": "9",
+                "HR": "1",
+                "HBP": "1",
+                "BF": "30",
+                "AB": "26",
+                "SF": "1",
+                "_player_id": "100",
+                "_player_url": "https://stats.ncaa.org/players/100",
+            },
+        )
+        return tuple(
+            CollectedSection(
+                name=name,
+                critical=True,
+                rows=rows,
+                source_url=f"https://stats.ncaa.org/{name}",
+                source_team_id="team",
+                source_season_id="season",
+                source_season_team_id="team-season",
+                source_stat_category_id=name,
+                collected_at=collected_at,
+                parser_version=PARSER_VERSION,
+                schema_version=SCHEMA_VERSION,
+            )
+            for name, rows in (
+                ("batting", batting_rows),
+                ("pitching", pitching_rows),
+            )
+        )
+
+    def _build_published_snapshot(self, key="detailed-published"):
+        from roster_scout.jobs import accept_report_job, run_report_job
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session, organization_id, report_id, key, dispatch=None
+        )
+        snapshot = run_report_job(
+            self.Session,
+            job.id,
+            collector=Mock(return_value=self.detailed_sections()),
+        )
+        return organization_id, report_id, snapshot.id
+
+    def _build_draft_snapshot(self, key):
+        from roster_scout.jobs import (
+            _new_or_existing_snapshot,
+            _persist_canonical,
+            _persist_sections,
+            accept_report_job,
+        )
+        from roster_scout.models import ReportJob
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session, organization_id, report_id, key, dispatch=None
+        )
+        sections = self.detailed_sections()
+        with self.Session.begin() as session:
+            stored = session.get(ReportJob, job.id)
+            snapshot = _new_or_existing_snapshot(session, stored)
+            _persist_sections(session, stored, snapshot, sections)
+            session.flush()
+            snapshot_id = snapshot.id
+        with self.Session.begin() as session:
+            stored = session.get(ReportJob, job.id)
+            snapshot = session.get(type(snapshot), snapshot_id)
+            _persist_canonical(session, stored, snapshot, sections)
+            session.flush()
+        return snapshot_id
+
+    def test_normal_report_build_persists_detailed_facts_and_metric_lineage(self):
+        from roster_scout.metrics import DEFINITION_VERSION
+        from roster_scout.models import (
+            BattingFact,
+            MetricConstantSet,
+            MetricDefinition,
+            MetricValue,
+            PitchingFact,
+            PlayerTeamSeason,
+            ReportSnapshot,
+        )
+
+        _organization_id, _report_id, snapshot_id = self._build_published_snapshot()
+        with self.Session() as session:
+            snapshot = session.get(ReportSnapshot, snapshot_id)
+            self.assertEqual(snapshot.status, "ready")
+            batting = session.scalar(
+                select(BattingFact)
+                .join(PlayerTeamSeason)
+                .where(PlayerTeamSeason.display_name == "Complete Two Way")
+            )
+            pitching = session.scalar(
+                select(PitchingFact)
+                .join(PlayerTeamSeason)
+                .where(PlayerTeamSeason.display_name == "Complete Two Way")
+            )
+            self.assertEqual(batting.plate_appearances, None)
+            self.assertEqual(batting.doubles, 1)
+            self.assertEqual(batting.total_bases, 10)
+            self.assertEqual(pitching.innings_outs, 21)
+            self.assertEqual(pitching.batters_faced, 30)
+            self.assertEqual(pitching.opponent_at_bats, 26)
+
+            rows = session.execute(
+                select(MetricValue, MetricDefinition, PlayerTeamSeason)
+                .join(MetricDefinition)
+                .join(PlayerTeamSeason)
+                .where(MetricValue.snapshot_id == snapshot_id)
+            ).all()
+            self.assertEqual(len(rows), 59)
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(MetricConstantSet)),
+                0,
+            )
+            metrics = {
+                (identity.display_name, definition.code): (value, definition)
+                for value, definition, identity in rows
+            }
+            available_avg, avg_definition = metrics[("Complete Two Way", "avg")]
+            self.assertEqual(available_avg.status, "available")
+            self.assertEqual(available_avg.value, Decimal(".4"))
+            self.assertEqual(available_avg.inputs_json["hits"], 4)
+            self.assertEqual(available_avg.sample_json["ab"], 10)
+            self.assertEqual(avg_definition.version, DEFINITION_VERSION)
+            self.assertEqual(avg_definition.formula, "H / AB")
+
+            zero_avg, _ = metrics[("Available Zero", "avg")]
+            undefined_avg, _ = metrics[("Undefined Average", "avg")]
+            missing_avg, _ = metrics[("Missing Average", "avg")]
+            self.assertEqual((zero_avg.status, zero_avg.value), ("available", 0))
+            self.assertEqual(
+                (undefined_avg.status, undefined_avg.value),
+                ("undefined_denominator", None),
+            )
+            self.assertEqual(
+                (missing_avg.status, missing_avg.value),
+                ("missing_input", None),
+            )
+            woba, _ = metrics[("Complete Two Way", "woba")]
+            fip, _ = metrics[("Complete Two Way", "fip")]
+            for constant_metric in (woba, fip):
+                self.assertEqual(constant_metric.status, "unavailable_constant")
+                self.assertEqual(
+                    constant_metric.reason_code,
+                    "verified_ncaa_constant_required",
+                )
+                self.assertIsNone(constant_metric.constant_set_id)
+
+    def test_publication_rejects_missing_inputs_sample_or_formula_lineage(self):
+        from roster_scout.models import MetricDefinition, MetricValue
+        from roster_scout.snapshots import SnapshotPublicationError, publish_snapshot
+        from tests.db_support import clean_database
+
+        mutations = {
+            "inputs": lambda value, definition: setattr(value, "inputs_json", {}),
+            "sample": lambda value, definition: setattr(value, "sample_json", {}),
+            "formula": lambda value, definition: setattr(definition, "formula", ""),
+        }
+        for label, mutate in mutations.items():
+            clean_database(self.database_url)
+            snapshot_id = self._build_draft_snapshot(f"invalid-{label}")
+            with self.subTest(label=label), self.Session.begin() as session:
+                value, definition = session.execute(
+                    select(MetricValue, MetricDefinition)
+                    .join(MetricDefinition)
+                    .where(
+                        MetricValue.snapshot_id == snapshot_id,
+                        MetricDefinition.code == "avg",
+                    )
+                    .limit(1)
+                ).one()
+                mutate(value, definition)
+                session.flush()
+                with self.assertRaises(SnapshotPublicationError):
+                    publish_snapshot(session, snapshot_id)
+
+    def test_verified_exact_scope_constant_is_persisted_and_becomes_immutable(self):
+        from roster_scout.jobs import accept_report_job, run_report_job
+        from roster_scout.metrics import DEFINITION_VERSION, METRIC_DEFINITIONS
+        from roster_scout.models import (
+            MetricConstantSet,
+            MetricDefinition,
+            MetricValue,
+            Report,
+            TeamSeason,
+        )
+
+        organization_id, report_id = self.fixture()
+        with self.Session.begin() as session:
+            report = session.get(Report, report_id)
+            team_season = session.get(TeamSeason, report.team_season_id)
+            definition = MetricDefinition(
+                code="fip",
+                version=DEFINITION_VERSION,
+                formula=METRIC_DEFINITIONS["fip"].formula,
+            )
+            session.add(definition)
+            session.flush()
+            constant = MetricConstantSet(
+                metric_definition_id=definition.id,
+                metric_code="fip",
+                version="ncaa-2026-d2-v1",
+                season_id=team_season.season_id,
+                division=team_season.division,
+                constant_type="additive_constant",
+                values_json={"constant": "3.2"},
+                methodology="Verified NCAA season/division methodology",
+                source_url="https://stats.ncaa.org/constants",
+                source_identifier="fip:2026:d2:v1",
+                collected_at=datetime.now(UTC),
+                payload_sha256="b" * 64,
+                verification_status="verified",
+                verified_at=datetime.now(UTC),
+            )
+            session.add(constant)
+            session.flush()
+            constant_id = constant.id
+
+        job = accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            "verified-fip-constant",
+            dispatch=None,
+        )
+        snapshot = run_report_job(
+            self.Session,
+            job.id,
+            collector=Mock(return_value=self.detailed_sections()),
+        )
+        with self.Session() as session:
+            metric = session.scalar(
+                select(MetricValue)
+                .join(MetricDefinition)
+                .where(
+                    MetricValue.snapshot_id == snapshot.id,
+                    MetricDefinition.code == "fip",
+                )
+            )
+            self.assertEqual(metric.status, "available")
+            self.assertEqual(metric.value, Decimal("4.2"))
+            self.assertEqual(metric.constant_set_id, constant_id)
+        with self.Session.begin() as session:
+            with self.assertRaises(DBAPIError):
+                session.execute(
+                    text(
+                        "UPDATE metric_constant_sets "
+                        "SET values_json = '{\"constant\": \"4.0\"}'::jsonb "
+                        "WHERE id = :constant_id"
+                    ),
+                    {"constant_id": constant_id},
+                )
+
+    def test_publication_rejects_unverified_or_wrong_scope_constant_sets(self):
+        from roster_scout.models import (
+            MetricConstantSet,
+            MetricDefinition,
+            MetricValue,
+            Report,
+            ReportSnapshot,
+            Season,
+            TeamSeason,
+        )
+        from roster_scout.snapshots import SnapshotPublicationError, publish_snapshot
+        from tests.db_support import clean_database
+
+        for label in ("unverified", "wrong_division", "wrong_season"):
+            clean_database(self.database_url)
+            snapshot_id = self._build_draft_snapshot(f"constant-{label}")
+            with self.subTest(label=label), self.Session.begin() as session:
+                snapshot = session.get(ReportSnapshot, snapshot_id)
+                report = session.get(Report, snapshot.report_id)
+                team_season = session.get(TeamSeason, report.team_season_id)
+                value, definition = session.execute(
+                    select(MetricValue, MetricDefinition)
+                    .join(MetricDefinition)
+                    .where(
+                        MetricValue.snapshot_id == snapshot_id,
+                        MetricDefinition.code == "fip",
+                    )
+                ).one()
+                season_id = team_season.season_id
+                division = team_season.division
+                status = "pending"
+                verified_at = None
+                if label != "unverified":
+                    status = "verified"
+                    verified_at = datetime.now(UTC)
+                if label == "wrong_division":
+                    division = "1"
+                if label == "wrong_season":
+                    other_season = Season(
+                        source="ncaa",
+                        source_season_id=str(uuid.uuid4()),
+                        year=2025,
+                    )
+                    session.add(other_season)
+                    session.flush()
+                    season_id = other_season.id
+                constant = MetricConstantSet(
+                    metric_definition_id=definition.id,
+                    metric_code="fip",
+                    version=f"{label}-v1",
+                    season_id=season_id,
+                    division=division,
+                    constant_type="additive_constant",
+                    values_json={"constant": "3.2"},
+                    methodology="Verified NCAA season/division methodology",
+                    source_url="https://stats.ncaa.org/constants",
+                    source_identifier=f"fip:{label}",
+                    collected_at=datetime.now(UTC),
+                    payload_sha256="c" * 64,
+                    verification_status=status,
+                    verified_at=verified_at,
+                )
+                session.add(constant)
+                session.flush()
+                value.status = "available"
+                value.value = Decimal("3.2")
+                value.reason_code = None
+                value.constant_set_id = constant.id
+                session.flush()
+                with self.assertRaises(SnapshotPublicationError):
+                    publish_snapshot(session, snapshot_id)
+
+    def test_constant_definition_fk_rejects_cross_definition_substitution(self):
+        from roster_scout.models import (
+            MetricConstantSet,
+            MetricDefinition,
+            MetricValue,
+            TeamSeason,
+        )
+
+        snapshot_id = self._build_draft_snapshot("constant-definition-mismatch")
+        with self.Session.begin() as session:
+            fip_value, _fip_definition = session.execute(
+                select(MetricValue, MetricDefinition)
+                .join(MetricDefinition)
+                .where(
+                    MetricValue.snapshot_id == snapshot_id,
+                    MetricDefinition.code == "fip",
+                )
+            ).one()
+            avg_definition = session.scalar(
+                select(MetricDefinition).where(MetricDefinition.code == "avg")
+            )
+            constant = MetricConstantSet(
+                metric_definition_id=avg_definition.id,
+                metric_code="fip",
+                version="mismatched-v1",
+                season_id=session.scalar(select(TeamSeason.season_id).limit(1)),
+                division="2",
+                constant_type="additive_constant",
+                values_json={"constant": "3.2"},
+                methodology="Mismatch counterexample",
+                source_url="https://stats.ncaa.org/constants",
+                source_identifier="fip:mismatch",
+                collected_at=datetime.now(UTC),
+                payload_sha256="d" * 64,
+            )
+            session.add(constant)
+            session.flush()
+            fip_value.constant_set_id = constant.id
+            fip_value.status = "available"
+            fip_value.value = Decimal("3.2")
+            fip_value.reason_code = None
+            with self.assertRaises(IntegrityError):
+                session.flush()
 
 
 class ParserContractRecoveryTests(PostgreSQLJobTestCase):

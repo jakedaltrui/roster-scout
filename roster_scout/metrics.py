@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Callable, Mapping, Sequence
 
 from .enums import METRIC_STATUSES
@@ -66,9 +66,12 @@ class _Evaluation:
                 "unavailable_constant", "verified_ncaa_constant_required"
             )
         value = self.constant_values[key]
-        if isinstance(value, bool) or not isinstance(value, (int, Decimal)):
+        if isinstance(value, bool) or not isinstance(value, (int, Decimal, str)):
             raise _MetricState("incompatible_input")
-        return Decimal(value)
+        try:
+            return Decimal(value)
+        except InvalidOperation:
+            raise _MetricState("incompatible_input") from None
 
 
 def _ratio(numerator: Decimal, denominator: Decimal) -> Decimal:
@@ -359,12 +362,18 @@ def calculate_metric(
         division=division,
     )
     evaluation = _Evaluation(counts, constant_values=constant_values)
+    if definition.constant_dependent and constant_version is None:
+        return MetricResult(
+            value=None,
+            status="unavailable_constant",
+            reason_code="verified_ncaa_constant_required",
+            inputs=dict(evaluation.inputs),
+            sample=_sample(counts),
+            definition_version=DEFINITION_VERSION,
+            constant_set_version=None,
+        )
     try:
         value = definition.calculator(evaluation)
-        if definition.constant_dependent and constant_version is None:
-            raise _MetricState(
-                "unavailable_constant", "verified_ncaa_constant_required"
-            )
     except _MetricState as state:
         return MetricResult(
             value=None,
