@@ -119,11 +119,16 @@ class CanonicalPublishTests(unittest.TestCase):
             with self.subTest(division=division):
                 clean_database(self.database_url)
                 _, snapshot = self.publish(division)
-                self.assertEqual(snapshot.status, "ready")
+                self.assertEqual(snapshot.status, "partial")
                 with self.Session() as session:
                     self.assertEqual(session.scalar(select(func.count()).select_from(ReportSnapshot)), 1)
                     sections = list(session.scalars(select(ReportSection)))
-                    self.assertEqual({item.section for item in sections}, {"batting", "pitching"})
+                    self.assertEqual({item.section for item in sections}, {
+                        "batting", "pitching", "schedule",
+                        "game_logs:batting", "game_logs:pitching", "game_logs:fielding",
+                        "history:batting", "history:pitching", "history:fielding",
+                        "splits:batting", "splits:pitching",
+                    })
                     sources = list(session.scalars(select(SourceRecord)))
                     self.assertTrue(sources)
                     self.assertTrue(all(record.source_url.startswith("https://stats.ncaa.org/") for record in sources))
@@ -169,7 +174,7 @@ class CanonicalPublishTests(unittest.TestCase):
             "batting": empty,
             "pitching": fixture("d2_pitching.html"),
         })
-        self.assertEqual(snapshot.status, "ready")
+        self.assertEqual(snapshot.status, "partial")
 
         clean_database(self.database_url)
         job = self.seed(2)
@@ -223,7 +228,7 @@ class CanonicalPublishTests(unittest.TestCase):
                     ),
                 )
         with self.Session() as session:
-            self.assertEqual(session.scalar(select(func.count()).select_from(ReportSection)), 2)
+            self.assertEqual(session.scalar(select(func.count()).select_from(ReportSection)), 11)
             self.assertGreater(session.scalar(select(func.count()).select_from(SourceRecord)), 0)
             self.assertIsNone(session.scalar(
                 select(ReportSnapshot).where(ReportSnapshot.status.in_(("ready", "partial")))
@@ -245,7 +250,7 @@ class CanonicalPublishTests(unittest.TestCase):
                     self.Session, job_id, cached_sections=cached_sections
                 ),
             )
-        self.assertEqual(replay.status, "ready")
+        self.assertEqual(replay.status, "partial")
 
     def test_new_refresh_forces_live_collection_and_does_not_reuse_old_rows(self):
         from roster_scout.jobs import (
@@ -341,7 +346,7 @@ class FinalAttemptPublicationTests(CanonicalPublishTests):
             side_effect=AssertionError("evidence replay collected live data")
         )
         snapshot = run_report_job(self.Session, job.id, collector=collector)
-        self.assertEqual(snapshot.status, "ready")
+        self.assertEqual(snapshot.status, "partial")
         collector.assert_not_called()
 
         with self.Session() as session:
@@ -813,7 +818,7 @@ class PublicationIntegrityTests(CanonicalPublishTests):
             with self.subTest(division=division):
                 clean_database(self.database_url)
                 _job, snapshot = self.publish(division)
-                self.assertEqual(snapshot.status, "ready")
+                self.assertEqual(snapshot.status, "partial")
                 with self.Session() as session:
                     for section_name, fact_model in (
                         ("batting", BattingFact),

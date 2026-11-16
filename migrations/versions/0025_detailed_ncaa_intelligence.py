@@ -1333,6 +1333,18 @@ def downgrade():
     op.drop_constraint(
         "ck_report_sections_status", "report_sections", type_="check"
     )
+    op.execute(
+        "DROP TRIGGER IF EXISTS trg_report_sections_immutable ON report_sections"
+    )
+    op.execute(
+        "UPDATE report_sections SET status = 'unavailable' "
+        "WHERE status = 'partial'"
+    )
+    op.execute("""
+        CREATE TRIGGER trg_report_sections_immutable
+        BEFORE UPDATE OR DELETE ON report_sections
+        FOR EACH ROW EXECUTE FUNCTION reject_published_snapshot_child_mutation()
+    """)
     op.create_check_constraint(
         "ck_report_sections_status",
         "report_sections",
