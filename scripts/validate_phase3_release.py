@@ -80,8 +80,20 @@ FOCUSED_TESTS = (
         "test_terms_dwell_stops_at_absolute_build_deadline"
     ),
     (
+        "tests.test_ncaa_detail.FixtureCaptureSafetyTests."
+        "test_terms_locator_action_receives_exact_remaining_timeout"
+    ),
+    (
         "tests.test_browserless_lifecycle.BrowserlessLifecycleTests."
         "test_public_transport_preserves_collection_control_signals"
+    ),
+    (
+        "tests.test_browserless_lifecycle.BrowserlessLifecycleTests."
+        "test_session_post_crossing_deadline_never_starts_cdp"
+    ),
+    (
+        "tests.test_browserless_lifecycle.BrowserlessLifecycleTests."
+        "test_direct_http_retry_sleep_stops_at_build_deadline"
     ),
     (
         "tests.test_ncaa_detail.FixtureCaptureSafetyTests."

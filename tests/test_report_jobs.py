@@ -2849,6 +2849,203 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
             tuple(split_results),
         )
 
+    def _ready_transport_fixtures(self):
+        """Build raw source pages for one complete public-collector run."""
+        from bs4 import BeautifulSoup
+        from html import escape
+
+        player_id = "9698671"
+        core_pages = {
+            "batting": self._table(
+                "".join(f"<th>{item}</th>" for item in (
+                    "Player", "AB", "H", "BB", "K", "HBP", "SF", "SH",
+                    "2B", "3B", "HR", "TB",
+                )),
+                "<tr><td><a href='/players/9698671'>Fixture Player</a></td>"
+                "<td>10</td><td>4</td><td>1</td><td>2</td><td>0</td>"
+                "<td>0</td><td>0</td><td>1</td><td>0</td><td>0</td><td>5</td></tr>",
+            ),
+            "pitching": self._table(
+                "".join(f"<th>{item}</th>" for item in (
+                    "Player", "IP", "H", "R", "ER", "BB", "SO", "HR",
+                    "HBP", "BF", "AB", "SF", "ERA",
+                )),
+                "<tr><td><a href='/players/9698671'>Fixture Player</a></td>"
+                "<td>3.0</td><td>2</td><td>1</td><td>1</td><td>1</td>"
+                "<td>4</td><td>0</td><td>0</td><td>12</td><td>10</td>"
+                "<td>0</td><td>3.00</td></tr>",
+            ),
+            "fielding": self._table(
+                "".join(f"<th>{item}</th>" for item in (
+                    "Player", "G", "GS", "PO", "A", "E", "TC", "DP", "FPCT",
+                )),
+                "<tr><td><a href='/players/9698671'>Fixture Player</a></td>"
+                "<td>2</td><td>2</td><td>3</td><td>1</td><td>0</td>"
+                "<td>4</td><td>1</td><td>1.000</td></tr>",
+            ),
+        }
+        schedule_html = (
+            "<html><body><table data-total-games='2'><thead><tr>"
+            "<th>Date</th><th>Opponent</th><th>Result</th>"
+            "</tr></thead><tbody>"
+            "<tr data-venue='away'><td>05/08/2026</td>"
+            "<td><a href='/teams/614584'>Notre Dame</a></td>"
+            "<td><a href='/contests/6530192/box_score'>W 1-0</a></td></tr>"
+            "<tr data-venue='away'><td>05/09/2026</td>"
+            "<td><a href='/teams/614584'>Notre Dame</a></td>"
+            "<td><a href='/contests/6530195/box_score'>W 2-1</a></td></tr>"
+            "</tbody></table></body></html>"
+        )
+        catalog = (
+            {
+                "team_id": "234", "season_team_id": "614606",
+                "conference_id": "821", "division": "1",
+                "season_id": "17040", "year": "2026",
+            },
+            {
+                "team_id": "147", "season_team_id": "614584",
+                "conference_id": "821", "division": "1",
+                "season_id": "17040", "year": "2026",
+            },
+        )
+
+        fixture = BeautifulSoup(
+            self._fixture("ncaa_detail/d1/player_detail.html"), "html.parser"
+        )
+        player_pages = {}
+        game_ids = {"6530192", "6530195"}
+        for stat_type in ("batting", "pitching", "fielding"):
+            section = fixture.find("stat-section", {"data-stat-type": stat_type})
+            career_row = section.find(
+                "career-totals"
+            ).find("row", {"data-source-season-id": "17040"})
+            game_rows = [
+                row for row in section.find("game-log").find_all("row", recursive=False)
+                if row.get("data-source-game-id") in game_ids
+            ]
+
+            def render_table(kind, rows):
+                identity = (
+                    ("Year", "Team") if kind == "career_totals"
+                    else ("Date", "Opponent", "Result")
+                )
+                values = rows[0].find_all("value", recursive=False)
+                headers = (*identity, *(item["data-source-header"] for item in values))
+                output = [
+                    f"<table id='{kind}_{player_id}_player'><thead><tr>",
+                    *(f"<th>{escape(header)}</th>" for header in headers),
+                    "</tr></thead><tbody>",
+                ]
+                for row in rows:
+                    if kind == "career_totals":
+                        cells = (
+                            escape(row["data-season-label"]),
+                            "<a href='/teams/614606'>Florida St.</a>",
+                        )
+                    else:
+                        game_id = row["data-source-game-id"]
+                        cells = (
+                            escape(row["data-date-label"]),
+                            "<a href='/teams/614584'>Notre Dame</a>",
+                            f"<a href='/contests/{game_id}/box_score'>W</a>",
+                        )
+                    output.append("<tr>")
+                    output.extend(f"<td>{cell}</td>" for cell in cells)
+                    output.extend(
+                        f"<td>{escape(item.get_text(' ', strip=True))}</td>"
+                        for item in row.find_all("value", recursive=False)
+                    )
+                    output.append("</tr>")
+                output.append("</tbody></table>")
+                return "".join(output)
+
+            player_pages[stat_type] = (
+                "<html><body>"
+                + render_table("career_totals", [career_row])
+                + render_table("game_log", game_rows)
+                + "</body></html>"
+            )
+
+        split_labels = {
+            "batting": (
+                "vs. Left-Handed Pitchers", "vs. Right-Handed Pitchers",
+                "Runners On", "Bases Empty", "Bases Loaded",
+                "Runners in Scoring Position", "Two Outs",
+            ),
+            "pitching": (
+                "vs. Left-Handed Batters", "vs. Right-Handed Batters",
+                "Runners On", "Bases Empty", "Bases Loaded",
+                "Runners in Scoring Position", "Two Outs",
+            ),
+        }
+        split_controls = {}
+        for stat_type, labels in split_labels.items():
+            headers = (
+                "<th>Player</th><th>AB</th><th>H</th>"
+                if stat_type == "batting"
+                else "<th>Player</th><th>IP</th><th>ERA</th>"
+            )
+            controls = "".join(
+                f"<button class='sport_stat_menu_option_{index}' "
+                f"data-sport-stat-id='{index}' data-split-id='{index}'>"
+                f"{label}</button>"
+                for index, label in enumerate(labels, start=101)
+            )
+            split_controls[stat_type] = self._table(headers) + controls
+        return core_pages, schedule_html, catalog, player_pages, split_controls
+
+    @staticmethod
+    def _split_result_page(stat_type, labels):
+        """Return a minimal Playwright-shaped page backed by split fixtures."""
+        class Control:
+            def __init__(self, page, identifier, label):
+                self.page = page
+                self.identifier = identifier
+                self.label = label
+
+            def count(self):
+                return 1
+
+            def get_attribute(self, name):
+                return self.identifier if name == "data-sport-stat-id" else None
+
+            def inner_text(self):
+                return self.label
+
+            def evaluate(self, _script):
+                self.page.active = self.identifier
+
+        class Page:
+            active = "101"
+
+            def set_default_timeout(self, _milliseconds):
+                return None
+
+            def wait_for_timeout(self, _milliseconds):
+                return None
+
+            def locator(self, selector):
+                identifier = selector.rsplit("_", 1)[-1]
+                return Control(self, identifier, labels[int(identifier) - 101])
+
+            def content(self):
+                if stat_type == "batting":
+                    headers, values = ("Player", "AB", "H"), ("Fixture Player", "10", "4")
+                else:
+                    headers, values = ("Player", "P-OAB", "H"), ("Fixture Player", "10", "2")
+                return (
+                    "<table id='stat_grid'><thead><tr>"
+                    + "".join(f"<th>{item}</th>" for item in headers)
+                    + "</tr></thead><tbody>"
+                    "<tr id='player_9698671'><td><a href='/players/9698671'>"
+                    f"{values[0]}</a></td><td></td><td></td></tr>"
+                    f"<tr class='sport_stat_{self.active}'><td></td>"
+                    f"<td>{values[1]}</td><td>{values[2]}</td></tr>"
+                    "</tbody></table>"
+                )
+
+        return Page()
+
     def test_malformed_core_headers_fail_closed_with_bounded_evidence(self):
         import roster_scraper as scraper
         from roster_scout.jobs import DeterministicJobError, SAFE_FAILURE_MESSAGES
@@ -3024,43 +3221,102 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
 
     def test_real_collector_complete_phase3_evidence_publishes_ready(self):
         import roster_scraper as scraper
-        from roster_scout.models import RequestLedger
+        from roster_scout.models import (
+            BattingGameLogFact, CareerSeasonFact, FieldingFact, Game,
+            RequestLedger, ScopedBattingFact, ScopedPitchingFact, StatisticScope,
+        )
+        from scripts import capture_phase3_ncaa_fixtures as capture
 
         job = self._accepted_job(1, "phase3-real-collector-complete")
-        core, schedule, detail, season_contract, split_results = (
-            self._complete_phase3_evidence()
-        )
+        (
+            core_pages, schedule_html, catalog, player_pages, split_controls,
+        ) = self._ready_transport_fixtures()
+        split_labels = {
+            "batting": (
+                "vs. Left-Handed Pitchers", "vs. Right-Handed Pitchers",
+                "Runners On", "Bases Empty", "Bases Loaded",
+                "Runners in Scoring Position", "Two Outs",
+            ),
+            "pitching": (
+                "vs. Left-Handed Batters", "vs. Right-Handed Batters",
+                "Runners On", "Bases Empty", "Bases Loaded",
+                "Runners in Scoring Position", "Two Outs",
+            ),
+        }
+        transport_stages = []
+
+        def fetch_pages(urls, **kwargs):
+            reserve = kwargs.get("request_reserver")
+            consumer = kwargs.get("page_consumer")
+            for key in urls:
+                if reserve is not None:
+                    reserve(key)
+            if consumer is None and (
+                "core" not in transport_stages or "fielding" in urls
+            ):
+                transport_stages.append(
+                    "fielding" if set(urls) == {"fielding"} else "core"
+                )
+                return {key: core_pages[key] for key in urls}
+            if consumer is None:
+                transport_stages.append("split_controls")
+                return {key: split_controls[key] for key in urls}
+            transport_stages.append("split_results")
+            output = {}
+            for key, source_url in urls.items():
+                page = self._split_result_page(key, split_labels[key])
+                output[key] = consumer(
+                    key=key,
+                    page=page,
+                    source_url=source_url,
+                    html=split_controls[key],
+                )
+            return output
+
+        def fetch_schedule(_url, _limits, *, request_reserver=None, **_kwargs):
+            transport_stages.append("schedule")
+            request_reserver("schedule")
+            return schedule_html
+
+        def fetch_player(_urls, _player_id, _limits, *, request_reserver=None, **_kwargs):
+            transport_stages.append("player_detail")
+            for stat_type in ("batting", "pitching", "fielding"):
+                request_reserver(f"history:{stat_type}")
+            return player_pages
+
+        season_contract = {
+            "season": "2026", "id": "17040",
+            "batting_id": self.BATTING_ID,
+            "pitching_id": self.PITCHING_ID,
+            "fielding_id": self.FIELDING_ID,
+        }
         with patch.dict(
-            os.environ, {"NCAA_BROWSER_PROVIDER": "browserless"}, clear=False
+            os.environ,
+            {
+                "NCAA_BROWSER_PROVIDER": "browserless",
+                "PHASE3_LIVE_PAGE_BUDGET": "32",
+            },
+            clear=False,
         ), patch.object(
             scraper, "_find_ncaa_season", return_value=season_contract
         ), patch.object(
-            scraper,
-            "collect_ncaa_by_id",
-            side_effect=self._reserving_collector_result(
-                Mock(), ("batting", "pitching")
-            ),
-        ), patch(
-            "roster_scout.canonical.to_collected_sections", return_value=core
+            scraper, "_fetch_ncaa_pages", side_effect=fetch_pages
         ), patch.object(
-            scraper,
-            "collect_ncaa_schedule_evidence",
-            side_effect=self._reserving_collector_result(schedule, ("schedule",)),
+            capture, "_catalog_rows_for_season", return_value=catalog
         ), patch.object(
-            scraper,
-            "collect_ncaa_player_detail_evidence",
-            side_effect=self._reserving_collector_result(
-                detail, ("history:batting", "history:pitching", "history:fielding")
-            ),
+            capture, "_bounded_schedule_fetch", side_effect=fetch_schedule
         ), patch.object(
-            scraper,
-            "collect_ncaa_split_results",
-            side_effect=self._reserving_collector_result(
-                split_results, ("splits:batting", "splits:pitching")
-            ),
+            capture, "_bounded_player_fetch", side_effect=fetch_player
         ):
             snapshot = self._run_real_collector(job)
 
+        self.assertEqual(
+            transport_stages,
+            [
+                "core", "fielding", "schedule", "player_detail",
+                "split_controls", "split_results",
+            ],
+        )
         self.assertEqual(snapshot.status, "ready")
         with self.Session() as session:
             ledgers = list(session.scalars(select(RequestLedger).where(
@@ -3073,6 +3329,36 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
                 "history:batting", "history:pitching", "history:fielding",
                 "splits:batting", "splits:pitching",
             } <= {item.family for item in ledgers})
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(Game)), 2
+            )
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(CareerSeasonFact)), 3
+            )
+            self.assertGreater(
+                session.scalar(select(func.count()).select_from(BattingGameLogFact)), 0
+            )
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(FieldingFact)), 1
+            )
+            self.assertEqual(
+                session.scalar(
+                    select(func.count()).select_from(ScopedBattingFact).join(
+                        StatisticScope,
+                        StatisticScope.id == ScopedBattingFact.statistic_scope_id,
+                    ).where(StatisticScope.scope_kind == "source_split")
+                ),
+                7,
+            )
+            self.assertEqual(
+                session.scalar(
+                    select(func.count()).select_from(ScopedPitchingFact).join(
+                        StatisticScope,
+                        StatisticScope.id == ScopedPitchingFact.statistic_scope_id,
+                    ).where(StatisticScope.scope_kind == "source_split")
+                ),
+                7,
+            )
 
     def test_live_page_reservation_is_atomic_under_concurrency(self):
         from roster_scout.jobs import _reserve_job_live_pages
