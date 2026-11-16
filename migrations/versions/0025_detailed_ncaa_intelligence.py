@@ -197,6 +197,10 @@ def upgrade():
     op.add_column(
         "metric_values", sa.Column("constant_set_id", sa.Uuid(), nullable=True)
     )
+    # Existing deployments can already contain published metric rows. Suspend
+    # only this table's immutable-row guard while this migration expands their
+    # lineage in place, then restore the guard before constraints are applied.
+    op.execute("ALTER TABLE metric_values DISABLE TRIGGER trg_metric_values_immutable")
     op.execute(
         """
         UPDATE metric_values
@@ -208,6 +212,7 @@ def upgrade():
             scope = 'full_season'
         """
     )
+    op.execute("ALTER TABLE metric_values ENABLE TRIGGER trg_metric_values_immutable")
     op.drop_constraint(
         "ck_metric_values_value_or_reason", "metric_values", type_="check"
     )

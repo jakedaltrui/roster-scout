@@ -347,26 +347,40 @@ class MethodologyPersistenceTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertNotIn("INSERT INTO METRIC_CONSTANT_SETS", migration.upper())
 
-    def test_downgrade_backfill_temporarily_suspends_immutable_row_guard(self):
+    def test_migration_backfills_temporarily_suspend_immutable_row_guard(self):
         migration = (
             PROJECT_ROOT
             / "migrations"
             / "versions"
             / "0025_detailed_ncaa_intelligence.py"
         ).read_text(encoding="utf-8")
-        disable = migration.index(
+        first_disable = migration.index(
             "ALTER TABLE metric_values DISABLE TRIGGER "
             "trg_metric_values_immutable"
         )
-        backfill = migration.index(
-            "SET unavailable_reason = COALESCE(unavailable_reason, reason_code)"
+        upgrade_backfill = migration.index(
+            "SET status = CASE WHEN value IS NULL THEN 'missing_input' "
+            "ELSE 'available' END"
         )
-        enable = migration.index(
+        first_enable = migration.index(
             "ALTER TABLE metric_values ENABLE TRIGGER "
             "trg_metric_values_immutable"
         )
-        self.assertLess(disable, backfill)
-        self.assertLess(backfill, enable)
+        last_disable = migration.rindex(
+            "ALTER TABLE metric_values DISABLE TRIGGER "
+            "trg_metric_values_immutable"
+        )
+        downgrade_backfill = migration.index(
+            "SET unavailable_reason = COALESCE(unavailable_reason, reason_code)"
+        )
+        last_enable = migration.rindex(
+            "ALTER TABLE metric_values ENABLE TRIGGER "
+            "trg_metric_values_immutable"
+        )
+        self.assertLess(first_disable, upgrade_backfill)
+        self.assertLess(upgrade_backfill, first_enable)
+        self.assertLess(last_disable, downgrade_backfill)
+        self.assertLess(downgrade_backfill, last_enable)
 
     def test_database_preflight_rejects_unsafe_targets_without_disclosure(self):
         script = PROJECT_ROOT / "scripts" / "prepare_phase3_test_database.py"
