@@ -230,6 +230,170 @@ class ArtifactStorageUnitTests(unittest.TestCase):
         )
 
 
+class ArtifactContractTests(unittest.TestCase):
+    """Product contract for the detailed, still-two-sheet workbook."""
+
+    @staticmethod
+    def _detailed_rows():
+        hitter = {
+            "_player_id": "9001",
+            "_player_url": "https://stats.ncaa.org/players/9001",
+            "Name": "Taylor Two-Way",
+            "#": "12",
+            "Position": "OF/RHP",
+            "Class": "Jr",
+            "G": "32",
+            "GS": "31",
+            "PA": "140",
+            "AB": "119",
+            "H": "41",
+            "2B": "8",
+            "3B": "2",
+            "HR": "7",
+            "RBI": "34",
+            "R": "29",
+            "BB": "16",
+            "SO": "20",
+            "SB": "9",
+            "AVG": ".345",
+            "OBP": ".421",
+            "SLG": ".622",
+            "OPS": "1.043",
+            "ISO": ".277",
+            "BB%": ".114",
+            "K%": ".143",
+            "BABIP": ".382",
+            "wOBA": "",
+            "Last 10 G": "10",
+            "Last 10 PA": "44",
+            "Last 10 AB": "38",
+            "Last 10 AVG": ".368",
+            "Last 10 OPS": "1.101",
+            "Last 10 K%": ".114",
+            "Last 10 Status": "Complete",
+            "Conference Status": "Unavailable",
+        }
+        pitcher = {
+            "_player_id": "9001",
+            "_player_url": "https://stats.ncaa.org/players/9001",
+            "Name": "Taylor Two-Way",
+            "#": "12",
+            "Position": "OF/RHP",
+            "Class": "Jr",
+            "G": "12",
+            "GS": "7",
+            "IP": "43.2",
+            "W": "5",
+            "L": "2",
+            "SV": "1",
+            "H": "37",
+            "ER": "14",
+            "BB": "12",
+            "SO": "51",
+            "HR": "3",
+            "BF": "183",
+            "ERA": "2.89",
+            "WHIP": "1.12",
+            "K/9": "10.51",
+            "BB/9": "2.47",
+            "H/9": "7.63",
+            "HR/9": ".62",
+            "K/BB": "4.25",
+            "K%": ".279",
+            "BB%": ".066",
+            "BABIP": ".311",
+            "FIP": "",
+            "Last 10 Status": "Partial",
+            "Conference Status": "Unavailable",
+        }
+        return hitter, pitcher
+
+    def test_grouped_workbook_has_only_two_sheets_and_five_header_groups(self):
+        from roster_scout.workbooks import create_workbook
+
+        hitter, pitcher = self._detailed_rows()
+        payload = create_workbook(
+            [hitter],
+            [pitcher],
+            branding={
+                "school_name": "Parity University",
+                "generated_on": datetime(2026, 11, 16, tzinfo=UTC).date(),
+            },
+        ).getvalue()
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            workbook_xml = archive.read("xl/workbook.xml").decode("utf-8")
+            hitters_xml = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
+            pitchers_xml = archive.read("xl/worksheets/sheet2.xml").decode("utf-8")
+            shared_strings = archive.read("xl/sharedStrings.xml").decode("utf-8")
+
+        self.assertEqual(workbook_xml.count("<sheet "), 2)
+        self.assertIn('name="Hitters"', workbook_xml)
+        self.assertIn('name="Pitchers"', workbook_xml)
+        for label in (
+            "Player",
+            "Season",
+            "Derived Metrics",
+            "Last 10 Games",
+            "Conference Games",
+        ):
+            self.assertIn(f">{label}<", shared_strings)
+        for excluded in ("Fielding", "Career", "Game Logs", "Methodology"):
+            self.assertNotIn(f">{excluded}<", shared_strings)
+        self.assertIn('xSplit="6"', hitters_xml)
+        self.assertIn('ySplit="4"', hitters_xml)
+        self.assertIn('xSplit="6"', pitchers_xml)
+        self.assertIn('ySplit="4"', pitchers_xml)
+        self.assertIn("<autoFilter", hitters_xml)
+        self.assertIn("<autoFilter", pitchers_xml)
+
+    def test_grouped_workbook_preserves_ids_safe_text_and_scope_semantics(self):
+        from roster_scout.workbooks import create_workbook
+
+        hitter, pitcher = self._detailed_rows()
+        hitter["Name"] = "=1+1"
+        hitter["Conference G"] = ""
+        payload = create_workbook([hitter], [pitcher]).getvalue()
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            worksheets = b"".join(
+                archive.read(name)
+                for name in archive.namelist()
+                if name.startswith("xl/worksheets/sheet")
+            )
+            shared_strings = archive.read("xl/sharedStrings.xml")
+
+        self.assertNotIn(b"<f>", worksheets)
+        self.assertNotIn(b"<hyperlinks", worksheets)
+        self.assertIn(b"9001", shared_strings)
+        self.assertIn(b"https://stats.ncaa.org/players/9001", shared_strings)
+        self.assertIn(b"=1+1", shared_strings)
+        self.assertIn(b"Unavailable", shared_strings)
+        self.assertNotIn(b"Conference G</t></si><si><t>0", shared_strings)
+
+    def test_two_way_player_keeps_identity_on_both_sheets(self):
+        from roster_scraper import split_roster
+
+        hitter, pitcher = self._detailed_rows()
+        combined = {
+            **hitter,
+            "P_H": pitcher["H"],
+            "P_BB": pitcher["BB"],
+            "P_SO": pitcher["SO"],
+            "_has_hitting": True,
+            "_has_pitching": True,
+            "_pos": "OF/RHP",
+        }
+        hitters, pitchers = split_roster([combined])
+
+        self.assertEqual(hitters[0]["_player_id"], "9001")
+        self.assertEqual(pitchers[0]["_player_id"], "9001")
+        self.assertEqual(
+            hitters[0]["_player_url"], "https://stats.ncaa.org/players/9001"
+        )
+        self.assertEqual(
+            pitchers[0]["_player_url"], "https://stats.ncaa.org/players/9001"
+        )
+
+
 class ArtifactLifecycleTests(_PostgreSQLJobTestCase):
     def _published_artifact(self):
         from roster_scout.jobs import accept_report_job, run_report_job
