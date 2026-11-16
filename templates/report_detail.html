@@ -21,6 +21,8 @@
 
 {% block head %}
   <script defer src="{{ url_for('static', filename='download_tracking.js') }}"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/powerbi-client@2.25.0/dist/powerbi.min.js" integrity="sha384-SrjLlpANfs97fxkXskhuVvaqQxGMLks+Gsp3CFR5s44ctRosSm7lCDqh24rhaNsp" crossorigin="anonymous"></script>
+  <script defer src="{{ url_for('static', filename='power_bi_embed.js') }}"></script>
   <style>
     .report-intro{display:flex;align-items:center;justify-content:space-between;gap:20px;margin:-24px 0 28px}.report-heading{margin:0;color:var(--muted);font-size:14px;font-weight:600;letter-spacing:.015em}.report-grid{display:grid;gap:20px}.report-panel{padding:clamp(22px,3vw,32px);border:1px solid var(--border);border-radius:20px;background:var(--surface)}.report-panel--latest{border-color:color-mix(in srgb,var(--ink) 16%,var(--border));box-shadow:0 20px 55px rgb(32 33 31/.07)}.report-panel h2,.report-panel h3,.report-panel p{margin-top:0}.report-panel__heading{display:flex;align-items:flex-start;justify-content:space-between;gap:18px}.report-panel__heading h2{margin-bottom:6px;font-size:clamp(21px,2.5vw,26px);letter-spacing:-.035em}.report-panel__heading p{max-width:44rem;margin-bottom:0;color:var(--muted)}.report-eyebrow{margin:0 0 7px!important;color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.11em;text-transform:uppercase}.report-panel .status-chip{flex:none;margin-left:0}.report-panel .status-chip[data-state="ready"]{color:#35613c;background:#e7f2e8}
     .snapshot-meta{display:flex;flex-wrap:wrap;gap:7px 20px;margin:20px 0 0;color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}.snapshot-meta span{display:inline-flex;align-items:center;gap:6px}.snapshot-meta span+span::before{width:3px;height:3px;margin-right:8px;border-radius:50%;background:currentColor;opacity:.55;content:""}.report-readiness{display:flex;flex-wrap:wrap;gap:10px 18px;margin:26px 0 0;padding:18px 0 0;border-top:1px solid var(--border);list-style:none}.report-readiness li{display:flex;align-items:center;gap:8px;min-width:145px;color:var(--muted);font-size:13px}.report-readiness strong{color:var(--ink);font-size:14px}.section-state-dot{width:8px;height:8px;border-radius:50%;background:var(--border);box-shadow:0 0 0 4px color-mix(in srgb,var(--border) 45%,transparent)}.report-readiness li[data-section-state="ready"] .section-state-dot,.report-readiness li[data-section-state="complete"] .section-state-dot{background:#5f9267;box-shadow:0 0 0 4px rgb(95 146 103/.13)}.report-readiness li[data-section-state="unavailable"] .section-state-dot,.report-readiness li[data-section-state="failed"] .section-state-dot{background:var(--danger);box-shadow:0 0 0 4px color-mix(in srgb,var(--danger) 13%,transparent)}.report-primary-action{display:flex;align-items:flex-start;gap:14px;margin-top:26px}.report-primary-action form{margin:0}.artifact-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:center;gap:4px;width:fit-content;padding:4px;border:1px solid var(--border);border-radius:14px;background:var(--canvas);box-shadow:inset 0 1px 0 color-mix(in srgb,var(--surface) 78%,transparent)}.report-primary-action .download-status{align-self:center;max-width:38rem;margin:8px 0 0}.button.export-choice{position:relative;isolation:isolate;display:flex;align-items:center;justify-content:center;min-width:228px;min-height:48px;gap:10px;overflow:hidden;padding:0 16px;border:0;border-radius:10px;color:var(--ink);background:var(--surface);box-shadow:0 1px 2px rgb(32 33 31/.05);text-align:center;white-space:nowrap;transition:color .2s,background-color .2s,box-shadow .2s,transform .2s var(--motion-standard)}.button.export-choice:hover:not(:disabled){color:var(--ink);background:color-mix(in srgb,var(--ink) 6%,var(--surface));box-shadow:0 3px 10px rgb(32 33 31/.08)}.button.export-choice:active:not(:disabled){transform:scale(.985)}.google-sheets-button__icon{display:grid;place-items:center;width:28px;height:22px;flex:none;transition:transform .28s var(--motion-emphasized)}.google-sheets-button__icon img{display:block;width:27px;height:20px;object-fit:contain}.google-sheets-button:hover:not(:disabled) .google-sheets-button__icon{transform:translateY(-1px) scale(1.04)}.google-sheets-button--compact{min-width:126px!important;min-height:44px!important;padding:0 12px!important;font-size:12px}.google-sheets-button--compact .google-sheets-button__icon{width:23px;height:18px}.google-sheets-button--compact img{width:22px;height:16px}.unavailable-copy{max-width:38rem;margin:24px 0 0;color:var(--muted);font-size:14px}
@@ -69,6 +71,42 @@
           {% if report_detail.latest_snapshot.artifact_id %}<div class="report-primary-action"><form method="post" data-authenticated-snapshot-download action="{{ url_for('reports.download_snapshot_artifact',report_id=report_detail.id,snapshot_id=report_detail.latest_snapshot.id,artifact_id=report_detail.latest_snapshot.artifact_id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><div class="artifact-actions">{{ google_sheets_button(oauth_url=url_for('reports.start_google_sheets_export',report_id=report_detail.id,snapshot_id=report_detail.latest_snapshot.id,artifact_id=report_detail.latest_snapshot.artifact_id) if google_sheets_oauth_configured else none) }}{{ workbook_download_button() }}</div><p class="download-status" role="status" aria-live="polite" tabindex="-1" data-download-status></p></form></div>{% else %}<p class="unavailable-copy"><strong>Download unavailable.</strong> This version did not produce a saved workbook and will not be replaced with newer data.</p>{% endif %}
         {% endif %}
       </section>{% endif %}
+      {% if report_detail.latest_snapshot %}
+        <section class="report-panel opponent-dashboard" aria-labelledby="opponent-dashboard-heading" data-power-bi-root data-dashboard-state="{{ dashboard_state }}" data-embed-url="{{ url_for('reports.snapshot_embed_configuration', report_id=report_detail.id, snapshot_id=report_detail.latest_snapshot.id) }}" data-status-url="{{ url_for('reports.snapshot_dashboard_status', report_id=report_detail.id, snapshot_id=report_detail.latest_snapshot.id) }}">
+          <div class="opponent-dashboard__heading">
+            <div>
+              <h2 id="opponent-dashboard-heading">Opponent dashboard</h2>
+              <p>Explore this exact saved report across season, recent, conference, split, fielding, and player-level views.</p>
+            </div>
+            <span class="status-chip" data-dashboard-status data-state="{% if dashboard_state == 'ready' %}ready{% elif dashboard_state == 'pending' %}queued{% elif dashboard_state == 'failed' %}failed{% else %}partial{% endif %}">{% if dashboard_state == "ready" %}Ready{% elif dashboard_state == "pending" %}Preparing{% elif dashboard_state == "failed" %}Needs attention{% else %}Unavailable{% endif %}</span>
+          </div>
+          <div class="dashboard-controls">
+            <div class="dashboard-scope" role="group" aria-label="Statistics timeframe">
+              <button type="button" aria-pressed="true" data-dashboard-scope="full_season">Full season</button>
+              <button type="button" aria-pressed="false" data-dashboard-scope="last_10">Last 10</button>
+              <button type="button" aria-pressed="false" data-dashboard-scope="conference">Conference</button>
+            </div>
+            <p>Snapshot <time datetime="{{ report_detail.latest_snapshot.published_at.isoformat() }}">{{ report_detail.latest_snapshot.published_at.strftime("%b %-d · %-I:%M %p") }} UTC</time></p>
+          </div>
+          <nav class="dashboard-tabs" aria-label="Opponent analysis pages" data-dashboard-tabs>
+            {% for page in ("Overview", "Roster", "Hitting", "Pitching", "Fielding", "Splits", "Player Detail", "Data Quality") %}<button type="button" role="tab" aria-selected="{{ 'true' if loop.first else 'false' }}" tabindex="{{ '0' if loop.first else '-1' }}" data-dashboard-page="{{ page }}">{{ page }}</button>{% endfor %}
+          </nav>
+          <div class="dashboard-stage" data-dashboard-stage aria-busy="{{ 'true' if dashboard_state in ('ready','pending') else 'false' }}">
+            <div class="dashboard-state" data-dashboard-message role="status" aria-live="polite">
+              {% if dashboard_state == "ready" %}
+                <span class="dashboard-state__loader" aria-hidden="true"></span><strong>Opening your analysis</strong><span>Loading the exact saved snapshot.</span>
+              {% elif dashboard_state == "pending" %}
+                <span class="dashboard-state__loader" aria-hidden="true"></span><strong>Interactive analysis is being prepared</strong><span>Your Excel and Google Sheets exports are ready above.</span>
+              {% elif dashboard_state == "failed" %}
+                <strong>The dashboard needs another try</strong><span>Your saved workbook is unaffected and remains available above.</span>
+              {% else %}
+                <strong>Interactive analysis is not connected yet</strong><span>Your complete saved workbook remains available above.</span>
+              {% endif %}
+            </div>
+            <div class="dashboard-embed" data-power-bi-container hidden></div>
+          </div>
+        </section>
+      {% endif %}
       {% if report_detail.active_build %}
         <section class="report-panel report-panel--active" aria-labelledby="active-build-heading" aria-busy="true" data-report-status-root data-report-status-url="{{ url_for('reports.detail_status',report_id=report_detail.id) }}" data-status-state="{{ report_detail.active_build.state }}">
           <div class="refresh-state"><span class="refresh-state__spinner" aria-hidden="true"></span><div><p class="report-eyebrow">Refreshing report</p><h2 id="active-build-heading">New workbook in progress</h2><p data-status-message>{{ report_detail.active_build.message }}</p></div><span class="status-chip" data-state="{{ report_detail.active_build.state }}" data-status-heading>{{ report_detail.active_build.heading }}</span></div>

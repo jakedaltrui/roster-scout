@@ -1175,6 +1175,15 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
                 ),
                 (
                     "/reports/<uuid:report_id>/snapshots/<uuid:snapshot_id>/"
+                    "dashboard-status",
+                    ("GET",),
+                ),
+                (
+                    "/reports/<uuid:report_id>/snapshots/<uuid:snapshot_id>/embed",
+                    ("GET",),
+                ),
+                (
+                    "/reports/<uuid:report_id>/snapshots/<uuid:snapshot_id>/"
                     "players/<uuid:player_id>",
                     ("GET",),
                 ),

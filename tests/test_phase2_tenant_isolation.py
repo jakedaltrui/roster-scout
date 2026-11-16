@@ -391,6 +391,8 @@ class UntrustedScopeInputTests(_TenantIsolationCase):
             ("reports.library", ("GET",)),
             ("reports.detail", ("GET",)),
             ("reports.detail_status", ("GET",)),
+            ("reports.snapshot_dashboard_status", ("GET",)),
+            ("reports.snapshot_embed_configuration", ("GET",)),
             ("reports.snapshot_player_detail", ("GET",)),
             ("reports.refresh_report", ("GET", "POST")),
             ("reports.retry_report", ("POST",)),

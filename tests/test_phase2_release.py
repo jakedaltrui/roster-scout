@@ -590,7 +590,14 @@ class ExternalFailureStateTests(_Phase2ReleaseCase):
 
         rules = {rule.rule for rule in self.app_module.app.url_map.iter_rules()}
         self.assertFalse(any("power" in rule.lower() for rule in rules))
-        self.assertFalse(any("embed" in rule.lower() for rule in rules))
+        self.assertIn(
+            "/reports/<uuid:report_id>/snapshots/<uuid:snapshot_id>/embed",
+            rules,
+        )
+        self.assertIn(
+            "/reports/<uuid:report_id>/snapshots/<uuid:snapshot_id>/dashboard-status",
+            rules,
+        )
         self.assertFalse(any("split" in rule.lower() for rule in rules))
         self.assertNotIn("/organizations/create", rules)
 
