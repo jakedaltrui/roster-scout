@@ -320,8 +320,16 @@ Plans:
 
 Plans:
 
+**Wave 1**
+
 - [ ] 04-01: Extend the canonical two-sheet workbook with legacy-matched styling and grouped player, season, derived, last-10, and conference columns.
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 04-02: Add immutable object storage, checksums, schema versions, and exact historical artifact downloads.
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 04-03: Add canonical-to-Excel parity, formula/URL safety, partial-scope, visual-format, and D1/D2/D3 workbook verification.
 
 ### Phase 5: Embedded Opponent Dashboard
