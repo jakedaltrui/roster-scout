@@ -1999,6 +1999,7 @@ class Phase21ReleaseValidatorContractTests(unittest.TestCase):
             "ArtifactLifecycleTests",
             "tests/js/home_flow.test.mjs",
             "tests/js/download_tracking.test.mjs",
+            "tests/js/report_progress.test.mjs",
             "tests/js/report_status.test.mjs",
             "unittest', 'discover",
             "alembic', 'downgrade', 'base",

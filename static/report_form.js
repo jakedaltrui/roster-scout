@@ -19,6 +19,8 @@
   const loadingTitle = document.getElementById("report-loading-title");
   const loadingProgress = document.getElementById("report-loading-progress");
   const loadingViewport = document.getElementById("report-loading-viewport");
+  const loadingMeter = document.getElementById("report-loading-meter");
+  const loadingPercent = document.getElementById("report-loading-percent");
   const loadingSteps = Array.from(document.querySelectorAll("[data-loading-step]"));
   const divisionButtons = Array.from(
     document.querySelectorAll(".division-button")
@@ -31,7 +33,8 @@
   let selectedTeam = null;
   let catalogYear = null;
   let submitting = false;
-  let loadingTimer = null;
+  let loadingProgressController = null;
+  let runStartedAt = null;
   let loadingHeadlineSwapTimer = null;
   let loadingHeadlineAnimation = null;
 
@@ -42,8 +45,10 @@
     "Opponent locked in.",
     "Calling the bullpen for data.",
     "Rounding up the season numbers.",
+    "Checking the lineup card twice.",
     "Getting every player into position.",
     "Giving the workbook its final polish.",
+    "Packing up both export formats.",
     "Putting this report in the books.",
   ];
 
@@ -139,22 +144,30 @@
       loadingProgress.classList.add("is-running");
     }
     updateLoadingStage(1, { immediate: true });
-    let stage = 1;
-    const advance = () => {
-      if (stage >= loadingSteps.length - 2) return;
-      loadingTimer = window.setTimeout(() => {
-        stage += 1;
+    let storage = null;
+    try { storage = window.localStorage; } catch (_error) { /* Progress remains available. */ }
+    const progressApi = window.RosterScoutReportProgress;
+    loadingProgressController = progressApi.createProgressController({
+      expectedMs: progressApi.readExpectedDuration(storage),
+      onUpdate(percent) {
+        loadingMeter?.style.setProperty("--report-progress-scale", String(percent / 100));
+        loadingMeter?.setAttribute("aria-valuenow", String(percent));
+        if (loadingPercent) loadingPercent.textContent = `${percent}%`;
+        const thresholds = [0, 22, 37, 52, 68, 82, 95];
+        let stage = 1;
+        thresholds.forEach((threshold, index) => {
+          if (percent >= threshold) stage = index + 1;
+        });
         updateLoadingStage(stage);
-        advance();
-      }, 5200);
-    };
-    advance();
+      },
+    });
+    loadingProgressController.start("queued");
   }
 
   function restoreForm(message) {
-    window.clearTimeout(loadingTimer);
+    loadingProgressController?.stop();
+    loadingProgressController = null;
     stopLoadingHeadlineTransition();
-    loadingTimer = null;
     submitting = false;
     form.classList.remove("is-loading");
     loadingPanel?.setAttribute("aria-hidden", "true");
@@ -409,6 +422,7 @@
     backLink.setAttribute("aria-disabled", "true");
     backLink.setAttribute("tabindex", "-1");
     submitStatus.textContent = "";
+    runStartedAt = performance.now();
     beginLoading(teamLabel(selectedTeam));
 
     try {
@@ -440,6 +454,7 @@
           return status;
         },
         render(view) {
+          loadingProgressController?.sync(view.state);
           if (view.transient_error && loadingTitle) {
             transitionLoadingHeadline("Still tracking down the numbers.");
           }
@@ -448,7 +463,15 @@
           if (loadingPanel) loadingPanel.setAttribute("aria-label", copy);
         },
         terminalReached(view) {
-          window.clearTimeout(loadingTimer);
+          let storage = null;
+          try { storage = window.localStorage; } catch (_error) { /* Duration history is optional. */ }
+          if (runStartedAt !== null) {
+            window.RosterScoutReportProgress.recordDuration(
+              storage,
+              performance.now() - runStartedAt
+            );
+          }
+          loadingProgressController?.complete(view.state);
           if (view.state === "failed") {
             transitionLoadingHeadline("That run needs another look.");
             window.setTimeout(
@@ -457,7 +480,6 @@
             );
             return;
           }
-          updateLoadingStage(loadingSteps.length - 1);
           window.setTimeout(
             () => window.location.assign(payload.report_url),
             LOADING_STAGE_MOTION_MS

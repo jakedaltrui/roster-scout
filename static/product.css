@@ -172,6 +172,30 @@ a { color: inherit; }
 .account-school-logo img { display: block; width: 30px; height: 30px; object-fit: contain; }
 .account-menu__actions { display: grid; gap: 8px; }
 .account-menu__actions form { margin: 0; }
+.account-menu-action {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 44px;
+  gap: 10px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  color: var(--ink);
+  background: transparent;
+  font: 650 12px/1.4 "DM Sans", system-ui, sans-serif;
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--motion-control), background-color var(--motion-control), border-color var(--motion-control), transform var(--motion-control) var(--motion-standard);
+}
+.account-menu-action svg { flex: none; width: 17px; height: 17px; }
+.account-menu-action--invite { border-color: var(--border); background: color-mix(in srgb, var(--canvas) 62%, var(--surface)); }
+.account-menu-action--invite:hover { border-color: color-mix(in srgb, var(--ink) 24%, var(--border)); background: color-mix(in srgb, var(--canvas) 84%, var(--surface)); transform: translateY(-1px); }
+.account-menu-action--sign-out { color: var(--muted); }
+.account-menu-action--sign-out:hover { border-color: color-mix(in srgb, var(--danger) 30%, transparent); color: var(--danger); background: color-mix(in srgb, var(--danger) 9%, transparent); }
+.account-menu-action:active { transform: scale(.975); }
+.sign-out-dialog__confirm { min-width: 104px; }
+.sign-out-dialog .confirmation-dialog__actions form { margin: 0; }
 
 .product-main {
   width: min(calc(100% - 32px), 1200px);

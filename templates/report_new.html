@@ -65,7 +65,11 @@
   .report-loading__team { display: inline-block; margin: 0; padding: 8px 12px; border-radius: 999px; color: #444740; background: #f0f1ed; font-size: 12px; font-weight: 600; }
   .report-loading__title { margin: 18px 0 8px; font: 600 28px/1.15 "DM Sans", sans-serif; letter-spacing: -.045em; }
   .report-loading__sub { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
-  .report-loading__viewport { max-height: 200px; margin: 25px 0 20px; padding: 0 16px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; -webkit-mask-image: linear-gradient(to bottom, transparent, #000 12px, #000 calc(100% - 12px), transparent); mask-image: linear-gradient(to bottom, transparent, #000 12px, #000 calc(100% - 12px), transparent); }
+  .report-loading__meter { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; margin: 22px 0 4px; text-align: left; }
+  .report-loading__meter-track { height: 6px; overflow: hidden; border-radius: 999px; background: #e1e2dd; }
+  .report-loading__meter-fill { display: block; width: 100%; height: 100%; border-radius: inherit; background: #30332e; transform: scaleX(var(--report-progress-scale, .08)); transform-origin: left center; transition: transform .7s cubic-bezier(.22, 1, .36, 1); }
+  .report-loading__meter-percent { min-width: 3ch; color: #444740; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
+  .report-loading__viewport { max-height: 200px; margin: 16px 0 20px; padding: 0 16px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; -webkit-mask-image: linear-gradient(to bottom, transparent, #000 12px, #000 calc(100% - 12px), transparent); mask-image: linear-gradient(to bottom, transparent, #000 12px, #000 calc(100% - 12px), transparent); }
   .report-loading__viewport::-webkit-scrollbar { display: none; }
   .report-loading__progress { position: relative; isolation: isolate; margin: 0; padding: 8px 0; list-style: none; text-align: left; }
   .report-loading__progress::before { position: absolute; z-index: -1; top: 26px; bottom: var(--connector-bottom, 26px); left: 13px; width: 1px; background: #e1e2dd; content: ""; }
@@ -106,6 +110,9 @@
   :root[data-theme="dark"] .report-loading__orbit { color: #ededeb; }
   :root[data-theme="dark"] .report-loading__orbit::before { border-color: #404044; }
   :root[data-theme="dark"] .report-loading__team { color: #dededc; background: #303033; }
+  :root[data-theme="dark"] .report-loading__meter-track { background: #303034; }
+  :root[data-theme="dark"] .report-loading__meter-fill { background: #ededeb; }
+  :root[data-theme="dark"] .report-loading__meter-percent { color: #d7d7d5; }
   :root[data-theme="dark"] .report-loading__progress::before { background: #3c3c40; }
   :root[data-theme="dark"] .report-loading__progress::after { background: #252528; }
   :root[data-theme="dark"] .report-loading__step { color: #8c8c90; }
@@ -215,9 +222,13 @@
       <div id="report-loading-team" class="report-loading__team"></div>
       <h2 id="report-loading-title" class="report-loading__title">Calling the bullpen for data.</h2>
       <p class="report-loading__sub">We’re putting your stat sheet together. This may take a minute.</p>
+      <div id="report-loading-meter" class="report-loading__meter" role="progressbar" aria-label="Estimated report progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="8">
+        <span class="report-loading__meter-track" aria-hidden="true"><span class="report-loading__meter-fill"></span></span>
+        <strong id="report-loading-percent" class="report-loading__meter-percent">8%</strong>
+      </div>
       <div id="report-loading-viewport" class="report-loading__viewport" tabindex="0" aria-label="Stat Sheet preparation steps">
         <ol id="report-loading-progress" class="report-loading__progress">
-          {% for label in ("Team selected", "Finding the roster", "Gathering season stats", "Organizing player records", "Building your Stat Sheet", "Saving your report") %}
+          {% for label in ("Team selected", "Finding the roster", "Gathering season stats", "Checking player totals", "Organizing player records", "Building your Stat Sheet", "Preparing exports", "Saving your report") %}
             <li class="report-loading__step{% if loop.first %} is-complete{% endif %}" data-loading-step>
               <span class="report-loading__icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span>
               <span>{{ label }}</span><span class="visually-hidden" data-loading-status></span>

@@ -44,7 +44,13 @@
   function enhanceDialogs() {
     document.querySelectorAll("[data-dialog-trigger]").forEach((trigger) => {
       trigger.addEventListener("click", () => {
-        openDialog(document.getElementById(trigger.getAttribute("aria-controls")), trigger);
+        const accountMenu = trigger.closest("details.account-menu");
+        const returnFocus = accountMenu?.querySelector("summary") || trigger;
+        if (accountMenu) accountMenu.open = false;
+        openDialog(
+          document.getElementById(trigger.getAttribute("aria-controls")),
+          returnFocus
+        );
       });
     });
     document.querySelectorAll("dialog[data-modal]").forEach((dialog) => {

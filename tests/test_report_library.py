@@ -234,16 +234,13 @@ class SharedLibraryTests(unittest.TestCase):
         self.assertIn(b">Dashboard<", member_html.data)
         self.assertIn(b"Share with North Valley Baseball staff", admin_html.data)
         self.assertIn(b'id="share-organization-dialog"', admin_html.data)
-        self.assertIn(b'href="/reports?share=staff">Invite staff</a>', admin_html.data)
+        self.assertIn(b'account-menu-action--invite', admin_html.data)
+        self.assertIn(b'aria-controls="share-organization-dialog"', admin_html.data)
+        self.assertNotIn(b'href="/reports?share=staff"', admin_html.data)
         self.assertIn(b'name="return_to" value="/reports"', admin_html.data)
-        self.assertNotIn(b">Invite staff</a>", member_html.data)
+        self.assertNotIn(b'account-menu-action--invite', member_html.data)
         self.assertNotIn(b'id="share-organization-dialog"', member_html.data)
         self.assertIn(b"Shared with North Valley Baseball", member_html.data)
-
-        share_html = self._client(accounts[0], organization_id).get(
-            "/reports?share=staff"
-        )
-        self.assertIn(b'data-modal data-auto-modal', share_html.data)
 
     def test_library_run_age_uses_hours_then_days_then_weeks(self):
         from roster_scout.reports import _relative_run_age
@@ -1908,6 +1905,8 @@ class ReportAcceptanceIdempotencyTests(unittest.TestCase):
         self.assertIn("report_form.js", body)
         self.assertIn("report_status.js", body)
         self.assertIn('id="report-loading"', body)
+        self.assertIn('id="report-loading-meter"', body)
+        self.assertIn('aria-label="Estimated report progress"', body)
         self.assertIn("Keep this page open. We’ll take you to the finished report automatically.", body)
         self.assertIn(
             '<button id="create-report-submit" class="report-submit" type="submit">',
@@ -1934,6 +1933,8 @@ class ReportAcceptanceIdempotencyTests(unittest.TestCase):
         self.assertIn("textContent", source)
         self.assertIn('headers: { Accept: "application/json" }', source)
         self.assertIn("createReportStatusPoller", source)
+        self.assertIn("createProgressController", source)
+        self.assertIn("loadingProgressController?.sync(view.state)", source)
         self.assertIn("terminalReached", source)
         self.assertIn("const LOADING_STAGE_MOTION_MS = 820;", source)
         self.assertIn("transitionLoadingHeadline(loadingHeadlines[bounded], immediate);", source)

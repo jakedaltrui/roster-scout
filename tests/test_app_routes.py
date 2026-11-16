@@ -66,6 +66,8 @@ class HomepageReportFlowContractTests(unittest.TestCase):
             ".auth-code-control:focus-within .auth-code-box.is-active",
             self.source,
         )
+        self.assertIn("box-shadow:none", self.source)
+        self.assertNotIn("box-shadow:0 0 0 3px rgba(0,0,0,.1)", self.source)
         self.assertIn(".auth-code-box.is-active::after", self.source)
 
     def test_loading_headline_tracks_progress_without_explainer_copy(self):
@@ -75,6 +77,9 @@ class HomepageReportFlowContractTests(unittest.TestCase):
         self.assertIn("Giving the workbook its final polish.", self.source)
         self.assertIn("const LOADING_STAGE_MOTION_MS = 820;", self.source)
         self.assertIn("transitionLoadingHeadline(loadingHeadlines[index], firstStage);", self.source)
+        self.assertIn('id="loading-meter"', self.source)
+        self.assertIn("createProgressController", self.source)
+        self.assertIn("loadingProgressController?.sync(view.state)", self.source)
         self.assertIn("if (immediate || reducedMotion", self.source)
         self.assertNotIn("The steps below illustrate the process.", self.source)
         self.assertNotIn("Getting your roster.", self.source)
@@ -1335,8 +1340,10 @@ class AuthenticatedSnapshotDownloadAcknowledgementTests(unittest.TestCase):
         self.assertNotIn("background:#20211f", source)
         self.assertIn("Access is limited to files Roster Scout creates", source)
         self.assertIn("Roster Scout never requests access to your Google account.", source)
-        self.assertIn("animation:report-progress 4.2s", source)
-        self.assertIn(".refresh-progress span{animation-duration:1.8s}", source)
+        self.assertIn('aria-label="Estimated refresh progress"', source)
+        self.assertIn("data-status-progress-percent", source)
+        self.assertIn("transform:scaleX(var(--report-progress-scale,.08))", source)
+        self.assertNotIn("animation:report-progress 4.2s", source)
         self.assertNotIn("Download saved", source)
         self.assertNotIn("Snapshot saved to your device", source)
 

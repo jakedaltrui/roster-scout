@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#f6f6f3" />
   <script src="{{ url_for('static', filename='home_flow.js') }}"></script>
+  <script src="{{ url_for('static', filename='report_progress.js') }}"></script>
   <script src="{{ url_for('static', filename='report_status.js') }}"></script>
   {% if signed_in %}<meta name="csrf-token" content="{{ csrf_token() }}" />{% endif %}
   <script>
@@ -127,11 +128,11 @@
     .auth-code-input:focus, .auth-code-input:focus-visible { outline:none; box-shadow:none; }
     .auth-code-box { display:grid; place-items:center; aspect-ratio:1/1.08; min-width:0; border:1px solid #20211f; border-radius:12px; color:#20211f; background:#fff; font-size:clamp(20px,5vw,25px); font-weight:700; font-variant-numeric:tabular-nums; transition:border-color .2s,background-color .2s,box-shadow .2s,transform .2s cubic-bezier(.2,.8,.2,1); }
     .auth-code-box.is-filled { border-color:#20211f; background:#fff; }
-    .auth-code-control:focus-within .auth-code-box.is-active { border-color:#20211f; box-shadow:0 0 0 3px rgba(0,0,0,.1); transform:translateY(-1px); }
+    .auth-code-control:focus-within .auth-code-box.is-active { border-color:#20211f; box-shadow:none; transform:translateY(-1px); }
     .auth-code-control:focus-within .auth-code-box.is-active::after { width:2px; height:1.08em; border-radius:999px; background:currentColor; content:""; animation:auth-code-caret 1.05s steps(1,end) infinite; }
     :root[data-theme="dark"] .auth-code-box { border-color:#39393d; color:#f4f4f3; background:#111113; }
     :root[data-theme="dark"] .auth-code-box.is-filled { border-color:#5b5b60; background:#171719; }
-    :root[data-theme="dark"] .auth-code-control:focus-within .auth-code-box.is-active { border-color:#a2a2a6; box-shadow:0 0 0 3px rgba(255,255,255,.08); }
+    :root[data-theme="dark"] .auth-code-control:focus-within .auth-code-box.is-active { border-color:#a2a2a6; box-shadow:none; }
     .auth-code-control[data-invalid="true"] .auth-code-box { border-color:#a85e57; }
     .auth-code-actions { display:flex; align-items:center; justify-content:space-between; gap:12px; }
     .auth-text-button { min-height:44px; padding:0; border:0; color:#aaaab0; background:transparent; font-size:11px; font-weight:700; text-decoration:underline; text-underline-offset:3px; }
@@ -408,7 +409,14 @@
     .loading-orbit-core { width:10px; height:10px; border-radius:3px; background:currentColor; transform:rotate(45deg); animation:orbit-core 2.4s ease-in-out infinite; }
     @keyframes orbit-spin { to { transform:rotate(360deg); } }
     @keyframes orbit-core { 0%,100% { opacity:.55; transform:rotate(45deg) scale(.8); } 50% { opacity:1; transform:rotate(135deg) scale(1); } }
-    .loading-viewport { max-height:200px; margin:25px 0 20px; padding:0 16px; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:none; -webkit-mask-image:linear-gradient(to bottom, transparent, #000 12px, #000 calc(100% - 12px), transparent); mask-image:linear-gradient(to bottom, transparent, #000 12px, #000 calc(100% - 12px), transparent); }
+    .loading-meter { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:12px; margin:22px 0 4px; text-align:left; }
+    .loading-meter__track { height:6px; overflow:hidden; border-radius:999px; background:#303034; }
+    .loading-meter__fill { display:block; width:100%; height:100%; border-radius:inherit; background:#ededeb; transform:scaleX(var(--report-progress-scale,.08)); transform-origin:left center; transition:transform .7s cubic-bezier(.22,1,.36,1); }
+    .loading-meter__percent { min-width:3ch; color:#d7d7d5; font-size:12px; font-weight:700; font-variant-numeric:tabular-nums; text-align:right; }
+    html[data-theme="light"] .loading-meter__track { background:#e1e2dd; }
+    html[data-theme="light"] .loading-meter__fill { background:#30332e; }
+    html[data-theme="light"] .loading-meter__percent { color:#444740; }
+    .loading-viewport { max-height:200px; margin:16px 0 20px; padding:0 16px; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:none; -webkit-mask-image:linear-gradient(to bottom, transparent, #000 12px, #000 calc(100% - 12px), transparent); mask-image:linear-gradient(to bottom, transparent, #000 12px, #000 calc(100% - 12px), transparent); }
     .loading-viewport::-webkit-scrollbar { display:none; }
     .loading-viewport:focus-visible { outline:2px solid currentColor; outline-offset:3px; }
     .loading-progress { position:relative; isolation:isolate; padding:8px 0; margin:0; }
@@ -618,7 +626,27 @@
             <p class="auth-dev-note" id="auth-dev-note" hidden></p>
           </form>
         </div>
-        <div id="state-loading" class="state state-center" role="status" aria-live="polite"><div class="loading-orbit" aria-hidden="true"><span class="loading-orbit-core"></span></div><div class="loading-team" id="loading-team"></div><h2 class="state-title" id="loading-headline">Calling the bullpen for data.</h2><p class="loading-sub">We’re putting your stat sheet together. This may take a minute.</p><div class="loading-viewport" tabindex="0" aria-label="Stat Sheet preparation steps"><ol class="loading-progress"><li class="loading-step is-complete"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Team selected</span><span class="sr-only"> — complete</span></li><li class="loading-step loading-activity is-current" id="loading-build-step"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Finding the roster</span><span class="sr-only loading-activity-status"> — in progress</span></li><li class="loading-step loading-activity"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Gathering season stats</span><span class="sr-only loading-activity-status"></span></li><li class="loading-step loading-activity"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Organizing player records</span><span class="sr-only loading-activity-status"></span></li><li class="loading-step loading-activity"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Building your Stat Sheet</span><span class="sr-only loading-activity-status"></span></li><li class="loading-step loading-activity" id="loading-download-step"><span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span><span>Saving your report</span><span class="sr-only loading-activity-status" id="loading-download-status"> — waiting</span></li></ol></div><p class="hint">Keep this page open. We’ll take you to the finished report automatically.</p></div>
+        <div id="state-loading" class="state state-center" role="status" aria-live="polite">
+          <div class="loading-orbit" aria-hidden="true"><span class="loading-orbit-core"></span></div>
+          <div class="loading-team" id="loading-team"></div>
+          <h2 class="state-title" id="loading-headline">Calling the bullpen for data.</h2>
+          <p class="loading-sub">We’re putting your stat sheet together. This may take a minute.</p>
+          <div class="loading-meter" id="loading-meter" role="progressbar" aria-label="Estimated report progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="8">
+            <span class="loading-meter__track" aria-hidden="true"><span class="loading-meter__fill"></span></span>
+            <strong class="loading-meter__percent" id="loading-percent">8%</strong>
+          </div>
+          <div class="loading-viewport" tabindex="0" aria-label="Stat Sheet preparation steps">
+            <ol class="loading-progress">
+              {% for label in ("Team selected", "Finding the roster", "Gathering season stats", "Checking player totals", "Organizing player records", "Building your Stat Sheet", "Preparing exports", "Saving your report") %}
+                <li class="loading-step{% if not loop.first %} loading-activity{% endif %}{% if loop.first %} is-complete{% elif loop.index == 2 %} is-current{% endif %}"{% if loop.index == 2 %} id="loading-build-step"{% elif loop.last %} id="loading-download-step"{% endif %}>
+                  <span class="loading-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6" /></svg></span>
+                  <span>{{ label }}</span>{% if not loop.first %}<span class="sr-only loading-activity-status"{% if loop.last %} id="loading-download-status"{% endif %}></span>{% else %}<span class="sr-only"> — complete</span>{% endif %}
+                </li>
+              {% endfor %}
+            </ol>
+          </div>
+          <p class="hint">Keep this page open. We’ll take you to the finished report automatically.</p>
+        </div>
         <div id="state-error" class="state state-center" role="alert"><div class="status-icon error"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></div><h2 class="state-title">We couldn’t finish that.</h2><p class="state-msg" id="error-msg"></p><button type="button" class="btn btn-success" onclick="resetForm()">Try again</button></div>
       </section>
       </div>
@@ -1288,19 +1316,21 @@
       });
     });
 
-    let loadingActivityTimer = null;
     let loadingHandoffTimer = null;
     let loadingScrollFrame = null;
     let loadingHeadlineSwapTimer = null;
     let loadingHeadlineAnimation = null;
+    let loadingProgressController = null;
     let updateLoadingStage = () => {};
     const LOADING_STAGE_MOTION_MS = 820;
     const LOADING_HEADLINE_EXIT_MS = 180;
     const loadingHeadlines = [
       'Calling the bullpen for data.',
       'Rounding up the season numbers.',
+      'Checking the lineup card twice.',
       'Getting every player into position.',
       'Giving the workbook its final polish.',
+      'Packing up both export formats.',
       'Saving your report for the staff.',
     ];
     function stopLoadingHeadlineTransition() {
@@ -1339,28 +1369,14 @@
       }, LOADING_HEADLINE_EXIT_MS);
     }
     function stopLoadingActivity() {
-      clearTimeout(loadingActivityTimer);
       clearTimeout(loadingHandoffTimer);
       cancelAnimationFrame(loadingScrollFrame);
       stopLoadingHeadlineTransition();
+      loadingProgressController?.stop();
+      loadingProgressController = null;
       loadingScrollFrame = null;
       document.querySelector('.loading-progress').classList.remove('activity-running');
-      loadingActivityTimer = null;
       loadingHandoffTimer = null;
-    }
-    function recentRunTimes() {
-      try {
-        const saved = JSON.parse(localStorage.getItem('roster-scout-run-times') || '[]');
-        return Array.isArray(saved) ? saved.filter(ms => Number.isFinite(ms) && ms >= 1000 && ms <= 180000).slice(-5) : [];
-      } catch (_) { return []; }
-    }
-    function expectedRunTime() {
-      const times = recentRunTimes().sort((a, b) => a - b);
-      return times.length ? times[Math.floor(times.length / 2)] : 30000;
-    }
-    function recordRunTime(ms) {
-      if (ms < 1000 || ms > 180000) return;
-      try { localStorage.setItem('roster-scout-run-times', JSON.stringify([...recentRunTimes(), ms].slice(-5))); } catch (_) {}
     }
     function startLoadingActivity() {
       stopLoadingActivity();
@@ -1417,17 +1433,26 @@
       };
       updateLoadingStage(0);
       progress.classList.add('activity-running');
-      // Increasing tiers reach the final waiting step at 90% of the estimate.
-      const expected = expectedRunTime();
-      const delays = [.08, .15, .25, .42].map(fraction => expected * fraction);
-      function advance() {
-        if (current >= steps.length - 1) return;
-        loadingActivityTimer = setTimeout(() => {
-          updateLoadingStage(current + 1);
-          advance();
-        }, delays[current]);
-      }
-      advance();
+      const meter = document.getElementById('loading-meter');
+      const percentLabel = document.getElementById('loading-percent');
+      let storage = null;
+      try { storage = window.localStorage; } catch (_) { /* Estimated progress still works. */ }
+      const progressApi = window.RosterScoutReportProgress;
+      loadingProgressController = progressApi.createProgressController({
+        expectedMs: progressApi.readExpectedDuration(storage),
+        onUpdate(percent) {
+          meter.style.setProperty('--report-progress-scale', String(percent / 100));
+          meter.setAttribute('aria-valuenow', String(percent));
+          percentLabel.textContent = `${percent}%`;
+          const thresholds = [0, 22, 37, 52, 68, 82, 95];
+          let stage = 0;
+          thresholds.forEach((threshold, index) => {
+            if (percent >= threshold) stage = index;
+          });
+          updateLoadingStage(stage);
+        },
+      });
+      loadingProgressController.start('queued');
     }
 
     function show(name) {
@@ -1810,6 +1835,7 @@
             return status;
           },
           render(view) {
+            loadingProgressController?.sync(view.state);
             if (view.transient_error) {
               transitionLoadingHeadline('Still tracking down the numbers.');
             }
@@ -1821,12 +1847,12 @@
             if (visibilityHandler) {
               document.removeEventListener('visibilitychange', visibilityHandler);
             }
-            clearTimeout(loadingActivityTimer);
-            recordRunTime(performance.now() - runStarted);
+            let storage = null;
+            try { storage = window.localStorage; } catch (_) { /* Duration history is optional. */ }
+            window.RosterScoutReportProgress.recordDuration(storage, performance.now() - runStarted);
+            loadingProgressController?.complete(view.state);
             if (view.state === 'failed') {
               transitionLoadingHeadline('That run needs another look.');
-            } else {
-              updateLoadingStage(4);
             }
             loadingHandoffTimer = window.setTimeout(
               () => window.location.assign(payload.report_url),

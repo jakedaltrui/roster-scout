@@ -142,6 +142,22 @@
     const note = target.querySelector("[data-status-note]");
     const live = target.querySelector("[data-status-live]");
     const checkButton = target.querySelector("[data-status-check]");
+    const progress = target.querySelector("[data-status-progress]");
+    const progressPercent = target.querySelector("[data-status-progress-percent]");
+    const progressApi = typeof globalThis !== "undefined"
+      ? globalThis.RosterScoutReportProgress
+      : null;
+    let storage = null;
+    try { storage = globalThis.localStorage; } catch (_error) { /* Optional. */ }
+    const progressController = progressApi?.createProgressController({
+      expectedMs: progressApi.readExpectedDuration(storage),
+      onUpdate(percent) {
+        progress?.style.setProperty("--report-progress-scale", String(percent / 100));
+        progress?.setAttribute("aria-valuenow", String(percent));
+        if (progressPercent) progressPercent.textContent = `${percent}%`;
+      },
+    });
+    progressController?.start(target.getAttribute("data-status-state") || "queued");
 
     function replaceSections(items) {
       if (!sections || typeof document === "undefined") return;
@@ -176,6 +192,7 @@
         if (view.state) heading.dataset.state = view.state;
       }
       if (message) message.textContent = view.message;
+      progressController?.sync(view.state);
       if (note) note.textContent = "";
       replaceSections(view.sections || []);
       if (checkButton) checkButton.hidden = view.state !== "still_working";
@@ -197,7 +214,10 @@
       announce(copy) {
         if (live) live.textContent = copy;
       },
-      terminalReached() {
+      terminalReached(view) {
+        if (["ready", "partial", "failed"].includes(view.state)) {
+          progressController?.complete(view.state);
+        }
         // Terminal responses change the saved snapshot, history, download, and
         // retry panels together. Reload the same scoped detail URL so the
         // server-rendered view replaces those regions atomically.

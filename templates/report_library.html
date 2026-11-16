@@ -198,27 +198,6 @@
       <div class="banner banner--error" role="alert">We couldn’t send the invitation right now. Try again in a few minutes.</div>
     {% endif %}
 
-    {% if current_role == "admin" %}
-      <dialog id="share-organization-dialog" class="confirmation-dialog share-dialog" data-modal{% if request.args.get('share') == 'staff' %} data-auto-modal{% endif %} aria-labelledby="share-dialog-title" aria-describedby="share-dialog-description">
-        <h2 id="share-dialog-title">Invite a coach</h2>
-        <p class="share-dialog__intro" id="share-dialog-description">Share {{ organization_name or "your school" }}’s saved reports with another member of your staff.</p>
-        <form class="share-form" action="{{ url_for('organization.invite') }}" method="post">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <input type="hidden" name="role" value="member">
-          <input type="hidden" name="return_to" value="/reports">
-          <div>
-            <label for="share-email">Coach’s email</label>
-            <input id="share-email" name="email" type="email" autocomplete="email" inputmode="email" placeholder="coach@school.edu" required autofocus>
-            <p class="field-help">They’ll receive a secure email invitation.</p>
-          </div>
-          <div class="confirmation-dialog__actions">
-            <button class="button button--secondary" type="button" data-dialog-close>Cancel</button>
-            <button class="button button--primary" type="submit" data-pending-label="Sending…">Send invite</button>
-          </div>
-        </form>
-      </dialog>
-    {% endif %}
-
     {% if load_error %}
       <div class="banner banner--error" role="alert">
         <h2>We couldn’t load reports</h2>
