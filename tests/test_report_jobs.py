@@ -1,6 +1,7 @@
 """Durable report-job, redelivery, cache, and evidence-retention contract."""
 
 import gzip
+import hashlib
 import inspect as python_inspect
 import multiprocessing
 import os
@@ -2733,6 +2734,97 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
             ),
         )
 
+    def _complete_phase3_evidence(self):
+        from dataclasses import replace
+        from roster_scout.jobs import CollectedSection
+        from roster_scout.ncaa_detail import (
+            parse_player_detail_fixture, parse_schedule_fixture,
+        )
+        from tests.test_ncaa_detail import _SplitContractMixin
+
+        base = FullSeasonMetricPublicationTests.detailed_sections()
+        core = tuple(
+            CollectedSection(
+                **{
+                    **section.__dict__,
+                    "rows": ({
+                        **section.rows[0],
+                        "_player_id": "9698671",
+                        "_player_url": "https://stats.ncaa.org/players/9698671",
+                    },),
+                    "source_team_id": "234",
+                    "source_season_id": "17040",
+                    "source_season_team_id": "614606",
+                    "source_stat_category_id": (
+                        self.BATTING_ID
+                        if section.name == "batting"
+                        else self.PITCHING_ID
+                    ),
+                }
+            )
+            for section in base
+        )
+        schedule = parse_schedule_fixture(
+            self._fixture("ncaa_detail/d1/schedule.html"),
+            expected_season_id="17040",
+            expected_team_id="234",
+            expected_season_team_id="614606",
+            expected_division="1",
+        )
+        detail = parse_player_detail_fixture(
+            self._fixture("ncaa_detail/d1/player_detail.html"),
+            expected_player_id="9698671",
+            expected_season_id="17040",
+            expected_season_team_id="614606",
+            expected_division="1",
+        )
+        detail = replace(
+            detail,
+            career_seasons=tuple(
+                row for row in detail.career_seasons
+                if row.source_season_id == "17040"
+                and row.source_season_team_id == "614606"
+            ),
+        )
+        split_fixture = _SplitContractMixin()
+        split_results = []
+        for stat_type in ("batting", "pitching"):
+            parsed = split_fixture.parse_result(stat_type)
+            row = next(
+                item for item in parsed.rows
+                if item.source_player_id == "9698671"
+            )
+            metric = next(
+                item for item in parsed.metric_results
+                if item.source_player_id == "9698671"
+            )
+            for scope in split_fixture.discovery(stat_type):
+                split_results.append(replace(
+                    parsed,
+                    scope_code=scope.scope_code,
+                    display_label=scope.display_label,
+                    source_identifier=scope.source_identifier,
+                    source_url=scope.source_url,
+                    source_payload_sha256=hashlib.sha256(
+                        f"{stat_type}:{scope.scope_code}:complete".encode()
+                    ).hexdigest(),
+                    rows=(row,),
+                    metric_results=(metric,),
+                ))
+        return (
+            core,
+            schedule,
+            detail,
+            {
+                "season": "2026",
+                "id": "17040",
+                "batting_id": self.BATTING_ID,
+                "pitching_id": self.PITCHING_ID,
+                "fielding_id": "",
+            },
+            tuple(split_results),
+        )
+
     def test_malformed_core_headers_fail_closed_with_bounded_evidence(self):
         import roster_scraper as scraper
         from roster_scout.jobs import DeterministicJobError, SAFE_FAILURE_MESSAGES
@@ -2893,6 +2985,97 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
                     item.safe_category == "split_transport_unavailable"
                     for item in split_ledgers
                 ))
+
+    def test_real_collector_complete_phase3_evidence_publishes_ready(self):
+        import roster_scraper as scraper
+        from roster_scout.models import RequestLedger
+
+        job = self._accepted_job(1, "phase3-real-collector-complete")
+        core, schedule, detail, season_contract, split_results = (
+            self._complete_phase3_evidence()
+        )
+        with patch.dict(
+            os.environ, {"NCAA_BROWSER_PROVIDER": "browserless"}, clear=False
+        ), patch.object(
+            scraper, "_find_ncaa_season", return_value=season_contract
+        ), patch.object(
+            scraper, "collect_ncaa_by_id", return_value=Mock()
+        ), patch(
+            "roster_scout.canonical.to_collected_sections", return_value=core
+        ), patch.object(
+            scraper, "collect_ncaa_schedule_evidence", return_value=schedule
+        ), patch.object(
+            scraper, "collect_ncaa_player_detail_evidence", return_value=detail
+        ), patch.object(
+            scraper, "collect_ncaa_split_results", return_value=split_results
+        ):
+            snapshot = self._run_real_collector(job)
+
+        self.assertEqual(snapshot.status, "ready")
+        with self.Session() as session:
+            ledgers = list(session.scalars(select(RequestLedger).where(
+                RequestLedger.snapshot_id == snapshot.id
+            )))
+            self.assertTrue(ledgers)
+            self.assertNotIn("planned", {item.outcome for item in ledgers})
+            self.assertTrue({
+                "batting", "pitching", "schedule",
+                "history:batting", "history:pitching", "history:fielding",
+                "splits:batting", "splits:pitching",
+            } <= {item.family for item in ledgers})
+
+    def test_real_collector_budget_boundary_leaves_no_planned_ledgers(self):
+        import roster_scraper as scraper
+        from roster_scout.models import ReportSection, RequestLedger
+
+        job = self._accepted_job(1, "phase3-real-collector-budget-boundary")
+        core, schedule, detail, season_contract, split_results = (
+            self._complete_phase3_evidence()
+        )
+        split_collector = Mock(return_value=split_results)
+        with patch.dict(os.environ, {
+            "NCAA_BROWSER_PROVIDER": "browserless",
+            "PHASE3_LIVE_PAGE_BUDGET": "5",
+        }, clear=False), patch.object(
+            scraper, "_find_ncaa_season", return_value=season_contract
+        ), patch.object(
+            scraper, "collect_ncaa_by_id", return_value=Mock()
+        ), patch(
+            "roster_scout.canonical.to_collected_sections", return_value=core
+        ), patch.object(
+            scraper, "collect_ncaa_schedule_evidence", return_value=schedule
+        ), patch.object(
+            scraper, "collect_ncaa_player_detail_evidence", return_value=detail
+        ), patch.object(
+            scraper, "collect_ncaa_split_results", split_collector
+        ):
+            snapshot = self._run_real_collector(job)
+
+        self.assertEqual(snapshot.status, "partial")
+        split_collector.assert_not_called()
+        with self.Session() as session:
+            ledgers = list(session.scalars(select(RequestLedger).where(
+                RequestLedger.snapshot_id == snapshot.id
+            )))
+            self.assertNotIn("planned", {item.outcome for item in ledgers})
+            split_ledgers = [
+                item for item in ledgers if item.family.startswith("splits:")
+            ]
+            self.assertEqual(len(split_ledgers), 2)
+            self.assertTrue(all(
+                item.outcome == "budget_exhausted"
+                and item.safe_category == "request_budget_exhausted"
+                for item in split_ledgers
+            ))
+            split_sections = list(session.scalars(select(ReportSection).where(
+                ReportSection.snapshot_id == snapshot.id,
+                ReportSection.section.in_(("splits:batting", "splits:pitching")),
+            )))
+            self.assertEqual(len(split_sections), 2)
+            self.assertTrue(all(
+                item.failure_category == "request_budget_exhausted"
+                for item in split_sections
+            ))
 
     def test_real_collector_persists_schedule_history_and_typed_game_logs(self):
         import roster_scraper as scraper

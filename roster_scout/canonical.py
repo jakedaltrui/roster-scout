@@ -619,7 +619,10 @@ def canonicalize_player_history(detail, games) -> CanonicalPlayerHistory:
 
     aggregates = tuple(
         aggregate_career_seasons(
-            detail.career_seasons,
+            tuple(
+                row for row in detail.career_seasons
+                if row.stat_type == stat_type
+            ),
             stat_type=stat_type,
             metric_codes=metric_codes,
         )

@@ -27,6 +27,18 @@ FOCUSED_TESTS = (
         "tests.test_report_jobs.SectionHeaderPublicationTests."
         "test_real_collector_persists_schedule_history_and_typed_game_logs"
     ),
+    (
+        "tests.test_report_jobs.SectionHeaderPublicationTests."
+        "test_real_collector_complete_phase3_evidence_publishes_ready"
+    ),
+    (
+        "tests.test_report_jobs.SectionHeaderPublicationTests."
+        "test_real_collector_budget_boundary_leaves_no_planned_ledgers"
+    ),
+    (
+        "tests.test_ncaa_detail.FixtureCaptureSafetyTests."
+        "test_schedule_capture_rejects_pagination_unknown_results_and_malformed_rows"
+    ),
     "tests.test_phase3_release.MetricConstantSetTests",
     "tests.test_ncaa_detail.FieldingTests",
     "tests.test_ncaa_detail.FieldingPublicationTests",
