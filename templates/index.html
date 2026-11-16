@@ -125,7 +125,7 @@
     .auth-back:hover { color:#f0f0ee; }
     .auth-code-control { position:relative; display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:clamp(6px,2vw,9px); width:100%; }
     .auth-code-input { position:absolute; z-index:2; inset:0; width:100%; height:100% !important; margin:0; padding:0 !important; border:0 !important; color:transparent; -webkit-text-fill-color:transparent; background:transparent !important; caret-color:transparent; cursor:text; -webkit-user-select:text; user-select:text; }
-    .auth-code-input:focus, .auth-code-input:focus-visible { outline:none; box-shadow:none; }
+    .auth-form .auth-code-input:focus, .auth-form .auth-code-input:focus-visible { outline:none !important; box-shadow:none !important; }
     .auth-code-box { display:grid; place-items:center; aspect-ratio:1/1.08; min-width:0; border:1px solid #20211f; border-radius:12px; color:#20211f; background:#fff; font-size:clamp(20px,5vw,25px); font-weight:700; font-variant-numeric:tabular-nums; transition:border-color .2s,background-color .2s,box-shadow .2s,transform .2s cubic-bezier(.2,.8,.2,1); }
     .auth-code-box.is-filled { border-color:#20211f; background:#fff; }
     .auth-code-control:focus-within .auth-code-box.is-active { border-color:#20211f; box-shadow:none; transform:translateY(-1px); }

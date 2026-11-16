@@ -59,7 +59,7 @@ class HomepageReportFlowContractTests(unittest.TestCase):
 
     def test_verification_code_hides_only_the_invisible_group_outline(self):
         self.assertIn(
-            ".auth-code-input:focus, .auth-code-input:focus-visible { outline:none; box-shadow:none; }",
+            ".auth-form .auth-code-input:focus, .auth-form .auth-code-input:focus-visible { outline:none !important; box-shadow:none !important; }",
             self.source,
         )
         self.assertIn(
