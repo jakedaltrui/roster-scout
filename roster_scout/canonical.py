@@ -85,6 +85,27 @@ class CanonicalCollection:
 
 
 @dataclass(frozen=True)
+class CanonicalScopedFact:
+    stat_type: str
+    scope_code: str
+    identity_key: str
+    source_player_id: str
+    row_ordinal: int
+    values: MappingProxyType
+    sample: MappingProxyType
+    metric_results: tuple[MetricLineage, ...]
+
+
+@dataclass(frozen=True)
+class CanonicalSplitCollection:
+    stat_type: str
+    scope_code: str
+    status: str
+    reason: str | None
+    facts: tuple[CanonicalScopedFact, ...]
+
+
+@dataclass(frozen=True)
 class _IdentityGroup:
     rows: tuple[NcaaSourceRow, ...]
     identity_status: str
@@ -519,6 +540,53 @@ def canonicalize_ncaa_collection(collection: NcaaCollection) -> CanonicalCollect
         facts=tuple(facts),
         metrics=tuple(metrics),
         detailed_metrics=tuple(detailed_metrics),
+    )
+
+
+def canonicalize_split_result(result) -> CanonicalSplitCollection:
+    """Convert a validated split grid without introducing another identity path."""
+    from .ncaa_detail import BattingSplitRow, PitchingSplitRow
+
+    facts = []
+    for row in result.rows:
+        if isinstance(row, BattingSplitRow):
+            values = {"at_bats": row.at_bats, "hits": row.hits}
+        elif isinstance(row, PitchingSplitRow):
+            values = {
+                "opponent_at_bats": row.opponent_at_bats,
+                "hits_allowed": row.hits_allowed,
+            }
+        else:
+            raise TypeError("unsupported split row type")
+        metric = calculate_metric(
+            "avg",
+            {
+                "at_bats": row.at_bats,
+                "hits": row.hits if isinstance(row, BattingSplitRow) else row.hits_allowed,
+            },
+        )
+        facts.append(CanonicalScopedFact(
+            stat_type=result.stat_type,
+            scope_code=result.scope_code,
+            identity_key=f"ncaa:{row.source_player_id}",
+            source_player_id=row.source_player_id,
+            row_ordinal=row.row_ordinal,
+            values=MappingProxyType(values),
+            sample=MappingProxyType(dict(row.sample)),
+            metric_results=(
+                _detailed_metric_lineage(
+                    f"ncaa:{row.source_player_id}",
+                    "avg",
+                    metric,
+                ),
+            ),
+        ))
+    return CanonicalSplitCollection(
+        stat_type=result.stat_type,
+        scope_code=result.scope_code,
+        status=result.status,
+        reason=result.reason,
+        facts=tuple(facts),
     )
 
 

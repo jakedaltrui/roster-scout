@@ -136,6 +136,155 @@ def upgrade():
     )
 
     op.create_table(
+        "statistic_scopes",
+        sa.Column("organization_id", sa.Uuid(), nullable=False),
+        sa.Column("snapshot_id", sa.Uuid(), nullable=False),
+        sa.Column("scope_kind", sa.String(length=32), nullable=False),
+        sa.Column("scope_code", sa.String(length=64), nullable=False),
+        sa.Column("stat_type", sa.String(length=16), nullable=False),
+        sa.Column("display_label", sa.String(length=120), nullable=False),
+        sa.Column("source_identifier", sa.String(length=100)),
+        sa.Column("source_path", sa.Text(), nullable=False),
+        sa.Column("source_url", sa.Text()),
+        sa.Column("source_season_id", sa.String(length=100), nullable=False),
+        sa.Column("source_season_team_id", sa.String(length=100), nullable=False),
+        sa.Column("source_stat_category_id", sa.String(length=100), nullable=False),
+        sa.Column("status", sa.String(length=20), nullable=False),
+        sa.Column("availability_reason", sa.String(length=100)),
+        sa.Column("collected_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("parser_version", sa.String(length=64), nullable=False),
+        sa.Column("schema_version", sa.String(length=64), nullable=False),
+        sa.Column(
+            "sample_json", postgresql.JSONB(astext_type=sa.Text()),
+            server_default=sa.text("'{}'::jsonb"), nullable=False,
+        ),
+        sa.Column("source_payload_sha256", sa.String(length=64)),
+        sa.Column("id", sa.Uuid(), nullable=False),
+        sa.CheckConstraint(
+            "scope_kind IN ('source_split')",
+            name="ck_statistic_scopes_kind",
+        ),
+        sa.CheckConstraint(
+            "stat_type IN ('batting', 'pitching')",
+            name="ck_statistic_scopes_stat_type",
+        ),
+        sa.CheckConstraint(
+            "status IN ('complete', 'partial', 'unavailable', 'failed')",
+            name="ck_statistic_scopes_status",
+        ),
+        sa.CheckConstraint(
+            "(status IN ('complete', 'partial') AND source_identifier IS NOT NULL) "
+            "OR status IN ('unavailable', 'failed')",
+            name="ck_statistic_scopes_source_status",
+        ),
+        sa.CheckConstraint(
+            "(status = 'complete' AND availability_reason IS NULL) OR "
+            "(status <> 'complete' AND availability_reason IS NOT NULL)",
+            name="ck_statistic_scopes_reason_status",
+        ),
+        sa.CheckConstraint(
+            "jsonb_typeof(sample_json) = 'object'",
+            name="ck_statistic_scopes_sample_object",
+        ),
+        sa.CheckConstraint(
+            "source_payload_sha256 IS NULL OR char_length(source_payload_sha256) = 64",
+            name="ck_statistic_scopes_sha256_length",
+        ),
+        sa.ForeignKeyConstraint(
+            ["snapshot_id", "organization_id"],
+            ["report_snapshots.id", "report_snapshots.organization_id"],
+            name="fk_statistic_scopes_snapshot_organization",
+        ),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint(
+            "id", "snapshot_id", "organization_id",
+            name="uq_statistic_scopes_snapshot_owner",
+        ),
+        sa.UniqueConstraint(
+            "snapshot_id", "stat_type", "scope_code",
+            name="uq_statistic_scopes_snapshot_type_code",
+        ),
+    )
+    op.execute(
+        """
+        CREATE TRIGGER trg_statistic_scopes_immutable
+        BEFORE INSERT OR UPDATE OR DELETE ON statistic_scopes
+        FOR EACH ROW EXECUTE FUNCTION reject_published_snapshot_child_mutation()
+        """
+    )
+
+    for table_name, count_columns in (
+        ("scoped_batting_facts", ("at_bats", "hits")),
+        ("scoped_pitching_facts", ("opponent_at_bats", "hits_allowed")),
+    ):
+        op.create_table(
+            table_name,
+            sa.Column("organization_id", sa.Uuid(), nullable=False),
+            sa.Column("snapshot_id", sa.Uuid(), nullable=False),
+            sa.Column("statistic_scope_id", sa.Uuid(), nullable=False),
+            sa.Column("player_team_season_id", sa.Uuid(), nullable=False),
+            sa.Column("source_record_id", sa.Uuid(), nullable=False),
+            *(sa.Column(column, sa.Integer()) for column in count_columns),
+            sa.Column(
+                "sample_json", postgresql.JSONB(astext_type=sa.Text()),
+                server_default=sa.text("'{}'::jsonb"), nullable=False,
+            ),
+            sa.Column("id", sa.Uuid(), nullable=False),
+            *(
+                sa.CheckConstraint(
+                    f"{column} IS NULL OR {column} >= 0",
+                    name=f"ck_{table_name}_{column}_nonnegative",
+                )
+                for column in count_columns
+            ),
+            sa.CheckConstraint(
+                (
+                    "hits IS NULL OR at_bats IS NULL OR hits <= at_bats"
+                    if table_name == "scoped_batting_facts"
+                    else "hits_allowed IS NULL OR opponent_at_bats IS NULL "
+                    "OR hits_allowed <= opponent_at_bats"
+                ),
+                name=f"ck_{table_name}_hits_lte_at_bats",
+            ),
+            sa.CheckConstraint(
+                "jsonb_typeof(sample_json) = 'object'",
+                name=f"ck_{table_name}_sample_object",
+            ),
+            sa.ForeignKeyConstraint(
+                ["snapshot_id", "organization_id"],
+                ["report_snapshots.id", "report_snapshots.organization_id"],
+                name=f"fk_{table_name}_snapshot_organization",
+            ),
+            sa.ForeignKeyConstraint(
+                ["statistic_scope_id", "snapshot_id", "organization_id"],
+                ["statistic_scopes.id", "statistic_scopes.snapshot_id", "statistic_scopes.organization_id"],
+                name=f"fk_{table_name}_scope_snapshot_organization",
+            ),
+            sa.ForeignKeyConstraint(
+                ["player_team_season_id", "snapshot_id", "organization_id"],
+                ["player_team_seasons.id", "player_team_seasons.snapshot_id", "player_team_seasons.organization_id"],
+                name=f"fk_{table_name}_player_snapshot_organization",
+            ),
+            sa.ForeignKeyConstraint(
+                ["source_record_id", "player_team_season_id", "snapshot_id", "organization_id"],
+                ["source_records.id", "source_records.player_team_season_id", "source_records.snapshot_id", "source_records.organization_id"],
+                name=f"fk_{table_name}_source_identity",
+            ),
+            sa.PrimaryKeyConstraint("id"),
+            sa.UniqueConstraint(
+                "statistic_scope_id", "player_team_season_id",
+                name=f"uq_{table_name}_scope_player",
+            ),
+        )
+        op.execute(
+            f"""
+            CREATE TRIGGER trg_{table_name}_immutable
+            BEFORE INSERT OR UPDATE OR DELETE ON {table_name}
+            FOR EACH ROW EXECUTE FUNCTION reject_published_snapshot_child_mutation()
+            """
+        )
+
+    op.create_table(
         "metric_constant_sets",
         sa.Column("metric_definition_id", sa.Uuid(), nullable=False),
         sa.Column("metric_code", sa.String(length=16), nullable=False),
@@ -254,6 +403,10 @@ def upgrade():
         "metric_values", sa.Column("scope", sa.String(length=64), nullable=True)
     )
     op.add_column(
+        "metric_values",
+        sa.Column("statistic_scope_id", sa.Uuid(), nullable=True),
+    )
+    op.add_column(
         "metric_values", sa.Column("constant_set_id", sa.Uuid(), nullable=True)
     )
     # Existing deployments can already contain published metric rows. Suspend
@@ -274,6 +427,13 @@ def upgrade():
     op.execute("ALTER TABLE metric_values ENABLE TRIGGER trg_metric_values_immutable")
     op.drop_constraint(
         "ck_metric_values_value_or_reason", "metric_values", type_="check"
+    )
+    op.create_foreign_key(
+        "fk_metric_values_statistic_scope_owner",
+        "metric_values",
+        "statistic_scopes",
+        ["statistic_scope_id", "snapshot_id", "organization_id"],
+        ["id", "snapshot_id", "organization_id"],
     )
     op.create_foreign_key(
         "fk_metric_values_constant_definition",
@@ -393,6 +553,7 @@ def downgrade():
     op.execute("ALTER TABLE metric_values ENABLE TRIGGER trg_metric_values_immutable")
     for constraint, kind in (
         ("fk_metric_values_constant_definition", "foreignkey"),
+        ("fk_metric_values_statistic_scope_owner", "foreignkey"),
         ("ck_metric_values_unavailable_constant_reference", "check"),
         ("ck_metric_values_scope_nonempty", "check"),
         ("ck_metric_values_sample_object", "check"),
@@ -403,6 +564,7 @@ def downgrade():
         op.drop_constraint(constraint, "metric_values", type_=kind)
     for column in (
         "constant_set_id",
+        "statistic_scope_id",
         "scope",
         "sample_json",
         "inputs_json",
@@ -416,6 +578,16 @@ def downgrade():
         "value IS NOT NULL OR unavailable_reason IS NOT NULL",
     )
     op.drop_table("metric_constant_sets")
+
+    for table_name in ("scoped_pitching_facts", "scoped_batting_facts"):
+        op.execute(
+            f"DROP TRIGGER IF EXISTS trg_{table_name}_immutable ON {table_name}"
+        )
+        op.drop_table(table_name)
+    op.execute(
+        "DROP TRIGGER IF EXISTS trg_statistic_scopes_immutable ON statistic_scopes"
+    )
+    op.drop_table("statistic_scopes")
 
     op.execute("DROP TRIGGER IF EXISTS trg_fielding_facts_immutable ON fielding_facts")
     op.drop_table("fielding_facts")
