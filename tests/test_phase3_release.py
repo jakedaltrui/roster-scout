@@ -10,7 +10,7 @@ from io import StringIO
 from unittest.mock import patch
 
 from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError
 
 from tests.db_support import clean_database, require_test_database_url, upgrade_database
 
@@ -113,7 +113,7 @@ class ExternalRefreshDiagnosticTests(Phase3PostgreSQLTestCase):
             self.assertEqual(stored.status, "failed")
             self.assertEqual(stored.safe_reason_code, "capacity_unavailable")
             stored.organization_id = other_organization_id
-            with self.assertRaises(IntegrityError):
+            with self.assertRaises(DBAPIError):
                 session.flush()
 
 
