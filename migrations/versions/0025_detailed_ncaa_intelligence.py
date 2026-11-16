@@ -995,6 +995,185 @@ def upgrade():
         "OR status <> 'unavailable_constant'",
     )
 
+    op.create_table(
+        "request_ledgers",
+        sa.Column("organization_id", sa.Uuid(), nullable=False),
+        sa.Column("job_id", sa.Uuid(), nullable=False),
+        sa.Column("snapshot_id", sa.Uuid(), nullable=False),
+        sa.Column("family", sa.String(length=50), nullable=False),
+        sa.Column("source_identity", sa.String(length=200), nullable=False),
+        sa.Column("request_kind", sa.String(length=16), nullable=False),
+        sa.Column("outcome", sa.String(length=32), nullable=False),
+        sa.Column("started_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("completed_at", sa.DateTime(timezone=True)),
+        sa.Column("safe_category", sa.String(length=100)),
+        sa.Column("budget_remaining", sa.Integer(), nullable=False),
+        sa.Column("id", sa.Uuid(), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["job_id", "organization_id"],
+            ["report_jobs.id", "report_jobs.organization_id"],
+            name="fk_request_ledgers_job_organization",
+        ),
+        sa.ForeignKeyConstraint(
+            ["snapshot_id", "organization_id"],
+            ["report_snapshots.id", "report_snapshots.organization_id"],
+            name="fk_request_ledgers_snapshot_organization",
+        ),
+        sa.CheckConstraint(
+            "family ~ '^[a-z][a-z0-9_:]{0,49}$'",
+            name="ck_request_ledgers_family_safe",
+        ),
+        sa.CheckConstraint(
+            "source_identity ~ '^[a-z0-9][a-z0-9:_-]{0,199}$'",
+            name="ck_request_ledgers_source_identity_safe",
+        ),
+        sa.CheckConstraint(
+            "request_kind IN ('planned', 'cache', 'live')",
+            name="ck_request_ledgers_request_kind",
+        ),
+        sa.CheckConstraint(
+            "outcome IN ('planned', 'cache_hit', 'live_complete', 'live_failed', "
+            "'budget_exhausted', 'capacity_exhausted')",
+            name="ck_request_ledgers_outcome",
+        ),
+        sa.CheckConstraint(
+            "safe_category IS NULL OR safe_category ~ '^[a-z][a-z0-9_]{0,99}$'",
+            name="ck_request_ledgers_safe_category",
+        ),
+        sa.CheckConstraint(
+            "budget_remaining BETWEEN 0 AND 500",
+            name="ck_request_ledgers_budget_remaining",
+        ),
+        sa.CheckConstraint(
+            "(outcome = 'planned' AND completed_at IS NULL) OR "
+            "(outcome <> 'planned' AND completed_at IS NOT NULL "
+            "AND completed_at >= started_at)",
+            name="ck_request_ledgers_lifecycle",
+        ),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint(
+            "organization_id", "job_id", "family", "source_identity",
+            name="uq_request_ledgers_job_family_source",
+        ),
+    )
+    op.create_index(
+        "ix_request_ledgers_job", "request_ledgers", ["job_id", "started_at"]
+    )
+    op.execute(
+        """
+        CREATE TRIGGER trg_request_ledgers_immutable
+        BEFORE INSERT OR UPDATE OR DELETE ON request_ledgers
+        FOR EACH ROW EXECUTE FUNCTION reject_published_snapshot_child_mutation()
+        """
+    )
+
+    op.create_table(
+        "external_refresh_diagnostics",
+        sa.Column("organization_id", sa.Uuid(), nullable=False),
+        sa.Column("report_id", sa.Uuid(), nullable=False),
+        sa.Column("snapshot_id", sa.Uuid(), nullable=False),
+        sa.Column("provider", sa.String(length=32), nullable=False),
+        sa.Column("status", sa.String(length=16), nullable=False),
+        sa.Column("safe_category", sa.String(length=100)),
+        sa.Column("safe_reason_code", sa.String(length=100)),
+        sa.Column("attempt_number", sa.Integer(), nullable=False),
+        sa.Column("correlation_id", sa.String(length=120), nullable=False),
+        sa.Column("requested_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("started_at", sa.DateTime(timezone=True)),
+        sa.Column("completed_at", sa.DateTime(timezone=True)),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("id", sa.Uuid(), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["report_id", "organization_id"],
+            ["reports.id", "reports.organization_id"],
+            name="fk_external_refresh_diagnostics_report_organization",
+        ),
+        sa.ForeignKeyConstraint(
+            ["snapshot_id", "report_id", "organization_id"],
+            ["report_snapshots.id", "report_snapshots.report_id", "report_snapshots.organization_id"],
+            name="fk_external_refresh_diagnostics_snapshot_lineage",
+        ),
+        sa.CheckConstraint(
+            "provider ~ '^[a-z][a-z0-9_]{0,31}$'",
+            name="ck_external_refresh_diagnostics_provider_safe",
+        ),
+        sa.CheckConstraint(
+            "status IN ('pending', 'completed', 'failed')",
+            name="ck_external_refresh_diagnostics_status",
+        ),
+        sa.CheckConstraint(
+            "safe_category IS NULL OR safe_category ~ '^[a-z][a-z0-9_]{0,99}$'",
+            name="ck_external_refresh_diagnostics_category_safe",
+        ),
+        sa.CheckConstraint(
+            "safe_reason_code IS NULL OR safe_reason_code ~ '^[a-z][a-z0-9_]{0,99}$'",
+            name="ck_external_refresh_diagnostics_reason_safe",
+        ),
+        sa.CheckConstraint(
+            "correlation_id ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$'",
+            name="ck_external_refresh_diagnostics_correlation_safe",
+        ),
+        sa.CheckConstraint(
+            "attempt_number > 0",
+            name="ck_external_refresh_diagnostics_attempt_positive",
+        ),
+        sa.CheckConstraint(
+            "updated_at >= requested_at AND "
+            "(started_at IS NULL OR started_at >= requested_at) AND "
+            "(completed_at IS NULL OR "
+            "(started_at IS NOT NULL AND completed_at >= started_at))",
+            name="ck_external_refresh_diagnostics_timestamp_order",
+        ),
+        sa.CheckConstraint(
+            "(status = 'pending' AND completed_at IS NULL) OR "
+            "(status IN ('completed', 'failed') AND completed_at IS NOT NULL)",
+            name="ck_external_refresh_diagnostics_lifecycle",
+        ),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint(
+            "organization_id", "snapshot_id", "provider", "attempt_number",
+            name="uq_external_refresh_diagnostics_snapshot_attempt",
+        ),
+        sa.UniqueConstraint(
+            "provider", "correlation_id",
+            name="uq_external_refresh_diagnostics_provider_correlation",
+        ),
+    )
+    op.create_index(
+        "ix_external_refresh_diagnostics_snapshot",
+        "external_refresh_diagnostics",
+        ["organization_id", "snapshot_id", "requested_at"],
+    )
+    op.execute(
+        """
+        CREATE FUNCTION enforce_external_refresh_diagnostic_transition()
+        RETURNS trigger AS $$
+        BEGIN
+            IF NEW.organization_id <> OLD.organization_id
+               OR NEW.report_id <> OLD.report_id
+               OR NEW.snapshot_id <> OLD.snapshot_id
+               OR NEW.provider <> OLD.provider
+               OR NEW.correlation_id <> OLD.correlation_id
+               OR NEW.attempt_number <> OLD.attempt_number
+               OR NEW.requested_at <> OLD.requested_at THEN
+                RAISE EXCEPTION 'external refresh identity is immutable';
+            END IF;
+            IF OLD.status <> 'pending' OR NEW.status NOT IN ('completed', 'failed') THEN
+                RAISE EXCEPTION 'external refresh transition is invalid';
+            END IF;
+            RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER trg_external_refresh_diagnostics_transition
+        BEFORE UPDATE ON external_refresh_diagnostics
+        FOR EACH ROW EXECUTE FUNCTION enforce_external_refresh_diagnostic_transition()
+        """
+    )
+
     op.execute(
         """
         CREATE FUNCTION reject_locked_metric_constant_set_mutation()
@@ -1046,6 +1225,10 @@ def upgrade():
 
 
 def downgrade():
+    op.execute("DROP TABLE IF EXISTS external_refresh_diagnostics")
+    op.execute("DROP FUNCTION IF EXISTS enforce_external_refresh_diagnostic_transition()")
+    op.execute("DROP TABLE IF EXISTS request_ledgers")
+
     op.execute(
         "DROP TRIGGER IF EXISTS trg_metric_values_lock_constant_set "
         "ON metric_values"

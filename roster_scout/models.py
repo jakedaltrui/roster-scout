@@ -2010,6 +2010,156 @@ class ReportJobDispatch(UUIDPrimaryKey, Timestamped, Base):
     )
 
 
+class RequestLedger(UUIDPrimaryKey, Base):
+    """Content-free accounting for one supplemental collection request."""
+
+    __tablename__ = "request_ledgers"
+    organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    job_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    family: Mapped[str] = mapped_column(String(50), nullable=False)
+    source_identity: Mapped[str] = mapped_column(String(200), nullable=False)
+    request_kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(32), nullable=False)
+    started_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
+    safe_category: Mapped[str | None] = mapped_column(String(100))
+    budget_remaining: Mapped[int] = mapped_column(Integer, nullable=False)
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "job_id", "family", "source_identity",
+            name="uq_request_ledgers_job_family_source",
+        ),
+        ForeignKeyConstraint(
+            ["job_id", "organization_id"],
+            ["report_jobs.id", "report_jobs.organization_id"],
+            name="fk_request_ledgers_job_organization",
+        ),
+        ForeignKeyConstraint(
+            ["snapshot_id", "organization_id"],
+            ["report_snapshots.id", "report_snapshots.organization_id"],
+            name="fk_request_ledgers_snapshot_organization",
+        ),
+        CheckConstraint(
+            "family ~ '^[a-z][a-z0-9_:]{0,49}$'",
+            name="ck_request_ledgers_family_safe",
+        ),
+        CheckConstraint(
+            "source_identity ~ '^[a-z0-9][a-z0-9:_-]{0,199}$'",
+            name="ck_request_ledgers_source_identity_safe",
+        ),
+        CheckConstraint(
+            _allowed("request_kind", ("planned", "cache", "live")),
+            name="ck_request_ledgers_request_kind",
+        ),
+        CheckConstraint(
+            _allowed(
+                "outcome",
+                (
+                    "planned", "cache_hit", "live_complete", "live_failed",
+                    "budget_exhausted", "capacity_exhausted",
+                ),
+            ),
+            name="ck_request_ledgers_outcome",
+        ),
+        CheckConstraint(
+            "safe_category IS NULL OR "
+            "safe_category ~ '^[a-z][a-z0-9_]{0,99}$'",
+            name="ck_request_ledgers_safe_category",
+        ),
+        CheckConstraint(
+            "budget_remaining BETWEEN 0 AND 500",
+            name="ck_request_ledgers_budget_remaining",
+        ),
+        CheckConstraint(
+            "(outcome = 'planned' AND completed_at IS NULL) OR "
+            "(outcome <> 'planned' AND completed_at IS NOT NULL "
+            "AND completed_at >= started_at)",
+            name="ck_request_ledgers_lifecycle",
+        ),
+        Index("ix_request_ledgers_job", "job_id", "started_at"),
+    )
+
+
+class ExternalRefreshDiagnostic(UUIDPrimaryKey, Base):
+    """Provider-neutral, tenant-owned metadata for downstream refresh attempts."""
+
+    __tablename__ = "external_refresh_diagnostics"
+    organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    report_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    safe_category: Mapped[str | None] = mapped_column(String(100))
+    safe_reason_code: Mapped[str | None] = mapped_column(String(100))
+    attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    correlation_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    requested_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=False)
+    started_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=False)
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["report_id", "organization_id"],
+            ["reports.id", "reports.organization_id"],
+            name="fk_external_refresh_diagnostics_report_organization",
+        ),
+        ForeignKeyConstraint(
+            ["snapshot_id", "report_id", "organization_id"],
+            ["report_snapshots.id", "report_snapshots.report_id", "report_snapshots.organization_id"],
+            name="fk_external_refresh_diagnostics_snapshot_lineage",
+        ),
+        UniqueConstraint(
+            "organization_id", "snapshot_id", "provider", "attempt_number",
+            name="uq_external_refresh_diagnostics_snapshot_attempt",
+        ),
+        UniqueConstraint(
+            "provider", "correlation_id",
+            name="uq_external_refresh_diagnostics_provider_correlation",
+        ),
+        CheckConstraint(
+            "provider ~ '^[a-z][a-z0-9_]{0,31}$'",
+            name="ck_external_refresh_diagnostics_provider_safe",
+        ),
+        CheckConstraint(
+            _allowed("status", ("pending", "completed", "failed")),
+            name="ck_external_refresh_diagnostics_status",
+        ),
+        CheckConstraint(
+            "safe_category IS NULL OR safe_category ~ '^[a-z][a-z0-9_]{0,99}$'",
+            name="ck_external_refresh_diagnostics_category_safe",
+        ),
+        CheckConstraint(
+            "safe_reason_code IS NULL OR safe_reason_code ~ '^[a-z][a-z0-9_]{0,99}$'",
+            name="ck_external_refresh_diagnostics_reason_safe",
+        ),
+        CheckConstraint(
+            "correlation_id ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$'",
+            name="ck_external_refresh_diagnostics_correlation_safe",
+        ),
+        CheckConstraint(
+            "attempt_number > 0",
+            name="ck_external_refresh_diagnostics_attempt_positive",
+        ),
+        CheckConstraint(
+            "updated_at >= requested_at AND "
+            "(started_at IS NULL OR started_at >= requested_at) AND "
+            "(completed_at IS NULL OR "
+            "(started_at IS NOT NULL AND completed_at >= started_at))",
+            name="ck_external_refresh_diagnostics_timestamp_order",
+        ),
+        CheckConstraint(
+            "(status = 'pending' AND completed_at IS NULL) OR "
+            "(status IN ('completed', 'failed') AND completed_at IS NOT NULL)",
+            name="ck_external_refresh_diagnostics_lifecycle",
+        ),
+        Index(
+            "ix_external_refresh_diagnostics_snapshot",
+            "organization_id", "snapshot_id", "requested_at",
+        ),
+    )
+
+
 class ReportArtifact(UUIDPrimaryKey, Timestamped, Base):
     __tablename__ = "report_artifacts"
     organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)

@@ -17,6 +17,7 @@ from .models import (
     Report,
     ReportSection,
     ReportSnapshot,
+    RequestLedger,
     SourceRecord,
     ScopedBattingFact,
     ScopedFieldingFact,
@@ -361,6 +362,14 @@ def publish_snapshot(session, snapshot_id):
     sections = list(session.scalars(
         select(ReportSection).where(ReportSection.snapshot_id == snapshot.id)
     ))
+    request_ledgers = list(session.scalars(
+        select(RequestLedger).where(
+            RequestLedger.snapshot_id == snapshot.id,
+            RequestLedger.organization_id == snapshot.organization_id,
+        )
+    ))
+    if any(item.outcome == "planned" for item in request_ledgers):
+        raise SnapshotPublicationError("request ledger contains unsettled work")
     by_name = {section.section: section for section in sections}
     for required in ("batting", "pitching"):
         section = by_name.get(required)
@@ -686,7 +695,10 @@ def publish_snapshot(session, snapshot_id):
 
     supplemental_incomplete = any(
         not section.critical and section.status != "complete" for section in sections
-    ) or any(scope.status != "complete" for scope in computed_scopes)
+    ) or any(scope.status != "complete" for scope in computed_scopes) or any(
+        item.outcome in {"live_failed", "budget_exhausted", "capacity_exhausted"}
+        for item in request_ledgers
+    )
     snapshot.status = "partial" if supplemental_incomplete else "ready"
     snapshot.published_at = datetime.now(UTC)
     session.flush()

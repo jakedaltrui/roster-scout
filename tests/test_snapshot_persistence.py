@@ -63,6 +63,7 @@ SNAPSHOT_CHILD_TABLES = (
     "batting_game_log_facts",
     "pitching_game_log_facts",
     "fielding_game_log_facts",
+    "request_ledgers",
     "metric_values",
 )
 
