@@ -9,6 +9,7 @@ import secrets
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from threading import Event, Thread
 
 from sqlalchemy import select
 
@@ -20,6 +21,7 @@ SESSION_COOKIE_NAME = "__Host-rs_session"
 SESSION_IDLE_LIFETIME = timedelta(hours=12)
 SESSION_ABSOLUTE_LIFETIME = timedelta(days=7)
 SESSION_PROVIDER_REVALIDATION_INTERVAL = timedelta(minutes=5)
+PROVIDER_LOGOUT_TIMEOUT_SECONDS = 1.0
 
 
 @dataclass(frozen=True)
@@ -462,16 +464,33 @@ def complete_provider_logout(
     *,
     logger: logging.Logger | None = None,
 ) -> str | None:
-    """Best-effort provider logout; call only after local revoke commits."""
+    """Best-effort bounded provider logout after the local revoke commits."""
     if prepared is None:
         return None
-    try:
-        value = provider.logout_url(
-            sealed_session=prepared.sealed_provider_state
-        )
-        return value if isinstance(value, str) and value else None
-    except Exception:
-        (logger or logging.getLogger(__name__)).warning(
-            "identity_provider_logout_failed"
-        )
+    outcome: dict[str, object] = {}
+    finished = Event()
+
+    def resolve_logout_url() -> None:
+        try:
+            outcome["value"] = provider.logout_url(
+                sealed_session=prepared.sealed_provider_state
+            )
+        except Exception:
+            outcome["failed"] = True
+        finally:
+            finished.set()
+
+    Thread(
+        target=resolve_logout_url,
+        name="identity-provider-logout",
+        daemon=True,
+    ).start()
+    log = logger or logging.getLogger(__name__)
+    if not finished.wait(PROVIDER_LOGOUT_TIMEOUT_SECONDS):
+        log.warning("identity_provider_logout_timed_out")
         return None
+    if outcome.get("failed"):
+        log.warning("identity_provider_logout_failed")
+        return None
+    value = outcome.get("value")
+    return value if isinstance(value, str) and value else None

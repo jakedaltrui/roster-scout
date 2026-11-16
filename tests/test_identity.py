@@ -16,6 +16,48 @@ from sqlalchemy.exc import IntegrityError
 from tests.db_support import clean_database, require_test_database_url, upgrade_database
 
 
+class ProviderLogoutTimeoutTests(unittest.TestCase):
+    def test_provider_logout_timeout_never_blocks_local_sign_out(self):
+        import time
+        from threading import Event
+        from unittest.mock import patch
+
+        from roster_scout.sessions import (
+            LogoutPreparation,
+            complete_provider_logout,
+        )
+
+        release_provider = Event()
+
+        class BlockingProvider:
+            def logout_url(self, *, sealed_session):
+                release_provider.wait(2)
+                return "https://identity.example.test/logout"
+
+        logger = logging.getLogger("tests.sessions.logout_timeout")
+        started_at = time.monotonic()
+        try:
+            with patch(
+                "roster_scout.sessions.PROVIDER_LOGOUT_TIMEOUT_SECONDS",
+                0.01,
+            ):
+                with self.assertLogs(logger, level="WARNING") as captured:
+                    destination = complete_provider_logout(
+                        BlockingProvider(),
+                        LogoutPreparation("sealed-logout-secret"),
+                        logger=logger,
+                    )
+        finally:
+            release_provider.set()
+
+        self.assertIsNone(destination)
+        self.assertLess(time.monotonic() - started_at, 0.5)
+        self.assertEqual(
+            captured.output,
+            ["WARNING:tests.sessions.logout_timeout:identity_provider_logout_timed_out"],
+        )
+
+
 class _PostgreSQLIdentityCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
