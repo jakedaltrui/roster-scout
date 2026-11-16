@@ -708,7 +708,10 @@ def publish_snapshot(session, snapshot_id):
     if conflict is not None:
         raise SnapshotPublicationError("snapshot contains an identity conflict")
 
-    supplemental_incomplete = any(
+    missing_required_split_family = bool(request_ledgers) and (
+        present_split_sections != split_section_names
+    )
+    supplemental_incomplete = missing_required_split_family or any(
         not section.critical and section.status != "complete" for section in sections
     ) or any(scope.status != "complete" for scope in computed_scopes) or any(
         item.outcome in {"live_failed", "budget_exhausted", "capacity_exhausted"}

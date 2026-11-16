@@ -2825,9 +2825,11 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
                     0,
                 )
 
-    def test_valid_d1_d2_d3_pages_still_publish(self):
+    def test_valid_d1_d2_d3_pages_publish_partial_when_split_transport_is_unavailable(self):
         import roster_scraper as scraper
-        from roster_scout.models import BattingFact, PitchingFact
+        from roster_scout.models import (
+            BattingFact, PitchingFact, ReportSection, RequestLedger,
+        )
         from tests.db_support import clean_database
 
         for division in (1, 2, 3):
@@ -2840,11 +2842,12 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
                     f"ncaa_detail/d{division}/fielding.html"
                 ),
             }
-            with self.subTest(division=division), patch.object(
-                scraper, "_fetch_ncaa_pages", return_value=pages
-            ):
+            with self.subTest(division=division), patch.dict(
+                os.environ, {}, clear=False
+            ), patch.object(scraper, "_fetch_ncaa_pages", return_value=pages):
+                os.environ.pop("NCAA_BROWSER_PROVIDER", None)
                 snapshot = self._run_real_collector(job)
-            self.assertEqual(snapshot.status, "ready")
+            self.assertEqual(snapshot.status, "partial")
             with self.Session() as session:
                 self.assertGreater(
                     session.scalar(select(func.count()).select_from(BattingFact)), 0
@@ -2852,6 +2855,23 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
                 self.assertGreater(
                     session.scalar(select(func.count()).select_from(PitchingFact)), 0
                 )
+                split_sections = list(session.scalars(select(ReportSection).where(
+                    ReportSection.snapshot_id == snapshot.id,
+                    ReportSection.section.in_(("splits:batting", "splits:pitching")),
+                )))
+                self.assertEqual({item.section for item in split_sections}, {
+                    "splits:batting", "splits:pitching",
+                })
+                self.assertTrue(all(item.status == "partial" for item in split_sections))
+                split_ledgers = list(session.scalars(select(RequestLedger).where(
+                    RequestLedger.snapshot_id == snapshot.id,
+                    RequestLedger.family.in_(("splits:batting", "splits:pitching")),
+                )))
+                self.assertEqual(len(split_ledgers), 2)
+                self.assertTrue(all(
+                    item.safe_category == "split_transport_unavailable"
+                    for item in split_ledgers
+                ))
 
 class ComputedScopePublicationTests(PostgreSQLJobTestCase):
     def _sections(self, game_count):

@@ -2471,8 +2471,10 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
         fielding_requested = discovered_fielding_id.isdigit()
         missing_core = frozenset({"batting", "pitching"} - matching.keys())
         fielding_missing = fielding_requested and "fielding" not in matching
-        splits_requested = os.environ.get("NCAA_BROWSER_PROVIDER") == "browserless"
-        split_missing = splits_requested and not {
+        split_transport_available = (
+            os.environ.get("NCAA_BROWSER_PROVIDER") == "browserless"
+        )
+        split_missing = not {
             "splits:batting", "splits:pitching"
         } <= matching.keys()
         source_team_id = team.source_team_id
@@ -2693,6 +2695,25 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
             )
             for stat_type, category_id in sorted(split_category_ids.items())
         }
+        if not split_transport_available:
+            for entry in split_entries.values():
+                finish_live(
+                    entry,
+                    outcome="live_failed",
+                    safe_category="split_transport_unavailable",
+                )
+            fetched.extend(unavailable_collected_split_sections(
+                source_team_id=source_team_id,
+                source_season_id=source_season_id,
+                source_season_team_id=season_team_id,
+                category_ids=split_category_ids,
+                status="unavailable",
+                reason="split_transport_unavailable",
+                collected_at=_utcnow(),
+            ))
+            return tuple(sorted(
+                (*reconstructed, *fetched), key=lambda section: section.name
+            ))
         try:
             split_results = collect_ncaa_split_results(
                 season_team_id,
