@@ -6,7 +6,12 @@ from dataclasses import replace
 from decimal import Decimal
 import importlib
 import importlib.util
+import json
+import os
 from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -228,6 +233,155 @@ class FieldingTests(unittest.TestCase):
             text = fixture(division).casefold()
             with self.subTest(division=division):
                 self.assertFalse(any(value in text for value in forbidden))
+
+
+class FixtureCaptureSafetyTests(unittest.TestCase):
+    """The live fixture utility must stay inside a narrow source/file boundary."""
+
+    @staticmethod
+    def capture_api():
+        return importlib.import_module("scripts.capture_phase3_ncaa_fixtures")
+
+    def test_output_is_confined_to_the_requested_division_fixture_root(self):
+        api = self.capture_api()
+        root = Path(__file__).parent / "fixtures" / "ncaa_detail"
+        accepted = api.validate_capture_request(
+            season_id="17040",
+            season_team_id="614606",
+            division="1",
+            output_dir=root / "d1",
+            limits=api.CaptureLimits(),
+        )
+        self.assertEqual(accepted.output_dir, (root / "d1").resolve())
+        for output_dir in (
+            root / "d2",
+            root / "d1" / ".." / "..",
+            Path(tempfile.gettempdir()) / "ncaa-detail",
+        ):
+            with self.subTest(output_dir=output_dir), self.assertRaises(ValueError):
+                api.validate_capture_request(
+                    season_id="17040",
+                    season_team_id="614606",
+                    division="1",
+                    output_dir=output_dir,
+                    limits=api.CaptureLimits(),
+                )
+
+    def test_source_urls_are_fixed_host_numeric_paths(self):
+        api = self.capture_api()
+        self.assertEqual(
+            api.build_ncaa_url("614606", "15867"),
+            "https://stats.ncaa.org/teams/614606/season_to_date_stats"
+            "?year_stat_category_id=15867",
+        )
+        for team_id, category_id in (
+            ("614606@example.test", "15867"),
+            ("614606", "15867&token=secret"),
+            ("https://example.test", "15867"),
+            ("614606", ""),
+        ):
+            with self.subTest(team_id=team_id, category_id=category_id):
+                with self.assertRaises(ValueError):
+                    api.build_ncaa_url(team_id, category_id)
+
+    def test_control_sanitizer_removes_secrets_scripts_and_unrelated_people(self):
+        api = self.capture_api()
+        raw = """
+        <html><head><script>fetch('wss://production.browserless.io?token=top-secret')</script></head>
+        <body data-cookie="session=secret">
+          <p>coach@example.edu</p>
+          <select name="split_id" onchange="steal()">
+            <option value="991">vs. Left-Handed Pitchers</option>
+            <option value="992">Bases Empty</option>
+          </select>
+          <a href="/teams/614606/season_to_date_stats?year_stat_category_id=15867&amp;split_id=991&amp;token=secret">
+            Vs LHP
+          </a>
+          <div>Unrelated Player Name</div>
+        </body></html>
+        """
+        sanitized = api.sanitize_split_controls(
+            raw,
+            season_id="17040",
+            season_team_id="614606",
+            division="1",
+            stat_type="batting",
+            source_path="/teams/614606/season_to_date_stats",
+        )
+        lowered = sanitized.casefold()
+        for forbidden in (
+            "top-secret", "token=", "cookie", "script", "onchange",
+            "browserless", "coach@example.edu", "unrelated player name",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, lowered)
+        self.assertIn("vs_lhp", sanitized)
+        self.assertIn("991", sanitized)
+        self.assertIn("bases_empty", sanitized)
+
+    def test_limits_are_rejected_before_external_capture_is_called(self):
+        api = self.capture_api()
+        root = Path(__file__).parent / "fixtures" / "ncaa_detail" / "d1"
+        with patch("roster_scraper._fetch_ncaa_pages") as fetch:
+            with self.assertRaises(ValueError):
+                api.capture_controls(
+                    season_id="17040",
+                    season_team_id="614606",
+                    division="1",
+                    output_dir=root,
+                    limits=api.CaptureLimits(max_pages=0),
+                )
+        fetch.assert_not_called()
+
+    def test_manifest_is_allowlisted_sorted_and_contains_no_raw_source(self):
+        api = self.capture_api()
+        manifest = api.build_fixture_manifest(
+            division="1",
+            season_id="17040",
+            season_team_id="614606",
+            captured_at="2026-11-16T00:00:00Z",
+            controls_sha256="a" * 64,
+            observations=[{
+                "stat_type": "batting",
+                "canonical_label": "vs_lhp",
+                "status": "candidate",
+                "identifier": "991",
+                "source_path": "/teams/614606/season_to_date_stats",
+                "raw_html": "must-not-survive",
+                "token": "must-not-survive",
+            }],
+        )
+        encoded = json.dumps(manifest, sort_keys=True)
+        self.assertNotIn("raw_html", encoded)
+        self.assertNotIn("must-not-survive", encoded)
+        self.assertEqual(
+            set(manifest),
+            {
+                "captured_at", "controls_sha256", "division", "observations",
+                "sanitizer_version", "season_id", "season_team_id",
+            },
+        )
+        self.assertEqual(
+            set(manifest["observations"][0]),
+            {"canonical_label", "identifier", "source_path", "stat_type", "status"},
+        )
+
+    def test_preflight_without_configuration_has_one_fixed_safe_failure(self):
+        script = Path(__file__).parents[1] / "scripts" / "capture_phase3_ncaa_fixtures.py"
+        env = dict(os.environ)
+        env.pop("BROWSERLESS_TOKEN", None)
+        env["NCAA_BROWSER_PROVIDER"] = "browserless"
+        result = subprocess.run(
+            [sys.executable, str(script), "--preflight"],
+            cwd=Path(__file__).parents[1],
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(result.stderr.strip(), "phase3_browserless_unavailable")
 
 
 class FieldingPublicationTests(
