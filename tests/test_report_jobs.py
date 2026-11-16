@@ -2878,7 +2878,7 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
         from roster_scout.jobs import CollectedSection
         from roster_scout.models import (
             BattingGameLogFact, CareerAggregate, CareerSeasonFact, Game,
-            ReportSection, RequestLedger,
+            Player, PlayerTeamSeason, ReportSection, RequestLedger,
         )
         from roster_scout.ncaa_detail import (
             parse_player_detail_fixture, parse_schedule_fixture,
@@ -2968,6 +2968,26 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
                 "schedule", "history:batting", "history:pitching",
                 "history:fielding", "splits:batting", "splits:pitching",
             } <= families)
+            identity, player = session.execute(
+                select(PlayerTeamSeason, Player)
+                .join(Player, Player.id == PlayerTeamSeason.player_id)
+                .where(
+                    PlayerTeamSeason.snapshot_id == snapshot.id,
+                    Player.source_player_id == "9698671",
+                )
+            ).one()
+            from roster_scout.player_detail import load_snapshot_player_detail
+
+            drill = load_snapshot_player_detail(
+                session,
+                job.organization_id,
+                job.report_id,
+                snapshot.id,
+                player.id,
+            )
+            self.assertTrue(drill["data"]["career"]["seasons"])
+            self.assertTrue(drill["data"]["career"]["aggregate"])
+            self.assertTrue(drill["data"]["games"])
 
 class ComputedScopePublicationTests(PostgreSQLJobTestCase):
     def _sections(self, game_count):
