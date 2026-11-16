@@ -281,7 +281,24 @@ class CanonicalPublishTests(unittest.TestCase):
                     self.Session, job_id, cached_sections=cached_sections
                 ),
             )
-        collect.assert_called_once_with("615087", division="2", year=2026, force_refresh=True)
+        collect.assert_called_once()
+        call_args, call_kwargs = collect.call_args
+        self.assertEqual(call_args, ("615087",))
+        self.assertEqual(
+            {
+                key: value
+                for key, value in call_kwargs.items()
+                if key not in {"request_reserver", "deadline_monotonic"}
+            },
+            {
+                "division": "2",
+                "year": 2026,
+                "force_refresh": True,
+                "navigation_timeout_seconds": 45,
+            },
+        )
+        self.assertTrue(callable(call_kwargs["request_reserver"]))
+        self.assertIsInstance(call_kwargs["deadline_monotonic"], float)
         self.assertNotEqual(second.id, first_snapshot.id)
         with self.Session() as session:
             self.assertEqual(session.scalar(select(func.count()).select_from(ReportSnapshot)), 2)

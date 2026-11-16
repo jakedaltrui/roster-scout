@@ -2644,12 +2644,16 @@ def _collect_ncaa_team(
     if not selected or not selected <= all_urls.keys():
         raise NcaaError("NCAA section selection contains an unavailable section.")
     urls = {name: all_urls[name] for name in all_urls if name in selected}
-    pages = _fetch_ncaa_pages(
-        urls,
-        request_reserver=request_reserver,
-        navigation_timeout_seconds=navigation_timeout_seconds,
-        deadline_monotonic=deadline_monotonic,
-    )
+    fetch_options = {}
+    if request_reserver is not None:
+        fetch_options["request_reserver"] = request_reserver
+    if navigation_timeout_seconds != 45:
+        fetch_options["navigation_timeout_seconds"] = (
+            navigation_timeout_seconds
+        )
+    if deadline_monotonic is not None:
+        fetch_options["deadline_monotonic"] = deadline_monotonic
+    pages = _fetch_ncaa_pages(urls, **fetch_options)
     collected_at = datetime.now(timezone.utc)
     parsed = {"batting": [], "pitching": [], "fielding": []}
     sections = []
