@@ -63,11 +63,11 @@
 
 ### Split Statistics
 
-- [ ] **SPLT-01**: Batting split facts support vs LHP, vs RHP, runners on, bases empty, bases loaded, runners in scoring position, and two-outs contexts.
-- [ ] **SPLT-02**: Pitching split facts support vs LHB, vs RHB, runners on, bases empty, bases loaded, runners in scoring position, and two-outs contexts when the NCAA source provides them.
-- [ ] **SPLT-03**: Each split record retains canonical split code, display label, season/stat type, source identifier, source URL, and availability status.
+- [x] **SPLT-01**: Batting split facts support vs LHP, vs RHP, runners on, bases empty, bases loaded, runners in scoring position, and two-outs contexts.
+- [x] **SPLT-02**: Pitching split facts support vs LHB, vs RHB, runners on, bases empty, bases loaded, runners in scoring position, and two-outs contexts when the NCAA source provides them.
+- [x] **SPLT-03**: Each split record retains canonical split code, display label, season/stat type, source identifier, source URL, and availability status.
 - [x] **SPLT-04**: Split source identifiers are discovered or validated per season and stat type rather than assumed permanent.
-- [ ] **SPLT-05**: A missing split is displayed as unavailable and never as a zero-stat split.
+- [x] **SPLT-05**: A missing split is displayed as unavailable and never as a zero-stat split.
 
 ### Career and Game Logs
 
@@ -76,7 +76,7 @@
 - [ ] **HIST-03**: Player game logs identify date, opponent, opponent ID when available, and available batting, pitching, and fielding lines.
 - [ ] **HIST-04**: Missing historical seasons or games are disclosed in section completeness instead of being silently omitted.
 - [ ] **HIST-05**: Career and game-log collection uses bounded concurrency, source caching, request budgets, and retry/backoff controls.
-- [ ] **HIST-06**: A customer can drill from a roster player into season, split, career, and game-log views for the same snapshot.
+- [x] **HIST-06**: A customer can drill from a roster player into season, split, career, and game-log views for the same snapshot.
 
 ### Excel Report
 

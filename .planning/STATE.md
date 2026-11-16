@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 03-03-PLAN.md
-last_updated: "2026-11-16T07:50:34.555Z"
+stopped_at: Completed 03-04-PLAN.md
+last_updated: "2026-11-16T08:15:16.317Z"
 last_activity: 2026-11-16
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 70
-  completed_plans: 64
+  completed_plans: 65
   percent: 50
 ---
 
@@ -26,11 +26,11 @@ See: `.planning/PROJECT.md` (updated 2026-11-13)
 ## Current Position
 
 Phase: 03 (detailed-ncaa-intelligence) — EXECUTING
-Plan: 4 of 9
+Plan: 5 of 9
 Status: Ready to execute
 Last activity: 2026-11-16
 
-Progress: [█████████░] 91%
+Progress: [█████████░] 93%
 
 ## Performance Metrics
 
@@ -249,6 +249,9 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 03]: Use the configured Fly runtime only as a secret-consuming in-memory execution boundary; do not deploy capture code or persist remote changes.
 - [Phase 03]: Certify representative batting vs_lhp and pitching vs_lhb grids while retaining discovery evidence for all seven canonical families.
 - [Phase 03]: Map situational H and AB through verified headers and row offsets rather than presentation text or hard-coded split IDs.
+- [Phase 03]: Normalize discovered NCAA split labels to stable typed codes while retaining exact source label and numeric identifier.
+- [Phase 03]: Persist unavailable and failed split scopes with safe reasons and no facts or synthetic metric zeros.
+- [Phase 03]: Validate seven-scope family and source/fact/metric parity before immutable snapshot publication.
 
 ### Pending Todos
 
@@ -307,9 +310,10 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 03 P01 | 45min | 3 tasks | 10 files |
 | Phase 03 P02 | 30 min | 3 tasks | 13 files |
 | Phase 03 P03 | 78m | 3 tasks | 16 files |
+| Phase 03 P04 | 21m | 3 tasks | 9 files |
 
 ## Session Continuity
 
-Last session: 2026-11-16T07:50:34.542Z
-Stopped at: Completed 03-03-PLAN.md
+Last session: 2026-11-16T08:15:16.308Z
+Stopped at: Completed 03-04-PLAN.md
 Resume file: None
