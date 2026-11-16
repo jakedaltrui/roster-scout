@@ -10,7 +10,7 @@ Roster Scout v2.0 is delivered in five dependency-ordered slices. The roadmap fi
 - [x] **Phase 2: Identity, Organizations, and Report Library** - Gate Roster Scout behind passwordless organization access and versioned report workflows. (completed 2026-11-13)
 - [x] **Phase 02.1: Restore public homepage and school-domain sign-in flow** - Reestablish the polished homepage as the primary product, authenticate at generation, auto-join verified school domains, and keep the portal minimal. (INSERTED)
 - [x] **Phase 3: Detailed NCAA Intelligence** - Add fielding, advanced metrics, situational splits, career history, and game logs. (completed 2026-11-16)
-- [ ] **Phase 4: Detailed Excel Report** - Extend the established branded two-sheet workbook with auditable season, derived, last-10, and conference statistics.
+- [x] **Phase 4: Detailed Excel Report** - Extend the established branded two-sheet workbook with auditable season, derived, last-10, and conference statistics. (completed 2026-11-16)
 - [ ] **Phase 5: Embedded Opponent Dashboard** - Securely embed the opponent-branded Power BI report and harden production delivery.
 
 ## Phase Details

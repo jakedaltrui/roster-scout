@@ -80,12 +80,12 @@
 
 ### Excel Report
 
-- [ ] **XLSX-01**: A ready or partial snapshot can produce the established branded two-sheet workbook (`Hitters` and `Pitchers`) with grouped Player, Season, Derived Metrics, Last 10 Games, and Conference Games columns.
-- [ ] **XLSX-02**: Both worksheets identify the opponent, season, snapshot generation time, data freshness, stable player identity, and source URL; unavailable or partial scoped metrics remain explicit instead of appearing as zero.
-- [ ] **XLSX-03**: The workbook writes numeric cells as numbers, preserves safe plain-text handling, and applies the correct display precision for each metric.
-- [ ] **XLSX-04**: Downloading an older snapshot returns its exact stored workbook artifact rather than rebuilding it from current upstream data.
-- [ ] **XLSX-05**: The workbook records a schema version and SHA-256 artifact checksum in snapshot metadata.
-- [ ] **XLSX-06**: Shared fixture values match across canonical facts, Excel cells, and Power BI-facing views.
+- [x] **XLSX-01**: A ready or partial snapshot can produce the established branded two-sheet workbook (`Hitters` and `Pitchers`) with grouped Player, Season, Derived Metrics, Last 10 Games, and Conference Games columns.
+- [x] **XLSX-02**: Both worksheets identify the opponent, season, snapshot generation time, data freshness, stable player identity, and source URL; unavailable or partial scoped metrics remain explicit instead of appearing as zero.
+- [x] **XLSX-03**: The workbook writes numeric cells as numbers, preserves safe plain-text handling, and applies the correct display precision for each metric.
+- [x] **XLSX-04**: Downloading an older snapshot returns its exact stored workbook artifact rather than rebuilding it from current upstream data.
+- [x] **XLSX-05**: The workbook records a schema version and SHA-256 artifact checksum in snapshot metadata.
+- [x] **XLSX-06**: Shared fixture values match across canonical facts, Excel cells, and Power BI-facing views.
 
 ### Power BI Embedded
 
@@ -157,7 +157,7 @@
 | AUTH-01–05, ORG-01–07, SNAP-05–08, SECU-01–05 | Phase 2 | Superseded in part by Phase 02.1 |
 | AUTH-01–02, AUTH-05–06, ORG-01, ORG-06–08, SNAP-05–08, SECU-01–05, OPS-04–05 | Phase 02.1 | Complete |
 | STAT-01–08, SPLT-01–05, HIST-01–06, OPS-03 | Phase 3 | Complete |
-| XLSX-01–06 | Phase 4 | Pending |
+| XLSX-01–06 | Phase 4 | Complete |
 | SNAP-09, PBI-01–10, SECU-06 | Phase 5 | Pending |
 
 **Coverage:**
