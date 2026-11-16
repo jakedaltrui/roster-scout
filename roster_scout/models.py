@@ -9,6 +9,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
+    FetchedValue,
     Index,
     Integer,
     LargeBinary,
@@ -1917,7 +1918,7 @@ class ReportJob(UUIDPrimaryKey, Timestamped, Base):
         Integer, nullable=False, server_default="0"
     )
     phase3_collection_started_at: Mapped[object | None] = mapped_column(
-        DateTime(timezone=True)
+        DateTime(timezone=True), server_default=FetchedValue()
     )
     enqueued_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
     broker_message_id: Mapped[str | None] = mapped_column(String(100))

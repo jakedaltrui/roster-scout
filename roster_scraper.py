@@ -2291,20 +2291,24 @@ def _fetch_ncaa_pages(
     if os.environ.get("NCAA_BROWSER_PROVIDER") == "browserless":
         from usage_limits import browserless_slot
         with browserless_slot():
-            if page_consumer is None:
-                return _fetch_ncaa_browserless_pages(
-                    urls,
-                    request_reserver=request_reserver,
-                    navigation_timeout_seconds=navigation_timeout_seconds,
-                    deadline_monotonic=deadline_monotonic,
-                )
-            return _fetch_ncaa_browserless_pages(
-                urls,
-                page_consumer=page_consumer,
-                request_reserver=request_reserver,
-                navigation_timeout_seconds=navigation_timeout_seconds,
-                deadline_monotonic=deadline_monotonic,
-            )
+            browserless_kwargs = {}
+            if page_consumer is not None:
+                browserless_kwargs["page_consumer"] = page_consumer
+            if request_reserver is not None:
+                browserless_kwargs.update({
+                    "request_reserver": request_reserver,
+                    "navigation_timeout_seconds": navigation_timeout_seconds,
+                    "deadline_monotonic": deadline_monotonic,
+                })
+            elif (
+                deadline_monotonic is not None
+                or navigation_timeout_seconds != 45
+            ):
+                browserless_kwargs.update({
+                    "navigation_timeout_seconds": navigation_timeout_seconds,
+                    "deadline_monotonic": deadline_monotonic,
+                })
+            return _fetch_ncaa_browserless_pages(urls, **browserless_kwargs)
 
     if page_consumer is not None:
         raise NcaaAccessError(
@@ -2329,19 +2333,26 @@ def _fetch_ncaa_pages(
         })
     for key, url in urls.items():
         try:
-            timeout = remaining_timeout_seconds(
-                deadline_monotonic, navigation_timeout_seconds
-            )
-            reserve = (
-                (lambda key=key: request_reserver(key))
-                if request_reserver is not None else None
-            )
-            direct[key] = _fetch_ncaa_http(
-                url,
-                session,
-                request_reserver=reserve,
-                timeout_seconds=timeout,
-            )
+            if (
+                request_reserver is None
+                and deadline_monotonic is None
+                and navigation_timeout_seconds == 45
+            ):
+                direct[key] = _fetch_ncaa_http(url, session)
+            else:
+                timeout = remaining_timeout_seconds(
+                    deadline_monotonic, navigation_timeout_seconds
+                )
+                reserve = (
+                    (lambda key=key: request_reserver(key))
+                    if request_reserver is not None else None
+                )
+                direct[key] = _fetch_ncaa_http(
+                    url,
+                    session,
+                    request_reserver=reserve,
+                    timeout_seconds=timeout,
+                )
         except _NcaaFailureEvidenceError as exc:
             blocked[key] = url
             blocked_evidence[key] = exc
@@ -2356,12 +2367,19 @@ def _fetch_ncaa_pages(
                 "NCAA blocked the direct request and browser fallback is disabled."
             )
         try:
-            direct.update(_fetch_ncaa_browser_pages(
-                blocked,
-                request_reserver=request_reserver,
-                navigation_timeout_seconds=navigation_timeout_seconds,
-                deadline_monotonic=deadline_monotonic,
-            ))
+            if (
+                request_reserver is None
+                and deadline_monotonic is None
+                and navigation_timeout_seconds == 45
+            ):
+                direct.update(_fetch_ncaa_browser_pages(blocked))
+            else:
+                direct.update(_fetch_ncaa_browser_pages(
+                    blocked,
+                    request_reserver=request_reserver,
+                    navigation_timeout_seconds=navigation_timeout_seconds,
+                    deadline_monotonic=deadline_monotonic,
+                ))
         except _NcaaFailureEvidenceError:
             raise
         except NcaaAccessError:
