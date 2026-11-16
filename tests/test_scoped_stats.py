@@ -109,6 +109,37 @@ class ScheduleFixtureTests(unittest.TestCase):
         self.assertEqual(last_ten.actual_game_count, 10)
         self.assertEqual(last_ten.games[-1].source_game_id, "6582312")
 
+    def test_schedule_adapter_requests_all_three_game_log_families(self):
+        from roster_scout.jobs import CollectedGameFact, to_collected_schedule_sections
+        from roster_scout.ncaa_detail import parse_schedule_fixture
+
+        parsed = parse_schedule_fixture(
+            (FIXTURES / "d1" / "schedule.html").read_text(encoding="utf-8"),
+            expected_season_id="17040",
+            expected_team_id="234",
+            expected_season_team_id="614606",
+            expected_division="d1",
+        )
+        sections = to_collected_schedule_sections(
+            parsed,
+            game_facts=(CollectedGameFact(
+                "fact-1", parsed.games[0].source_game_id, "player-1", "batting",
+                {"at_bats": 4, "hits": 2},
+            ),),
+            complete_stat_types=frozenset({"batting"}),
+        )
+        by_name = {section.name: section for section in sections}
+        self.assertEqual(set(by_name), {
+            "schedule", "game_logs:batting", "game_logs:pitching",
+            "game_logs:fielding",
+        })
+        self.assertEqual(by_name["schedule"].status, "complete")
+        self.assertEqual(by_name["game_logs:batting"].status, "complete")
+        self.assertEqual(
+            by_name["game_logs:fielding"].failure_category,
+            "game_log_evidence_unavailable",
+        )
+
 
 class CanonicalScopeModelTests(unittest.TestCase):
     def test_game_scope_and_fielding_models_repeat_composite_ownership(self):

@@ -7,6 +7,7 @@ from sqlalchemy import String, cast, distinct, func, or_, select, text
 from .models import (
     BattingFact,
     FieldingFact,
+    Game,
     MetricConstantSet,
     MetricDefinition,
     MetricValue,
@@ -18,8 +19,10 @@ from .models import (
     ReportSnapshot,
     SourceRecord,
     ScopedBattingFact,
+    ScopedFieldingFact,
     ScopedPitchingFact,
     StatisticScope,
+    StatisticScopeGame,
     TeamSeason,
 )
 from .metrics import DEFINITION_VERSION
@@ -57,6 +60,117 @@ _CONSTANT_METRIC_CODES = frozenset({"woba", "fip"})
 
 class SnapshotPublicationError(ValueError):
     pass
+
+
+def _validate_computed_game_scopes(session, snapshot, by_name):
+    """Require exact schedule membership and game-log lineage for computed scopes."""
+    schedule = by_name.get("schedule")
+    scopes = list(session.scalars(select(StatisticScope).where(
+        StatisticScope.snapshot_id == snapshot.id,
+        StatisticScope.organization_id == snapshot.organization_id,
+        StatisticScope.scope_kind == "computed_game",
+    )))
+    if schedule is None:
+        if scopes:
+            raise SnapshotPublicationError("computed scopes lack schedule evidence")
+        return scopes
+    if schedule.critical:
+        raise SnapshotPublicationError("schedule must be supplemental")
+    schedule_source_count = session.scalar(
+        select(func.count()).select_from(SourceRecord).where(
+            SourceRecord.snapshot_id == snapshot.id,
+            SourceRecord.organization_id == snapshot.organization_id,
+            SourceRecord.section == "schedule",
+        )
+    )
+    if schedule.row_count != schedule_source_count or schedule_source_count == 0:
+        raise SnapshotPublicationError("schedule row/source parity failed")
+    expected = {
+        (scope_code, stat_type)
+        for scope_code in ("last_10", "conference")
+        for stat_type in ("batting", "pitching", "fielding")
+    }
+    if {(scope.scope_code, scope.stat_type) for scope in scopes} != expected:
+        raise SnapshotPublicationError("computed scope families are incomplete")
+
+    for scope in scopes:
+        memberships = list(session.execute(
+            select(StatisticScopeGame, Game)
+            .join(
+                Game,
+                (Game.id == StatisticScopeGame.game_id)
+                & (Game.snapshot_id == StatisticScopeGame.snapshot_id)
+                & (Game.organization_id == StatisticScopeGame.organization_id),
+            )
+            .where(
+                StatisticScopeGame.snapshot_id == snapshot.id,
+                StatisticScopeGame.organization_id == snapshot.organization_id,
+                StatisticScopeGame.statistic_scope_id == scope.id,
+            )
+            .order_by(StatisticScopeGame.membership_ordinal)
+        ).all())
+        if len(memberships) != scope.actual_game_count:
+            raise SnapshotPublicationError("computed scope membership count failed")
+        if [item.membership_ordinal for item, _game in memberships] != list(
+            range(1, len(memberships) + 1)
+        ):
+            raise SnapshotPublicationError("computed scope membership order failed")
+        member_source_ids = {game.source_game_id for _item, game in memberships}
+        if None in member_source_ids:
+            raise SnapshotPublicationError("computed scope uses fallback game identity")
+
+        model = {
+            "batting": ScopedBattingFact,
+            "pitching": ScopedPitchingFact,
+            "fielding": ScopedFieldingFact,
+        }[scope.stat_type]
+        facts = list(session.scalars(select(model).where(
+            model.snapshot_id == snapshot.id,
+            model.organization_id == snapshot.organization_id,
+            model.statistic_scope_id == scope.id,
+        )))
+        metric_count = session.scalar(
+            select(func.count()).select_from(MetricValue).where(
+                MetricValue.snapshot_id == snapshot.id,
+                MetricValue.organization_id == snapshot.organization_id,
+                MetricValue.statistic_scope_id == scope.id,
+            )
+        )
+        if scope.status != "complete":
+            if facts or metric_count:
+                raise SnapshotPublicationError(
+                    "incomplete computed scope contains fabricated facts"
+                )
+            continue
+        expected_metric_count = len(facts) if scope.stat_type != "fielding" else 0
+        if metric_count != expected_metric_count:
+            raise SnapshotPublicationError("computed scope fact/metric parity failed")
+        log_rows = list(session.scalars(select(SourceRecord).where(
+            SourceRecord.snapshot_id == snapshot.id,
+            SourceRecord.organization_id == snapshot.organization_id,
+            SourceRecord.section == f"game_logs:{scope.stat_type}",
+        )))
+        log_by_fact_id = {
+            str(row.raw_values.get("fact_id") or row.id): row for row in log_rows
+        }
+        for fact in facts:
+            if not fact.contributing_fact_ids:
+                raise SnapshotPublicationError("computed fact lacks contributors")
+            contributors = [
+                log_by_fact_id.get(str(fact_id))
+                for fact_id in fact.contributing_fact_ids
+            ]
+            if any(row is None for row in contributors):
+                raise SnapshotPublicationError("computed fact source parity failed")
+            if any(
+                row.player_team_season_id != fact.player_team_season_id
+                or row.raw_values.get("source_game_id") not in member_source_ids
+                for row in contributors
+            ):
+                raise SnapshotPublicationError("computed fact has disconnected lineage")
+            if fact.sample_json.get("game_count") != scope.actual_game_count:
+                raise SnapshotPublicationError("computed fact sample count failed")
+    return scopes
 
 
 def _validate_detailed_metric_lineage(session, snapshot, sections):
@@ -416,6 +530,7 @@ def publish_snapshot(session, snapshot_id):
                 select(StatisticScope).where(
                     StatisticScope.snapshot_id == snapshot.id,
                     StatisticScope.organization_id == snapshot.organization_id,
+                    StatisticScope.scope_kind == "source_split",
                     StatisticScope.stat_type == stat_type,
                 )
             ))
@@ -529,6 +644,9 @@ def publish_snapshot(session, snapshot_id):
                         "unavailable split scope contains fabricated facts"
                     )
 
+    computed_scopes = _validate_computed_game_scopes(
+        session, snapshot, by_name
+    )
     _validate_detailed_metric_lineage(session, snapshot, sections)
 
     authoritative_mismatch_count = session.scalar(
@@ -568,7 +686,7 @@ def publish_snapshot(session, snapshot_id):
 
     supplemental_incomplete = any(
         not section.critical and section.status != "complete" for section in sections
-    )
+    ) or any(scope.status != "complete" for scope in computed_scopes)
     snapshot.status = "partial" if supplemental_incomplete else "ready"
     snapshot.published_at = datetime.now(UTC)
     session.flush()

@@ -2853,6 +2853,175 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
                     session.scalar(select(func.count()).select_from(PitchingFact)), 0
                 )
 
+class ComputedScopePublicationTests(PostgreSQLJobTestCase):
+    def _sections(self, game_count):
+        from roster_scout.jobs import (
+            CollectedGameFact,
+            to_collected_schedule_sections,
+        )
+        from roster_scout.models import Report, Season, Team, TeamSeason
+        from roster_scout.ncaa_detail import ScheduleEvidence, ScheduleGameEvidence
+
+        with self.Session() as session:
+            report = session.scalar(select(Report))
+            team_season = session.get(TeamSeason, report.team_season_id)
+            team = session.get(Team, team_season.team_id)
+            season = session.get(Season, team_season.season_id)
+            source = (
+                team.source_team_id,
+                season.source_season_id,
+                team_season.source_season_team_id,
+            )
+        games = tuple(
+            ScheduleGameEvidence(
+                source_game_id=f"game-{index:02d}",
+                game_date=datetime(2026, 3, index, tzinfo=UTC).date(),
+                status="completed",
+                opponent_team_id=f"opponent-{index}",
+                opponent_season_team_id=f"opponent-season-{index}",
+                opponent_conference_id="821",
+                conference_evidence_status="present",
+                opponent_identity_status="present",
+                doubleheader_ordinal=1,
+                result_sha256=f"{index:064x}",
+                venue="home",
+            )
+            for index in range(1, game_count + 1)
+        )
+        schedule = ScheduleEvidence(
+            source_path=f"/team/{source[0]}/{source[1]}",
+            source_url=f"https://stats.ncaa.org/team/{source[0]}/{source[1]}",
+            source_payload_sha256="a" * 64,
+            source_season_id=source[1],
+            source_team_id=source[0],
+            source_season_team_id=source[2],
+            team_conference_id="821",
+            division="d2",
+            schedule_complete=True,
+            collected_at=datetime(2026, 4, 1, tzinfo=UTC),
+            games=games,
+        )
+        facts = []
+        for game in games:
+            facts.extend((
+                CollectedGameFact(
+                    f"bat-{game.source_game_id}", game.source_game_id, "100",
+                    "batting", {"at_bats": 2, "hits": 1},
+                ),
+                CollectedGameFact(
+                    f"pit-{game.source_game_id}", game.source_game_id, "100",
+                    "pitching", {
+                        "earned_runs": 1, "innings_outs": 3,
+                        "opponent_at_bats": 2, "hits_allowed": 1,
+                    },
+                ),
+                CollectedGameFact(
+                    f"fld-{game.source_game_id}", game.source_game_id, "100",
+                    "fielding", {
+                        "putouts": 2, "assists": 1, "errors": 0,
+                        "total_chances": 3,
+                    },
+                ),
+            ))
+        return (
+            *FullSeasonMetricPublicationTests.detailed_sections(),
+            *to_collected_schedule_sections(
+                schedule,
+                game_facts=tuple(facts),
+                complete_stat_types=frozenset({"batting", "pitching", "fielding"}),
+            ),
+        )
+
+    def test_refresh_replaces_last_ten_only_in_successor_snapshot(self):
+        from roster_scout.jobs import accept_report_job, run_report_job
+        from roster_scout.models import (
+            Game, ScopedBattingFact, StatisticScope, StatisticScopeGame,
+        )
+
+        organization_id, report_id = self.fixture()
+        first_job = accept_report_job(
+            self.Session, organization_id, report_id, "computed-first", dispatch=None
+        )
+        first = run_report_job(
+            self.Session, first_job.id,
+            collector=Mock(return_value=self._sections(11)),
+        )
+        second_job = accept_report_job(
+            self.Session, organization_id, report_id, "computed-refresh", dispatch=None
+        )
+        second = run_report_job(
+            self.Session, second_job.id,
+            collector=Mock(return_value=self._sections(12)),
+        )
+        self.assertEqual((first.status, second.status), ("ready", "ready"))
+        with self.Session() as session:
+            scopes = list(session.scalars(select(StatisticScope).where(
+                StatisticScope.scope_kind == "computed_game"
+            )))
+            self.assertEqual(len(scopes), 12)
+            first_scope = next(
+                scope for scope in scopes
+                if scope.snapshot_id == first.id
+                and scope.stat_type == "batting"
+                and scope.scope_code == "last_10"
+            )
+            second_scope = next(
+                scope for scope in scopes
+                if scope.snapshot_id == second.id
+                and scope.stat_type == "batting"
+                and scope.scope_code == "last_10"
+            )
+            def members(scope):
+                return tuple(session.scalars(
+                    select(Game.source_game_id)
+                    .join(StatisticScopeGame, StatisticScopeGame.game_id == Game.id)
+                    .where(StatisticScopeGame.statistic_scope_id == scope.id)
+                    .order_by(StatisticScopeGame.membership_ordinal)
+                ))
+            self.assertEqual(members(first_scope), tuple(
+                f"game-{index:02d}" for index in range(2, 12)
+            ))
+            self.assertEqual(members(second_scope), tuple(
+                f"game-{index:02d}" for index in range(3, 13)
+            ))
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(ScopedBattingFact)),
+                4,
+            )
+
+    def test_publication_rejects_disconnected_computed_fact_lineage(self):
+        from roster_scout.jobs import (
+            _new_or_existing_snapshot,
+            _persist_canonical,
+            _persist_sections,
+            accept_report_job,
+        )
+        from roster_scout.models import ReportJob, ReportSnapshot, ScopedBattingFact
+        from roster_scout.snapshots import SnapshotPublicationError, publish_snapshot
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session, organization_id, report_id, "computed-invalid", dispatch=None
+        )
+        sections = self._sections(11)
+        with self.Session.begin() as session:
+            stored = session.get(ReportJob, job.id)
+            snapshot = _new_or_existing_snapshot(session, stored)
+            _persist_sections(session, stored, snapshot, sections)
+            snapshot_id = snapshot.id
+        with self.Session.begin() as session:
+            stored = session.get(ReportJob, job.id)
+            snapshot = session.get(ReportSnapshot, snapshot_id)
+            _persist_canonical(session, stored, snapshot, sections)
+            session.flush()
+            fact = session.scalar(select(ScopedBattingFact))
+            fact.contributing_fact_ids = ["disconnected-fact"]
+            session.flush()
+            with self.assertRaisesRegex(
+                SnapshotPublicationError, "computed fact source parity failed"
+            ):
+                publish_snapshot(session, snapshot_id)
+
 
 if __name__ == "__main__":
     unittest.main()

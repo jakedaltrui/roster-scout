@@ -18,6 +18,7 @@ from .database import session_advisory_lock
 from .models import (
     BattingFact,
     FieldingFact,
+    Game,
     MetricConstantSet,
     MetricDefinition,
     MetricValue,
@@ -32,8 +33,11 @@ from .models import (
     Season,
     SourceRecord,
     ScopedBattingFact,
+    ScopedFieldingFact,
     ScopedPitchingFact,
+    SeasonConferenceEvidence,
     StatisticScope,
+    StatisticScopeGame,
     Team,
     TeamSeason,
 )
@@ -170,6 +174,90 @@ class CollectedScope:
     collected_at: datetime
     source_payload_sha256: str | None = None
     sample: dict = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class CollectedGameFact:
+    """One audited player/game count row used by computed game scopes."""
+
+    fact_id: str
+    source_game_id: str | None
+    source_player_id: str
+    stat_type: str
+    counts: dict
+    link_status: str = "linked"
+
+
+def to_collected_schedule_sections(
+    schedule, *, game_facts=(), complete_stat_types=frozenset()
+):
+    """Adapt validated schedule evidence and exact game logs to source sections."""
+    if not schedule.games:
+        raise DeterministicJobError("schema_validation")
+    schedule_rows = tuple(
+        {
+            "source_game_id": item.source_game_id,
+            "game_date": item.game_date.isoformat(),
+            "status": item.status,
+            "opponent_team_id": item.opponent_team_id,
+            "opponent_season_team_id": item.opponent_season_team_id,
+            "opponent_conference_id": item.opponent_conference_id,
+            "conference_evidence_status": item.conference_evidence_status,
+            "opponent_identity_status": item.opponent_identity_status,
+            "doubleheader_ordinal": item.doubleheader_ordinal,
+            "result_sha256": item.result_sha256,
+            "venue": item.venue,
+            "team_conference_id": schedule.team_conference_id,
+            "schedule_complete": schedule.schedule_complete,
+            "division": schedule.division,
+        }
+        for item in schedule.games
+    )
+    sections = [CollectedSection(
+        name="schedule",
+        critical=False,
+        rows=schedule_rows,
+        source_url=schedule.source_url,
+        source_team_id=schedule.source_team_id,
+        source_season_id=schedule.source_season_id,
+        source_season_team_id=schedule.source_season_team_id,
+        source_stat_category_id="schedule",
+        collected_at=schedule.collected_at,
+        status="complete" if schedule.schedule_complete else "partial",
+        failure_category=None if schedule.schedule_complete else "schedule_evidence_incomplete",
+    )]
+    typed = {name: [] for name in ("batting", "pitching", "fielding")}
+    for fact in game_facts:
+        if fact.stat_type not in typed:
+            raise DeterministicJobError("schema_validation")
+        typed[fact.stat_type].append({
+            "source_game_id": fact.source_game_id,
+            "fact_id": fact.fact_id,
+            "stat_type": fact.stat_type,
+            "counts": dict(fact.counts),
+            "link_status": fact.link_status,
+            "_player_id": fact.source_player_id,
+        })
+    unknown_complete_types = set(complete_stat_types) - set(typed)
+    if unknown_complete_types:
+        raise DeterministicJobError("schema_validation")
+    for stat_type, rows in typed.items():
+        available = stat_type in complete_stat_types
+        sections.append(CollectedSection(
+            name=f"game_logs:{stat_type}",
+            critical=False,
+            rows=tuple(rows),
+            verified_empty=available and not rows,
+            source_url=schedule.source_url,
+            source_team_id=schedule.source_team_id,
+            source_season_id=schedule.source_season_id,
+            source_season_team_id=schedule.source_season_team_id,
+            source_stat_category_id=f"game_logs:{stat_type}",
+            collected_at=schedule.collected_at,
+            status="complete" if available else "unavailable",
+            failure_category=None if available else "game_log_evidence_unavailable",
+        ))
+    return tuple(sections)
 
 
 @dataclass(frozen=True)
@@ -701,6 +789,7 @@ def _matching_cached_sections(session, job, cached):
                 select(StatisticScope).where(
                     StatisticScope.snapshot_id == section.snapshot_id,
                     StatisticScope.organization_id == job.organization_id,
+                    StatisticScope.scope_kind == "source_split",
                     StatisticScope.stat_type == stat_type,
                     StatisticScope.status == "complete",
                     StatisticScope.schema_version == SCHEMA_VERSION,
@@ -728,6 +817,9 @@ def _matching_cached_sections(session, job, cached):
                 valid = False
             if valid:
                 matched[key.section] = section
+            continue
+        if key.section == "schedule" or key.section.startswith("game_logs:"):
+            matched[key.section] = section
     return matched
 
 
@@ -748,7 +840,10 @@ def _reconstruct_cached_sections(session, snapshot, matching):
         by_section.setdefault(record.section, []).append(record)
     persisted_scopes = list(session.scalars(
         select(StatisticScope)
-        .where(StatisticScope.snapshot_id == snapshot.id)
+        .where(
+            StatisticScope.snapshot_id == snapshot.id,
+            StatisticScope.scope_kind == "source_split",
+        )
         .order_by(StatisticScope.stat_type, StatisticScope.scope_code)
     ))
 
@@ -933,7 +1028,10 @@ def _persisted_section_signature(session, snapshot, section):
         )
         for scope in session.scalars(
             select(StatisticScope)
-            .where(StatisticScope.snapshot_id == snapshot.id)
+            .where(
+                StatisticScope.snapshot_id == snapshot.id,
+                StatisticScope.scope_kind == "source_split",
+            )
             .order_by(StatisticScope.stat_type, StatisticScope.scope_code)
         )
         if section.section == f"splits:{scope.stat_type}"
@@ -1009,6 +1107,7 @@ def _persist_sections(session, job, snapshot, sections):
                 session.execute(
                     delete(StatisticScope).where(
                         StatisticScope.snapshot_id == snapshot.id,
+                        StatisticScope.scope_kind == "source_split",
                         StatisticScope.stat_type
                         == collected.name.removeprefix("splits:"),
                     )
@@ -1451,6 +1550,7 @@ def _persist_canonical(session, job, snapshot, sections):
                 select(StatisticScope).where(
                     StatisticScope.snapshot_id == snapshot.id,
                     StatisticScope.organization_id == job.organization_id,
+                    StatisticScope.scope_kind == "source_split",
                 )
             )
         }
@@ -1522,6 +1622,361 @@ def _persist_canonical(session, job, snapshot, sections):
                     sample_json=metric.sample,
                     scope=f"split:{stat_type}:{scope.scope_code}",
                 ))
+
+    _persist_schedule_scopes(session, job, snapshot, sections, identities)
+
+
+def _schedule_row_to_audited(row, *, season_id):
+    from .scopes import AuditedGame
+
+    try:
+        game_date = datetime.strptime(row["game_date"], "%Y-%m-%d").date()
+        ordinal = int(row["doubleheader_ordinal"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise DeterministicJobError("schema_validation") from exc
+    source_game_id = row.get("source_game_id")
+    if source_game_id is not None:
+        source_game_id = str(source_game_id)
+    return AuditedGame(
+        source_game_id=source_game_id,
+        fixture_fallback_key=None,
+        season_id=season_id,
+        game_date=game_date,
+        completed_at=(
+            datetime.combine(game_date, datetime.min.time(), tzinfo=UTC)
+            if row.get("status") == "completed" else None
+        ),
+        status=row.get("status"),
+        opponent_team_id=row.get("opponent_team_id"),
+        report_team_conference_id=row.get("team_conference_id"),
+        opponent_conference_id=row.get("opponent_conference_id"),
+        conference_evidence_season_id=(
+            season_id
+            if row.get("conference_evidence_status") == "present" else None
+        ),
+        doubleheader_ordinal=ordinal,
+        result_checksum=row.get("result_sha256") or "",
+        venue=row.get("venue"),
+    )
+
+
+def _metric_definition_id(session, code):
+    from .metrics import DEFINITION_VERSION, METRIC_DEFINITIONS
+
+    definition_id = session.scalar(
+        postgresql_insert(MetricDefinition)
+        .values(
+            id=uuid.uuid4(),
+            code=code,
+            version=DEFINITION_VERSION,
+            formula=METRIC_DEFINITIONS[code].formula,
+        )
+        .on_conflict_do_nothing(constraint="uq_metric_definitions_code_version")
+        .returning(MetricDefinition.id)
+    )
+    if definition_id is None:
+        definition_id = session.scalar(select(MetricDefinition.id).where(
+            MetricDefinition.code == code,
+            MetricDefinition.version == DEFINITION_VERSION,
+        ))
+    if definition_id is None:
+        raise RuntimeError("scoped metric definition conflict was not visible")
+    return definition_id
+
+
+def _persist_schedule_scopes(session, job, snapshot, sections, identities):
+    """Create canonical games and exact computed scopes from committed evidence."""
+    from .scopes import (
+        ScopedCountFact,
+        aggregate_scope_facts,
+        select_conference_games,
+        select_last_ten_completed_games,
+    )
+
+    schedule_section = next((item for item in sections if item.name == "schedule"), None)
+    if schedule_section is None:
+        return
+    records = list(session.scalars(
+        select(SourceRecord).where(
+            SourceRecord.snapshot_id == snapshot.id,
+            SourceRecord.organization_id == job.organization_id,
+            SourceRecord.section == "schedule",
+        ).order_by(SourceRecord.row_ordinal)
+    ))
+    if len(records) != len(schedule_section.rows) or not records:
+        raise DeterministicJobError("schema_validation")
+    if list(session.scalars(select(Game.id).where(Game.snapshot_id == snapshot.id))):
+        raise DeterministicJobError("schema_validation")
+
+    report = session.get(Report, job.report_id)
+    team_season = session.get(TeamSeason, report.team_season_id)
+    team = session.get(Team, team_season.team_id)
+    season = session.get(Season, team_season.season_id)
+    audited = tuple(
+        _schedule_row_to_audited(record.raw_values, season_id=season.source_season_id)
+        for record in records
+    )
+    schedule_complete = (
+        schedule_section.status == "complete"
+        and all(row.raw_values.get("schedule_complete") is True for row in records)
+    )
+
+    evidence_by_team_season = {}
+    first = records[0]
+    report_conference_id = first.raw_values.get("team_conference_id")
+    report_evidence = SeasonConferenceEvidence(
+        organization_id=job.organization_id,
+        snapshot_id=snapshot.id,
+        source_record_id=first.id,
+        source_season_id=season.source_season_id,
+        source_team_id=team.source_team_id,
+        source_season_team_id=team_season.source_season_team_id,
+        conference_id=report_conference_id,
+        evidence_status="present" if report_conference_id else "source_absent",
+        collected_at=first.collected_at,
+        payload_sha256=first.payload_sha256,
+    )
+    session.add(report_evidence)
+    session.flush()
+    for record in records:
+        values = record.raw_values
+        opponent_season_team_id = values.get("opponent_season_team_id")
+        opponent_team_id = values.get("opponent_team_id")
+        if not opponent_season_team_id or not opponent_team_id:
+            continue
+        evidence = evidence_by_team_season.get(opponent_season_team_id)
+        if evidence is None:
+            conference_id = values.get("opponent_conference_id")
+            evidence = SeasonConferenceEvidence(
+                organization_id=job.organization_id,
+                snapshot_id=snapshot.id,
+                source_record_id=record.id,
+                source_season_id=season.source_season_id,
+                source_team_id=str(opponent_team_id),
+                source_season_team_id=str(opponent_season_team_id),
+                conference_id=conference_id,
+                evidence_status="present" if conference_id else "source_absent",
+                collected_at=record.collected_at,
+                payload_sha256=record.payload_sha256,
+            )
+            session.add(evidence)
+            session.flush()
+            evidence_by_team_season[opponent_season_team_id] = evidence
+        elif (
+            evidence.source_team_id != str(opponent_team_id)
+            or evidence.conference_id != values.get("opponent_conference_id")
+        ):
+            raise DeterministicJobError("schema_validation")
+
+    games_by_source = {}
+    for record, item in zip(records, audited, strict=True):
+        if not item.source_game_id:
+            continue
+        opponent_season_team_id = record.raw_values.get("opponent_season_team_id")
+        game = Game(
+            organization_id=job.organization_id,
+            snapshot_id=snapshot.id,
+            source_record_id=record.id,
+            source_season_id=season.source_season_id,
+            game_date=item.game_date,
+            completed_at=item.completed_at,
+            status=item.status,
+            result_code=None,
+            result_sha256=item.result_checksum,
+            opponent_team_id=item.opponent_team_id,
+            opponent_season_team_id=opponent_season_team_id,
+            report_team_conference_evidence_id=report_evidence.id,
+            opponent_conference_evidence_id=(
+                evidence_by_team_season[opponent_season_team_id].id
+                if opponent_season_team_id in evidence_by_team_season else None
+            ),
+            doubleheader_ordinal=item.doubleheader_ordinal,
+            venue=item.venue,
+            source_game_id=item.source_game_id,
+            fixture_fallback_key=None,
+            identity_kind="source",
+            fixture_test_mode=False,
+        )
+        session.add(game)
+        games_by_source[item.source_game_id] = game
+    session.flush()
+
+    selections = {
+        "last_10": select_last_ten_completed_games(
+            audited, schedule_complete=schedule_complete
+        ),
+        "conference": select_conference_games(
+            audited,
+            report_season_id=season.source_season_id,
+            schedule_complete=schedule_complete,
+        ),
+    }
+    identity_by_source = {
+        player.source_player_id: identity
+        for identity in identities.values()
+        for player in (session.get(Player, identity.player_id),)
+        if player is not None and player.source_player_id
+    }
+    log_sections = {
+        stat_type: next(
+            (item for item in sections if item.name == f"game_logs:{stat_type}"), None
+        )
+        for stat_type in ("batting", "pitching", "fielding")
+    }
+    log_records = {
+        stat_type: list(session.scalars(select(SourceRecord).where(
+            SourceRecord.snapshot_id == snapshot.id,
+            SourceRecord.organization_id == job.organization_id,
+            SourceRecord.section == f"game_logs:{stat_type}",
+        ).order_by(SourceRecord.row_ordinal)))
+        for stat_type in log_sections
+    }
+
+    for scope_code, selected in selections.items():
+        for stat_type in ("batting", "pitching", "fielding"):
+            log_section = log_sections[stat_type]
+            scope_status, reason = selected.status, selected.reason
+            if scope_status == "complete" and (
+                log_section is None or log_section.status != "complete"
+            ):
+                scope_status, reason = "partial", "game_log_evidence_unavailable"
+            raw_facts = []
+            invalid_link = False
+            for source in log_records[stat_type]:
+                values = source.raw_values
+                identity = identity_by_source.get(source.source_player_id)
+                source_game_id = values.get("source_game_id")
+                if (
+                    values.get("link_status") != "linked"
+                    or source_game_id not in games_by_source
+                    or identity is None
+                    or not isinstance(values.get("counts"), dict)
+                ):
+                    invalid_link = True
+                    continue
+                source.player_team_season_id = identity.id
+                raw_facts.append((source, identity, ScopedCountFact(
+                    fact_id=str(values.get("fact_id") or source.id),
+                    game_id=source_game_id,
+                    player_id=str(identity.id),
+                    stat_type=stat_type,
+                    counts=values["counts"],
+                )))
+            if invalid_link and scope_status == "complete":
+                scope_status, reason = "partial", "ambiguous_game_link"
+            scope = StatisticScope(
+                organization_id=job.organization_id,
+                snapshot_id=snapshot.id,
+                scope_kind="computed_game",
+                scope_code=scope_code,
+                stat_type=stat_type,
+                display_label=("Last 10 Completed Games" if scope_code == "last_10" else "Conference Only"),
+                source_identifier=None,
+                source_path=f"/team/{team.source_team_id}/{season.source_season_id}",
+                source_url=schedule_section.source_url,
+                source_season_id=season.source_season_id,
+                source_season_team_id=team_season.source_season_team_id,
+                source_stat_category_id=(
+                    team_season.batting_stat_category_id if stat_type == "batting"
+                    else team_season.pitching_stat_category_id if stat_type == "pitching"
+                    else "fielding"
+                ),
+                status=scope_status,
+                availability_reason=reason,
+                collected_at=schedule_section.collected_at or first.collected_at,
+                parser_version=schedule_section.parser_version,
+                schema_version=schedule_section.schema_version,
+                sample_json={
+                    "game_count": selected.actual_game_count,
+                    "game_ids": [item.identity for item in selected.games],
+                },
+                source_payload_sha256=first.payload_sha256,
+                schedule_source_record_id=first.id,
+                start_date=selected.start_date,
+                end_date=selected.end_date,
+                actual_game_count=selected.actual_game_count,
+                report_conference_id=(report_conference_id if scope_code == "conference" else None),
+            )
+            session.add(scope)
+            session.flush()
+            for ordinal, item in enumerate(selected.games, 1):
+                game = games_by_source.get(item.identity)
+                if game is None:
+                    raise DeterministicJobError("schema_validation")
+                session.add(StatisticScopeGame(
+                    organization_id=job.organization_id,
+                    snapshot_id=snapshot.id,
+                    statistic_scope_id=scope.id,
+                    game_id=game.id,
+                    membership_ordinal=ordinal,
+                ))
+            if scope_status != "complete":
+                continue
+            selected_ids = tuple(item.identity for item in selected.games)
+            by_player = {}
+            sources_by_fact_id = {}
+            for source, identity, fact in raw_facts:
+                by_player.setdefault(identity.id, []).append(fact)
+                sources_by_fact_id[fact.fact_id] = source
+            for identity_id, facts in by_player.items():
+                aggregate = aggregate_scope_facts(
+                    facts,
+                    game_ids=selected_ids,
+                    metric_codes=(
+                        ("avg",) if stat_type == "batting"
+                        else ("era",) if stat_type == "pitching" else ()
+                    ),
+                    season_id=season.source_season_id,
+                    division=team_season.division,
+                )
+                if aggregate.status != "complete" or not aggregate.contributing_fact_ids:
+                    continue
+                source = sources_by_fact_id[aggregate.contributing_fact_ids[0]]
+                common = dict(
+                    organization_id=job.organization_id,
+                    snapshot_id=snapshot.id,
+                    statistic_scope_id=scope.id,
+                    player_team_season_id=identity_id,
+                    source_record_id=source.id,
+                    sample_json=dict(aggregate.sample),
+                    counts_json=dict(aggregate.counts),
+                    contributing_fact_ids=list(aggregate.contributing_fact_ids),
+                )
+                if stat_type == "batting":
+                    session.add(ScopedBattingFact(
+                        at_bats=aggregate.counts.get("at_bats"),
+                        hits=aggregate.counts.get("hits"),
+                        **common,
+                    ))
+                elif stat_type == "pitching":
+                    session.add(ScopedPitchingFact(
+                        opponent_at_bats=aggregate.counts.get("opponent_at_bats"),
+                        hits_allowed=aggregate.counts.get("hits_allowed"),
+                        **common,
+                    ))
+                else:
+                    session.add(ScopedFieldingFact(
+                        putouts=aggregate.counts.get("putouts"),
+                        assists=aggregate.counts.get("assists"),
+                        errors=aggregate.counts.get("errors"),
+                        total_chances=aggregate.counts.get("total_chances"),
+                        **common,
+                    ))
+                for code, result in aggregate.metrics.items():
+                    session.add(MetricValue(
+                        organization_id=job.organization_id,
+                        snapshot_id=snapshot.id,
+                        metric_definition_id=_metric_definition_id(session, code),
+                        player_team_season_id=identity_id,
+                        statistic_scope_id=scope.id,
+                        value=result.value,
+                        unavailable_reason=None,
+                        status=result.status,
+                        reason_code=result.reason_code,
+                        inputs_json=result.inputs,
+                        sample_json={**result.sample, "game_count": aggregate.game_count},
+                        scope=f"computed:{stat_type}:{scope_code}",
+                    ))
 
 
 def _classified_error(exc):
