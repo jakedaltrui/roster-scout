@@ -199,7 +199,7 @@
     {% endif %}
 
     {% if current_role == "admin" %}
-      <dialog id="share-organization-dialog" class="confirmation-dialog share-dialog" data-modal aria-labelledby="share-dialog-title" aria-describedby="share-dialog-description">
+      <dialog id="share-organization-dialog" class="confirmation-dialog share-dialog" data-modal{% if request.args.get('share') == 'staff' %} data-auto-modal{% endif %} aria-labelledby="share-dialog-title" aria-describedby="share-dialog-description">
         <h2 id="share-dialog-title">Invite a coach</h2>
         <p class="share-dialog__intro" id="share-dialog-description">Share {{ organization_name or "your school" }}’s saved reports with another member of your staff.</p>
         <form class="share-form" action="{{ url_for('organization.invite') }}" method="post">

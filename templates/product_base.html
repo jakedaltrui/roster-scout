@@ -48,10 +48,15 @@
                   <p class="account-email">{{ account_email }}</p>
                 </div>
               </div>
-              <form action="{{ url_for('auth.logout') }}" method="post">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <button class="button button--quiet" type="submit" aria-label="Sign out" data-pending-label="Signing out…">Sign out</button>
-              </form>
+              <div class="account-menu__actions">
+                {% if current_role|default(none) == "admin" %}
+                  <a class="button button--quiet" href="{{ url_for('reports.library', share='staff') }}">Invite staff</a>
+                {% endif %}
+                <form action="{{ url_for('auth.logout') }}" method="post">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button class="button button--quiet" type="submit" aria-label="Sign out" data-pending-label="Signing out…">Sign out</button>
+                </form>
+              </div>
             </div>
           </details>
         {% else %}

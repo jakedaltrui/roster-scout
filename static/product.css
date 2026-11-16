@@ -170,6 +170,8 @@ a { color: inherit; }
 .account-identity .account-email { margin-bottom: 0; }
 .account-school-logo { display: grid; flex: 0 0 36px; place-items: center; width: 36px; height: 36px; overflow: hidden; }
 .account-school-logo img { display: block; width: 30px; height: 30px; object-fit: contain; }
+.account-menu__actions { display: grid; gap: 8px; }
+.account-menu__actions form { margin: 0; }
 
 .product-main {
   width: min(calc(100% - 32px), 1200px);

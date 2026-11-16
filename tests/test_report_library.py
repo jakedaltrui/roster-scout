@@ -234,9 +234,16 @@ class SharedLibraryTests(unittest.TestCase):
         self.assertIn(b">Dashboard<", member_html.data)
         self.assertIn(b"Share with North Valley Baseball staff", admin_html.data)
         self.assertIn(b'id="share-organization-dialog"', admin_html.data)
+        self.assertIn(b'href="/reports?share=staff">Invite staff</a>', admin_html.data)
         self.assertIn(b'name="return_to" value="/reports"', admin_html.data)
+        self.assertNotIn(b">Invite staff</a>", member_html.data)
         self.assertNotIn(b'id="share-organization-dialog"', member_html.data)
         self.assertIn(b"Shared with North Valley Baseball", member_html.data)
+
+        share_html = self._client(accounts[0], organization_id).get(
+            "/reports?share=staff"
+        )
+        self.assertIn(b'data-modal data-auto-modal', share_html.data)
 
     def test_library_run_age_uses_hours_then_days_then_weeks(self):
         from roster_scout.reports import _relative_run_age
