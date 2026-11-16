@@ -325,6 +325,8 @@ class ArtifactContractTests(unittest.TestCase):
             hitters_xml = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
             pitchers_xml = archive.read("xl/worksheets/sheet2.xml").decode("utf-8")
             shared_strings = archive.read("xl/sharedStrings.xml").decode("utf-8")
+            hitters_table = archive.read("xl/tables/table1.xml").decode("utf-8")
+            pitchers_table = archive.read("xl/tables/table2.xml").decode("utf-8")
 
         self.assertEqual(workbook_xml.count("<sheet "), 2)
         self.assertIn('name="Hitters"', workbook_xml)
@@ -343,8 +345,8 @@ class ArtifactContractTests(unittest.TestCase):
         self.assertIn('ySplit="4"', hitters_xml)
         self.assertIn('xSplit="6"', pitchers_xml)
         self.assertIn('ySplit="4"', pitchers_xml)
-        self.assertIn("<autoFilter", hitters_xml)
-        self.assertIn("<autoFilter", pitchers_xml)
+        self.assertIn("<autoFilter", hitters_table)
+        self.assertIn("<autoFilter", pitchers_table)
 
     def test_grouped_workbook_preserves_ids_safe_text_and_scope_semantics(self):
         from roster_scout.workbooks import create_workbook

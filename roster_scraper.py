@@ -3545,9 +3545,13 @@ def split_roster(players: list[dict]) -> tuple:
 
         if goes_hitting:
             row = {h: p.get(k, "") for k, h in zip(HITTER_COLS, HITTER_HEADERS)}
+            row["_player_id"] = p.get("_player_id", "")
+            row["_player_url"] = p.get("_player_url", "")
             hitters.append(row)
         if goes_pitching:
             row = {h: p.get(k, "") for k, h in zip(PITCHER_COLS, PITCHER_HEADERS)}
+            row["_player_id"] = p.get("_player_id", "")
+            row["_player_url"] = p.get("_player_url", "")
             pitchers.append(row)
 
     hitters.sort(key=lambda p: _int(p.get("AB") or 0), reverse=True)

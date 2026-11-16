@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import re
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from functools import lru_cache
 
@@ -12,15 +13,6 @@ import xlsxwriter
 from PIL import Image, ImageDraw
 from xlsxwriter.utility import xl_pixel_width
 
-from roster_scraper import HITTER_HEADERS, PITCHER_HEADERS
-
-
-INTEGER_COLUMNS = {
-    "#", "AB", "H", "2B", "HR", "RBI", "R", "BB", "SO", "SB",
-    "W", "L", "SV", "ER",
-}
-THREE_DECIMAL_COLUMNS = {"AVG", "OBP", "SLG"}
-TWO_DECIMAL_COLUMNS = {"ERA", "WHIP"}
 DEFAULT_PALETTE = {
     "primary": "#1E3A5F",
     "primary_text": "#FFFFFF",
@@ -28,6 +20,102 @@ DEFAULT_PALETTE = {
     "band": "#F2F5F8",
     "border": "#D9E0E7",
 }
+
+
+@dataclass(frozen=True)
+class WorkbookColumn:
+    group: str
+    header: str
+    key: str
+    kind: str = "text"
+    width: float = 9
+
+
+PLAYER_COLUMNS = (
+    WorkbookColumn("Player", "NCAA Player ID", "_player_id", width=15),
+    WorkbookColumn("Player", "Name", "Name", width=24),
+    WorkbookColumn("Player", "#", "#", "integer", 5),
+    WorkbookColumn("Player", "Position", "Position", width=11),
+    WorkbookColumn("Player", "Class", "Class", width=8),
+    WorkbookColumn("Player", "Source URL", "_player_url", width=18),
+)
+
+HITTER_COLUMNS = PLAYER_COLUMNS + (
+    WorkbookColumn("Season", "G", "G", "integer", 6),
+    WorkbookColumn("Season", "GS", "GS", "integer", 6),
+    WorkbookColumn("Season", "PA", "PA", "integer", 7),
+    WorkbookColumn("Season", "AB", "AB", "integer", 7),
+    WorkbookColumn("Season", "H", "H", "integer", 6),
+    WorkbookColumn("Season", "2B", "2B", "integer", 6),
+    WorkbookColumn("Season", "3B", "3B", "integer", 6),
+    WorkbookColumn("Season", "HR", "HR", "integer", 6),
+    WorkbookColumn("Season", "RBI", "RBI", "integer", 7),
+    WorkbookColumn("Season", "R", "R", "integer", 6),
+    WorkbookColumn("Season", "BB", "BB", "integer", 6),
+    WorkbookColumn("Season", "SO", "SO", "integer", 6),
+    WorkbookColumn("Season", "SB", "SB", "integer", 6),
+    WorkbookColumn("Season", "AVG", "AVG", "three", 8),
+    WorkbookColumn("Season", "OBP", "OBP", "three", 8),
+    WorkbookColumn("Season", "SLG", "SLG", "three", 8),
+    WorkbookColumn("Derived Metrics", "OPS", "OPS", "three", 8),
+    WorkbookColumn("Derived Metrics", "ISO", "ISO", "three", 8),
+    WorkbookColumn("Derived Metrics", "BB%", "BB%", "percent", 8),
+    WorkbookColumn("Derived Metrics", "K%", "K%", "percent", 8),
+    WorkbookColumn("Derived Metrics", "BABIP", "BABIP", "three", 8),
+    WorkbookColumn("Derived Metrics", "wOBA", "wOBA", "three", 8),
+    WorkbookColumn("Last 10 Games", "L10 G", "Last 10 G", "integer", 7),
+    WorkbookColumn("Last 10 Games", "L10 PA", "Last 10 PA", "integer", 8),
+    WorkbookColumn("Last 10 Games", "L10 AB", "Last 10 AB", "integer", 8),
+    WorkbookColumn("Last 10 Games", "L10 AVG", "Last 10 AVG", "three", 9),
+    WorkbookColumn("Last 10 Games", "L10 OPS", "Last 10 OPS", "three", 9),
+    WorkbookColumn("Last 10 Games", "L10 K%", "Last 10 K%", "percent", 9),
+    WorkbookColumn("Last 10 Games", "L10 Status", "Last 10 Status", width=12),
+    WorkbookColumn("Conference Games", "CONF G", "Conference G", "integer", 8),
+    WorkbookColumn("Conference Games", "CONF PA", "Conference PA", "integer", 9),
+    WorkbookColumn("Conference Games", "CONF AB", "Conference AB", "integer", 9),
+    WorkbookColumn("Conference Games", "CONF AVG", "Conference AVG", "three", 10),
+    WorkbookColumn("Conference Games", "CONF OPS", "Conference OPS", "three", 10),
+    WorkbookColumn("Conference Games", "CONF K%", "Conference K%", "percent", 10),
+    WorkbookColumn("Conference Games", "CONF Status", "Conference Status", width=12),
+)
+
+PITCHER_COLUMNS = PLAYER_COLUMNS + (
+    WorkbookColumn("Season", "G", "G", "integer", 6),
+    WorkbookColumn("Season", "GS", "GS", "integer", 6),
+    WorkbookColumn("Season", "IP", "IP", width=7),
+    WorkbookColumn("Season", "W", "W", "integer", 6),
+    WorkbookColumn("Season", "L", "L", "integer", 6),
+    WorkbookColumn("Season", "SV", "SV", "integer", 6),
+    WorkbookColumn("Season", "H", "H", "integer", 6),
+    WorkbookColumn("Season", "ER", "ER", "integer", 6),
+    WorkbookColumn("Season", "BB", "BB", "integer", 6),
+    WorkbookColumn("Season", "SO", "SO", "integer", 6),
+    WorkbookColumn("Season", "HR", "HR", "integer", 6),
+    WorkbookColumn("Season", "BF", "BF", "integer", 7),
+    WorkbookColumn("Season", "ERA", "ERA", "two", 8),
+    WorkbookColumn("Season", "WHIP", "WHIP", "two", 8),
+    WorkbookColumn("Derived Metrics", "K/9", "K/9", "two", 8),
+    WorkbookColumn("Derived Metrics", "BB/9", "BB/9", "two", 8),
+    WorkbookColumn("Derived Metrics", "H/9", "H/9", "two", 8),
+    WorkbookColumn("Derived Metrics", "HR/9", "HR/9", "two", 8),
+    WorkbookColumn("Derived Metrics", "K/BB", "K/BB", "two", 8),
+    WorkbookColumn("Derived Metrics", "K%", "K%", "percent", 8),
+    WorkbookColumn("Derived Metrics", "BB%", "BB%", "percent", 8),
+    WorkbookColumn("Derived Metrics", "BABIP", "BABIP", "three", 8),
+    WorkbookColumn("Derived Metrics", "FIP", "FIP", "two", 8),
+    WorkbookColumn("Last 10 Games", "L10 G", "Last 10 G", "integer", 7),
+    WorkbookColumn("Last 10 Games", "L10 IP", "Last 10 IP", width=8),
+    WorkbookColumn("Last 10 Games", "L10 ERA", "Last 10 ERA", "two", 9),
+    WorkbookColumn("Last 10 Games", "L10 WHIP", "Last 10 WHIP", "two", 10),
+    WorkbookColumn("Last 10 Games", "L10 K/9", "Last 10 K/9", "two", 9),
+    WorkbookColumn("Last 10 Games", "L10 Status", "Last 10 Status", width=12),
+    WorkbookColumn("Conference Games", "CONF G", "Conference G", "integer", 8),
+    WorkbookColumn("Conference Games", "CONF IP", "Conference IP", width=9),
+    WorkbookColumn("Conference Games", "CONF ERA", "Conference ERA", "two", 10),
+    WorkbookColumn("Conference Games", "CONF WHIP", "Conference WHIP", "two", 11),
+    WorkbookColumn("Conference Games", "CONF K/9", "Conference K/9", "two", 10),
+    WorkbookColumn("Conference Games", "CONF Status", "Conference Status", width=12),
+)
 
 
 def workbook_download_name(
@@ -42,15 +130,15 @@ def workbook_download_name(
     return f"{safe_name} Stats {report_date.strftime('%m-%d-%y')}.xlsx"
 
 
-def excel_value(header: str, value):
+def excel_value(kind: str, value):
     """Convert stat strings to useful Excel number types where semantics allow."""
     if value is None or value == "":
         return ""
     text = str(value).strip()
     try:
-        if header in INTEGER_COLUMNS and re.fullmatch(r"-?\d+", text):
+        if kind == "integer" and re.fullmatch(r"-?\d+", text):
             return int(text)
-        if header in THREE_DECIMAL_COLUMNS | TWO_DECIMAL_COLUMNS:
+        if kind in {"three", "two", "percent"}:
             return float(text)
     except ValueError:
         pass
@@ -218,7 +306,7 @@ def _lockup_last_column(column_widths, school_name, date_text, text_start_col=1)
     return len(column_widths) - 1
 
 
-def _write_worksheet(workbook, title, rows, headers, branding=None):
+def _write_worksheet(workbook, title, rows, columns, branding=None):
     worksheet = workbook.add_worksheet(title)
     worksheet.hide_gridlines(2)
     branding = branding or {}
@@ -226,10 +314,11 @@ def _write_worksheet(workbook, title, rows, headers, branding=None):
     school_name = branding.get("school_name", "Axis Baseball")
     generated_on = branding.get("generated_on")
     logo_png = branding.get("logo_png")
-    first_header_row = 2 if branding else 0
+    first_group_row = 2 if branding else 0
+    first_header_row = first_group_row + 1
     first_data_row = first_header_row + 1
-    last_col = len(headers) - 1
-    worksheet.freeze_panes(first_data_row, 0)
+    last_col = len(columns) - 1
+    worksheet.freeze_panes(first_data_row, len(PLAYER_COLUMNS))
     worksheet.set_tab_color(palette["primary"])
     worksheet.set_zoom(90)
 
@@ -238,6 +327,12 @@ def _write_worksheet(workbook, title, rows, headers, branding=None):
         "font_color": palette["primary_text"], "bg_color": palette["primary"],
         "align": "left", "valign": "vcenter", "bottom": 2,
         "bottom_color": palette["accent"],
+    })
+    group_format = workbook.add_format({
+        "bold": True, "font_name": "Arial", "font_size": 10,
+        "font_color": palette["primary"], "bg_color": palette["band"],
+        "align": "left", "valign": "vcenter", "left": 1, "right": 1,
+        "top": 1, "bottom": 1, "border_color": palette["border"],
     })
     title_format = workbook.add_format({
         "bold": True, "font_name": "Arial", "font_size": 16,
@@ -268,22 +363,24 @@ def _write_worksheet(workbook, title, rows, headers, branding=None):
     formats = {}
     for banded in (False, True):
         for kind, number_format in (
-            ("text", None), ("integer", "0"), ("three", "0.000"), ("two", "0.00")
+            ("text", None),
+            ("integer", "0"),
+            ("three", "0.000"),
+            ("two", "0.00"),
+            ("percent", "0.0%"),
         ):
             formats[(kind, banded, False)] = body_format(number_format, banded)
             formats[(kind, banded, True)] = body_format(number_format, banded, True)
 
     column_widths = []
-    for col_index, header in enumerate(headers):
+    for col_index, column in enumerate(columns):
         content_width = max(
-            [len(header)] + [len(str(player.get(header, "") or "")) for player in rows]
+            [len(column.header)]
+            + [len(str(player.get(column.key, "") or "")) for player in rows]
         )
-        if header == "Name":
-            width = min(max(content_width + 2, 20), 34)
-        elif header in {"Position", "Class"}:
-            width = min(max(content_width + 2, 10), 18)
-        else:
-            width = min(max(content_width + 2, 7), 12)
+        width = min(max(content_width + 2, column.width), max(column.width, 34))
+        if column.key == "_player_url":
+            width = column.width
         column_widths.append(width)
         worksheet.set_column(col_index, col_index, width)
 
@@ -322,39 +419,67 @@ def _write_worksheet(workbook, title, rows, headers, branding=None):
             worksheet.merge_range(0, 0, 0, last_col, school_name, title_format)
             worksheet.merge_range(1, 0, 1, last_col, date_text, subtitle_format)
 
+    worksheet.set_row(first_group_row, 22)
+    group_start = 0
+    while group_start < len(columns):
+        group_name = columns[group_start].group
+        group_end = group_start
+        while (
+            group_end + 1 < len(columns)
+            and columns[group_end + 1].group == group_name
+        ):
+            group_end += 1
+        if group_start == group_end:
+            worksheet.write(first_group_row, group_start, group_name, group_format)
+        else:
+            worksheet.merge_range(
+                first_group_row,
+                group_start,
+                first_group_row,
+                group_end,
+                group_name,
+                group_format,
+            )
+        group_start = group_end + 1
+
     worksheet.set_row(first_header_row, 26)
-    for col, header in enumerate(headers):
-        worksheet.write(first_header_row, col, header, header_format)
+    for col, column in enumerate(columns):
+        worksheet.write(first_header_row, col, column.header, header_format)
     for row_index, player in enumerate(rows, start=first_data_row):
         worksheet.set_row(row_index, 21)
         banded = (row_index - first_data_row) % 2 == 1
-        for col_index, header in enumerate(headers):
-            value = excel_value(header, player.get(header, ""))
-            kind = "text"
-            if header in INTEGER_COLUMNS and isinstance(value, int):
-                kind = "integer"
-            elif header in THREE_DECIMAL_COLUMNS and isinstance(value, float):
-                kind = "three"
-            elif header in TWO_DECIMAL_COLUMNS and isinstance(value, float):
-                kind = "two"
+        for col_index, column in enumerate(columns):
+            raw_value = player.get(column.key, "")
+            if column.key in {"Last 10 Status", "Conference Status"} and not raw_value:
+                raw_value = "Unavailable"
+            value = excel_value(column.kind, raw_value)
+            kind = column.kind if isinstance(value, (int, float)) else "text"
             worksheet.write(
                 row_index, col_index, value,
-                formats[(kind, banded, header == "Name")],
+                formats[(kind, banded, column.key == "Name")],
             )
     if rows:
         worksheet.add_table(
-            first_header_row, 0, first_header_row + len(rows), last_col,
-            {"columns": [
-                {"header": header, "header_format": header_format}
-                for header in headers
-            ], "style": None, "banded_rows": False, "name": f"{title}Table"},
+            first_header_row,
+            0,
+            first_header_row + len(rows),
+            last_col,
+            {
+                "columns": [
+                    {"header": column.header, "header_format": header_format}
+                    for column in columns
+                ],
+                "style": None,
+                "banded_rows": False,
+                "name": f"{title}Table",
+            },
         )
     else:
         worksheet.autofilter(first_header_row, 0, first_header_row, last_col)
     last_row = first_header_row + max(len(rows), 1)
     worksheet.set_landscape()
     worksheet.fit_to_pages(1, 0)
-    worksheet.repeat_rows(first_header_row, first_header_row)
+    worksheet.repeat_rows(first_group_row, first_header_row)
     worksheet.set_margins(left=0.35, right=0.35, top=0.55, bottom=0.55)
     worksheet.print_area(0, 0, last_row, last_col)
     worksheet.set_footer(f"&L{school_name} Baseball&C{title}&RPage &P of &N")
@@ -375,8 +500,8 @@ def create_workbook(hitters, pitchers, branding=None) -> io.BytesIO:
         "author": "Axis Baseball",
         "company": "Axis Baseball",
     })
-    _write_worksheet(workbook, "Hitters", hitters, HITTER_HEADERS, branding)
-    _write_worksheet(workbook, "Pitchers", pitchers, PITCHER_HEADERS, branding)
+    _write_worksheet(workbook, "Hitters", hitters, HITTER_COLUMNS, branding)
+    _write_worksheet(workbook, "Pitchers", pitchers, PITCHER_COLUMNS, branding)
     workbook.close()
     output.seek(0)
     return output
