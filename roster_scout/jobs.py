@@ -895,6 +895,14 @@ def _persist_canonical(session, job, snapshot, sections):
             )
             for metric in canonical.detailed_metrics
         }
+        | {
+            (
+                metric.code,
+                f"{metric.definition_version}:{metric.provenance}",
+                metric.provenance,
+            )
+            for metric in canonical.metrics
+        }
     )
     for code, version, formula in metric_definitions:
         definition_id = session.scalar(
@@ -951,6 +959,25 @@ def _persist_canonical(session, job, snapshot, sections):
                 source_record_id=source.id,
                 **values,
             ))
+
+    for metric in canonical.metrics:
+        version = f"{metric.definition_version}:{metric.provenance}"
+        available = metric.value is not None
+        session.add(MetricValue(
+            organization_id=job.organization_id,
+            snapshot_id=snapshot.id,
+            metric_definition_id=metric_definition_ids[(metric.code, version)],
+            player_team_season_id=identities[metric.identity_key].id,
+            value=metric.value,
+            unavailable_reason=(
+                None if available else "source value unavailable"
+            ),
+            status="available" if available else "missing_input",
+            reason_code=None if available else "source_value_unavailable",
+            inputs_json={"provenance": metric.provenance},
+            sample_json={},
+            scope="full_season",
+        ))
 
     verified_constants = {}
     for code in ("woba", "fip"):

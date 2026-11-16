@@ -1150,7 +1150,7 @@ class FullSeasonMetricPublicationTests(PostgreSQLJobTestCase):
                 .join(PlayerTeamSeason)
                 .where(MetricValue.snapshot_id == snapshot_id)
             ).all()
-            self.assertEqual(len(rows), 59)
+            self.assertEqual(len(rows), 64)
             self.assertEqual(
                 session.scalar(select(func.count()).select_from(MetricConstantSet)),
                 0,
@@ -1159,6 +1159,21 @@ class FullSeasonMetricPublicationTests(PostgreSQLJobTestCase):
                 (identity.display_name, definition.code): (value, definition)
                 for value, definition, identity in rows
             }
+            legacy_avg, legacy_avg_definition = metrics[
+                ("Complete Two Way", "AVG")
+            ]
+            self.assertEqual(legacy_avg.value, Decimal(".4"))
+            self.assertEqual(legacy_avg.status, "available")
+            self.assertEqual(
+                legacy_avg_definition.version,
+                "ncaa-1.0:calculated",
+            )
+            legacy_era, legacy_era_definition = metrics[
+                ("Complete Two Way", "ERA")
+            ]
+            self.assertIsNone(legacy_era.value)
+            self.assertEqual(legacy_era.status, "missing_input")
+            self.assertEqual(legacy_era_definition.formula, "unavailable")
             available_avg, avg_definition = metrics[("Complete Two Way", "avg")]
             self.assertEqual(available_avg.status, "available")
             self.assertEqual(available_avg.value, Decimal(".4"))
