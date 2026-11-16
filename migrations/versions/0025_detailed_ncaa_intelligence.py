@@ -315,6 +315,10 @@ def downgrade():
     )
     op.execute("DROP FUNCTION IF EXISTS reject_locked_metric_constant_set_mutation()")
 
+    # The legacy column must be restored before the detailed lineage columns
+    # disappear. Published metric rows are normally immutable, so suspend only
+    # that table's existing guard for this bounded migration-owned backfill.
+    op.execute("ALTER TABLE metric_values DISABLE TRIGGER trg_metric_values_immutable")
     op.execute(
         """
         UPDATE metric_values
@@ -322,6 +326,7 @@ def downgrade():
         WHERE value IS NULL
         """
     )
+    op.execute("ALTER TABLE metric_values ENABLE TRIGGER trg_metric_values_immutable")
     for constraint, kind in (
         ("fk_metric_values_constant_definition", "foreignkey"),
         ("ck_metric_values_unavailable_constant_reference", "check"),
