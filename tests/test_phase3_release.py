@@ -116,6 +116,105 @@ class ExternalRefreshDiagnosticTests(Phase3PostgreSQLTestCase):
             with self.assertRaises(DBAPIError):
                 session.flush()
 
+    def test_completed_attempt_and_published_ledger_immutability(self):
+        from roster_scout.models import (
+            ExternalRefreshDiagnostic,
+            ReportJob,
+            ReportSnapshot,
+            RequestLedger,
+        )
+
+        organization_id, report_id, job_id = self.fixture()
+        now = datetime(2026, 11, 16, 11, 0, tzinfo=UTC)
+        with self.Session.begin() as session:
+            job = session.get(ReportJob, job_id)
+            snapshot = ReportSnapshot(
+                organization_id=organization_id,
+                report_id=report_id,
+                schema_version="schema-1",
+            )
+            session.add(snapshot)
+            session.flush()
+            job.result_snapshot_id = snapshot.id
+            ledger = RequestLedger(
+                organization_id=organization_id,
+                job_id=job.id,
+                snapshot_id=snapshot.id,
+                family="schedule",
+                source_identity="ncaa:schedule:stable",
+                request_kind="cache",
+                outcome="cache_hit",
+                started_at=now,
+                completed_at=now,
+                budget_remaining=150,
+            )
+            refresh = ExternalRefreshDiagnostic(
+                organization_id=organization_id,
+                report_id=report_id,
+                snapshot_id=snapshot.id,
+                provider="power_bi",
+                status="pending",
+                attempt_number=1,
+                correlation_id=f"complete-{uuid.uuid4()}",
+                requested_at=now,
+                updated_at=now,
+            )
+            session.add_all((ledger, refresh))
+            session.flush()
+            refresh.status = "completed"
+            refresh.started_at = now + timedelta(seconds=1)
+            refresh.completed_at = now + timedelta(seconds=2)
+            refresh.updated_at = now + timedelta(seconds=2)
+            snapshot.status = "ready"
+            snapshot.published_at = now + timedelta(seconds=3)
+            ledger_id = ledger.id
+
+        with self.Session() as session:
+            stored_refresh = session.scalar(select(ExternalRefreshDiagnostic))
+            self.assertEqual(stored_refresh.status, "completed")
+            stored_ledger = session.get(RequestLedger, ledger_id)
+            stored_ledger.safe_category = "source_unavailable"
+            with self.assertRaises(DBAPIError):
+                session.flush()
+
+    def test_request_ledger_rejects_cross_tenant_job_snapshot_substitution(self):
+        from roster_scout.models import ReportJob, ReportSnapshot, RequestLedger
+
+        organization_id, report_id, job_id = self.fixture()
+        other_organization_id, other_report_id, other_job_id = self.fixture(
+            name="Other Tenant"
+        )
+        now = datetime.now(UTC)
+        with self.Session.begin() as session:
+            snapshot = ReportSnapshot(
+                organization_id=organization_id,
+                report_id=report_id,
+                schema_version="schema-1",
+            )
+            other_snapshot = ReportSnapshot(
+                organization_id=other_organization_id,
+                report_id=other_report_id,
+                schema_version="schema-1",
+            )
+            session.add_all((snapshot, other_snapshot))
+            session.flush()
+            session.get(ReportJob, job_id).result_snapshot_id = snapshot.id
+            session.get(ReportJob, other_job_id).result_snapshot_id = other_snapshot.id
+            session.add(RequestLedger(
+                organization_id=organization_id,
+                job_id=other_job_id,
+                snapshot_id=snapshot.id,
+                family="fielding",
+                source_identity="ncaa:fielding:stable",
+                request_kind="live",
+                outcome="live_complete",
+                started_at=now,
+                completed_at=now,
+                budget_remaining=149,
+            ))
+            with self.assertRaises(DBAPIError):
+                session.flush()
+
 
 class OperatorDiagnosticsTests(Phase3PostgreSQLTestCase):
     def _run(self, arguments, *, environ=None):
@@ -154,6 +253,7 @@ class OperatorDiagnosticsTests(Phase3PostgreSQLTestCase):
         from roster_scout.models import (
             ExternalRefreshDiagnostic,
             ReportJob,
+            ReportSection,
             ReportSnapshot,
             RequestLedger,
         )
@@ -186,6 +286,20 @@ class OperatorDiagnosticsTests(Phase3PostgreSQLTestCase):
                 safe_category="browser_capacity",
                 budget_remaining=0,
             ))
+            session.add(ReportSection(
+                organization_id=organization_id,
+                job_id=job.id,
+                snapshot_id=snapshot.id,
+                section="game_logs:fielding",
+                critical=False,
+                status="unavailable",
+                row_count=0,
+                verified_empty=False,
+                collected_at=now - timedelta(minutes=4),
+                failure_category="request_budget_exhausted",
+                schema_version="schema-1",
+                parser_version="parser-1",
+            ))
             session.add(ExternalRefreshDiagnostic(
                 organization_id=organization_id,
                 report_id=report_id,
@@ -212,6 +326,15 @@ class OperatorDiagnosticsTests(Phase3PostgreSQLTestCase):
         self.assertEqual(payload["jobs"][0]["state_category"], "running_stuck")
         self.assertEqual(payload["jobs"][0]["capacity_category"], "browser_capacity")
         self.assertEqual(payload["jobs"][0]["request_budget"]["remaining"], 0)
+        self.assertEqual(
+            payload["jobs"][0]["sections"],
+            [{
+                "row_count": 0,
+                "safe_reason": "request_budget_exhausted",
+                "section": "game_logs:fielding",
+                "status": "unavailable",
+            }],
+        )
         self.assertEqual(payload["jobs"][0]["external_refreshes"][0]["provider"], "power_bi")
         self.assertEqual(payload["jobs"][0]["external_refreshes"][0]["correlation_id"], correlation_id)
         lowered = stdout.casefold()
