@@ -555,6 +555,69 @@ class SplitDiscoveryTests(unittest.TestCase):
                     rf"[\"']{label}[\"']\s*:\s*[\"']?\d+",
                 )
 
+    def test_certified_result_grid_contract(self):
+        api = FixtureCaptureSafetyTests.capture_api()
+        representative_labels = {"batting": "vs_lhp", "pitching": "vs_lhb"}
+        for division, team_id in self.REPRESENTATIVES.items():
+            manifest, _controls = self._load(division)
+            observations = {
+                (item["stat_type"], item["canonical_label"]): item
+                for item in manifest["observations"]
+            }
+            for stat_type, label in representative_labels.items():
+                candidate = observations[(stat_type, label)]
+                fixture_path = (
+                    FIXTURES / division / f"{stat_type}_split_result.html"
+                )
+                with self.subTest(division=division, stat_type=stat_type):
+                    text = fixture_path.read_text(encoding="utf-8")
+                    certified = api.certify_result_fixture(
+                        text,
+                        expected_season_id="17040",
+                        expected_season_team_id=team_id,
+                        expected_division=division,
+                        expected_stat_type=stat_type,
+                        expected_canonical_label=label,
+                        expected_identifier=candidate["identifier"],
+                        expected_source_stat_category_id=(
+                            candidate["source_stat_category_id"]
+                        ),
+                    )
+                    self.assertIn(certified["status"], {"complete", "unavailable"})
+                    if certified["status"] == "complete":
+                        self.assertGreater(certified["row_count"], 0)
+                        self.assertGreater(len(certified["normalized_headers"]), 1)
+                        self.assertTrue(certified["player_links_valid"])
+                    else:
+                        self.assertIn(
+                            certified["reason"],
+                            {"source_not_published", "source_identifier_not_found"},
+                        )
+
+        valid = (FIXTURES / "d1" / "batting_split_result.html").read_text(
+            encoding="utf-8"
+        )
+        expected = {
+            "expected_season_id": "17040",
+            "expected_season_team_id": "614606",
+            "expected_division": "d1",
+            "expected_stat_type": "batting",
+            "expected_canonical_label": "vs_lhp",
+            "expected_identifier": "4",
+            "expected_source_stat_category_id": "15867",
+        }
+        mutations = {
+            "wrong_season": valid.replace('data-season-id="17040"', 'data-season-id="16999"', 1),
+            "wrong_type": valid.replace('data-stat-type="batting"', 'data-stat-type="pitching"', 1),
+            "wrong_label": valid.replace('data-canonical-label="vs_lhp"', 'data-canonical-label="vs_rhp"', 1),
+            "wrong_header": valid.replace("<th>Player</th>", "<th>Athlete</th>", 1),
+            "malformed_row": valid.replace("</td>", "", 1),
+            "invalid_player_link": valid.replace('/players/', 'https://example.test/players/', 1),
+        }
+        for label, changed in mutations.items():
+            with self.subTest(rejection=label), self.assertRaises(ValueError):
+                api.certify_result_fixture(changed, **expected)
+
 
 class FieldingPublicationTests(
     __import__("tests.test_report_jobs", fromlist=["PostgreSQLJobTestCase"])
