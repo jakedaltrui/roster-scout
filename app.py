@@ -824,6 +824,14 @@ def _json_auth_response(category: str):
     return jsonify({"error": category}), 401 if category == "authentication_required" else 404
 
 
+def _request_expects_json() -> bool:
+    return (
+        request.path.startswith("/api/")
+        or request.path == "/scrape"
+        or request.accept_mimetypes.best == "application/json"
+    )
+
+
 def _load_account_only_context(cookie_value: str):
     with _auth_session_factory().begin() as session:
         loaded = load_account_session(
@@ -869,7 +877,7 @@ def require_authenticated_organization():
                 )
     except AuthorizationFailure as exc:
         if exc.category == "authentication_required":
-            if request.path.startswith("/api/") or request.path == "/scrape":
+            if _request_expects_json():
                 return _json_auth_response("authentication_required")
             return redirect("/login", code=302)
         try:
@@ -877,17 +885,17 @@ def require_authenticated_organization():
         except Exception:
             loaded, memberships = None, []
         if loaded is None:
-            if request.path.startswith("/api/") or request.path == "/scrape":
+            if _request_expects_json():
                 return _json_auth_response("authentication_required")
             return redirect("/login", code=302)
-        if request.path.startswith("/api/") or request.path == "/scrape":
+        if _request_expects_json():
             return _json_auth_response("not_found")
         if memberships:
             return redirect("/organizations/select", code=302)
         return redirect("/organizations/none", code=302)
     except Exception:
         app.logger.warning("identity_authorization_failed")
-        if request.path.startswith("/api/") or request.path == "/scrape":
+        if _request_expects_json():
             return _json_auth_response("authentication_required")
         return redirect("/login", code=302)
 
@@ -898,7 +906,7 @@ def require_authenticated_organization():
 
 @app.errorhandler(CSRFError)
 def csrf_rejected(_error):
-    if request.path.startswith("/api/") or request.path == "/scrape":
+    if _request_expects_json():
         return jsonify({"error": "request_rejected"}), 400
     return render_template("auth_error.html", state="failure"), 400
 

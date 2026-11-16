@@ -31,7 +31,7 @@ SAMPLE_PLAYER = {
 }
 
 
-class DownloadEventContractTests(unittest.TestCase):
+class HomepageReportFlowContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.template = (
@@ -40,44 +40,33 @@ class DownloadEventContractTests(unittest.TestCase):
         with open(cls.template, encoding="utf-8") as handle:
             cls.source = handle.read()
 
-    def test_template_uses_retry_safe_download_state_machine(self):
-        module = self.source.index("static', filename='download_tracking.js")
-        safe_storage = self.source.index("createSafeStorage", module)
-        classifier = self.source.index("classifyAcknowledgementResponse", module)
-        tracker = self.source.index("createDownloadTracker", module)
-        submission = self.source.index("runDownloadSubmission", tracker)
-        request_field = self.source.index("download_event_id: downloadEventId")
-        acknowledgement = self.source.index("/api/downloads/ack")
+    def test_homepage_uses_the_saved_report_flow_and_shared_status_poller(self):
+        status_module = self.source.index("static', filename='report_status.js")
+        report_request = self.source.index("fetch('/reports/new'")
+        poller = self.source.index("createReportStatusPoller", report_request)
+        handoff = self.source.index("window.location.assign(payload.report_url)", poller)
 
-        self.assertLess(module, safe_storage)
-        self.assertLess(safe_storage, classifier)
-        self.assertLess(safe_storage, tracker)
-        self.assertLess(tracker, submission)
-        self.assertLess(submission, request_field)
-        self.assertGreater(acknowledgement, module)
-        self.assertIn("window.sessionStorage", self.source)
-        self.assertIn("createSafeStorage", self.source)
-        self.assertIn("try {", self.source)
-        self.assertNotIn("storage: sessionStorage", self.source)
-        self.assertNotIn("let downloadEventId = null;", self.source)
-        self.assertNotIn("downloadEventId = crypto.randomUUID();", self.source)
-        self.assertNotIn("downloadEventId = null;", self.source)
+        self.assertLess(status_module, report_request)
+        self.assertLess(report_request, poller)
+        self.assertLess(poller, handoff)
+        self.assertIn("const requestBody = new FormData();", self.source)
+        self.assertIn("requestBody.set('idempotency_key', crypto.randomUUID());", self.source)
+        self.assertIn("headers: { Accept: 'application/json', ...authenticatedHeaders }", self.source)
+        self.assertIn("Keep this page open. We’ll take you to the finished report automatically.", self.source)
+        self.assertNotIn("static', filename='download_tracking.js", self.source)
+        self.assertNotIn("fetch('/scrape'", self.source)
+        self.assertNotIn("downloadFile(", self.source)
 
-    def test_template_classifies_acknowledgement_status_and_definitive_retry_copy(self):
+    def test_verification_code_hides_only_the_invisible_group_outline(self):
         self.assertIn(
-            "classifyAcknowledgementResponse(response.status",
+            ".auth-code-input:focus, .auth-code-input:focus-visible { outline:none; box-shadow:none; }",
             self.source,
         )
-        self.assertIn("definitiveAcknowledgementFailure", self.source)
         self.assertIn(
-            "Your previous download confirmation was rejected. Please submit again.",
+            ".auth-code-control:focus-within .auth-code-box.is-active",
             self.source,
         )
-        self.assertNotIn("if (!response.ok) return { acknowledged: false };", self.source)
-
-    def test_success_copy_claims_start_not_filesystem_save(self):
-        self.assertIn("Your Stat Sheet download has started.", self.source)
-        self.assertNotIn("Your Stat Sheet has downloaded.", self.source)
+        self.assertIn(".auth-code-box.is-active::after", self.source)
 
     def test_loading_headline_tracks_progress_without_explainer_copy(self):
         self.assertIn('id="loading-headline"', self.source)
@@ -120,7 +109,7 @@ class DownloadEventContractTests(unittest.TestCase):
         self.assertIn("createPendingReportStore", self.source)
         self.assertIn("pendingReportStore.consume()", self.source)
         self.assertIn("'X-CSRFToken': csrfToken", self.source)
-        self.assertIn("data.error === 'authentication_required'", self.source)
+        self.assertIn("response.status === 401", self.source)
         self.assertNotIn("window.location.assign('/login", self.source)
         self.assertNotRegex(
             self.source,
@@ -1007,7 +996,7 @@ class AuthenticatedSnapshotDownloadAcknowledgementTests(unittest.TestCase):
 
         homepage = client.get("/")
         self.assertEqual(homepage.status_code, 200)
-        self.assertIn(b"Download Roster Stat Sheet", homepage.data)
+        self.assertIn(b"Create report", homepage.data)
         self.assertIn(b">Dashboard<", homepage.data)
         self.assertIn(b'name="csrf-token"', homepage.data)
 
@@ -1616,10 +1605,10 @@ class AppRouteTests(unittest.TestCase):
             self.assertIn('name="Hitters"', workbook_xml)
             self.assertIn('name="Pitchers"', workbook_xml)
 
-    def test_home_page_describes_direct_excel_download(self):
+    def test_home_page_describes_saved_report_export_options(self):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"Download Roster Stat Sheet", response.data)
+        self.assertIn(b"Create report", response.data)
         self.assertIn(b'id="team-combobox"', response.data)
         self.assertIn(b'role="listbox"', response.data)
         self.assertNotIn(b'<nav class="header-nav"', response.data)
@@ -1631,7 +1620,8 @@ class AppRouteTests(unittest.TestCase):
             response.data.index(b'id="signed-out-actions"'),
         )
         self.assertNotIn(b"email-input", response.data)
-        self.assertNotIn(b"Google Sheets", response.data)
+        self.assertIn(b"Google Sheets", response.data)
+        self.assertIn(b"Excel", response.data)
         self.assertNotIn(b"JUCO", response.data)
         self.assertNotIn(b"NJCAA", response.data)
         self.assertNotIn(b'href="/demo"', response.data)

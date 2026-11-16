@@ -1168,7 +1168,7 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
     def test_homepage_catalog_and_logos_are_public_but_generation_is_protected(self):
         html = self.client.get("/")
         self.assertEqual(html.status_code, 200)
-        self.assertIn(b"Download Roster Stat Sheet", html.data)
+        self.assertIn(b"Create report", html.data)
         self.assertIn(b">Sign in<", html.data)
 
         catalog = self.client.get("/api/teams?division=d1")
@@ -1179,6 +1179,17 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
         response = self.client.post("/scrape", json={"team": "Tampa"})
         self.assertEqual(response.status_code, 401)
         self.assertEqual(response.get_json(), {"error": "authentication_required"})
+
+        report_json = self.client.post(
+            "/reports/new",
+            headers={"Accept": "application/json"},
+        )
+        self.assertEqual(report_json.status_code, 401)
+        self.assertEqual(
+            report_json.get_json(),
+            {"error": "authentication_required"},
+        )
+        self.assertEqual(self.client.get("/reports/new").status_code, 302)
 
         acknowledgement = self.client.post(
             "/api/downloads/ack",
