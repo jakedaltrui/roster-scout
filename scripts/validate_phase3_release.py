@@ -49,7 +49,19 @@ FOCUSED_TESTS = (
     ),
     (
         "tests.test_report_jobs.SectionHeaderPublicationTests."
+        "test_complete_retry_generation_ignores_prior_failed_ledgers"
+    ),
+    (
+        "tests.test_report_jobs.SectionHeaderPublicationTests."
+        "test_reconciliation_terminalizes_planned_generation_before_redelivery"
+    ),
+    (
+        "tests.test_report_jobs.SectionHeaderPublicationTests."
         "test_supplemental_deadline_persists_sanitized_unavailable_sections"
+    ),
+    (
+        "tests.test_report_jobs.SectionHeaderPublicationTests."
+        "test_public_collector_transport_cap_persists_budget_exhaustion"
     ),
     (
         "tests.test_ncaa_detail.FixtureCaptureSafetyTests."
@@ -58,6 +70,18 @@ FOCUSED_TESTS = (
     (
         "tests.test_ncaa_detail.FixtureCaptureSafetyTests."
         "test_terms_retry_reserves_the_followup_navigation"
+    ),
+    (
+        "tests.test_ncaa_detail.FixtureCaptureSafetyTests."
+        "test_player_transport_accepts_preloaded_first_url"
+    ),
+    (
+        "tests.test_ncaa_detail.FixtureCaptureSafetyTests."
+        "test_terms_dwell_stops_at_absolute_build_deadline"
+    ),
+    (
+        "tests.test_browserless_lifecycle.BrowserlessLifecycleTests."
+        "test_public_transport_preserves_collection_control_signals"
     ),
     (
         "tests.test_ncaa_detail.FixtureCaptureSafetyTests."
