@@ -43,11 +43,25 @@ release-tested; production remains unchanged pending explicit approval.
 
 Before production deployment:
 
-1. Deploy this release candidate to the existing staging application.
-2. Run the authenticated report, refresh, dashboard, Excel, Google Sheets,
+1. [x] Deploy this release candidate to the existing staging application.
+2. [ ] Run the authenticated report, refresh, dashboard, Excel, Google Sheets,
    invitation, logout, and cross-organization isolation smoke journeys.
-3. Verify PostgreSQL, Redis, private object storage, WorkOS/email delivery,
+3. [ ] Verify PostgreSQL, Redis, private object storage, WorkOS/email delivery,
    signing secrets, purge health, and uninterrupted Fly worker capacity.
-4. Request explicit production approval.
+4. [ ] Request explicit production approval.
+
+### Hosted staging evidence
+
+- PR #6 CI passed both test and dependency-audit jobs.
+- Fly release migration reached `0027`; app, worker, scheduler, and purge
+  processes reached healthy state.
+- `/healthz`, `/readyz`, the 308-team D1 catalog, protected-route redirects,
+  favicon linkage, and the hosted native JavaScript asset passed.
+- A private staging object completed write, integrity-checked read, and delete.
+- The hosted browser passed team selection, in-card sign-in transformation,
+  non-`.edu` rejection, and light/dark presentation.
+- A reachable `.edu` inbox is still required for the real WorkOS code loop.
+- Staging Google OAuth credentials are still required for the Sheets export
+  smoke; Excel and the remaining signed-in report journey follow that login.
 
 No production deployment was performed by this verification.
