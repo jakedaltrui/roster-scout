@@ -201,14 +201,6 @@ def _normalized_support(row: NcaaSourceRow) -> tuple[str, str]:
     )
 
 
-def _pitcher_only_position(value: str | None) -> bool:
-    """Identify roster positions that contain no non-pitching role."""
-    tokens = tuple(
-        token for token in re.split(r"[^a-z]+", (value or "").casefold()) if token
-    )
-    return bool(tokens) and all(token in {"p", "rhp", "lhp"} for token in tokens)
-
-
 def _compatible(left: NcaaSourceRow, right: NcaaSourceRow) -> bool:
     for a, b in zip(_normalized_support(left), _normalized_support(right)):
         if a and b and a != b:
@@ -464,72 +456,57 @@ def canonicalize_ncaa_collection(collection: NcaaCollection) -> CanonicalCollect
                     fact_batting_values["plate_appearances"] = int(
                         derived_pa.value
                     )
-            batting_opportunities = fact_batting_values.get("plate_appearances")
-            has_offensive_activity = any(
-                (fact_batting_values.get(key) or 0) > 0
-                for key in (
-                    "at_bats", "hits", "walks", "hit_by_pitch",
-                    "sacrifice_flies", "sacrifice_hits", "stolen_bases",
-                    "caught_stealing", "runs", "runs_batted_in",
-                )
-            )
-            pitcher_only_without_offense = (
-                _pitcher_only_position(_raw(batting, "Pos", "Position"))
-                and not has_offensive_activity
-                and not batting_opportunities
-            )
-            if not pitcher_only_without_offense:
-                facts.append(CanonicalFact(
-                    "batting",
+            facts.append(CanonicalFact(
+                "batting",
+                identity_key,
+                (batting.section, batting.row_ordinal),
+                {
+                    "at_bats": batting_values["at_bats"],
+                    "hits": batting_values["hits"],
+                    "walks": batting_values["walks"],
+                    "strikeouts": batting_values["strikeouts"],
+                },
+                fact_batting_values,
+            ))
+
+            def calculated_avg():
+                hits = _integer(batting, "H")
+                at_bats = _integer(batting, "AB")
+                return Decimal(hits) / Decimal(at_bats) if hits is not None and at_bats else None
+
+            metrics.append(
+                _metric(
                     identity_key,
-                    (batting.section, batting.row_ordinal),
-                    {
-                        "at_bats": batting_values["at_bats"],
-                        "hits": batting_values["hits"],
-                        "walks": batting_values["walks"],
-                        "strikeouts": batting_values["strikeouts"],
-                    },
-                    fact_batting_values,
-                ))
-
-                def calculated_avg():
-                    hits = _integer(batting, "H")
-                    at_bats = _integer(batting, "AB")
-                    return Decimal(hits) / Decimal(at_bats) if hits is not None and at_bats else None
-
-                metrics.append(
-                    _metric(
-                        identity_key,
-                        batting,
-                        "AVG",
-                        ("BA", "AVG"),
-                        calculated_avg,
-                    )
+                    batting,
+                    "AVG",
+                    ("BA", "AVG"),
+                    calculated_avg,
                 )
-                for code in (
-                    "pa",
-                    "avg",
-                    "obp",
-                    "slg",
-                    "ops",
-                    "iso",
-                    "batting_bb_pct",
-                    "batting_k_pct",
-                    "babip",
-                    "singles",
-                    "total_bases",
-                    "woba",
-                ):
-                    detailed_metrics.append(_detailed_metric_lineage(
-                        identity_key,
+            )
+            for code in (
+                "pa",
+                "avg",
+                "obp",
+                "slg",
+                "ops",
+                "iso",
+                "batting_bb_pct",
+                "batting_k_pct",
+                "babip",
+                "singles",
+                "total_bases",
+                "woba",
+            ):
+                detailed_metrics.append(_detailed_metric_lineage(
+                    identity_key,
+                    code,
+                    calculate_metric(
                         code,
-                        calculate_metric(
-                            code,
-                            batting_values,
-                            season_id=collection.season.season_id,
-                            division=collection.team.division,
-                        ),
-                    ))
+                        batting_values,
+                        season_id=collection.season.season_id,
+                        division=collection.team.division,
+                    ),
+                ))
         if fielding:
             fielding_values = MappingProxyType({
                 "games": _integer(fielding, "G"),

@@ -572,6 +572,53 @@ class ArtifactContractTests(unittest.TestCase):
         self.assertEqual(pitchers[0]["Conference Status"], "Failed")
         self.assertNotIn("Last 10 ERA", pitchers[0])
 
+    def test_canonical_projection_hides_pitcher_only_placeholder_from_hitters(self):
+        from roster_scout.artifacts import _project_snapshot_workbook_rows
+
+        player_id = uuid.uuid4()
+        source_id = uuid.uuid4()
+        player = SimpleNamespace(
+            id=player_id,
+            display_name="Pitcher Only",
+            jersey_number="18",
+            position="RHP",
+        )
+        source = SimpleNamespace(
+            id=source_id,
+            player_team_season_id=player_id,
+            section="batting",
+            source_player_id="18",
+            source_url="https://stats.ncaa.org/teams/701",
+            raw_values={"Yr": "So", "Pos": "RHP"},
+        )
+        batting = SimpleNamespace(
+            player_team_season_id=player_id,
+            source_record_id=source_id,
+            games=15,
+            games_started=0,
+            plate_appearances=0,
+            at_bats=0,
+            runs=0,
+            hits=0,
+            doubles=0,
+            triples=0,
+            home_runs=0,
+            runs_batted_in=0,
+            walks=0,
+            hit_by_pitch=0,
+            strikeouts=0,
+            sacrifice_flies=0,
+            sacrifice_hits=0,
+            stolen_bases=0,
+        )
+
+        hitters, pitchers = _project_snapshot_workbook_rows(
+            (player,), (source,), (batting,), (), (), (), (), ()
+        )
+
+        self.assertEqual(hitters, [])
+        self.assertEqual(pitchers, [])
+
     def test_artifact_schema_bump_accepts_exact_historical_keys(self):
         from roster_scout.artifacts import (
             ARTIFACT_SCHEMA_VERSION,

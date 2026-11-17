@@ -310,11 +310,11 @@ class CanonicalDataTests(unittest.TestCase):
         self.assertIsNone(facts["Roster Only"]["hit_by_pitch"])
         self.assertIsNone(facts["Roster Only"]["plate_appearances"])
 
-    def test_pitcher_only_zero_batting_row_is_not_a_hitting_fact(self):
+    def test_pitcher_only_zero_batting_row_remains_an_auditable_fact(self):
         canonical = canonicalize_ncaa_collection(collection([
             {
                 "Player": "Pitcher Only", "Pos": "RHP", "GP": "15",
-                "AB": "", "H": "", "BB": "", "HBP": "", "SF": "",
+                "AB": "", "H": "", "BB": "", "HBP": "", "SF": "", "SH": "",
                 "_player_id": "10",
             },
             {
@@ -338,7 +338,7 @@ class CanonicalDataTests(unittest.TestCase):
             if fact.section == "batting"
         }
 
-        self.assertNotIn("ncaa:10", batting)
+        self.assertEqual(batting["ncaa:10"].detailed_values["plate_appearances"], 0)
         self.assertEqual(batting["ncaa:11"].detailed_values["plate_appearances"], 1)
 
     def test_participating_pitchers_treat_explicit_blank_counts_as_zero(self):
