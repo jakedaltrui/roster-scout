@@ -94,7 +94,13 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://roster_scout:roster_scout@postgres:5432/roster_scout
       FAILURE_EVIDENCE_PURGE_SECONDS: "3600"
+      REPORT_RETENTION_DAYS: "30"
+      USAGE_EVENT_RETENTION_DAYS: "90"
+      ROSTER_SCOUT_ARTIFACT_BACKEND: filesystem
+      ROSTER_SCOUT_ARTIFACT_DIRECTORY: /var/lib/roster-scout-artifacts
       LOG_LEVEL: INFO
+    volumes:
+      - roster-scout-artifacts:/var/lib/roster-scout-artifacts
     depends_on:
       postgres:
         condition: service_healthy

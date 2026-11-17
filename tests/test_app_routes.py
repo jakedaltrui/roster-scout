@@ -94,12 +94,18 @@ class HomepageReportFlowContractTests(unittest.TestCase):
         self.assertIn(expected, report_new_source)
 
     def test_signed_in_avatar_keeps_initial_and_moves_school_logo_into_menu(self):
-        self.assertIn(
-            'id="account-avatar" data-signed-in="true" aria-hidden="true">{{ account_initial',
-            self.source,
+        account_menu = os.path.join(
+            os.path.dirname(__file__), "..", "templates", "_account_menu.html"
         )
-        self.assertIn('id="account-school-logo"', self.source)
-        self.assertIn('id="account-school-logo-image"', self.source)
+        with open(account_menu, encoding="utf-8") as handle:
+            account_menu_source = handle.read()
+        self.assertIn('{% include "_account_menu.html" %}', self.source)
+        self.assertIn(
+            'id="account-avatar" data-signed-in="true" aria-hidden="true">{{ (account_initial',
+            account_menu_source,
+        )
+        self.assertIn('id="account-school-logo"', account_menu_source)
+        self.assertIn('id="account-school-logo-image"', account_menu_source)
         self.assertIn(
             "accountAvatar.replaceChildren(document.createTextNode(data.account_initial",
             self.source,

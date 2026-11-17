@@ -139,6 +139,14 @@ class FilesystemArtifactStore:
             raise ArtifactStorageError("artifact payload is unavailable")
         return payload
 
+    def delete(self, key):
+        """Idempotently remove one validated retained artifact."""
+        path = self._path(key)
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            raise ArtifactStorageError("artifact storage delete failed") from None
+
 
 class S3ArtifactStore:
     """Private S3-compatible immutable workbook store."""
@@ -239,6 +247,14 @@ class S3ArtifactStore:
         if len(payload) != length or len(payload) > MAX_ARTIFACT_BYTES:
             raise ArtifactStorageError("artifact payload is unavailable")
         return payload
+
+    def delete(self, key):
+        """Idempotently remove one validated retained artifact."""
+        key = _validated_object_key(key)
+        try:
+            self.client.delete_object(Bucket=self.bucket, Key=key)
+        except Exception:
+            raise ArtifactStorageError("artifact storage delete failed") from None
 
 
 def artifact_store_from_environ(environ=None, *, required=False):

@@ -1,0 +1,32 @@
+{% set dialog_school = (account_school_name|default(none)) or (resolved_school_name|default(none)) or (organization_name|default(none)) %}
+{% if account_email and current_role|default(none) == "admin" %}
+  <dialog id="share-organization-dialog" class="account-dialog" data-account-modal aria-labelledby="share-dialog-title" aria-describedby="share-dialog-description">
+    <h2 id="share-dialog-title">Invite a coach</h2>
+    <p id="share-dialog-description">Share {{ dialog_school or "your school" }}’s saved reports with another member of your staff.</p>
+    <form class="account-dialog__form" action="{{ url_for('organization.invite') }}" method="post" data-account-form>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="role" value="member">
+      <input type="hidden" name="return_to" value="/reports">
+      <label for="share-email">Coach’s email</label>
+      <input id="share-email" name="email" type="email" autocomplete="email" inputmode="email" placeholder="coach@school.edu" required>
+      <p class="account-dialog__help">They’ll receive a secure email invitation. Delivery time can vary by school mail system.</p>
+      <div class="account-dialog__actions">
+        <button class="account-dialog__button account-dialog__button--secondary" type="button" data-account-dialog-close>Cancel</button>
+        <button class="account-dialog__button account-dialog__button--primary" type="submit" data-pending-label="Sending…">Send invite</button>
+      </div>
+    </form>
+  </dialog>
+{% endif %}
+{% if account_email %}
+  <dialog id="sign-out-dialog" class="account-dialog" data-account-modal aria-labelledby="sign-out-title" aria-describedby="sign-out-description">
+    <h2 id="sign-out-title">Sign out of Roster Scout?</h2>
+    <p id="sign-out-description">You’ll need a new email code to access your school’s reports again.</p>
+    <div class="account-dialog__actions">
+      <button class="account-dialog__button account-dialog__button--secondary" type="button" data-account-dialog-close autofocus>Stay signed in</button>
+      <form action="{{ url_for('auth.logout') }}" method="post" data-account-form>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="account-dialog__button account-dialog__button--danger" type="submit" data-pending-label="Signing out…">Sign out</button>
+      </form>
+    </div>
+  </dialog>
+{% endif %}

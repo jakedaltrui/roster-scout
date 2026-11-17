@@ -543,6 +543,8 @@
     html[data-theme="dark"] .sample-table tbody td { color:#b8b8bc; }
     @media(prefers-reduced-motion:reduce) { *,*::before,*::after { animation-duration:.01ms !important; animation-iteration-count:1 !important; transition:none !important; } }
   </style>
+  <link rel="stylesheet" href="{{ url_for('static', filename='account_menu.css') }}" />
+  <script defer src="{{ url_for('static', filename='account_menu.js') }}"></script>
 </head>
 <body id="top">
   <a class="skip-link" href="#main-content">Skip to content</a>
@@ -555,22 +557,7 @@
         </div>
         <div class="account-actions" id="signed-in-actions"{% if not signed_in %} hidden{% endif %}>
           <a class="dashboard-link" href="/reports">Dashboard</a>
-          <details class="account-menu">
-            <summary aria-label="Open account menu" aria-expanded="false"><span class="account-avatar" id="account-avatar" data-signed-in="true" aria-hidden="true">{{ account_initial or '•' }}</span></summary>
-            <div class="account-menu__panel">
-              <div class="account-identity">
-                <span class="account-school-logo" id="account-school-logo" aria-hidden="true"{% if not account_logo_url %} hidden{% endif %}><img id="account-school-logo-image"{% if account_logo_url %} src="{{ account_logo_url }}"{% endif %} alt="" width="30" height="30" referrerpolicy="no-referrer"></span>
-                <div class="account-identity-copy">
-                  <p class="account-school" id="account-school"{% if not account_school_name %} hidden{% endif %}>{{ account_school_name or '' }}</p>
-                  <p class="account-email" id="account-email">{{ account_email or '' }}</p>
-                </div>
-              </div>
-              <form action="{{ url_for('auth.logout') }}" method="post">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <button class="account-sign-out" type="submit" aria-label="Sign out" data-pending-label="Signing out…">Sign out</button>
-              </form>
-            </div>
-          </details>
+          {% include "_account_menu.html" %}
         </div>
         <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Switch to dark mode" title="Switch to dark mode"><svg class="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.9 13.1A9 9 0 0 1 10.9 3.1 9 9 0 1 0 20.9 13.1Z" /></svg><svg class="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" /></svg></button>
       </div>
@@ -680,6 +667,7 @@
       <section class="faq-section" id="questions" aria-labelledby="faq-heading"><div class="faq-intro"><p class="section-kicker">Quick answers</p><h2 class="faq-heading" id="faq-heading">Know what you’re creating.</h2><p>Choose a team first. A quick passwordless school-email sign-in keeps the finished report available to your staff.</p></div><div class="faq-list"><details class="faq-item" open><summary>What is included in the workbook?</summary><p>Every report contains a Hitters worksheet and a Pitchers worksheet. Both include player identity fields, while each sheet adds the season statistics relevant to that group.</p></details><details class="faq-item"><summary>Which teams can I search?</summary><p>The selector covers the current NCAA baseball catalog for Division I, Division II, and Division III teams.</p></details><details class="faq-item"><summary>How can I export the report?</summary><p>Open it directly in Google Sheets or download the same workbook as an .xlsx Excel file.</p></details><details class="faq-item"><summary>What happens after I click create report?</summary><p>The app verifies the selected team, asks you to sign in if needed, gathers the roster and season statistics, and opens the finished report with both export options.</p></details></div></section>
       <section class="final-cta" aria-labelledby="final-heading"><div class="final-copy"><h2 class="final-heading" id="final-heading">Your next opponent is a search away.</h2><p>Choose a division and build the workbook when you need it.</p></div><a class="cta-link" href="#builder">Find a team <span aria-hidden="true">&nbsp;↗</span></a></section>
     </main>
+    {% include "_account_dialogs.html" %}
     <footer class="footer"><span>Roster Scout © 2026</span><a href="https://github.com/jakedaltrui/roster-scout" target="_blank" rel="noopener noreferrer">View source on GitHub ↗</a></footer>
   </div>
   <script>
@@ -1567,60 +1555,6 @@
       event.preventDefault();
       beginInlineAuth({ returnTo: '/reports' });
     });
-
-    const accountMenu = document.querySelector('details.account-menu');
-    if (accountMenu) {
-      const accountSummary = accountMenu.querySelector('summary');
-      const accountPanel = accountMenu.querySelector('.account-menu__panel');
-      const accountLogoutButton = accountPanel?.querySelector('button[type="submit"]');
-      const accountLogoutForm = accountLogoutButton?.form;
-      let accountCloseTimer = null;
-      accountLogoutForm?.addEventListener('submit', event => {
-        if (event.defaultPrevented || !accountLogoutButton) return;
-        accountLogoutButton.disabled = true;
-        accountLogoutButton.textContent = accountLogoutButton.dataset.pendingLabel || 'Signing out…';
-        accountLogoutForm.setAttribute('aria-busy', 'true');
-      });
-      const finishAccountMenuClose = (restoreFocus = false) => {
-        if (accountCloseTimer !== null) window.clearTimeout(accountCloseTimer);
-        accountCloseTimer = null;
-        accountMenu.classList.remove('is-closing');
-        accountMenu.open = false;
-        if (restoreFocus) accountSummary.focus();
-      };
-      const closeAccountMenu = ({ restoreFocus = false } = {}) => {
-        if (!accountMenu.open || accountMenu.classList.contains('is-closing')) return;
-        if (!accountPanel || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-          finishAccountMenuClose(restoreFocus);
-          return;
-        }
-        accountMenu.classList.add('is-closing');
-        const finish = event => {
-          if (event && (event.target !== accountPanel || event.animationName !== 'menu-out')) return;
-          accountPanel.removeEventListener('animationend', finish);
-          finishAccountMenuClose(restoreFocus);
-        };
-        accountPanel.addEventListener('animationend', finish);
-        accountCloseTimer = window.setTimeout(() => finishAccountMenuClose(restoreFocus), 220);
-      };
-      accountSummary.addEventListener('click', event => {
-        if (!accountMenu.open || accountMenu.classList.contains('is-closing')) return;
-        event.preventDefault();
-        closeAccountMenu();
-      });
-      accountMenu.addEventListener('toggle', () => {
-        if (accountMenu.open) accountMenu.classList.remove('is-closing');
-        accountSummary.setAttribute('aria-expanded', String(accountMenu.open));
-      });
-      accountMenu.addEventListener('keydown', event => {
-        if (event.key !== 'Escape' || !accountMenu.open) return;
-        event.preventDefault();
-        closeAccountMenu({ restoreFocus: true });
-      });
-      document.addEventListener('click', event => {
-        if (accountMenu.open && !accountMenu.contains(event.target)) closeAccountMenu();
-      });
-    }
 
     document.querySelectorAll('[data-auth-back]').forEach(button => {
       button.addEventListener('click', () => {

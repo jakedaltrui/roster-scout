@@ -2,45 +2,25 @@
 
 Roster Scout runs as a standard Flask/Gunicorn service. Live NCAA collection may require Browserless or an approved proxy because upstream anti-bot behavior varies by network.
 
-## Power BI Embedded activation
+## Native dashboard and data lifecycle
 
-The repository includes a source-controlled PBIP/PBIR report and TMDL semantic
-model in `powerbi/`. Workbook delivery does not depend on Power BI. Keep
-`POWER_BI_MODE=disabled` until a dedicated workspace has been published to
-supported Embedded, Premium, or Fabric capacity and the live RLS gate below is
-complete.
+The customer dashboard is rendered inside Roster Scout from the same
+organization-authorized immutable snapshot used by the workbook. It requires no
+Power BI/Fabric capacity, service principal, iframe, analytics database, or
+customer BI account. Keep the legacy `POWER_BI_MODE` disabled; the checked-in
+`powerbi/` project is not part of the production runtime.
 
-Production settings belong only in the platform secret store:
+The dashboard projection is request-local and read-only. It does not duplicate
+snapshot facts or create a separate cache, so its storage cost is limited to the
+existing PostgreSQL snapshot and private workbook object.
 
-- `POWER_BI_MODE=live`
-- `POWER_BI_TENANT_ID`
-- `POWER_BI_CLIENT_ID`
-- `POWER_BI_CLIENT_SECRET`
-- `POWER_BI_WORKSPACE_ID`
-- `POWER_BI_REPORT_ID`
-- `POWER_BI_SEMANTIC_MODEL_ID`
-- `POWER_BI_EMBED_URL` — exact HTTPS `app.powerbi.com/reportEmbed` URL
-- `POWER_BI_RLS_ROLE=RosterScoutSnapshotReader`
-- `POWER_BI_CAPACITY_VERIFIED=true` — set only after the checks below
-
-Publish `powerbi/RosterScout.pbip`, bind its two PostgreSQL parameters in the
-Power BI service, configure credentials for the restricted analytics-view
-database principal, and grant the service principal only the workspace/API
-access required for app-owns-data embedding and semantic refresh. Do not grant
-customers Power BI access; Roster Scout generates short-lived view-only embed
-tokens after local membership and exact report/snapshot authorization.
-
-Before setting `POWER_BI_CAPACITY_VERIFIED=true`, test two real organizations
-and two different snapshots. Each token must return only the row set matching
-its exact `<organization UUID>|<snapshot UUID>` `CUSTOMDATA()` value; swapped
-and nonexistent values must return no rows. Also verify token renewal, a failed
-semantic refresh with the Excel artifact still downloadable, and no token or
-provider payload in logs. Record this evidence outside Git. No deterministic
-test, local fake, or development tenant substitutes for that live gate.
-
-Local preview may use `POWER_BI_MODE=fake`. It shows explicitly labeled
-illustrative values and startup rejects it whenever `APP_ENV=production` or
-`FLY_APP_NAME` is present.
+Production defaults to `REPORT_RETENTION_DAYS=30` and
+`USAGE_EVENT_RETENTION_DAYS=90`. The purge process removes private workbook
+objects first, then deletes the matching snapshot graph and any report that has
+no remaining snapshot or job. The setting is measured from snapshot publication
+(or creation for an unpublished abandoned snapshot), not last access. Retention
+values are fail-closed and bounded to 14-90 days for reports and 30-365 days for
+raw usage events.
 
 ## Native local runner
 
@@ -324,7 +304,7 @@ and backoff. Each broker delivery carries exactly `(job_id, generation)`;
 workers never call Celery `self.retry` and Redis owns no independent retry
 clock or customer-visible job state.
 
-### Failed HTML retention and purge readiness
+### Retention purge readiness
 
 Failed or blocked NCAA HTML is retained for 1-28 days for restricted operator
 troubleshooting; 28 days (672 hours) is the default and hard maximum. The
@@ -346,6 +326,12 @@ Configure `FAILURE_EVIDENCE_PURGE_SECONDS` from 60 through 3600 seconds; the
 default is 3600. The purge runner validates this setting before constructing a
 database engine, retries failures after a bounded 60-second delay, and never
 imports Redis, dispatch reconciliation, or Browserless configuration.
+
+The same independent process also applies the 30-day saved-report/workbook and
+90-day raw-usage policies. Object deletion is idempotent and precedes database
+deletion; a storage failure leaves the database graph intact for a later retry.
+Published snapshot mutation is still rejected outside the transaction-local
+`roster_scout.retention_purge=on` guard installed by migration `0027`.
 
 Treat production readiness as blocked until the persisted PostgreSQL heartbeat
 reports one successful purge. Readiness remains fresh for exactly six hours
@@ -479,9 +465,10 @@ Production uses `ROSTER_SCOUT_ARTIFACT_BACKEND=s3`. The app and worker require
 the same bucket, endpoint, region, and credentials. `/readyz` returns 503 and
 the worker refuses startup when Fly is detected but artifact storage is
 missing. Keep the bucket private, block public access, retain server-side
-encryption, and do not add lifecycle deletion until the product has an explicit
-customer retention policy. Failure HTML remains separately compressed and
-time-bounded in PostgreSQL; it is not written to the workbook bucket.
+encryption. The application-owned purge is the authoritative 30-day workbook
+lifecycle; do not add a shorter bucket rule that can delete objects before the
+database graph. Failure HTML remains separately compressed and time-bounded in
+PostgreSQL; it is not written to the workbook bucket.
 
 Before first production traffic, exercise this staging sequence against a
 non-production database, Redis instance, WorkOS environment, and bucket:
@@ -615,8 +602,8 @@ pseudonymous identifier for the canonical account UUID.
 
 A successful local report proves only the query and event contracts. It does
 not provision or validate managed PostgreSQL, authentication, authorization,
-object storage, Redis, Fly billing/capacity, or Power BI/Fabric services; those
-production prerequisites remain independently blocked until verified.
+object storage, Redis, or Fly billing/capacity; those production prerequisites
+remain independently blocked until verified.
 
 ## Environment variables
 
@@ -660,6 +647,8 @@ production prerequisites remain independently blocked until verified.
 | `REPORT_JOB_MAX_ATTEMPTS` | `3` | Total bounded job attempts (1-10), enforced by PostgreSQL generation compare-and-swap |
 | `FAILURE_EVIDENCE_RETENTION_DAYS` | `28` | Failed/blocked compressed HTML retention, strictly limited to 1-28 days |
 | `FAILURE_EVIDENCE_PURGE_SECONDS` | `3600` | Independent purge cadence, strictly limited to 60-3600 seconds |
+| `REPORT_RETENTION_DAYS` | `30` | Saved snapshot and private workbook retention, strictly limited to 14-90 days |
+| `USAGE_EVENT_RETENTION_DAYS` | `90` | Raw product-usage event retention, strictly limited to 30-365 days |
 | `REPORT_SCHEMA_VERSION` | `schema-1` | Same-build section-cache schema identity |
 | `NCAA_PARSER_VERSION` | `parser-2+ncaa-core-v2` | Same-build parser and accepted core-header contract identity |
 | `BROWSERLESS_PROXY` | `residential` | Browserless proxy network |

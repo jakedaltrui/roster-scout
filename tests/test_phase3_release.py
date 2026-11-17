@@ -312,7 +312,7 @@ class MigrationLifecycleTests(unittest.TestCase):
         with self.engine.connect() as connection:
             self.assertEqual(
                 connection.scalar(text("SELECT version_num FROM alembic_version")),
-                "0026",
+                "0027",
             )
         downgrade_database(self.database_url)
         upgrade_database(self.database_url)

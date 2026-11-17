@@ -35,7 +35,7 @@
 - [x] **SNAP-06**: A user can review all dated snapshots for a report and identify the newest complete or partial version.
 - [x] **SNAP-07**: Repeating an accepted report-build request with the same idempotency key does not create duplicate jobs or snapshots.
 - [x] **SNAP-08**: A failed report build leaves no snapshot falsely marked ready and can be retried safely.
-- [x] **SNAP-09**: A Power BI refresh failure does not invalidate a completed snapshot or its Excel artifact.
+- [x] **SNAP-09**: A dashboard projection or rendering failure does not invalidate a completed snapshot or its Excel artifact.
 
 ### Provenance and Canonical Data
 
@@ -48,7 +48,7 @@
 - [x] **DATA-07**: Raw source values needed for audit and metric recomputation remain associated with their snapshot facts.
 - [x] **DATA-08**: Derived values identify the metric-definition version and any season/division weight set used.
 - [x] **DATA-09**: Database constraints prevent canonical facts from referencing another organization's snapshot.
-- [x] **DATA-10**: Power BI-facing views and Excel generation read from the same published snapshot facts.
+- [x] **DATA-10**: Native-dashboard projections and Excel generation read from the same published snapshot facts.
 
 ### Detailed Statistics
 
@@ -85,32 +85,32 @@
 - [x] **XLSX-03**: The workbook writes numeric cells as numbers, preserves safe plain-text handling, and applies the correct display precision for each metric.
 - [x] **XLSX-04**: Downloading an older snapshot returns its exact stored workbook artifact rather than rebuilding it from current upstream data.
 - [x] **XLSX-05**: The workbook records a schema version and SHA-256 artifact checksum in snapshot metadata.
-- [x] **XLSX-06**: Shared fixture values match across canonical facts, Excel cells, and Power BI-facing views.
+- [x] **XLSX-06**: Shared fixture values match across canonical facts, Excel cells, and native-dashboard projections.
 
-### Power BI Embedded
+### Native Dashboard and Retention
 
-- [x] **PBI-01**: An authenticated Roster Scout customer can view the embedded report without signing in to Power BI or holding a Power BI license.
-- [x] **PBI-02**: The embedded report includes Opponent Overview, Roster, Hitting, Pitching, Fielding, Situational Splits, Player Detail, and Sources & Data Quality pages.
-- [x] **PBI-03**: The report is branded for the selected opponent and identifies the active snapshot and data freshness.
-- [x] **PBI-04**: The server generates only short-lived embed tokens after authorizing the user's organization and requested snapshot.
-- [x] **PBI-05**: The semantic model enforces organization isolation using effective identity and row-level security or a stronger workspace-isolation model.
-- [x] **PBI-06**: A snapshot publication can trigger an asynchronous semantic-model refresh and expose pending, completed, and failed refresh states.
-- [x] **PBI-07**: The dashboard remains unavailable for a new snapshot until its semantic refresh completes, while the completed Excel artifact remains downloadable.
-- [x] **PBI-08**: The report page provides a full snapshot Excel download independent of Power BI visual export.
-- [x] **PBI-09**: A customer can filter and drill through report visuals without changing the immutable snapshot data.
-- [x] **PBI-10**: Production embedding is blocked unless the report resides in an Embedded, Premium, or Fabric capacity-backed workspace.
+- [x] **DASH-01**: An authenticated customer can review the authorized saved snapshot without a separate analytics account, iframe, or BI license.
+- [x] **DASH-02**: The dashboard presents full-season, last-10, conference, hitting, pitching, fielding, recent-game, leader, and situational-split views when source facts are available.
+- [x] **DASH-03**: The report identifies the active immutable snapshot, source freshness, completeness, and unavailable data without synthetic values.
+- [x] **DASH-04**: Organization and snapshot authorization is completed server-side before any dashboard facts are projected into the page.
+- [x] **DASH-05**: The dashboard is lightweight, responsive, keyboard operable, and uses no secondary analytics store or chart dependency.
+- [x] **DASH-06**: Scope and view changes never mutate snapshot data and require no additional network request.
+- [x] **DASH-07**: Workbook and Google Sheets exports remain available from the same report page and exact snapshot.
+- [x] **RET-01**: Saved snapshot data and private workbook objects are deleted after 30 days by an independently supervised purge process.
+- [x] **RET-02**: Raw product-usage events are deleted after 90 days, making usage reporting an explicit rolling 90-day window.
+- [x] **RET-03**: Workbook-object deletion precedes exact database-graph deletion, and a storage failure leaves the graph intact for retry.
 
 ### Security and Operations
 
 - [x] **SECU-01**: Cross-organization access is denied for report HTML, JSON APIs, refresh actions, workbook downloads, job status, and embed-token endpoints.
 - [x] **SECU-02**: Authorization checks derive organization context from the authenticated membership, never from an untrusted request field alone.
-- [x] **SECU-03**: Passwordless, invitation, session, Power BI, and service-principal secrets or tokens never appear in application logs.
-- [x] **SECU-04**: Security-relevant membership, report, refresh, export, and embed-token events are auditable by actor, organization, target, and time without recording secret material.
-- [x] **SECU-05**: External failures from NCAA, Browserless, identity, object storage, database, and Power BI produce distinct sanitized operational states.
-- [ ] **SECU-06**: Production readiness includes automated cross-organization denial tests and a manual two-organization Power BI RLS verification.
+- [x] **SECU-03**: Passwordless, invitation, session, Google OAuth, and storage credentials or tokens never appear in application logs.
+- [x] **SECU-04**: Security-relevant membership, report, refresh, and export events are auditable by actor, organization, target, and time without recording secret material.
+- [x] **SECU-05**: External failures from NCAA, Browserless, identity, object storage, and database produce distinct sanitized operational states.
+- [x] **SECU-06**: Production readiness includes automated cross-organization dashboard, report, and workbook denial tests.
 - [x] **OPS-01**: Report jobs apply bounded retries and never run more NCAA browser sessions than the configured capacity permits.
 - [x] **OPS-02**: Successful source responses and normalized sections are cached with schema/version keys to control upstream requests and rebuild cost.
-- [x] **OPS-03**: Operators can identify stuck jobs, failed Power BI refreshes, unavailable source sections, and capacity exhaustion without reading customer data.
+- [x] **OPS-03**: Operators can identify stuck jobs, unavailable source sections, retention-purge health, and capacity exhaustion without reading customer data.
 - [x] **OPS-04**: Database migrations and snapshot schema upgrades preserve existing published snapshots or explicitly migrate them with verification.
 - [x] **OPS-05**: Existing current-season D1/D2/D3 selector and basic workbook behavior remain covered by regression tests throughout the migration.
 
@@ -134,7 +134,7 @@
 | Anonymous report access | Conflicts with organization-owned customer data and embed-token security |
 | Unverified or non-`.edu` domain membership | Only the identity provider's verified institutional address can grant automatic school membership |
 | Live in-game tracking | Requires a different real-time data product and reliability model |
-| Customer-authored Power BI reports | The milestone delivers a curated scouting product, not a BI authoring platform |
+| External or customer-authored BI reports | The milestone delivers a fast native scouting view without a second analytics product |
 | Native mobile applications | Responsive web and downloadable Excel remain the delivery surfaces |
 | Predictive player or game models | Requires separate model validation, evaluation, and disclosure work |
 | Silent substitution of stale data | Users must see source freshness and section completeness |
@@ -144,10 +144,10 @@
 - [x] A verified school member can authenticate passwordlessly, enter the correct organization, create a report, and later reopen its saved report; exact invitations remain available for exceptions.
 - [ ] Refreshing a report creates a second snapshot while the first dashboard and workbook remain reproducible.
 - [ ] A representative D1, D2, and D3 report exposes season and scoped workbook metrics in the two-sheet Excel download, while the dashboard contains fielding, split statistics, career history, game logs, methodology, and provenance or an explicit unavailable state for each section.
-- [ ] The same fixture player and snapshot produce matching shared metric values in canonical storage, Excel, and Power BI-facing views.
-- [ ] A member of Organization A cannot access any Organization B report, job, workbook, or Power BI data through identifier substitution.
-- [ ] A customer can review the opponent-branded embedded report and download the complete snapshot workbook from the same report page.
-- [ ] NCAA, Browserless, Power BI, or object-storage failure cannot corrupt an already published snapshot.
+- [ ] The same fixture player and snapshot produce matching shared metric values in canonical storage, Excel, and native-dashboard projections.
+- [ ] A member of Organization A cannot access any Organization B report, job, workbook, or dashboard data through identifier substitution.
+- [ ] A customer can review the lightweight opponent dashboard and download the complete snapshot workbook from the same report page.
+- [ ] NCAA, Browserless, dashboard rendering, or object-storage failure cannot corrupt an already published snapshot.
 
 ## Traceability
 
@@ -158,7 +158,7 @@
 | AUTH-01–02, AUTH-05–06, ORG-01, ORG-06–08, SNAP-05–08, SECU-01–05, OPS-04–05 | Phase 02.1 | Complete |
 | STAT-01–08, SPLT-01–05, HIST-01–06, OPS-03 | Phase 3 | Complete |
 | XLSX-01–06 | Phase 4 | Complete |
-| SNAP-09, PBI-01–10, SECU-06 | Phase 5 | Implementation complete; SECU-06 live evidence pending |
+| SNAP-09, DASH-01–07, RET-01–03, SECU-06 | Phase 5 | Complete |
 
 **Coverage:**
 - v2.0 requirements: 79 total

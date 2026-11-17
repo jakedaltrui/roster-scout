@@ -115,18 +115,47 @@ def run_purge(
 
 
 def _runtime_dependencies():
-    """Construct PostgreSQL dependencies only after timing validation."""
+    """Construct PostgreSQL and private-storage cleanup dependencies."""
+    from roster_scout.artifacts import artifact_store_from_environ
     from roster_scout.database import create_session_factory, get_engine
     from roster_scout.evidence import (
         get_evidence_purge_readiness,
         purge_expired_evidence,
     )
+    from roster_scout.retention import (
+        RetentionConfig,
+        purge_expired_report_data,
+    )
 
     engine = get_engine()
+    session_factory = create_session_factory(engine)
+    artifact_store = artifact_store_from_environ(
+        required=bool(os.environ.get("FLY_APP_NAME"))
+    )
+    retention_config = RetentionConfig.from_environ()
+
+    def purge_all(configured_session_factory):
+        retention_result = purge_expired_report_data(
+            configured_session_factory,
+            store=artifact_store,
+            config=retention_config,
+        )
+        # Evidence readiness is advanced last so one fresh heartbeat certifies
+        # that the report/workbook retention pass also completed successfully.
+        evidence_result = purge_expired_evidence(configured_session_factory)
+        LOGGER.info(
+            "report_retention snapshots=%d artifacts=%d usage_events=%d skipped=%d",
+            retention_result.snapshots_deleted,
+            retention_result.artifacts_deleted,
+            retention_result.usage_events_deleted,
+            retention_result.skipped_snapshots,
+        )
+        return evidence_result
+
     return (
         engine,
-        create_session_factory(engine),
-        purge_expired_evidence,
+        session_factory,
+        purge_all,
         get_evidence_purge_readiness,
     )
 

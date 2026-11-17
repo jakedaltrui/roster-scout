@@ -1,0 +1,27 @@
+{% set menu_logo = (account_logo_url|default(none)) or (resolved_account_logo|default(none)) %}
+{% set menu_school = (account_school_name|default(none)) or (resolved_school_name|default(none)) or (organization_name|default(none)) %}
+<details class="account-menu">
+  <summary aria-label="Open account menu" aria-expanded="false">
+    <span class="shared-account-avatar" id="account-avatar" data-signed-in="true" aria-hidden="true">{{ (account_initial|default(none)) or (account_email[0]|upper if account_email else '•') }}</span>
+  </summary>
+  <div class="account-menu__panel">
+    <div class="account-identity">
+      <span class="account-school-logo" id="account-school-logo" aria-hidden="true"{% if not menu_logo %} hidden{% endif %}>
+        <img id="account-school-logo-image"{% if menu_logo %} src="{{ menu_logo }}"{% endif %} alt="" width="30" height="30" referrerpolicy="no-referrer">
+      </span>
+      <div class="account-identity__copy">
+        <p class="account-organization" id="account-school"{% if not menu_school %} hidden{% endif %}>{{ menu_school or '' }}</p>
+        <p class="account-email" id="account-email">{{ account_email or '' }}</p>
+      </div>
+    </div>
+    <div class="account-menu__actions">
+      {% if current_role|default(none) == "admin" %}
+        <button class="account-menu-action account-menu-action--invite" type="button" data-account-dialog-trigger aria-controls="share-organization-dialog">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="5" r="2.25"/><path d="M1.9 12.5c.4-2.2 1.8-3.4 4.1-3.4 1.3 0 2.4.4 3.1 1.2M12.2 4.2v4M10.2 6.2h4"/></svg>
+          <span>Invite staff</span>
+        </button>
+      {% endif %}
+      <button class="account-menu-action account-menu-action--sign-out" type="button" data-account-dialog-trigger aria-controls="sign-out-dialog">Sign out</button>
+    </div>
+  </div>
+</details>

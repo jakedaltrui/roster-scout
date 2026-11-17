@@ -2,7 +2,7 @@
 
 ## Overview
 
-Roster Scout v2.0 is delivered in five dependency-ordered slices. The roadmap first establishes an immutable canonical snapshot and durable job boundary, then gates the product behind organization identity and exposes versioned report history. It next expands NCAA collection and metrics, renders the complete detailed workbook, and finally publishes the same snapshot through a secure customer-facing Power BI experience. Each phase preserves the existing D1/D2/D3 workflow while creating a verifiable capability used by the next phase.
+Roster Scout v2.0 is delivered in five dependency-ordered slices. The roadmap first establishes an immutable canonical snapshot and durable job boundary, then gates the product behind organization identity and exposes versioned report history. It next expands NCAA collection and metrics, renders the complete detailed workbook, and finally presents the same snapshot through a secure lightweight native dashboard with bounded storage retention. Each phase preserves the existing D1/D2/D3 workflow while creating a verifiable capability used by the next phase.
 
 ## Phases
 
@@ -11,7 +11,7 @@ Roster Scout v2.0 is delivered in five dependency-ordered slices. The roadmap fi
 - [x] **Phase 02.1: Restore public homepage and school-domain sign-in flow** - Reestablish the polished homepage as the primary product, authenticate at generation, auto-join verified school domains, and keep the portal minimal. (INSERTED)
 - [x] **Phase 3: Detailed NCAA Intelligence** - Add fielding, advanced metrics, situational splits, career history, and game logs. (completed 2026-11-16)
 - [x] **Phase 4: Detailed Excel Report** - Extend the established branded two-sheet workbook with auditable season, derived, last-10, and conference statistics. (completed 2026-11-16)
-- [ ] **Phase 5: Embedded Opponent Dashboard** - Implementation complete; production activation awaits supported Microsoft capacity and the live two-organization RLS gate.
+- [x] **Phase 5: Native Opponent Dashboard** - Lightweight same-snapshot analysis and 30/90-day retention are implemented and verified. (completed 2026-11-17)
 
 ## Phase Details
 
@@ -314,7 +314,7 @@ Plans:
 2. Stable NCAA player IDs and source URLs remain available in canonical storage but are omitted from the coach-facing workbook; partial or unavailable Last 10 scopes are labeled explicitly rather than rendered as zero.
 3. Workbook numeric types, precision, formula/URL safety, school-derived branding, filters, frozen headers, print behavior, and two-way-player logic remain correct for representative D1/D2/D3 fixtures.
 4. Downloading an older snapshot returns its original checksummed artifact rather than rebuilding from newer data.
-5. Shared fixture metrics match canonical storage and Power BI-facing views.
+5. Shared fixture metrics match canonical storage and native-dashboard projections.
 
 **Plans:** 3 plans
 
@@ -332,29 +332,29 @@ Plans:
 
 - [x] 04-03: Add canonical-to-Excel parity, formula/URL safety, partial-scope, visual-format, and D1/D2/D3 workbook verification.
 
-### Phase 5: Embedded Opponent Dashboard
+### Phase 5: Native Opponent Dashboard
 
-**Goal:** Customers securely review the same snapshot in an opponent-branded Power BI report and download its full workbook from the report page.
+**Goal:** Customers securely review the same snapshot in a lightweight opponent dashboard and download its full workbook from the report page.
 **Mode:** mvp
 **UI hint:** yes
 **Depends on:** Phase 4
-**Requirements:** SNAP-09, PBI-01, PBI-02, PBI-03, PBI-04, PBI-05, PBI-06, PBI-07, PBI-08, PBI-09, PBI-10, SECU-06
+**Requirements:** SNAP-09, DASH-01, DASH-02, DASH-03, DASH-04, DASH-05, DASH-06, DASH-07, RET-01, RET-02, RET-03, SECU-06
 **Success Criteria** (what must be TRUE):
 
-1. An authenticated customer views the curated embedded report without a Power BI account or customer Power BI license.
-2. The report provides Overview, Roster, Hitting, Pitching, Fielding, Splits, Player Detail, and Sources/Data Quality pages for the authorized snapshot.
-3. Organization A cannot obtain or use an embed token that reveals Organization B data, verified through automated denial tests and a manual two-organization RLS test.
-4. Semantic-model refresh has independent pending/completed/failed state, and its failure never invalidates a completed snapshot or Excel artifact.
-5. The opponent-branded report page exposes freshness, completeness, interactive filters/drill-through, and the exact full-workbook download, and production launch is blocked without supported capacity.
+1. An authenticated customer views the authorized snapshot without a separate BI account, iframe, license, or analytics store.
+2. The report provides season, last-10, conference, hitting, pitching, fielding, recent-game, leader, and split views with explicit unavailable states.
+3. Organization A cannot obtain Organization B dashboard, report, or workbook data through identifier substitution.
+4. The native dashboard remains a read-only projection of canonical snapshot facts and never invalidates the completed snapshot or Excel artifact.
+5. Saved snapshot/workbook data expires after 30 days and raw usage events after 90 days through the independently supervised purge process.
 
-**Plans:** 4/4 implementation plans complete; external activation gate remains
+**Plans:** 4/4 original implementation plans complete; native corrective implementation complete
 
 Plans:
 
-- [x] 05-01: Build the analytics views, semantic model, curated report source, and organization-isolation contract.
-- [x] 05-02: Add service-principal authentication, short-lived embed-token APIs, semantic refresh orchestration, and readiness state.
-- [x] 05-03: Build the branded customer report page with embedded navigation, filters, player detail, completeness, and workbook download.
-- [x] 05-04: Verify deterministic tenant isolation, metric contracts, refresh recovery, and the fail-closed production gate.
+- [x] 05-01: Establish canonical analytics projections and organization-isolation contracts.
+- [x] 05-02: Preserve fail-closed same-snapshot authorization and operational readiness.
+- [x] 05-03: Build the branded customer report page with native scope controls, leaders, trends, splits, completeness, and workbook download.
+- [x] 05-04: Replace the external BI runtime with a dependency-free native dashboard and add bounded 30/90-day retention.
 
 ## Progress
 
@@ -367,4 +367,4 @@ Plans:
 | 02.1 Restore public homepage and school-domain sign-in flow | 4/4 | Complete | 2026-11-13 |
 | 3. Detailed NCAA Intelligence | 9/9 | Complete   | 2026-11-16 |
 | 4. Detailed Excel Report | 3/3 | Complete | 2026-11-16 |
-| 5. Embedded Opponent Dashboard | 4/4 | Activation pending | - |
+| 5. Native Opponent Dashboard | 4/4 | Complete | 2026-11-17 |

@@ -121,6 +121,10 @@ class ArtifactStorageUnitTests(unittest.TestCase):
                     sha256(replacement).hexdigest(),
                 )
             self.assertEqual(store.read(key), original)
+            store.delete(key)
+            store.delete(key)
+            with self.assertRaisesRegex(ArtifactStorageError, "unavailable"):
+                store.read(key)
 
     def test_s3_store_uses_conditional_private_encrypted_write(self):
         from roster_scout.artifacts import S3ArtifactStore
@@ -140,6 +144,12 @@ class ArtifactStorageUnitTests(unittest.TestCase):
         self.assertEqual(parameters["IfNoneMatch"], "*")
         self.assertEqual(parameters["ServerSideEncryption"], "AES256")
         self.assertEqual(parameters["Metadata"], {"sha256": digest})
+        store = S3ArtifactStore(bucket="private-artifacts", client=client)
+        store.delete(key)
+        client.delete_object.assert_called_once_with(
+            Bucket="private-artifacts",
+            Key=key,
+        )
 
     def test_s3_existing_object_must_match_digest_and_size(self):
         from roster_scout.artifacts import ArtifactStorageError, S3ArtifactStore

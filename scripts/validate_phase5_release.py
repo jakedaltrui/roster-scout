@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the embedded-dashboard release gate without publishing or deploying."""
+"""Run the native-dashboard and retention release gate without deploying."""
 
 from __future__ import annotations
 
@@ -21,11 +21,11 @@ SAFE_ENVIRONMENT_KEYS = (
 )
 DATABASE_LABELS = frozenset({
     "Inherited detailed workbook release gate",
-    "Power BI migration downgrade",
-    "Power BI migration upgrade",
+    "Retention migration downgrade",
+    "Retention migration upgrade",
     "Migration head and drift",
     "Alembic model drift",
-    "Power BI data, route, RLS, and UI contracts",
+    "Native dashboard and retention contracts",
 })
 
 
@@ -49,11 +49,11 @@ def release_command_manifest(python):
             [python, "scripts/validate_phase4_release.py"],
         ),
         (
-            "Power BI migration downgrade",
-            [python, "-m", "alembic", "downgrade", "0025"],
+            "Retention migration downgrade",
+            [python, "-m", "alembic", "downgrade", "0026"],
         ),
         (
-            "Power BI migration upgrade",
+            "Retention migration upgrade",
             [python, "-m", "alembic", "upgrade", "head"],
         ),
         (
@@ -65,36 +65,32 @@ def release_command_manifest(python):
             [python, "-m", "alembic", "check"],
         ),
         (
-            "Power BI data, route, RLS, and UI contracts",
+            "Native dashboard and retention contracts",
             [
                 python, "-m", "unittest",
-                "tests.test_power_bi_views",
-                "tests.test_power_bi_embed",
+                "tests.test_native_dashboard",
+                "tests.test_retention",
                 "tests.test_power_bi_ui",
                 "-v",
             ],
         ),
         (
-            "PBIP, TMDL, RLS, measure, and secret gate",
-            [python, "scripts/validate_power_bi_project.py"],
-        ),
-        (
             "Dashboard JavaScript syntax",
-            ["node", "--check", "static/power_bi_embed.js"],
+            ["node", "--check", "static/native_dashboard.js"],
         ),
         (
             "Phase 5 compilation",
             [
                 python, "-m", "py_compile",
-                "roster_scout/power_bi.py",
-                "roster_scout/power_bi_refresh.py",
+                "roster_scout/native_dashboard.py",
                 "roster_scout/report_routes.py",
+                "roster_scout/retention.py",
                 "roster_scout/tasks.py",
-                "scripts/validate_power_bi_project.py",
+                "scripts/run_purge.py",
                 "scripts/validate_phase5_release.py",
-                "tests/test_power_bi_embed.py",
+                "tests/test_native_dashboard.py",
+                "tests/test_retention.py",
                 "tests/test_power_bi_ui.py",
-                "tests/test_power_bi_views.py",
             ],
         ),
         ("Working-tree diff hygiene", ["git", "diff", "--check"]),
@@ -105,7 +101,7 @@ def main():
     parent = dict(os.environ)
     _validate_database(parent)
     for label, command in release_command_manifest(sys.executable):
-        if label == "Power BI migration downgrade":
+        if label == "Retention migration downgrade":
             print("\n==> Reset disposable migration fixture", flush=True)
             clean_database(parent["DATABASE_URL"])
         print(f"\n==> {label}", flush=True)
@@ -117,8 +113,8 @@ def main():
         )
     print("\nPhase 5 deterministic release gate passed.", flush=True)
     print(
-        "Production remains blocked on capacity-backed publication and the live "
-        "two-organization RLS smoke test; deployment is not authorized.",
+        "The native dashboard and bounded retention policy are release-tested; "
+        "deployment is not authorized by this command.",
         flush=True,
     )
     return 0

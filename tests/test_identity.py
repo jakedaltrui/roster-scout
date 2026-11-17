@@ -1540,18 +1540,16 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
         self.assertIn('href="#main-content"', template)
         self.assertEqual(template.count("<main"), 1)
         self.assertIn("{% block page_title %}", template)
-        self.assertIn("csrf_token()", template)
-        self.assertIn('action="{{ url_for(\'auth.logout\') }}"', template)
+        self.assertIn('{% include "_account_menu.html" %}', template)
+        self.assertIn('{% include "_account_dialogs.html" %}', template)
         self.assertNotIn('type="password"', template)
-        self.assertIn('id="sign-out-dialog"', template)
-        self.assertIn('id="share-organization-dialog"', template)
         self.assertIn("static', filename='product.css'", template)
+        self.assertIn("static', filename='account_menu.css'", template)
+        self.assertIn("static', filename='account_menu.js'", template)
         self.assertIn("product-dashboard-link", template)
         self.assertIn(">Dashboard<", template)
         self.assertIn(">New report<", template)
         self.assertIn(">Sign in<", template)
-        self.assertIn('aria-label="Sign out"', template)
-        self.assertIn('data-pending-label="Signing out…"', template)
         self.assertNotIn("What you get", template)
         self.assertGreater(
             template.index("data-theme-control"),
@@ -1571,19 +1569,47 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
         self.assertIn("product-headline-in", product_css)
         self.assertIn("product-card-in", product_css)
         self.assertIn("product-dialog-in", product_css)
-        self.assertIn(".account-menu[open] .account-menu__panel", product_css)
-        self.assertIn(".account-menu.is-closing .account-menu__panel", product_css)
-        self.assertIn("@keyframes product-menu-out", product_css)
         self.assertIn("@media (prefers-reduced-motion: reduce)", product_css)
 
-        product_shell = os.path.join(
-            os.path.dirname(__file__), "..", "static", "product_shell.js"
+        account_menu_template = os.path.join(
+            os.path.dirname(__file__), "..", "templates", "_account_menu.html"
         )
-        with open(product_shell, encoding="utf-8") as handle:
-            product_shell_script = handle.read()
-        self.assertIn('menu.classList.add("is-closing")', product_shell_script)
-        self.assertIn('event.animationName !== "product-menu-out"', product_shell_script)
-        self.assertIn('matchMedia("(prefers-reduced-motion: reduce)")', product_shell_script)
+        with open(account_menu_template, encoding="utf-8") as handle:
+            account_menu_markup = handle.read()
+        self.assertIn('data-account-dialog-trigger', account_menu_markup)
+        self.assertIn('account-menu-action--invite', account_menu_markup)
+        self.assertIn('account-menu-action--sign-out', account_menu_markup)
+
+        account_dialogs_template = os.path.join(
+            os.path.dirname(__file__), "..", "templates", "_account_dialogs.html"
+        )
+        with open(account_dialogs_template, encoding="utf-8") as handle:
+            account_dialogs_markup = handle.read()
+        self.assertIn("csrf_token()", account_dialogs_markup)
+        self.assertIn('action="{{ url_for(\'auth.logout\') }}"', account_dialogs_markup)
+        self.assertIn('id="sign-out-dialog"', account_dialogs_markup)
+        self.assertIn('id="share-organization-dialog"', account_dialogs_markup)
+        self.assertIn('data-pending-label="Signing out…"', account_dialogs_markup)
+
+        account_stylesheet = os.path.join(
+            os.path.dirname(__file__), "..", "static", "account_menu.css"
+        )
+        with open(account_stylesheet, encoding="utf-8") as handle:
+            account_css = handle.read()
+        self.assertIn(".account-menu[open] .account-menu__panel", account_css)
+        self.assertIn(".account-menu.is-closing .account-menu__panel", account_css)
+        self.assertIn("@keyframes account-menu-out", account_css)
+        self.assertIn(".account-menu__panel .account-menu-action--sign-out { width: auto", account_css)
+        self.assertIn("@media (prefers-reduced-motion: reduce)", account_css)
+
+        account_script = os.path.join(
+            os.path.dirname(__file__), "..", "static", "account_menu.js"
+        )
+        with open(account_script, encoding="utf-8") as handle:
+            account_menu_script = handle.read()
+        self.assertIn('menu.classList.add("is-closing")', account_menu_script)
+        self.assertIn('event.animationName !== "account-menu-out"', account_menu_script)
+        self.assertIn('matchMedia("(prefers-reduced-motion: reduce)")', account_menu_script)
 
         homepage = os.path.join(
             os.path.dirname(__file__), "..", "templates", "index.html"
@@ -1591,10 +1617,11 @@ class AuthGateRouteMatrixTests(_PostgreSQLIdentityCase):
         with open(homepage, encoding="utf-8") as handle:
             homepage_template = handle.read()
         self.assertNotIn("Use your school email to continue.", homepage_template)
+        self.assertIn('{% include "_account_menu.html" %}', homepage_template)
+        self.assertIn('{% include "_account_dialogs.html" %}', homepage_template)
+        self.assertIn("static', filename='account_menu.css'", homepage_template)
+        self.assertIn("static', filename='account_menu.js'", homepage_template)
         self.assertIn("@keyframes auth-content-in", homepage_template)
-        self.assertIn("@keyframes menu-out", homepage_template)
-        self.assertIn("accountMenu.classList.add('is-closing')", homepage_template)
-        self.assertIn("accountLogoutForm?.addEventListener('submit'", homepage_template)
         self.assertIn("void nextState.offsetWidth", homepage_template)
 
         auth_error = os.path.join(

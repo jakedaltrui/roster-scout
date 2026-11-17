@@ -170,48 +170,54 @@ class PowerBIEmbedRouteTests(unittest.TestCase):
             self.assertEqual(diagnostic.status, "completed")
 
 
-class PowerBIUIContractTests(unittest.TestCase):
-    def test_workbook_actions_remain_before_dashboard_and_all_states_are_truthful(self):
+class NativeDashboardUIContractTests(unittest.TestCase):
+    def test_workbook_actions_remain_before_lightweight_dashboard(self):
         template = (ROOT / "templates/report_detail.html").read_text()
         self.assertLess(
             template.index("Current workbook"),
             template.index("Opponent dashboard"),
         )
         for phrase in (
-            "Interactive analysis is being prepared",
-            "The dashboard needs another try",
-            "Interactive analysis is not connected yet",
-            "Your saved workbook is unaffected",
+            "same saved statistics included in your workbook",
+            "Recent run trend",
+            "Hitting leaders",
+            "Pitching leaders",
+            "Situational splits",
         ):
             self.assertIn(phrase, template)
-        self.assertIn('data-status-url="{{ url_for(', template)
-        self.assertIn('aria-label="Opponent analysis pages"', template)
+        self.assertIn('aria-label="Opponent analysis"', template)
+        self.assertIn("data-native-dashboard-data", template)
+        self.assertNotIn("cdn.jsdelivr.net/npm/powerbi-client", template)
 
-    def test_embed_script_is_ephemeral_keyboard_accessible_and_snapshot_scoped(self):
-        script = (ROOT / "static/power_bi_embed.js").read_text()
+    def test_native_script_is_dependency_free_keyboard_accessible_and_data_driven(self):
+        script = (ROOT / "static/native_dashboard.js").read_text()
         for forbidden in ("localStorage", "sessionStorage", "document.cookie"):
             self.assertNotIn(forbidden, script)
         for required in (
-            'cache: "no-store"',
-            'credentials: "same-origin"',
-            "setAccessToken",
             "ArrowLeft",
             "ArrowRight",
             "data-dashboard-scope",
-            'column: "scope_code"',
-            'last_10: "last_10"',
-            'conference: "conference"',
+            "data-dashboard-metric",
+            "recentGames",
+            "hittingLeaders",
+            "pitchingLeaders",
         ):
             self.assertIn(required, script)
-        self.assertIn("Development preview · Illustrative values only", script)
+        self.assertNotIn("Illustrative values", script)
+        self.assertNotIn("powerbi", script.lower())
+        self.assertNotIn("chart.js", script.lower())
 
     def test_dashboard_styles_are_responsive_and_respect_reduced_motion(self):
         css = (ROOT / "static/product.css").read_text()
         self.assertIn(".opponent-dashboard", css)
-        self.assertIn(".dashboard-state[hidden] { display: none; }", css)
+        self.assertIn(".dashboard-panel[hidden] { display: none; }", css)
         self.assertIn("@media (max-width: 767px)", css)
         self.assertIn("prefers-reduced-motion", css)
         self.assertIn(":root[data-theme=\"dark\"]", css)
+        self.assertIn(".dashboard-charts", css)
+        self.assertIn(".dashboard-rate__track", css)
+        self.assertIn(".dashboard-table-wrap", css)
+        self.assertIn(".dashboard-splits", css)
 
 
 if __name__ == "__main__":

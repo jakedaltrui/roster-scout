@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
-status: activation_pending
-stopped_at: Completed 05-04-PLAN.md; awaiting external Power BI activation gate
-last_updated: "2026-11-16T23:58:00-06:00"
-last_activity: 2026-11-16 -- Phase 5 deterministic release gate passed; production unchanged
+status: complete
+stopped_at: Phase 5 native dashboard and retention release gate passed; production unchanged
+last_updated: "2026-11-16T20:40:06-06:00"
+last_activity: 2026-11-16 -- Native dashboard and bounded retention verified; production unchanged
 progress:
   total_phases: 6
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 77
   completed_plans: 77
-  percent: 98
+  percent: 100
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-11-16)
 
 **Core value:** A baseball staff can reliably turn fragmented opponent data into a trustworthy, reusable scouting report with interactive analysis and a portable Excel download.
-**Current focus:** Phase 5 — Microsoft tenant activation and live RLS evidence
+**Current focus:** Production deployment review (requires explicit approval)
 
 ## Current Position
 
-Phase: 5 (Embedded Opponent Dashboard) — ACTIVATION PENDING
+Phase: 5 (Native Opponent Dashboard) — COMPLETE
 Plan: 4 of 4 implementation plans complete
-Status: Deterministic implementation verified; external production gate pending
-Last activity: 2026-11-16 -- 801 regressions and 19 dashboard tests passed
+Status: Deterministic implementation and bounded retention verified; production unchanged
+Last activity: 2026-11-16 -- 807 regressions plus Phase 5 dashboard and retention gates passed
 
-Progress: [█████████▊] 98%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -276,7 +276,6 @@ Full decision log: `.planning/PROJECT.md`.
 ### Blockers/Concerns
 
 - Fly trial billing was previously unresolved and can stop machines after five minutes; durable report workers require verified uninterrupted hosting.
-- Production Power BI Embedded/Fabric capacity and the Microsoft Entra/service-principal environment are not yet provisioned.
 - Production WorkOS workspace, billing, secrets, live email/federation, and the final two-organization smoke test remain explicit deployment checkpoints.
 - NCAA split IDs and NCAA-specific wOBA/FIP inputs require current-season validation before metrics can be published.
 

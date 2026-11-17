@@ -20,7 +20,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='product.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='account_menu.css') }}">
   <script defer src="{{ url_for('static', filename='report_progress.js') }}"></script>
+  <script defer src="{{ url_for('static', filename='account_menu.js') }}"></script>
   <script defer src="{{ url_for('static', filename='product_shell.js') }}"></script>
   {% block head %}{% endblock %}
 </head>
@@ -39,24 +41,7 @@
           {% else %}
             <a class="product-dashboard-link" href="/reports">Dashboard</a>
           {% endif %}
-          <details class="account-menu">
-            <summary aria-label="Open account menu" aria-expanded="false"><span class="product-account-avatar" aria-hidden="true">{{ account_email[0]|upper }}</span></summary>
-            <div class="account-menu__panel">
-              <div class="account-identity">
-                {% if resolved_account_logo %}<span class="account-school-logo" aria-hidden="true"><img src="{{ resolved_account_logo }}" alt="" width="30" height="30" referrerpolicy="no-referrer"></span>{% endif %}
-                <div class="account-identity__copy">
-                  {% if resolved_school_name or organization_name %}<p class="account-organization">{{ resolved_school_name or organization_name }}</p>{% endif %}
-                  <p class="account-email">{{ account_email }}</p>
-                </div>
-              </div>
-              <div class="account-menu__actions">
-                {% if current_role|default(none) == "admin" %}
-                  <button class="account-menu-action account-menu-action--invite" type="button" data-dialog-trigger aria-controls="share-organization-dialog"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><g><circle cx="6" cy="5" r="2.25"/><path d="M1.9 12.5c.4-2.2 1.8-3.4 4.1-3.4 1.3 0 2.4.4 3.1 1.2"/></g><path d="M12.2 4.2v4M10.2 6.2h4"/></svg><span>Invite staff</span></button>
-                {% endif %}
-                <button class="account-menu-action account-menu-action--sign-out" type="button" aria-label="Sign out" data-dialog-trigger aria-controls="sign-out-dialog"><span>Sign out</span></button>
-              </div>
-            </div>
-          </details>
+          {% include "_account_menu.html" %}
         {% else %}
           <a class="product-sign-in" href="{{ url_for('auth.login') }}"><span class="product-account-avatar product-account-avatar--signed-out" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M5.5 20c.7-4 3-6 6.5-6s5.8 2 6.5 6"/></svg></span><span>Sign in</span></a>
         {% endif %}
@@ -71,38 +56,6 @@
       {% block content %}{% endblock %}
     </div>
   </main>
-  {% if account_email and current_role|default(none) == "admin" %}
-    <dialog id="share-organization-dialog" class="confirmation-dialog share-dialog" data-modal aria-labelledby="share-dialog-title" aria-describedby="share-dialog-description">
-      <h2 id="share-dialog-title">Invite a coach</h2>
-      <p class="share-dialog__intro" id="share-dialog-description">Share {{ organization_name or "your school" }}’s saved reports with another member of your staff.</p>
-      <form class="share-form" action="{{ url_for('organization.invite') }}" method="post">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="hidden" name="role" value="member">
-        <input type="hidden" name="return_to" value="/reports">
-        <div>
-          <label for="share-email">Coach’s email</label>
-          <input id="share-email" name="email" type="email" autocomplete="email" inputmode="email" placeholder="coach@school.edu" required autofocus>
-          <p class="field-help">They’ll receive a secure email invitation. Delivery time can vary by school mail system.</p>
-        </div>
-        <div class="confirmation-dialog__actions">
-          <button class="button button--secondary" type="button" data-dialog-close>Cancel</button>
-          <button class="button button--primary" type="submit" data-pending-label="Sending…">Send invite</button>
-        </div>
-      </form>
-    </dialog>
-  {% endif %}
-  {% if account_email %}
-    <dialog id="sign-out-dialog" class="confirmation-dialog sign-out-dialog" data-modal aria-labelledby="sign-out-title" aria-describedby="sign-out-description">
-      <h2 id="sign-out-title">Sign out of Roster Scout?</h2>
-      <p id="sign-out-description">You’ll need a new email code to access your school’s reports again.</p>
-      <div class="confirmation-dialog__actions">
-        <button class="button button--secondary" type="button" data-dialog-close autofocus>Stay signed in</button>
-        <form action="{{ url_for('auth.logout') }}" method="post">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button class="button button--danger sign-out-dialog__confirm" type="submit" data-pending-label="Signing out…">Sign out</button>
-        </form>
-      </div>
-    </dialog>
-  {% endif %}
+  {% include "_account_dialogs.html" %}
 </body>
 </html>

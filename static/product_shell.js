@@ -92,7 +92,7 @@
   }
 
   function enhancePendingForms() {
-    document.querySelectorAll("form").forEach((form) => {
+    document.querySelectorAll("form:not([data-account-form])").forEach((form) => {
       form.addEventListener("submit", (event) => {
         if (event.defaultPrevented) return;
         const button = event.submitter;
@@ -152,62 +152,6 @@
     });
   }
 
-  function enhanceAccountMenu() {
-    const menu = document.querySelector("details.account-menu");
-    if (!menu) return;
-    const summary = menu.querySelector("summary");
-    const panel = menu.querySelector(".account-menu__panel");
-    let closeTimer = null;
-
-    function finishClose(restoreFocus = false) {
-      if (closeTimer !== null) window.clearTimeout(closeTimer);
-      closeTimer = null;
-      menu.classList.remove("is-closing");
-      menu.open = false;
-      if (restoreFocus) summary.focus();
-    }
-
-    function closeMenu({ restoreFocus = false } = {}) {
-      if (!menu.open || menu.classList.contains("is-closing")) return;
-      if (
-        !panel
-        || window.matchMedia("(prefers-reduced-motion: reduce)").matches
-      ) {
-        finishClose(restoreFocus);
-        return;
-      }
-      menu.classList.add("is-closing");
-      const finish = (event) => {
-        if (
-          event
-          && (event.target !== panel || event.animationName !== "product-menu-out")
-        ) return;
-        panel.removeEventListener("animationend", finish);
-        finishClose(restoreFocus);
-      };
-      panel.addEventListener("animationend", finish);
-      closeTimer = window.setTimeout(() => finishClose(restoreFocus), 220);
-    }
-
-    summary.addEventListener("click", (event) => {
-      if (!menu.open || menu.classList.contains("is-closing")) return;
-      event.preventDefault();
-      closeMenu();
-    });
-    menu.addEventListener("keydown", (event) => {
-      if (event.key !== "Escape" || !menu.open) return;
-      event.preventDefault();
-      closeMenu({ restoreFocus: true });
-    });
-    menu.addEventListener("toggle", () => {
-      if (menu.open) menu.classList.remove("is-closing");
-      summary.setAttribute("aria-expanded", String(menu.open));
-    });
-    document.addEventListener("click", (event) => {
-      if (menu.open && !menu.contains(event.target)) closeMenu();
-    });
-  }
-
   function enhanceTeamLogos() {
     document.querySelectorAll("[data-team-logo]").forEach((logo) => {
       const image = logo.querySelector("[data-team-logo-image]");
@@ -254,7 +198,6 @@
     enhanceGoogleSheetsExports();
     enhanceRoleConfirmations();
     enhancePendingForms();
-    enhanceAccountMenu();
     enhanceTeamLogos();
     enhanceReportRows();
   });

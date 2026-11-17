@@ -1,47 +1,53 @@
-# Phase 5 Verification — Embedded Opponent Dashboard
+---
+status: passed
+verified_at: 2026-11-16
+---
 
-**Verdict:** Implementation complete; production activation pending external
-Microsoft capacity and tenant evidence.
+# Phase 5 Verification — Native Opponent Dashboard
+
+**Verdict:** Passed. The native dashboard and bounded retention policy are
+release-tested; production remains unchanged pending explicit approval.
 
 ## Deterministic evidence
 
 - `scripts/validate_phase5_release.py` passed on 2026-11-16.
-- Full regression: 801 tests passed.
-- Focused dashboard contract: 19 tests passed.
-- Workbook acceptance: exactly two styled sheets with Player, Season, Derived
-  Metrics, Last 10 Games, and Conference Games groups for D1/D2/D3 fixtures.
+- Full regression: 807 tests passed.
+- Final focused dashboard, retention, deployment, and artifact pass: 17 tests
+  passed.
+- Workbook acceptance: exactly two styled sheets with season, last-10, and
+  conference groups for D1/D2/D3 fixtures.
 - NCAA catalog: 942 selectable teams (308 D1, 253 D2, 381 D3).
-- Migration `0026` downgraded to `0025` and reapplied cleanly; Alembic reported
+- Migration `0027` downgraded to `0026` and reapplied cleanly; Alembic reported
   no model drift.
-- PBIP gate: 8 pages, 14 RLS-bound semantic tables, 14 tenant-bound views.
 - Browser review covered desktop/mobile, light/dark, keyboard navigation,
-  scope switching, synthetic labeling, and dashboard state transitions.
+  scope switching, empty states, and dashboard state transitions.
 - JavaScript syntax, Python compilation, and `git diff --check` passed.
 
-## Security evidence
+## Security and retention evidence
 
-- Embed authority is entirely server-derived and bound to one authenticated
-  account, organization, report, and immutable snapshot.
-- Every semantic table independently requires the exact
-  `<organization UUID>|<snapshot UUID>` `CUSTOMDATA()` key.
-- Foreign and absent identifiers are indistinguishable and cause no Power BI
-  provider call.
-- Embed responses are short-lived and `no-store`; browser code persists no
-  token or tenant identity.
-- Semantic refresh failure cannot mutate or invalidate a snapshot or workbook.
-- Fake mode is rejected in production and cannot satisfy the release gate.
+- Dashboard authority is entirely server-derived and bound to one
+  authenticated organization, report, and immutable snapshot.
+- Native projections are built request-locally from the existing PostgreSQL
+  snapshot; no browser token, external BI provider, or duplicate analytics
+  store is involved.
+- Foreign and absent identifiers remain indistinguishable through the existing
+  report authorization boundary.
+- Workbook and saved-report data default to 30-day retention; raw usage events
+  default to a 90-day rolling window.
+- Retention deletes private workbook objects before their snapshot graph and
+  advances operational readiness only after the complete purge succeeds.
+- Published snapshot immutability can be bypassed only by the bounded
+  transaction-local retention purge path.
 
-## External production gate
+## Production gate
 
-The following cannot be proven from this repository and remains mandatory:
+Before production deployment:
 
-1. Publish the PBIP to a supported Embedded, Premium, or Fabric capacity.
-2. Bind the production PostgreSQL source and least-privilege service principal.
-3. Prove Organization A sees zero Organization B rows and vice versa using two
-   live embed tokens.
-4. Verify live token renewal and a failed semantic refresh while the exact
-   saved workbook remains downloadable.
-5. Only then set `POWER_BI_CAPACITY_VERIFIED=true` and request deployment.
+1. Deploy this release candidate to the existing staging application.
+2. Run the authenticated report, refresh, dashboard, Excel, Google Sheets,
+   invitation, logout, and cross-organization isolation smoke journeys.
+3. Verify PostgreSQL, Redis, private object storage, WorkOS/email delivery,
+   signing secrets, purge health, and uninterrupted Fly worker capacity.
+4. Request explicit production approval.
 
-No production publication, secret creation, capacity purchase, or deployment
-was performed.
+No production deployment was performed by this verification.

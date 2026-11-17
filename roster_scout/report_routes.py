@@ -29,6 +29,7 @@ from .authorization import record_scoped_not_found
 from .jobs import drain_report_dispatch_outbox
 from .google_sheets import GoogleSheetsFailure, GoogleSheetsOAuthClient
 from .institution_registry import identity_for_verified_email
+from .native_dashboard import NativeDashboardNotFound, load_native_dashboard
 from .models import (
     Account,
     ExternalRefreshDiagnostic,
@@ -421,12 +422,15 @@ def detail(report_id):
                 history_page=history_page,
             )
             if report_detail.latest_snapshot is not None:
-                dashboard_state = _dashboard_state(
-                    session,
-                    context,
-                    report_id,
-                    report_detail.latest_snapshot.id,
-                )
+                try:
+                    dashboard_data = load_native_dashboard(
+                        session,
+                        organization_id=context.organization_id,
+                        report_id=report_id,
+                        snapshot_id=report_detail.latest_snapshot.id,
+                    )
+                except NativeDashboardNotFound:
+                    dashboard_data = None
                 append_security_audit_event(
                     session,
                     actor_account_id=context.account_id,
@@ -438,7 +442,7 @@ def detail(report_id):
                     reason="snapshot_opened",
                 )
             else:
-                dashboard_state = "unavailable"
+                dashboard_data = None
     except ReportLibraryFailure:
         return _html_not_found(
             context,
@@ -452,14 +456,14 @@ def detail(report_id):
             current_role=context.role,
             account_email=None,
             report_detail=None,
-            dashboard_state="unavailable",
+            dashboard_data=None,
             load_error=True,
         ), 503
     return render_template(
         "report_detail.html",
         **shell,
         report_detail=report_detail,
-        dashboard_state=dashboard_state,
+        dashboard_data=dashboard_data,
         load_error=False,
         retry_action_id=str(uuid.uuid4()),
         google_sheets_oauth_configured=_google_sheets_client().configured,

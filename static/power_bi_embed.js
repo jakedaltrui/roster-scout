@@ -21,20 +21,104 @@
     conference: "conference",
   };
 
+  const PREVIEW_SCOPE_DATA = {
+    full_season: {
+      metrics: [".812", "18.4%", "1.29", ".972"],
+      runsFor: [6, 4, 8, 5, 7, 9, 3, 6, 8, 7],
+      runsAgainst: [3, 5, 4, 2, 6, 3, 4, 5, 2, 4],
+      runSummary: "63 scored · 38 allowed",
+      rates: [
+        { value: "11.2%", width: 45, benchmark: 34 },
+        { value: "18.4%", width: 74, benchmark: 87 },
+        { value: "10.9%", width: 44, benchmark: 36 },
+      ],
+    },
+    last_10: {
+      metrics: [".846", "17.8%", "1.18", ".976"],
+      runsFor: [5, 7, 4, 9, 6, 8, 3, 7, 8, 6],
+      runsAgainst: [4, 2, 5, 3, 4, 2, 3, 5, 2, 3],
+      runSummary: "63 scored · 33 allowed",
+      rates: [
+        { value: "12.1%", width: 48, benchmark: 34 },
+        { value: "17.8%", width: 71, benchmark: 87 },
+        { value: "11.6%", width: 46, benchmark: 36 },
+      ],
+    },
+    conference: {
+      metrics: [".794", "19.1%", "1.34", ".969"],
+      runsFor: [4, 6, 3, 7, 5, 4, 8, 3, 6, 5],
+      runsAgainst: [5, 3, 4, 6, 2, 5, 3, 4, 5, 4],
+      runSummary: "51 scored · 41 allowed",
+      rates: [
+        { value: "10.4%", width: 42, benchmark: 34 },
+        { value: "19.1%", width: 76, benchmark: 87 },
+        { value: "9.8%", width: 39, benchmark: 36 },
+      ],
+    },
+  };
+
+  function chartPoints(values) {
+    return values.map(function (value, index) {
+      const x = 12 + index * (376 / (values.length - 1));
+      const y = 142 - value * 12;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(" ");
+  }
+
   function previewMarkup() {
     return `<div class="dashboard-preview" aria-label="Synthetic dashboard preview">
       <p class="dashboard-preview__notice">Development preview · Illustrative values only</p>
       <div class="dashboard-preview__metrics">
-        <div><span>Team OPS</span><strong>.812</strong></div>
-        <div><span>Strikeout rate</span><strong>18.4%</strong></div>
-        <div><span>Staff WHIP</span><strong>1.29</strong></div>
-        <div><span>Fielding</span><strong>.972</strong></div>
+        <div><span>Team OPS</span><strong data-preview-metric="0">.812</strong></div>
+        <div><span>Strikeout rate</span><strong data-preview-metric="1">18.4%</strong></div>
+        <div><span>Staff WHIP</span><strong data-preview-metric="2">1.29</strong></div>
+        <div><span>Fielding</span><strong data-preview-metric="3">.972</strong></div>
       </div>
-      <div class="dashboard-preview__body">
-        <div><h3>Lineup profile</h3><table><thead><tr><th>Player</th><th>OPS</th><th>ISO</th><th>BB%</th><th>K%</th></tr></thead><tbody><tr><td>Sample hitter</td><td>.948</td><td>.204</td><td>12.6%</td><td>16.8%</td></tr><tr><td>Sample hitter</td><td>.876</td><td>.181</td><td>10.2%</td><td>19.1%</td></tr><tr><td>Sample hitter</td><td>.821</td><td>.157</td><td>8.9%</td><td>14.7%</td></tr></tbody></table></div>
-        <div><h3>Data quality</h3><ul class="dashboard-preview__quality"><li>Season statistics <span>Ready</span></li><li>Last 10 games <span>Ready</span></li><li>Conference games <span>Ready</span></li><li>Situational splits <span>Ready</span></li></ul></div>
+      <div class="dashboard-preview__charts">
+        <figure class="dashboard-chart dashboard-chart--trend">
+          <figcaption>
+            <div><h3>Recent run trend</h3><p data-run-summary>63 scored · 38 allowed</p></div>
+            <div class="dashboard-chart__legend" aria-hidden="true"><span data-series="for">Scored</span><span data-series="against">Allowed</span></div>
+          </figcaption>
+          <svg viewBox="0 0 400 170" role="img" aria-label="Runs scored and allowed across the ten most recent games">
+            <g class="dashboard-chart__grid"><line x1="12" y1="22" x2="388" y2="22"/><line x1="12" y1="82" x2="388" y2="82"/><line x1="12" y1="142" x2="388" y2="142"/></g>
+            <polyline class="dashboard-chart__line dashboard-chart__line--against" data-chart-series="against" points=""/>
+            <polyline class="dashboard-chart__line dashboard-chart__line--for" data-chart-series="for" points=""/>
+          </svg>
+          <div class="dashboard-chart__axis" aria-hidden="true"><span>Game 1</span><span>Game 5</span><span>Game 10</span></div>
+        </figure>
+        <figure class="dashboard-chart dashboard-chart--rates">
+          <figcaption><div><h3>Rate profile</h3><p>Team rate with division average marker</p></div></figcaption>
+          <div class="dashboard-rate-list">
+            <div class="dashboard-rate" data-preview-rate="0"><div><span>Walk rate</span><strong>11.2%</strong></div><div class="dashboard-rate__track"><span></span><i aria-hidden="true"></i></div></div>
+            <div class="dashboard-rate" data-preview-rate="1"><div><span>Strikeout rate</span><strong>18.4%</strong></div><div class="dashboard-rate__track"><span></span><i aria-hidden="true"></i></div></div>
+            <div class="dashboard-rate" data-preview-rate="2"><div><span>Extra-base hit rate</span><strong>10.9%</strong></div><div class="dashboard-rate__track"><span></span><i aria-hidden="true"></i></div></div>
+          </div>
+        </figure>
       </div>
+      <p class="dashboard-preview__quality">Season, last 10, conference, and split data are ready.</p>
     </div>`;
+  }
+
+  function updatePreviewScope(root, scopeKey, scopeLabel) {
+    const data = PREVIEW_SCOPE_DATA[scopeKey] || PREVIEW_SCOPE_DATA.full_season;
+    const notice = root.querySelector(".dashboard-preview__notice");
+    if (notice) notice.textContent = `${scopeLabel} · Development preview · Illustrative values only`;
+    root.querySelectorAll("[data-preview-metric]").forEach(function (metric) {
+      metric.textContent = data.metrics[Number(metric.dataset.previewMetric)];
+    });
+    const scored = root.querySelector('[data-chart-series="for"]');
+    const allowed = root.querySelector('[data-chart-series="against"]');
+    if (scored) scored.setAttribute("points", chartPoints(data.runsFor));
+    if (allowed) allowed.setAttribute("points", chartPoints(data.runsAgainst));
+    const summary = root.querySelector("[data-run-summary]");
+    if (summary) summary.textContent = data.runSummary;
+    root.querySelectorAll("[data-preview-rate]").forEach(function (rate) {
+      const item = data.rates[Number(rate.dataset.previewRate)];
+      rate.querySelector("strong").textContent = item.value;
+      rate.style.setProperty("--rate-width", `${item.width}%`);
+      rate.style.setProperty("--benchmark-position", `${item.benchmark}%`);
+    });
   }
 
   function showMessage(root, title, detail) {
@@ -71,6 +155,7 @@
 
     if (configuration.synthetic) {
       container.innerHTML = previewMarkup();
+      updatePreviewScope(root, "full_season", "Full season");
       container.hidden = false;
       container.classList.add("is-ready");
       message.hidden = true;
@@ -197,10 +282,7 @@
             }] : []);
           } catch (_error) {}
         }
-        const previewNotice = root.querySelector(".dashboard-preview__notice");
-        if (previewNotice) {
-          previewNotice.textContent = `${button.textContent.trim()} · Development preview · Illustrative values only`;
-        }
+        updatePreviewScope(root, button.dataset.dashboardScope, button.textContent.trim());
       });
     });
     initialize(root);

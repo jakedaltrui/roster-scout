@@ -38,8 +38,8 @@ same saved snapshot, not separate calculations.
 - Staff may run the same opponent on consecutive game days; each explicit
   refresh creates a new immutable version while older versions remain usable.
 - Coaches review in the browser, download Excel, or export a copy to Google
-  Sheets. Power BI is embedded inside Roster Scout rather than exposed as a
-  separate customer account or product.
+  Sheets. The browser dashboard is a lightweight native Roster Scout view,
+  with no separate BI account, iframe, or customer setup.
 
 ## Capabilities and Constraints
 
@@ -49,14 +49,12 @@ same saved snapshot, not separate calculations.
 - Canonical data distinguishes zero from missing and retains source identity,
   URLs, timestamps, metric methodology, scope status, and snapshot lineage.
 - Reports are organization-owned, immutable by snapshot, explicitly refreshed,
-  and isolated across organizations.
-- Power BI must use app-owns-data embedding with short-lived tokens and exact
-  organization/snapshot enforcement. A Power BI account or license is not a
-  customer requirement.
-- Production deployment, Microsoft capacity purchase, and billing/pricing are
-  separate decisions and require explicit user approval.
-- Open decision: the production Power BI/Fabric capacity SKU and tenant are not
-  provisioned yet.
+  and isolated across organizations. Saved report data and workbook objects are
+  retained for 30 days; raw usage events are retained for 90 days.
+- The native dashboard reads only the already-authorized immutable snapshot and
+  adds no secondary analytics store or customer-visible Power BI dependency.
+- Production deployment and billing/pricing are separate decisions and require
+  explicit user approval.
 
 ## Brand Commitments
 
@@ -76,8 +74,8 @@ replacement product or generic enterprise BI shell.
   conference data contracts are implemented and covered by fixtures/tests.
 - The two-sheet workbook renderer and immutable artifact flow are implemented
   and release-tested.
-- No production Power BI workspace, semantic model, report ID, service
-  principal, or supported capacity has been verified in this repository.
+- The native dashboard is server-projected from canonical snapshot facts and
+  rendered with dependency-free JavaScript.
 
 ## Product Principles
 
