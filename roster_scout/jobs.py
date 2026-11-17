@@ -768,6 +768,11 @@ def unavailable_collected_split_sections(
 
     if status not in {"unavailable", "failed"}:
         raise ValueError("split failure status is invalid")
+    if any(
+        not str(category_ids.get(stat_type) or "").strip()
+        for stat_type in ("batting", "pitching")
+    ):
+        raise ValueError("split category identities are incomplete")
     sections = []
     source_path = f"/teams/{source_season_team_id}/season_to_date_stats"
     for stat_type, codes in SPLIT_CODES.items():
@@ -2301,8 +2306,33 @@ def _persist_schedule_scopes(session, job, snapshot, sections, identities):
     team_season = session.get(TeamSeason, report.team_season_id)
     team = session.get(Team, team_season.team_id)
     season = session.get(Season, team_season.season_id)
+    canonical_source_season_id = str(
+        schedule_section.source_season_id or season.source_season_id or ""
+    ).strip()
+    category_by_stat_type = {
+        stat_type: next(
+            (
+                item.source_stat_category_id
+                for item in sections
+                if item.name == stat_type and item.source_stat_category_id
+            ),
+            (
+                team_season.batting_stat_category_id
+                if stat_type == "batting"
+                else team_season.pitching_stat_category_id
+            ),
+        )
+        for stat_type in ("batting", "pitching")
+    }
+    if (
+        not canonical_source_season_id
+        or any(not str(value or "").strip() for value in category_by_stat_type.values())
+    ):
+        raise DeterministicJobError("schema_validation")
     audited = tuple(
-        _schedule_row_to_audited(record.raw_values, season_id=season.source_season_id)
+        _schedule_row_to_audited(
+            record.raw_values, season_id=canonical_source_season_id
+        )
         for record in records
     )
     schedule_complete = (
@@ -2317,7 +2347,7 @@ def _persist_schedule_scopes(session, job, snapshot, sections, identities):
         organization_id=job.organization_id,
         snapshot_id=snapshot.id,
         source_record_id=first.id,
-        source_season_id=season.source_season_id,
+        source_season_id=canonical_source_season_id,
         source_team_id=team.source_team_id,
         source_season_team_id=team_season.source_season_team_id,
         conference_id=report_conference_id,
@@ -2340,7 +2370,7 @@ def _persist_schedule_scopes(session, job, snapshot, sections, identities):
                 organization_id=job.organization_id,
                 snapshot_id=snapshot.id,
                 source_record_id=record.id,
-                source_season_id=season.source_season_id,
+                source_season_id=canonical_source_season_id,
                 source_team_id=str(opponent_team_id),
                 source_season_team_id=str(opponent_season_team_id),
                 conference_id=conference_id,
@@ -2366,7 +2396,7 @@ def _persist_schedule_scopes(session, job, snapshot, sections, identities):
             organization_id=job.organization_id,
             snapshot_id=snapshot.id,
             source_record_id=record.id,
-            source_season_id=season.source_season_id,
+            source_season_id=canonical_source_season_id,
             game_date=item.game_date,
             completed_at=item.completed_at,
             status=item.status,
@@ -2396,7 +2426,7 @@ def _persist_schedule_scopes(session, job, snapshot, sections, identities):
         ),
         "conference": select_conference_games(
             audited,
-            report_season_id=season.source_season_id,
+            report_season_id=canonical_source_season_id,
             schedule_complete=schedule_complete,
         ),
     }
@@ -2461,13 +2491,15 @@ def _persist_schedule_scopes(session, job, snapshot, sections, identities):
                 stat_type=stat_type,
                 display_label=("Last 10 Completed Games" if scope_code == "last_10" else "Conference Only"),
                 source_identifier=None,
-                source_path=f"/team/{team.source_team_id}/{season.source_season_id}",
+                source_path=(
+                    f"/team/{team.source_team_id}/{canonical_source_season_id}"
+                ),
                 source_url=schedule_section.source_url,
-                source_season_id=season.source_season_id,
+                source_season_id=canonical_source_season_id,
                 source_season_team_id=team_season.source_season_team_id,
                 source_stat_category_id=(
-                    team_season.batting_stat_category_id if stat_type == "batting"
-                    else team_season.pitching_stat_category_id if stat_type == "pitching"
+                    category_by_stat_type[stat_type]
+                    if stat_type in category_by_stat_type
                     else "fielding"
                 ),
                 status=scope_status,
@@ -2515,7 +2547,7 @@ def _persist_schedule_scopes(session, job, snapshot, sections, identities):
                         ("avg",) if stat_type == "batting"
                         else ("era",) if stat_type == "pitching" else ()
                     ),
-                    season_id=season.source_season_id,
+                    season_id=canonical_source_season_id,
                     division=team_season.division,
                 )
                 if aggregate.status != "complete" or not aggregate.contributing_fact_ids:
@@ -2861,7 +2893,7 @@ def run_report_job(session_factory, job_id, generation=None, *, collector):
             )
             LOGGER.error(
                 "report_job_failed error_type=%s category=%s module=%s "
-                "location=%s:%s:%s constraint=%s table=%s",
+                "location=%s:%s:%s constraint=%s table=%s column=%s",
                 type(exc).__name__,
                 classified.category,
                 missing_module or "none",
@@ -2888,6 +2920,19 @@ def run_report_job(session_factory, job_id, generation=None, *, collector):
                         getattr(
                             getattr(getattr(exc, "orig", None), "diag", None),
                             "table_name",
+                            "",
+                        )
+                        if isinstance(exc, IntegrityError)
+                        else ""
+                    )[:120],
+                ) or "none",
+                re.sub(
+                    r"[^A-Za-z0-9_.-]",
+                    "?",
+                    str(
+                        getattr(
+                            getattr(getattr(exc, "orig", None), "diag", None),
+                            "column_name",
                             "",
                         )
                         if isinstance(exc, IntegrityError)
@@ -2986,8 +3031,9 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
         season_team_id = team_season.source_season_team_id
         division = team_season.division
         year = season.year
+        ncaa_season_contract = _find_ncaa_season(year)
         discovered_fielding_id = str(
-            _find_ncaa_season(year).get("fielding_id") or ""
+            ncaa_season_contract.get("fielding_id") or ""
         ).strip()
         fielding_requested = discovered_fielding_id.isdigit()
         missing_core = frozenset({"batting", "pitching"} - matching.keys())
@@ -3000,11 +3046,31 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
         } <= matching.keys()
         phase3_missing = True
         source_team_id = team.source_team_id
-        source_season_id = season.source_season_id
+        contract_source_season_id = str(
+            ncaa_season_contract.get("id") or ""
+        ).strip()
+        source_season_id = (
+            contract_source_season_id
+            if contract_source_season_id.isdigit()
+            else str(season.source_season_id or "").strip()
+        )
         split_category_ids = {
-            "batting": team_season.batting_stat_category_id,
-            "pitching": team_season.pitching_stat_category_id,
+            "batting": str(
+                team_season.batting_stat_category_id
+                or ncaa_season_contract.get("batting_id")
+                or ""
+            ).strip(),
+            "pitching": str(
+                team_season.pitching_stat_category_id
+                or ncaa_season_contract.get("pitching_id")
+                or ""
+            ).strip(),
         }
+        if (
+            not source_season_id
+            or any(not value for value in split_category_ids.values())
+        ):
+            raise DeterministicJobError("schema_validation")
 
         for section in reconstructed:
             entry = budget.plan(

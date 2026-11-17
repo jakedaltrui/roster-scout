@@ -3895,13 +3895,24 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
         from roster_scout.jobs import CollectedSection
         from roster_scout.models import (
             BattingGameLogFact, CareerAggregate, CareerSeasonFact, Game,
-            Player, PlayerTeamSeason, ReportSection, RequestLedger, SourceRecord,
+            Player, PlayerTeamSeason, Report, ReportSection, RequestLedger,
+            Season, SourceRecord, TeamSeason,
         )
         from roster_scout.ncaa_detail import (
             parse_player_detail_fixture, parse_schedule_fixture,
         )
 
         job = self._accepted_job(1, "phase3-real-collector")
+        # Legacy reports used the year as the season identity and did not
+        # persist NCAA category IDs. Live collection must recover those exact
+        # identities from the authoritative season contract.
+        with self.Session.begin() as session:
+            report = session.get(Report, job.report_id)
+            team_season = session.get(TeamSeason, report.team_season_id)
+            season = session.get(Season, team_season.season_id)
+            season.source_season_id = "2026"
+            team_season.batting_stat_category_id = None
+            team_season.pitching_stat_category_id = None
         base = FullSeasonMetricPublicationTests.detailed_sections()
         core = tuple(
             CollectedSection(

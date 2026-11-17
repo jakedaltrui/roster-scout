@@ -393,6 +393,22 @@ class CollectionBudgetTests(unittest.TestCase):
         connection.exec_driver_sql.assert_called_with("SELECT 1")
         connection.commit.assert_called()
 
+    def test_unavailable_split_scopes_require_category_identities(self):
+        from datetime import UTC, datetime
+
+        from roster_scout.jobs import unavailable_collected_split_sections
+
+        with self.assertRaises(ValueError):
+            unavailable_collected_split_sections(
+                source_team_id="267",
+                source_season_id="17040",
+                source_season_team_id="614825",
+                category_ids={"batting": None, "pitching": "15868"},
+                status="unavailable",
+                reason="source_unavailable",
+                collected_at=datetime.now(UTC),
+            )
+
     def test_one_shared_budget_accounts_for_planned_cache_and_live_outcomes(self):
         from roster_scout.jobs import CollectionBudget, load_phase3_collection_limits
 
