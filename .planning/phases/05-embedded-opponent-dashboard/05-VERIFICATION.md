@@ -60,8 +60,19 @@ Before production deployment:
 - A private staging object completed write, integrity-checked read, and delete.
 - The hosted browser passed team selection, in-card sign-in transformation,
   non-`.edu` rejection, and light/dark presentation.
+- An authenticated Abilene Christian staging build published a canonical
+  partial snapshot with complete batting/pitching sections, explicit
+  unavailable supplemental sections, six terminal request ledgers, and no
+  stranded `planned` ledger rows.
+- The private artifact reached `ready`; the authorized report page rendered
+  the native full-season, last-10, conference, and 14-split dashboard model.
+- The authorized Excel route returned a valid two-sheet workbook named
+  `Team Stats 11-17-26.xlsx` with `Hitters` and `Pitchers` sheets.
+- Staging Google OAuth credentials are configured. The authorized export route
+  redirected to Google Accounts with the exact staging callback and only the
+  `https://www.googleapis.com/auth/drive.file` scope.
 - A reachable `.edu` inbox is still required for the real WorkOS code loop.
-- Staging Google OAuth credentials are still required for the Sheets export
-  smoke; Excel and the remaining signed-in report journey follow that login.
+- Final Google consent/upload needs a real signed-in Google account; the
+  server-side authorization boundary and callback contract have passed.
 
 No production deployment was performed by this verification.

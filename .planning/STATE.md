@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: complete
-stopped_at: Phase 5 release candidate deployed to staging; authenticated export smoke pending
-last_updated: "2026-11-16T22:45:00-06:00"
-last_activity: 2026-11-16 -- PR #6 and isolated staging deployment verified; production unchanged
+stopped_at: Phase 5 authenticated staging report, dashboard, Excel, and Google OAuth-start smoke passed
+last_updated: "2026-11-16T23:30:00-06:00"
+last_activity: 2026-11-16 -- live staging report and export paths passed; production unchanged
 progress:
   total_phases: 6
   completed_phases: 6
@@ -21,14 +21,14 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-11-16)
 
 **Core value:** A baseball staff can reliably turn fragmented opponent data into a trustworthy, reusable scouting report with interactive analysis and a portable Excel download.
-**Current focus:** Complete the hosted authenticated/export smoke before production approval
+**Current focus:** Complete the real `.edu` WorkOS code loop before production approval
 
 ## Current Position
 
 Phase: 5 (Native Opponent Dashboard) — COMPLETE
 Plan: 4 of 4 implementation plans complete
-Status: Release candidate is healthy on staging; real `.edu` code and Google Sheets smoke remain
-Last activity: 2026-11-16 -- PR #6 created, CI passed, and isolated staging processes verified
+Status: Release candidate is healthy on staging; real `.edu` code delivery remains
+Last activity: 2026-11-16 -- authenticated live report, dashboard, Excel, and Google OAuth-start smoke passed
 
 Progress: [██████████] 100%
 
@@ -278,7 +278,9 @@ Full decision log: `.planning/PROJECT.md`.
 - Fly trial billing was previously unresolved and can stop machines after five minutes; durable report workers require verified uninterrupted hosting.
 - Production WorkOS workspace, billing, secrets, live email/federation, and the final two-organization smoke test remain explicit deployment checkpoints.
 - Staging needs a reachable `.edu` mailbox to complete the real WorkOS code loop.
-- Staging does not yet have Google OAuth client credentials, so Google Sheets export cannot be smoke-tested there.
+- Staging Google OAuth is configured and the exact `drive.file` authorization
+  redirect passed; final consent/upload still requires a real signed-in Google
+  account.
 - NCAA split IDs and NCAA-specific wOBA/FIP inputs require current-season validation before metrics can be published.
 
 ## Deferred Items
