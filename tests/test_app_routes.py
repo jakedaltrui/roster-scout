@@ -209,11 +209,11 @@ class WorkbookPreparationReceiptTests(unittest.TestCase):
             response.mimetype,
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
-        self.assertIn("Tampa", response.headers["Content-Disposition"])
         self.assertIn(
-            f"Tampa Stats {datetime.now(UTC).strftime('%m-%d-%y')}.xlsx",
+            f"Team Stats {datetime.now(UTC).strftime('%m-%d-%y')}.xlsx",
             response.headers["Content-Disposition"],
         )
+        self.assertNotIn("Tampa", response.headers["Content-Disposition"])
         self.assertTrue(response.data.startswith(b"PK"))
         with zipfile.ZipFile(io.BytesIO(response.data)) as archive:
             workbook_xml = archive.read("xl/workbook.xml").decode("utf-8")

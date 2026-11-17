@@ -36,7 +36,7 @@
       && !/[^\x20-\x7e]/.test(value);
   }
 
-  function downloadNameFromResponse(response, fallback = "Opponent Stats.xlsx") {
+  function downloadNameFromResponse(response, fallback = "Team Stats.xlsx") {
     const disposition = response?.headers?.get?.("Content-Disposition") || "";
     const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i);
     const plain = disposition.match(/filename="?([^";]+)"?/i);

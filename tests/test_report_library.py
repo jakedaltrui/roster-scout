@@ -1563,9 +1563,10 @@ class FailedBuildRetryTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data, first_payload)
         self.assertIn(
-            f"Artifact Antelopes Stats {datetime.now(UTC).strftime('%m-%d-%y')}.xlsx",
+            f"Team Stats {datetime.now(UTC).strftime('%m-%d-%y')}.xlsx",
             response.headers["Content-Disposition"],
         )
+        self.assertNotIn("Artifact Antelopes", response.headers["Content-Disposition"])
         self.assertEqual(reader.call_args_list, [(("immutable/first.xlsx",), {})])
         receipt = response.headers["X-Roster-Scout-Download-Event-ID"]
         proof = response.headers["X-Roster-Scout-Download-Ack-Proof"]
@@ -1699,7 +1700,7 @@ class FailedBuildRetryTests(unittest.TestCase):
         self.assertEqual(exported["payload"], payload)
         self.assertRegex(
             exported["workbook_name"],
-            r"^Sheets Sharks Stats \d{2}-\d{2}-\d{2}\.xlsx$",
+            r"^Team Stats \d{2}-\d{2}-\d{2}\.xlsx$",
         )
         with self.Session() as session:
             audit = session.scalar(

@@ -22,16 +22,16 @@ test("saved workbook downloads keep the clean server-provided filename", () => {
     headers: {
       get(name) {
         return name === "Content-Disposition"
-          ? "attachment; filename*=UTF-8''Abilene%20Christian%20Stats%2011-15-26.xlsx"
+          ? "attachment; filename*=UTF-8''Team%20Stats%2011-15-26.xlsx"
           : null;
       },
     },
   };
   assert.equal(
     downloadNameFromResponse(response),
-    "Abilene Christian Stats 11-15-26.xlsx",
+    "Team Stats 11-15-26.xlsx",
   );
-  assert.equal(downloadNameFromResponse({ headers: new Map() }), "Opponent Stats.xlsx");
+  assert.equal(downloadNameFromResponse({ headers: new Map() }), "Team Stats.xlsx");
 });
 
 class FakeStorage {
