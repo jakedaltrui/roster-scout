@@ -69,6 +69,14 @@ _LIVE_LABEL_PATTERNS = {
 }
 _REQUIRED_HEADERS = ("player", "g", "gs", "po", "a", "e", "tc", "dp", "fpct")
 _OPTIONAL_HEADERS = ("pb", "sba", "csb")
+_FIELDING_HEADER_ALIASES = {
+    "gp": "g",
+    "fldpct": "fpct",
+    "idp": "dp",
+}
+_IGNORED_FIELDING_HEADERS = frozenset({
+    "#", "yr", "pos", "ht", "b/t", "ci", "tp", "sbapct",
+})
 _COUNT_FIELDS = {
     "g": "games",
     "gs": "games_started",
@@ -955,6 +963,7 @@ _LIVE_SPLIT_IDENTIFIER_ATTRIBUTES = frozenset({
     "data-context-id",
     "data-situation-id",
     "data-split-id",
+    "data-sport-stat-id",
     "data-stat-seq",
     "data-summary-id",
 })
@@ -1538,12 +1547,22 @@ def parse_fielding_page(
         cell.get_text(" ", strip=True)
         for cell in header_row.find_all(["th", "td"], recursive=False)
     ]
-    headers = [_normalized(value) for value in raw_headers]
+    headers = [
+        _FIELDING_HEADER_ALIASES.get(_normalized(value), _normalized(value))
+        for value in raw_headers
+    ]
     if any(headers.count(required) != 1 for required in _REQUIRED_HEADERS):
         raise FieldingParseError("schema_validation")
     if any(headers.count(optional) > 1 for optional in _OPTIONAL_HEADERS):
         raise FieldingParseError("schema_validation")
-    if any(value not in {*_REQUIRED_HEADERS, *_OPTIONAL_HEADERS} for value in headers):
+    if any(
+        value not in {
+            *_REQUIRED_HEADERS,
+            *_OPTIONAL_HEADERS,
+            *_IGNORED_FIELDING_HEADERS,
+        }
+        for value in headers
+    ):
         raise FieldingParseError("schema_validation")
 
     player_index = headers.index("player")
@@ -1557,6 +1576,8 @@ def parse_fielding_page(
             saw_empty_marker = True
             continue
         cells = source_row.find_all(["th", "td"], recursive=False)
+        if not any(cell.get_text(" ", strip=True) for cell in cells):
+            continue
         if len(cells) != len(headers):
             raise FieldingParseError("schema_validation")
         values = [cell.get_text(" ", strip=True) for cell in cells]

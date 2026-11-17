@@ -99,6 +99,37 @@ class FieldingTests(unittest.TestCase):
         self.assertEqual(d3["caught_stealing_by"], 0)
         self.assertEqual(d3["fielding_percentage"], Decimal("1.000"))
 
+    def test_live_fielding_headers_and_empty_spacer_rows_are_supported(self):
+        live = """
+        <table id="stat_grid">
+          <thead><tr>
+            <th>#</th><th>Player</th><th>Yr</th><th>Pos</th><th>Ht</th><th>B/T</th>
+            <th>GP</th><th>GS</th><th>PO</th><th>A</th><th>TC</th><th>E</th>
+            <th>FldPct</th><th>CI</th><th>PB</th><th>SBA</th><th>CSB</th>
+            <th>IDP</th><th>TP</th><th>SBAPct</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td>12</td><td><a href="/players/11001">D One Catcher</a></td>
+              <td>Jr</td><td>C</td><td>6-0</td><td>R/R</td>
+              <td>40</td><td>39</td><td>121</td><td>14</td><td>137</td><td>2</td>
+              <td>.985</td><td>0</td><td>1</td><td>8</td><td>4</td>
+              <td>12</td><td>0</td><td>.750</td>
+            </tr>
+            <tr><td></td></tr>
+          </tbody>
+        </table>
+        """
+
+        section = self.parse(live)
+
+        self.assertEqual(section.rows[0].canonical_values["games"], 40)
+        self.assertEqual(section.rows[0].canonical_values["double_plays"], 12)
+        self.assertEqual(
+            section.rows[0].canonical_values["fielding_percentage"],
+            Decimal(".985"),
+        )
+
     def test_rejects_missing_duplicate_or_renamed_required_headers(self):
         valid = fixture("d2")
         cases = (
@@ -348,6 +379,20 @@ class FixtureCaptureSafetyTests(unittest.TestCase):
             captured_at="2026-11-16T00:00:00Z",
         )
         self.assertIn('data-schedule-complete="false"', truncated)
+
+        with_spacer = self._raw_schedule(
+            extra='<tr><td></td></tr>'
+        )
+        sanitized = api.sanitize_schedule(
+            with_spacer,
+            season_id="17040",
+            team_id="234",
+            season_team_id="614606",
+            division="1",
+            catalog=self._schedule_catalog(),
+            captured_at="2026-11-16T00:00:00Z",
+        )
+        self.assertEqual(sanitized.count("<game "), 1)
 
     def test_schedule_capture_rejects_pagination_unknown_results_and_malformed_rows(self):
         api = self.capture_api()
@@ -1081,6 +1126,22 @@ class SplitDiscoveryTests(unittest.TestCase):
         self.assertEqual(
             next(item for item in scopes if item.scope_code == "vs_lhp").source_identifier,
             "123",
+        )
+
+        live_html = """
+        <table id="stat_grid"><thead><tr><th>Player</th><th>AB</th><th>H</th></tr></thead></table>
+        <a class="sport_stat_menu_option_4" data-sport-stat-id="4">Hits-AB vs Left Handed Pitchers</a>
+        """
+        live_scopes = api.discover_live_split_controls(
+            live_html,
+            season_id="17040",
+            season_team_id="614606",
+            stat_type="batting",
+            source_stat_category_id="15867",
+        )
+        self.assertEqual(
+            next(item for item in live_scopes if item.scope_code == "vs_lhp").source_identifier,
+            "4",
         )
         ambiguous = html.replace(
             'data-stat-seq="123"',

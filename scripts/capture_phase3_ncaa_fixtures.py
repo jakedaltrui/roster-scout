@@ -1420,6 +1420,11 @@ def sanitize_schedule(
         cells = row.find_all(["th", "td"], recursive=False)
         if not cells:
             continue
+        # The live NCAA schedule currently inserts a one-cell, empty spacer
+        # row after every game.  It carries no source data and is not a
+        # malformed game row, so discard it before enforcing the game shape.
+        if not any(cell.get_text(" ", strip=True) for cell in cells):
+            continue
         if len(cells) < max(date_index, opponent_index, result_index or 0) + 1:
             raise CaptureUnavailable(CAPTURE_FAILURE, stage="schedule_row_shape")
         date_text = cells[date_index].get_text(" ", strip=True)

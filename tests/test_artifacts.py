@@ -93,7 +93,7 @@ class ArtifactStorageUnitTests(unittest.TestCase):
         self.assertEqual(
             key,
             f"organizations/{organization_id}/reports/{report_id}/snapshots/"
-            f"{snapshot_id}/workbooks/roster-scout-coach-facing-two-sheet-xlsx-v3.xlsx",
+            f"{snapshot_id}/workbooks/roster-scout-coach-facing-two-sheet-xlsx-v4.xlsx",
         )
         with self.assertRaisesRegex(ArtifactStorageError, "invalid artifact key"):
             _validated_object_key(f"../{key}")
@@ -223,6 +223,8 @@ class ArtifactStorageUnitTests(unittest.TestCase):
             team_name="Parity University",
             season_year=2026,
             published_at=published_at,
+            source_collected_at=datetime(2026, 11, 14, 15, 58, tzinfo=UTC),
+            snapshot_status="partial",
             hitters=hitters,
             pitchers=pitchers,
         )
@@ -232,12 +234,18 @@ class ArtifactStorageUnitTests(unittest.TestCase):
             team_id=source.source_team_id,
         )
 
+        payload = build_snapshot_workbook(source)
         self.assertEqual(
-            build_snapshot_workbook(source),
+            payload,
             app_module._create_workbook(
                 list(hitters), list(pitchers), branding=branding
             ).getvalue(),
         )
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            shared_strings = archive.read("xl/sharedStrings.xml")
+        self.assertIn(b"NOVEMBER 14, 2026", shared_strings)
+        for removed in (b"SEASON", b"PUBLISHED", b"SOURCE", b"SNAPSHOT"):
+            self.assertNotIn(removed, shared_strings)
 
 
 class ArtifactContractTests(unittest.TestCase):
@@ -356,6 +364,7 @@ class ArtifactContractTests(unittest.TestCase):
             "Career",
             "Game Logs",
             "Methodology",
+            "Status",
         ):
             self.assertNotIn(f">{excluded}<", shared_strings)
         self.assertIn('xSplit="4"', hitters_xml)
@@ -386,8 +395,8 @@ class ArtifactContractTests(unittest.TestCase):
         self.assertNotIn(b"9001", shared_strings)
         self.assertNotIn(b"https://stats.ncaa.org/players/9001", shared_strings)
         self.assertIn(b"=1+1", shared_strings)
-        self.assertIn(b"Complete", shared_strings)
-        self.assertIn(b"Partial", shared_strings)
+        self.assertNotIn(b"Complete", shared_strings)
+        self.assertNotIn(b"Partial", shared_strings)
         self.assertNotIn(b"Conference Status", shared_strings)
         self.assertNotIn(b"Conference G</t></si><si><t>0", shared_strings)
 
@@ -567,10 +576,16 @@ class ArtifactContractTests(unittest.TestCase):
             f"{snapshot_id}/workbooks/roster-scout-detailed-two-sheet-xlsx-v2.xlsx"
         )
 
-        self.assertEqual(ARTIFACT_SCHEMA_VERSION, "coach-facing-two-sheet-xlsx-v3")
+        historical_v3 = (
+            f"organizations/{organization_id}/reports/{report_id}/snapshots/"
+            f"{snapshot_id}/workbooks/roster-scout-coach-facing-two-sheet-xlsx-v3.xlsx"
+        )
+
+        self.assertEqual(ARTIFACT_SCHEMA_VERSION, "coach-facing-two-sheet-xlsx-v4")
         self.assertIn(ARTIFACT_SCHEMA_VERSION, current)
         self.assertEqual(_validated_object_key(historical_v1), historical_v1)
         self.assertEqual(_validated_object_key(historical_v2), historical_v2)
+        self.assertEqual(_validated_object_key(historical_v3), historical_v3)
 
 
 class ArtifactLifecycleTests(_PostgreSQLJobTestCase):

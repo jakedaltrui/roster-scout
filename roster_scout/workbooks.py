@@ -67,7 +67,6 @@ HITTER_COLUMNS = PLAYER_COLUMNS + (
     WorkbookColumn("Last 10", "AVG", "Last 10 AVG", "three", 9),
     WorkbookColumn("Last 10", "OPS", "Last 10 OPS", "three", 9),
     WorkbookColumn("Last 10", "K%", "Last 10 K%", "percent", 9),
-    WorkbookColumn("Last 10", "Status", "Last 10 Status", width=12),
     WorkbookColumn("Conference Stats", "G", "Conference G", "integer", 8),
     WorkbookColumn("Conference Stats", "PA", "Conference PA", "integer", 9),
     WorkbookColumn("Conference Stats", "AB", "Conference AB", "integer", 9),
@@ -105,7 +104,6 @@ PITCHER_COLUMNS = PLAYER_COLUMNS + (
     WorkbookColumn("Last 10", "ERA", "Last 10 ERA", "two", 9),
     WorkbookColumn("Last 10", "WHIP", "Last 10 WHIP", "two", 10),
     WorkbookColumn("Last 10", "K/9", "Last 10 K/9", "two", 9),
-    WorkbookColumn("Last 10", "Status", "Last 10 Status", width=12),
     WorkbookColumn("Conference Stats", "G", "Conference G", "integer", 8),
     WorkbookColumn("Conference Stats", "IP", "Conference IP", width=9),
     WorkbookColumn("Conference Stats", "ERA", "Conference ERA", "two", 10),
@@ -455,8 +453,6 @@ def _write_worksheet(workbook, title, rows, columns, branding=None):
         banded = (row_index - first_data_row) % 2 == 1
         for col_index, column in enumerate(columns):
             raw_value = player.get(column.key, "")
-            if column.key == "Last 10 Status" and not raw_value:
-                raw_value = "Unavailable"
             value = excel_value(column.kind, raw_value)
             kind = column.kind if isinstance(value, (int, float)) else "text"
             worksheet.write(

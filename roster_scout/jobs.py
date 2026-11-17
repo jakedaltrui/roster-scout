@@ -3466,12 +3466,18 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
                     source_season_team_id=season_team_id,
                     source_stat_category_id=name,
                 ))
-        except (NcaaAccessError, NcaaError, ValueError):
+        except (NcaaAccessError, NcaaError, ValueError) as exc:
             if not schedule_finished:
                 finish_live(
                     schedule_entry,
                     outcome="live_failed",
                     safe_category="schedule_unavailable",
+                )
+                capture_stage = getattr(exc.__cause__, "stage", None)
+                LOGGER.warning(
+                    "NCAA supplemental schedule unavailable job_id=%s capture_stage=%s",
+                    job.id,
+                    capture_stage or "not_reported",
                 )
             for name in (
                 "schedule", "game_logs:batting", "game_logs:pitching",

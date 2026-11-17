@@ -39,10 +39,11 @@ from .metrics import DEFINITION_VERSION, calculate_metric
 from .workbooks import create_workbook, workbook_branding
 
 
-ARTIFACT_SCHEMA_VERSION = "coach-facing-two-sheet-xlsx-v3"
+ARTIFACT_SCHEMA_VERSION = "coach-facing-two-sheet-xlsx-v4"
 SUPPORTED_ARTIFACT_SCHEMA_VERSIONS = frozenset({
     "basic-xlsx-v1",
     "detailed-two-sheet-xlsx-v2",
+    "coach-facing-two-sheet-xlsx-v3",
     ARTIFACT_SCHEMA_VERSION,
 })
 MAX_ARTIFACT_BYTES = 25 * 1024 * 1024
@@ -733,19 +734,10 @@ def load_snapshot_workbook_source(session, snapshot_id):
 
 def build_snapshot_workbook(source):
     """Build a saved version with the exact homepage workbook renderer."""
-    subtitle = None
-    if source.source_collected_at is not None:
-        subtitle = (
-            f"{source.season_year} SEASON · "
-            f"PUBLISHED {source.published_at.astimezone(UTC).strftime('%b %d, %Y %H:%M UTC').upper()} · "
-            f"SOURCE {source.source_collected_at.astimezone(UTC).strftime('%b %d, %Y %H:%M UTC').upper()} · "
-            f"{source.snapshot_status.upper()} SNAPSHOT"
-        )
     branding = workbook_branding(
         school_name=source.team_name,
         generated_on=source.published_at.date(),
         team_id=source.source_team_id,
-        subtitle=subtitle,
     )
     payload = create_workbook(
         list(source.hitters),

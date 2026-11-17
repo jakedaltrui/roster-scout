@@ -920,7 +920,7 @@ class PublicationTests(PostgreSQLJobTestCase):
             artifact = session.scalar(select(ReportArtifact))
             self.assertEqual(artifact.snapshot_id, snapshot.id)
             self.assertEqual(artifact.status, "pending")
-            self.assertEqual(artifact.schema_version, "coach-facing-two-sheet-xlsx-v3")
+            self.assertEqual(artifact.schema_version, "coach-facing-two-sheet-xlsx-v4")
             self.assertEqual(artifact.attempt_count, 0)
 
     def test_same_job_cache_reuse_preserves_source_collection_time(self):

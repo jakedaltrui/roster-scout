@@ -151,7 +151,7 @@ class DivisionWorkbookAcceptanceTests(unittest.TestCase):
                     _cell(archive, 1, "Z5"),
                     _cell(archive, 1, "AG5"),
                     _cell(archive, 2, "S5"),
-                    _cell(archive, 2, "AL5"),
+                    _cell(archive, 2, "AK5"),
                 ))
 
         self.assertEqual(schemas[0], schemas[1])
@@ -160,7 +160,7 @@ class DivisionWorkbookAcceptanceTests(unittest.TestCase):
         self.assertEqual(values[1], values[2])
         self.assertEqual(values[0][0], ("1.043", "number"))
         self.assertEqual(values[0][1], ("0.401", "number"))
-        self.assertEqual(values[0][2], ("Complete", "string"))
+        self.assertEqual(values[0][2], ("8", "number"))
         self.assertEqual(values[0][3], ("10.51", "number"))
         self.assertEqual(values[0][4][1], "number")
         self.assertAlmostEqual(float(values[0][4][0]), 9.88, places=2)
@@ -183,8 +183,8 @@ class DivisionWorkbookAcceptanceTests(unittest.TestCase):
             archive_names = set(archive.namelist())
 
         self.assertEqual(workbook_xml.count("<sheet "), 2)
-        self.assertEqual(len(HITTER_COLUMNS), 39)
-        self.assertEqual(len(PITCHER_COLUMNS), 38)
+        self.assertEqual(len(HITTER_COLUMNS), 38)
+        self.assertEqual(len(PITCHER_COLUMNS), 37)
         for label in (
             "Player",
             "Season Stats",
@@ -197,11 +197,11 @@ class DivisionWorkbookAcceptanceTests(unittest.TestCase):
             "Source URL",
             "Derived Metrics",
             "Conference Status",
+            "Status",
         ):
             self.assertNotIn(f">{removed}<", strings)
         self.assertIn("=SAFE TEXT", strings)
         self.assertIn(">Games<", strings)
-        self.assertIn(">Status<", strings)
         self.assertNotIn(b"<f>", worksheets)
         self.assertNotIn(b"<hyperlinks", worksheets)
         self.assertIn(b"<autoFilter", worksheets)
