@@ -29,7 +29,7 @@ _SEASON_FIELDS = {
         "games", "games_started", "plate_appearances", "at_bats", "runs",
         "hits", "doubles", "triples", "home_runs", "runs_batted_in",
         "walks", "hit_by_pitch", "strikeouts", "sacrifice_flies",
-        "sacrifice_hits", "stolen_bases", "caught_stealing", "total_bases",
+        "sacrifice_hits", "stolen_bases", "caught_stealing",
     ),
     "pitching": (
         "appearances", "games_started", "innings_outs", "hits_allowed",

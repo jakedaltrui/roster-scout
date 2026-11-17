@@ -7,6 +7,14 @@ import uuid
 
 
 class NativeDashboardProjectionTests(unittest.TestCase):
+    def test_team_aggregation_fields_never_include_derived_metric_codes(self):
+        from roster_scout.metrics import METRIC_DEFINITIONS
+        from roster_scout.native_dashboard import _SEASON_FIELDS
+
+        for stat_type, fields in _SEASON_FIELDS.items():
+            with self.subTest(stat_type=stat_type):
+                self.assertFalse(set(fields).intersection(METRIC_DEFINITIONS))
+
     def test_team_rates_are_derived_only_from_counts(self):
         from roster_scout.native_dashboard import (
             _fielding_percentage,
