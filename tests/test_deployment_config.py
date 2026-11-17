@@ -1141,6 +1141,11 @@ class DispatchSchedulerConfigTests(unittest.TestCase):
             "COPY scripts/run_scheduler.py ./scripts/run_scheduler.py",
             dockerfile,
         )
+        self.assertIn(
+            "COPY scripts/capture_phase3_ncaa_fixtures.py "
+            "./scripts/capture_phase3_ncaa_fixtures.py",
+            dockerfile,
+        )
 
     def test_scheduler_has_only_database_broker_and_timing_configuration(self):
         timing = {
