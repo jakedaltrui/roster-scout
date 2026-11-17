@@ -119,11 +119,10 @@ def workbook_download_name(
     *,
     generated_on: date | None = None,
 ) -> str:
-    """Return one dated, readable filename shared by every download flow."""
-    readable = " ".join(str(team_name or "").split())
-    safe_name = re.sub(r"[^A-Za-z0-9]+", " ", readable).strip() or "Opponent"
+    """Return the approved dated filename shared by every export flow."""
+    del team_name  # Retained for compatibility with both existing route callers.
     report_date = generated_on or datetime.now(UTC).date()
-    return f"{safe_name} Stats {report_date.strftime('%m-%d-%y')}.xlsx"
+    return f"Team Stats {report_date.strftime('%m-%d-%y')}.xlsx"
 
 
 def excel_value(kind: str, value):

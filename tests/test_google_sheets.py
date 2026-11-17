@@ -82,13 +82,13 @@ class GoogleSheetsOAuthClientTests(unittest.TestCase):
                 {"GOOGLE_OAUTH_CLIENT_ID": "client-id"}
             )
 
-    def test_workbook_name_is_readable_and_dated(self):
+    def test_workbook_name_uses_the_approved_shared_export_label(self):
         self.assertEqual(
             workbook_download_name(
                 "Abilene Christian",
                 generated_on=date(2026, 11, 15),
             ),
-            "Abilene Christian Stats 11-15-26.xlsx",
+            "Team Stats 11-15-26.xlsx",
         )
 
 
