@@ -923,6 +923,60 @@ class PublicationTests(PostgreSQLJobTestCase):
             self.assertEqual(artifact.schema_version, "coach-facing-two-sheet-xlsx-v4")
             self.assertEqual(artifact.attempt_count, 0)
 
+    def test_partial_schedule_rows_are_persisted_before_scope_publication(self):
+        from roster_scout.jobs import (
+            PARSER_VERSION,
+            CollectedSection,
+            accept_report_job,
+            run_report_job,
+        )
+        from roster_scout.models import SourceRecord
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session, organization_id, report_id, "partial-schedule", dispatch=None
+        )
+        collected_at = datetime.now(UTC)
+        schedule = CollectedSection(
+            name="schedule",
+            critical=False,
+            rows=({
+                "source_game_id": "fixture-1",
+                "game_date": "2026-03-01",
+                "doubleheader_ordinal": 1,
+                "status": "completed",
+                "venue": "home",
+                "result_sha256": "a" * 64,
+                "conference_evidence_status": "source_absent",
+                "schedule_complete": False,
+            },),
+            source_url="https://stats.ncaa.org/teams/fixture/schedule",
+            source_team_id="team",
+            source_season_id="season",
+            source_season_team_id="team-season",
+            source_stat_category_id="schedule",
+            collected_at=collected_at,
+            parser_version=PARSER_VERSION,
+            schema_version="schema-1",
+            status="partial",
+            failure_category="schedule_evidence_incomplete",
+        )
+
+        snapshot = run_report_job(
+            self.Session,
+            job.id,
+            collector=Mock(return_value=(*self.successful_sections(collected_at), schedule)),
+        )
+
+        self.assertEqual(snapshot.status, "partial")
+        with self.Session() as session:
+            records = list(session.scalars(select(SourceRecord).where(
+                SourceRecord.snapshot_id == snapshot.id,
+                SourceRecord.section == "schedule",
+            )))
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0].raw_values["source_game_id"], "fixture-1")
+
     def test_same_job_cache_reuse_preserves_source_collection_time(self):
         from roster_scout.jobs import accept_report_job, run_report_job
         from roster_scout.models import ReportSection

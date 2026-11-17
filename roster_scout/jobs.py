@@ -1609,11 +1609,10 @@ def _persist_sections(session, job, snapshot, sections):
                     source_payload_sha256=scope.source_payload_sha256,
                 ))
 
-        if (
-            collected.status != "complete"
-            and not collected.scopes
-            and not collected.name.startswith("history:")
-        ) or not collected.rows:
+        # Complete and partial sections both contain validated source evidence.
+        # Unavailable/failed sections may carry diagnostic row counts but must
+        # not become canonical source records.
+        if collected.status not in {"complete", "partial"} or not collected.rows:
             continue
         for ordinal, row in enumerate(collected.rows):
             raw_values, payload_sha256 = _source_row_values(collected, row)
