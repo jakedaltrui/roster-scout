@@ -16,7 +16,7 @@ from threading import RLock
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from roster_scraper import NCAA_PARSER_VERSION
 from usage_limits import BrowserCapacityExceeded
@@ -150,7 +150,7 @@ def load_phase3_collection_limits(environment=None):
             environment, "PHASE3_NAVIGATION_TIMEOUT_SECONDS", 45, 5, 120
         ),
         wall_time_seconds=_bounded_collection_integer(
-            environment, "PHASE3_BUILD_WALL_TIME_SECONDS", 15 * 60, 60, 1800
+            environment, "PHASE3_BUILD_WALL_TIME_SECONDS", 18 * 60, 60, 1800
         ),
     )
 
@@ -2861,13 +2861,39 @@ def run_report_job(session_factory, job_id, generation=None, *, collector):
             )
             LOGGER.error(
                 "report_job_failed error_type=%s category=%s module=%s "
-                "location=%s:%s:%s",
+                "location=%s:%s:%s constraint=%s table=%s",
                 type(exc).__name__,
                 classified.category,
                 missing_module or "none",
                 os.path.basename(failure_frame.filename),
                 failure_frame.lineno,
                 failure_frame.name,
+                re.sub(
+                    r"[^A-Za-z0-9_.-]",
+                    "?",
+                    str(
+                        getattr(
+                            getattr(getattr(exc, "orig", None), "diag", None),
+                            "constraint_name",
+                            "",
+                        )
+                        if isinstance(exc, IntegrityError)
+                        else ""
+                    )[:120],
+                ) or "none",
+                re.sub(
+                    r"[^A-Za-z0-9_.-]",
+                    "?",
+                    str(
+                        getattr(
+                            getattr(getattr(exc, "orig", None), "diag", None),
+                            "table_name",
+                            "",
+                        )
+                        if isinstance(exc, IntegrityError)
+                        else ""
+                    )[:120],
+                ) or "none",
             )
             safe_error = _record_failure(
                 claimed_sessions,
