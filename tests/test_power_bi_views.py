@@ -77,7 +77,7 @@ class PowerBIAnalyticsViewTests(unittest.TestCase):
         with self.engine.connect() as connection:
             granted = connection.execute(text("""
                 SELECT table_name, privilege_type
-                FROM information_schema.role_table_grants
+                FROM information_schema.table_privileges
                 WHERE grantee = 'PUBLIC' AND table_name LIKE 'pbi_%'
             """)).all()
         self.assertEqual(granted, [])

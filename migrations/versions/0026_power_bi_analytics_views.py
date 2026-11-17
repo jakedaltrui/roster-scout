@@ -5,6 +5,7 @@ Revises: 0025
 """
 
 from alembic import op
+from sqlalchemy import text
 
 
 revision = "0026"
@@ -225,11 +226,31 @@ def _replace_audit_constraints(dashboard_enabled):
     op.create_check_constraint("ck_security_audit_events_action", "security_audit_events", f"action IN ({actions})")
 
 
+def _revoke_public_privileges_if_present(name):
+    """Avoid managed-Postgres system-role writes when no grant exists."""
+    connection = op.get_bind()
+    has_public_grant = connection.execute(
+        text("""
+            SELECT EXISTS (
+                SELECT 1
+                FROM information_schema.table_privileges
+                WHERE table_schema = current_schema()
+                  AND table_name = :name
+                  AND grantee = 'PUBLIC'
+            )
+        """),
+        {"name": name},
+    ).scalar_one()
+    if has_public_grant:
+        # Fail closed if a provider cannot remove an actual public grant.
+        op.execute(f"REVOKE ALL ON {name} FROM PUBLIC")
+
+
 def upgrade():
     _replace_audit_constraints(True)
     for name in reversed(VIEW_NAMES):
         op.execute(f"CREATE VIEW {name} AS {VIEW_SQL[name]}")
-        op.execute(f"REVOKE ALL ON {name} FROM PUBLIC")
+        _revoke_public_privileges_if_present(name)
 
 
 def downgrade():
