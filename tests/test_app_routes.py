@@ -1616,8 +1616,13 @@ class AppRouteTests(unittest.TestCase):
             response.mimetype,
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
-        self.assertIn("attachment", response.headers["Content-Disposition"])
-        self.assertIn(team_name, response.headers["Content-Disposition"])
+        disposition = response.headers["Content-Disposition"]
+        self.assertIn("attachment", disposition)
+        self.assertRegex(
+            disposition,
+            r'filename="Team Stats \d{2}-\d{2}-\d{2}\.xlsx"',
+        )
+        self.assertNotIn(team_name, disposition)
         self.assertEqual(response.headers["X-Roster-Scout-Players"], "1")
         self.assertEqual(response.headers["X-Roster-Scout-Hitters"], "1")
         self.assertEqual(response.headers["X-Roster-Scout-Pitchers"], "0")
