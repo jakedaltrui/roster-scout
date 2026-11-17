@@ -257,6 +257,32 @@ class DownloadAcknowledgementPublicOriginConfigTests(unittest.TestCase):
 
 
 class WorkerRetentionPreflightTests(unittest.TestCase):
+    def test_worker_exec_preserves_fixed_project_import_path(self):
+        from scripts import run_worker
+
+        existing = "/existing/runtime"
+        with patch.dict(
+            "os.environ",
+            {
+                "FAILURE_EVIDENCE_RETENTION_DAYS": "28",
+                "CELERY_WORKER_CONCURRENCY": "1",
+                "BROWSERLESS_ACCOUNT_MAX_SESSIONS": "1",
+                "PYTHONPATH": existing,
+            },
+            clear=True,
+        ), patch(
+            "roster_scout.artifacts.artifact_store_from_environ"
+        ), patch.object(run_worker.os, "makedirs"), patch.object(
+            run_worker.os, "execvp"
+        ) as execvp:
+            run_worker.main()
+
+            self.assertEqual(
+                os.environ["PYTHONPATH"],
+                os.pathsep.join((str(PROJECT_ROOT), existing)),
+            )
+            execvp.assert_called_once()
+
     def test_invalid_retention_is_rejected_before_worker_command_is_built(self):
         from scripts.run_worker import worker_command
 
