@@ -211,3 +211,63 @@ class BrowserlessLifecycleTests(unittest.TestCase):
         browser.new_browser_cdp_session.return_value.send.assert_called_once_with('Browser.close')
         browser.close.assert_called_once()
         playwright.stop.assert_called_once()
+
+    def test_expired_remote_session_cleanup_does_not_replace_source_failure(self):
+        browser, playwright = MagicMock(), MagicMock()
+        browser.contexts = []
+        browser.new_browser_cdp_session.return_value.send.side_effect = RuntimeError(
+            'remote session expired'
+        )
+        browser.close.side_effect = RuntimeError('client already closed')
+        playwright.stop.side_effect = RuntimeError('driver already stopped')
+        playwright.chromium.connect_over_cdp.return_value = browser
+        starter = MagicMock()
+        starter.start.return_value = playwright
+        response = MagicMock(status_code=200)
+        response.json.return_value = {
+            'browserWSEndpoint': 'wss://example.test/browser'
+        }
+
+        with patch.dict(os.environ, {'BROWSERLESS_TOKEN': 'test'}), patch(
+            'requests.post', return_value=response
+        ), patch('patchright.sync_api.sync_playwright', return_value=starter):
+            with self.assertRaises(rs.NcaaAccessError) as raised:
+                rs._fetch_ncaa_browserless_pages({
+                    'batting': 'https://stats.ncaa.org/test'
+                })
+
+        self.assertEqual(
+            str(raised.exception),
+            'Browserless returned a session without a page.',
+        )
+        browser.new_browser_cdp_session.return_value.send.assert_called_once_with(
+            'Browser.close'
+        )
+        browser.close.assert_called_once()
+        playwright.stop.assert_called_once()
+
+    def test_expired_remote_session_cleanup_does_not_discard_collected_page(self):
+        source_url = 'https://stats.ncaa.org/teams/1/season_to_date_stats'
+        page, response, starter = self._session(source_url)
+        browser = starter.start.return_value.chromium.connect_over_cdp.return_value
+        browser.new_browser_cdp_session.return_value.send.side_effect = RuntimeError(
+            'remote session expired'
+        )
+        browser.close.side_effect = RuntimeError('client already closed')
+        starter.start.return_value.stop.side_effect = RuntimeError(
+            'driver already stopped'
+        )
+
+        with patch.dict(os.environ, {'BROWSERLESS_TOKEN': 'test'}), patch(
+            'requests.post', return_value=response
+        ), patch(
+            'patchright.sync_api.sync_playwright', return_value=starter
+        ), patch.object(rs, '_accept_ncaa_terms'):
+            rendered = rs._fetch_ncaa_browserless_pages({'batting': source_url})
+
+        self.assertEqual(rendered, {'batting': page.content.return_value})
+        browser.new_browser_cdp_session.return_value.send.assert_called_once_with(
+            'Browser.close'
+        )
+        browser.close.assert_called_once()
+        starter.start.return_value.stop.assert_called_once()

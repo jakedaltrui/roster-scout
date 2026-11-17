@@ -1293,15 +1293,9 @@ def _bounded_schedule_fetch(
         )
         raise CaptureUnavailable(CAPTURE_FAILURE, stage="schedule_fetch") from exc
     finally:
-        try:
-            if browser is not None:
-                try:
-                    browser.new_browser_cdp_session().send("Browser.close")
-                finally:
-                    browser.close()
-        finally:
-            if playwright is not None:
-                playwright.stop()
+        import roster_scraper as rs
+
+        rs._close_browserless_session(browser, playwright)
 
 
 def _catalog_identity_from_href(href: str, catalog: tuple[dict, ...]) -> dict | None:
@@ -1928,15 +1922,9 @@ def _bounded_player_fetch(
         )
         raise CaptureUnavailable(CAPTURE_FAILURE, stage="player_fetch") from exc
     finally:
-        try:
-            if browser is not None:
-                try:
-                    browser.new_browser_cdp_session().send("Browser.close")
-                finally:
-                    browser.close()
-        finally:
-            if playwright is not None:
-                playwright.stop()
+        import roster_scraper as rs
+
+        rs._close_browserless_session(browser, playwright)
 
 
 def capture_player_detail(
