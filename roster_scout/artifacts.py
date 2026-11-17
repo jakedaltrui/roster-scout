@@ -395,16 +395,8 @@ def _plate_appearances(counts):
     return int(result.value)
 
 
-def _pitcher_only_without_offense(position, counts):
-    """Hide NCAA's pitching-only placeholder rows from the Hitters sheet."""
-    tokens = tuple(
-        token
-        for token in re.split(r"[^a-z]+", str(position or "").casefold())
-        if token
-    )
-    pitcher_only = bool(tokens) and all(
-        token in {"p", "rhp", "lhp"} for token in tokens
-    )
+def _without_offensive_participation(counts):
+    """Hide NCAA's zero-opportunity batting placeholders from Hitters."""
     offensive_activity = any(
         (counts.get(key) or 0) > 0
         for key in (
@@ -419,7 +411,7 @@ def _pitcher_only_without_offense(position, counts):
             "runs_batted_in",
         )
     )
-    return pitcher_only and not offensive_activity and not (counts.get("plate_appearances") or 0)
+    return not offensive_activity and not (counts.get("plate_appearances") or 0)
 
 
 def _scope_label(status):
@@ -594,7 +586,7 @@ def _project_snapshot_workbook_rows(
             "sacrifice_hits": fact.sacrifice_hits,
             "stolen_bases": fact.stolen_bases,
         }
-        if _pitcher_only_without_offense(row.get("Position"), counts):
+        if _without_offensive_participation(counts):
             continue
         row.update({
             "G": fact.games,

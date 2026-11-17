@@ -581,7 +581,7 @@ class ArtifactContractTests(unittest.TestCase):
             id=player_id,
             display_name="Pitcher Only",
             jersey_number="18",
-            position="RHP",
+            position="UT",
         )
         source = SimpleNamespace(
             id=source_id,
