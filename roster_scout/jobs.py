@@ -9,6 +9,7 @@ import re
 import time
 import traceback
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from threading import RLock
@@ -69,6 +70,17 @@ from .repositories import (
 
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _map_with_bounded_concurrency(items, worker, *, max_workers):
+    """Run independent navigation work concurrently while preserving order."""
+    items = tuple(items)
+    if not items:
+        return ()
+    if max_workers == 1:
+        return tuple(worker(item) for item in items)
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        return tuple(pool.map(worker, items))
 
 
 TERMINAL_JOB_STATUSES = frozenset({"ready", "partial", "failed", "blocked"})
@@ -2983,6 +2995,7 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
         return reconstructed
 
     page_counts = {}
+    reservation_lock = RLock()
 
     def begin_live_batch(requests):
         entries = {
@@ -3031,38 +3044,42 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
 
     def request_reserver(entries):
         def reserve(family):
-            remaining_timeout_seconds(
-                deadline_monotonic,
-                limits.navigation_timeout_seconds,
-            )
-            entry = entries.get(family)
-            if entry is None:
-                raise DeterministicJobError("schema_validation")
-            remaining = _reserve_job_live_pages(
-                session_factory,
-                job_id=job_uuid,
-                dispatch_generation=dispatch_generation,
-                page_count=1,
-                page_budget=limits.live_page_budget,
-            )
-            if remaining is None:
-                raise CollectionBudgetExceeded(
-                    "phase3_request_budget_exhausted"
+            # Player-detail sessions may navigate concurrently. Serialize only
+            # the durable reservation so local and PostgreSQL counters advance
+            # in the same monotonic order.
+            with reservation_lock:
+                remaining_timeout_seconds(
+                    deadline_monotonic,
+                    limits.navigation_timeout_seconds,
                 )
-            page_counts[entry] += 1
-            budget.sync_live_count(limits.live_page_budget - remaining)
-            _record_request_ledger(
-                session_factory,
-                job_id=job_uuid,
-                snapshot_id=snapshot_id,
-                organization_id=job.organization_id,
-                dispatch_generation=dispatch_generation,
-                entry=entry,
-                request_kind="planned",
-                outcome="planned",
-                budget_remaining=remaining,
-                pages_consumed=page_counts[entry],
-            )
+                entry = entries.get(family)
+                if entry is None:
+                    raise DeterministicJobError("schema_validation")
+                remaining = _reserve_job_live_pages(
+                    session_factory,
+                    job_id=job_uuid,
+                    dispatch_generation=dispatch_generation,
+                    page_count=1,
+                    page_budget=limits.live_page_budget,
+                )
+                if remaining is None:
+                    raise CollectionBudgetExceeded(
+                        "phase3_request_budget_exhausted"
+                    )
+                page_counts[entry] += 1
+                budget.sync_live_count(limits.live_page_budget - remaining)
+                _record_request_ledger(
+                    session_factory,
+                    job_id=job_uuid,
+                    snapshot_id=snapshot_id,
+                    organization_id=job.organization_id,
+                    dispatch_generation=dispatch_generation,
+                    entry=entry,
+                    request_kind="planned",
+                    outcome="planned",
+                    budget_remaining=remaining,
+                    pages_consumed=page_counts[entry],
+                )
         return reserve
 
     def exhaust_live(entries):
@@ -3362,6 +3379,7 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
             schedule_finished = True
             details = []
             history_complete = True
+            history_requests = []
             for player_id in source_player_ids:
                 history_entries = begin_live_batch(
                     tuple(
@@ -3382,6 +3400,10 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
                 if history_entries is None:
                     history_complete = False
                     continue
+                history_requests.append((player_id, history_entries))
+
+            def collect_player_history(request):
+                player_id, history_entries = request
                 try:
                     detail = collect_ncaa_player_detail_evidence(
                         season_team_id,
@@ -3395,17 +3417,30 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
                         deadline_monotonic=deadline_monotonic,
                     )
                 except CollectionBudgetExceeded:
+                    return "budget_exhausted", history_entries, None
+                except CollectionDeadlineExceeded:
+                    return "collection_timeout", history_entries, None
+                except (NcaaAccessError, NcaaError, ValueError):
+                    return "player_history_unavailable", history_entries, None
+                return "complete", history_entries, detail
+
+            history_results = _map_with_bounded_concurrency(
+                history_requests,
+                collect_player_history,
+                max_workers=limits.navigation_concurrency,
+            )
+            for outcome, history_entries, detail in history_results:
+                if outcome == "budget_exhausted":
                     history_complete = False
                     exhaust_live(history_entries)
-                except CollectionDeadlineExceeded:
+                elif outcome == "collection_timeout":
                     history_complete = False
                     timeout_live(history_entries)
-                except (NcaaAccessError, NcaaError, ValueError):
+                elif outcome == "player_history_unavailable":
                     history_complete = False
                     for entry in history_entries.values():
                         finish_live(
-                            entry,
-                            outcome="live_failed",
+                            entry, outcome="live_failed",
                             safe_category="player_history_unavailable",
                         )
                 else:

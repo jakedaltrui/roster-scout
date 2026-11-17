@@ -334,6 +334,32 @@ class CollectionBudgetTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     load_phase3_collection_limits({key: value})
 
+    def test_bounded_navigation_map_uses_parallelism_and_preserves_order(self):
+        from threading import Barrier, Lock
+        from roster_scout.jobs import _map_with_bounded_concurrency
+
+        barrier = Barrier(2)
+        lock = Lock()
+        active = 0
+        maximum_active = 0
+
+        def worker(value):
+            nonlocal active, maximum_active
+            with lock:
+                active += 1
+                maximum_active = max(maximum_active, active)
+            barrier.wait(timeout=2)
+            with lock:
+                active -= 1
+            return value * 10
+
+        result = _map_with_bounded_concurrency(
+            (2, 1), worker, max_workers=2
+        )
+
+        self.assertEqual(result, (20, 10))
+        self.assertEqual(maximum_active, 2)
+
     def test_one_shared_budget_accounts_for_planned_cache_and_live_outcomes(self):
         from roster_scout.jobs import CollectionBudget, load_phase3_collection_limits
 

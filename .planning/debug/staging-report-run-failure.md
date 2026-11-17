@@ -2,15 +2,15 @@
 status: fixing
 trigger: "The latest hosted report run did not work; inspect the logs, explain why, and prevent recurrence. Also simplify the workbook metadata banner to the date and remove the Last 10 status column."
 created: 2026-11-17T00:00:00-06:00
-updated: 2026-11-17T03:00:00-06:00
+updated: 2026-11-17T01:10:00-06:00
 ---
 
 ## Current Focus
 
-hypothesis: confirmed collector/schema drift in three supplemental NCAA boundaries caused a successful core run to publish as partial
-test: patch the live schedule spacer-row parser, live split identifier attribute, and live fielding header aliases; then rerun fixtures and a live staging collection
-expecting: schedule evidence parses all Central Arkansas games, split controls resolve numeric IDs, and fielding accepts the current NCAA header contract
-next_action: finish deterministic gates, deploy to staging, and verify a fresh live report
+hypothesis: confirmed collector/schema drift plus unused bounded navigation concurrency caused partial data and made complete player history vulnerable to the build deadline
+test: patch the three live NCAA contracts, use the configured two-session player-history concurrency, then rerun fixtures and a live staging collection
+expecting: schedule evidence parses all Central Arkansas games, fielding/split controls resolve, and full-roster history completes inside the 12-minute wall
+next_action: deploy the bounded concurrency correction to staging and rerun Central Arkansas
 
 ## Symptoms
 
@@ -38,6 +38,8 @@ started: Latest staging run reported by the user on Nov 17, 2026.
 - Live split controls expose numeric identities through `data-sport-stat-id` (for example, `4` for vs. LHP); that live attribute was absent from the approved identifier set.
 - Live fielding HTML currently uses `GP`, `FldPct`, and `IDP` and includes `#`, `Yr`, `Pos`, `Ht`, `B/T`, `CI`, `TP`, and `SBAPct`; the prior parser only accepted the older reduced header vocabulary.
 - A later fielding diagnostic returned a valid `#stat_grid`, so the earlier `source_blocked` state was an upstream/transport presentation rather than missing Central Arkansas fielding data.
+- Staging v18 crossed the repaired schedule boundary and began player history, but consumed only 51 pages in 9m16s because `PHASE3_NAVIGATION_CONCURRENCY=2` was validated but never used by the sequential history loop. At that observed rate, a normal full roster would hit the 12-minute wall before all player pages completed.
+- The sequential diagnostic ended at 07:08:37Z, 12m02s after it started, after 67 live pages. Its final database operation lost the connection and the job was safely marked `failed/unexpected`, confirming that the full-roster sequential path cannot fit inside the enforced wall.
 
 
 ## Resolution
