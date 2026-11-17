@@ -10,10 +10,10 @@ release-tested; production remains unchanged pending explicit approval.
 
 ## Deterministic evidence
 
-- `scripts/validate_phase5_release.py` passed on 2026-11-16.
-- Full regression: 807 tests passed.
-- Final focused dashboard, retention, deployment, and artifact pass: 17 tests
-  passed.
+- `scripts/validate_phase5_release.py` passed at commit `66264ad` on
+  2026-11-16.
+- Full regression: 811 tests passed in both clean-process runs.
+- Final focused native-dashboard and retention pass: 11 tests passed.
 - Workbook acceptance: exactly two styled sheets with season, last-10, and
   conference groups for D1/D2/D3 fixtures.
 - NCAA catalog: 942 selectable teams (308 D1, 253 D2, 381 D3).
@@ -52,7 +52,7 @@ Before production deployment:
 
 ### Hosted staging evidence
 
-- PR #6 CI passed both test and dependency-audit jobs.
+- PR #6 CI passed the test and dependency-audit jobs in both active workflows.
 - Fly release migration reached `0027`; app, worker, scheduler, and purge
   processes reached healthy state.
 - `/healthz`, `/readyz`, the 308-team D1 catalog, protected-route redirects,
