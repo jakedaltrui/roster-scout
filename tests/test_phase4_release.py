@@ -200,6 +200,8 @@ class DivisionWorkbookAcceptanceTests(unittest.TestCase):
         ):
             self.assertNotIn(f">{removed}<", strings)
         self.assertIn("=SAFE TEXT", strings)
+        self.assertIn(">Games<", strings)
+        self.assertIn(">Status<", strings)
         self.assertNotIn(b"<f>", worksheets)
         self.assertNotIn(b"<hyperlinks", worksheets)
         self.assertIn(b"<autoFilter", worksheets)
@@ -223,6 +225,25 @@ class DivisionWorkbookAcceptanceTests(unittest.TestCase):
         self.assertIn("xl/media/image1.png", names)
         self.assertIn("xl/drawings/drawing1.xml", names)
         self.assertIn("xl/drawings/drawing2.xml", names)
+
+    def test_long_school_name_and_title_rows_stay_inside_frozen_panes(self):
+        hitter, pitcher = _sample_rows()
+        logo = io.BytesIO()
+        Image.new("RGBA", (32, 32), (0, 71, 171, 255)).save(logo, format="PNG")
+        payload = create_workbook(
+            [hitter],
+            [pitcher],
+            branding={
+                "school_name": "Rose-Hulman Institute of Technology",
+                "generated_on": date(2026, 11, 16),
+                "logo_png": logo.getvalue(),
+            },
+        ).getvalue()
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            sheet = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
+        self.assertIn('xSplit="4"', sheet)
+        self.assertIn('ySplit="4"', sheet)
+        self.assertIn('mergeCell ref="B1:D1"', sheet)
 
 
 if __name__ == "__main__":

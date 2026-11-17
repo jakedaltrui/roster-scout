@@ -61,7 +61,7 @@ HITTER_COLUMNS = PLAYER_COLUMNS + (
     WorkbookColumn("Season Stats", "K%", "K%", "percent", 8),
     WorkbookColumn("Season Stats", "BABIP", "BABIP", "three", 8),
     WorkbookColumn("Season Stats", "wOBA", "wOBA", "three", 8),
-    WorkbookColumn("Last 10", "G", "Last 10 G", "integer", 7),
+    WorkbookColumn("Last 10", "Games", "Last 10 G", "integer", 8),
     WorkbookColumn("Last 10", "PA", "Last 10 PA", "integer", 8),
     WorkbookColumn("Last 10", "AB", "Last 10 AB", "integer", 8),
     WorkbookColumn("Last 10", "AVG", "Last 10 AVG", "three", 9),
@@ -100,7 +100,7 @@ PITCHER_COLUMNS = PLAYER_COLUMNS + (
     WorkbookColumn("Season Stats", "BB%", "BB%", "percent", 8),
     WorkbookColumn("Season Stats", "BABIP", "BABIP", "three", 8),
     WorkbookColumn("Season Stats", "FIP", "FIP", "two", 8),
-    WorkbookColumn("Last 10", "G", "Last 10 G", "integer", 7),
+    WorkbookColumn("Last 10", "Games", "Last 10 G", "integer", 8),
     WorkbookColumn("Last 10", "IP", "Last 10 IP", width=8),
     WorkbookColumn("Last 10", "ERA", "Last 10 ERA", "two", 9),
     WorkbookColumn("Last 10", "WHIP", "Last 10 WHIP", "two", 10),
@@ -337,7 +337,8 @@ def _write_worksheet(workbook, title, rows, columns, branding=None):
     })
     title_format = workbook.add_format({
         "bold": True, "font_name": "Arial", "font_size": 16,
-        "font_color": palette["primary"], "align": "left", "valign": "bottom",
+        "font_color": palette["primary"], "align": "left", "valign": "vcenter",
+        "text_wrap": True,
     })
     subtitle_format = workbook.add_format({
         "bold": True, "font_name": "Arial", "font_size": 10.5,
@@ -384,7 +385,7 @@ def _write_worksheet(workbook, title, rows, columns, branding=None):
         worksheet.set_column(col_index, col_index, width)
 
     if branding:
-        title_row_height = 36
+        title_row_height = 42
         subtitle_row_height = 30
         worksheet.set_row(0, title_row_height)
         worksheet.set_row(1, subtitle_row_height)
@@ -409,7 +410,11 @@ def _write_worksheet(workbook, title, rows, columns, branding=None):
             logo_y_offset = max(0, round((first_two_rows_pixels - logo_height) / 2))
             lockup_last_col = _lockup_last_column(column_widths, school_name, date_text)
             worksheet.merge_range(0, 0, 1, 0, "", lockup_format)
-            worksheet.merge_range(0, 1, 0, lockup_last_col, school_name, title_format)
+            # Keep the opponent name wholly inside the frozen Player columns so
+            # it remains visible while coaches scroll through season metrics.
+            worksheet.merge_range(
+                0, 1, 0, len(PLAYER_COLUMNS) - 1, school_name, title_format
+            )
             worksheet.merge_range(1, 1, 1, lockup_last_col, date_text, subtitle_format)
             worksheet.insert_image(0, 0, "school-logo.png", {
                 "image_data": io.BytesIO(logo_png), "x_offset": logo_x_offset,
