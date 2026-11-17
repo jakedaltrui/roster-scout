@@ -149,6 +149,21 @@ def _integer(row: NcaaSourceRow, *keys: str) -> int | None:
     return parsed
 
 
+def _integer_with_published_blank_zero(
+    row: NcaaSourceRow, *keys: str
+) -> int | None:
+    """Treat an explicit blank count cell as a sourced zero, not missing data."""
+    lowered = {key.casefold(): value for key, value in row.raw_values.items()}
+    for key in keys:
+        folded = key.casefold()
+        if folded not in lowered or lowered[folded] is None:
+            continue
+        if str(lowered[folded]).strip() == "":
+            return 0
+        return _integer(row, key)
+    return None
+
+
 def _decimal(row: NcaaSourceRow, *keys: str) -> Decimal | None:
     value = _raw(row, *keys)
     if value is None:
@@ -398,26 +413,49 @@ def canonicalize_ncaa_collection(collection: NcaaCollection) -> CanonicalCollect
             fielding_source=(fielding.section, fielding.row_ordinal) if fielding else None,
         ))
         if batting:
+            published_games = _integer(batting, "G", "GP")
+            published_at_bats = _integer(batting, "AB")
+            has_batting_participation = (
+                published_games is not None or published_at_bats is not None
+            )
+
+            def batting_count(*keys):
+                if has_batting_participation:
+                    return _integer_with_published_blank_zero(batting, *keys)
+                return _integer(batting, *keys)
+
             batting_values = {
-                "games": _integer(batting, "G", "GP"),
-                "games_started": _integer(batting, "GS"),
-                "plate_appearances": _integer(batting, "PA"),
-                "at_bats": _integer(batting, "AB"),
-                "runs": _integer(batting, "R"),
-                "hits": _integer(batting, "H"),
-                "doubles": _integer(batting, "2B"),
-                "triples": _integer(batting, "3B"),
-                "home_runs": _integer(batting, "HR"),
-                "runs_batted_in": _integer(batting, "RBI"),
-                "walks": _integer(batting, "BB"),
-                "hit_by_pitch": _integer(batting, "HBP"),
-                "strikeouts": _integer(batting, "K", "SO"),
-                "sacrifice_flies": _integer(batting, "SF"),
-                "sacrifice_hits": _integer(batting, "SH", "SAC"),
-                "stolen_bases": _integer(batting, "SB"),
-                "caught_stealing": _integer(batting, "CS"),
-                "total_bases": _integer(batting, "TB"),
+                "games": batting_count("G", "GP"),
+                "games_started": batting_count("GS"),
+                "plate_appearances": batting_count("PA"),
+                "at_bats": batting_count("AB"),
+                "runs": batting_count("R"),
+                "hits": batting_count("H"),
+                "doubles": batting_count("2B"),
+                "triples": batting_count("3B"),
+                "home_runs": batting_count("HR"),
+                "runs_batted_in": batting_count("RBI"),
+                "walks": batting_count("BB"),
+                "hit_by_pitch": batting_count("HBP"),
+                "strikeouts": batting_count("K", "SO"),
+                "sacrifice_flies": batting_count("SF"),
+                "sacrifice_hits": batting_count("SH", "SAC"),
+                "stolen_bases": batting_count("SB"),
+                "caught_stealing": batting_count("CS"),
+                "total_bases": batting_count("TB"),
             }
+            fact_batting_values = dict(batting_values)
+            if fact_batting_values["plate_appearances"] is None:
+                derived_pa = calculate_metric(
+                    "pa",
+                    batting_values,
+                    season_id=collection.season.season_id,
+                    division=collection.team.division,
+                )
+                if derived_pa.status == "available":
+                    fact_batting_values["plate_appearances"] = int(
+                        derived_pa.value
+                    )
             facts.append(CanonicalFact(
                 "batting",
                 identity_key,
@@ -428,7 +466,7 @@ def canonicalize_ncaa_collection(collection: NcaaCollection) -> CanonicalCollect
                     "walks": batting_values["walks"],
                     "strikeouts": batting_values["strikeouts"],
                 },
-                batting_values,
+                fact_batting_values,
             ))
 
             def calculated_avg():

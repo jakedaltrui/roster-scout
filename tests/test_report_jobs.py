@@ -920,7 +920,7 @@ class PublicationTests(PostgreSQLJobTestCase):
             artifact = session.scalar(select(ReportArtifact))
             self.assertEqual(artifact.snapshot_id, snapshot.id)
             self.assertEqual(artifact.status, "pending")
-            self.assertEqual(artifact.schema_version, "coach-facing-two-sheet-xlsx-v4")
+            self.assertEqual(artifact.schema_version, "coach-facing-two-sheet-xlsx-v5")
             self.assertEqual(artifact.attempt_count, 0)
 
     def test_partial_schedule_rows_are_persisted_before_scope_publication(self):
@@ -1339,7 +1339,7 @@ class FullSeasonMetricPublicationTests(PostgreSQLJobTestCase):
                 .join(PlayerTeamSeason)
                 .where(PlayerTeamSeason.display_name == "Complete Two Way")
             )
-            self.assertEqual(batting.plate_appearances, None)
+            self.assertEqual(batting.plate_appearances, 15)
             self.assertEqual(batting.doubles, 1)
             self.assertEqual(batting.total_bases, 10)
             self.assertEqual(pitching.innings_outs, 21)

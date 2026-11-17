@@ -492,21 +492,18 @@ class SnapshotHistoryTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         for value in (
             b"History Hawks",
-            b"Current workbook",
-            b"Ready for your staff",
+            b"Workbook ready",
             b"Ready",
-            b"Adding detail",
-            b"Detailed stats in progress",
+            b"Adding Last 10 and conference stats",
             b"Adding detailed stats",
-            b"season workbook stays available while detailed stats are added",
-            b"Report history",
-            b"Batting",
-            b"Pitching",
+            b"season workbook is ready now",
+            b"data-local-time",
+            b"data-team-logo",
         ):
             self.assertIn(value, response.data)
         self.assertLess(
-            response.data.index(b"Current workbook"),
-            response.data.index(b"Adding detail"),
+            response.data.index(b"Adding Last 10 and conference stats"),
+            response.data.index(b"Workbook ready"),
         )
         self.assertIn(b'data-report-status-url=', response.data)
         self.assertIn(b'aria-live="polite"', response.data)
@@ -686,11 +683,13 @@ class SnapshotHistoryTests(unittest.TestCase):
 
         self.assertEqual(first.status_code, 200)
         self.assertEqual(second.status_code, 200)
-        self.assertEqual(first.data.count(b"data-snapshot-row"), 25)
+        self.assertEqual(first.data.count(b"data-snapshot-row"), 24)
         self.assertEqual(second.data.count(b"data-snapshot-row"), 2)
         self.assertIn(b"Next", first.data)
         self.assertIn(b"Previous", second.data)
-        self.assertIn(b"Showing 1\xe2\x80\x9325 of 27 versions", first.data)
+        self.assertIn(b"Previous reports", first.data)
+        self.assertIn(b"26 saved", first.data)
+        self.assertNotIn(b"Showing 1\xe2\x80\x9325", first.data)
 
     def test_partial_snapshot_keeps_ready_sections_and_names_unavailable_sections(self):
         from roster_scout.models import ReportSection, ReportSnapshot
@@ -746,10 +745,8 @@ class SnapshotHistoryTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Some data is unavailable.", response.data)
         self.assertIn(b"The saved workbook is still available. Missing:", response.data)
-        self.assertIn(b"Batting", response.data)
-        self.assertIn(b"Ready", response.data)
         self.assertIn(b"Fielding", response.data)
-        self.assertIn(b"Unavailable \xc2\xb7 NCAA source unavailable", response.data)
+        self.assertNotIn(b"NCAA source unavailable", response.data)
 
 
 class SnapshotPlayerDetailRouteTests(unittest.TestCase):

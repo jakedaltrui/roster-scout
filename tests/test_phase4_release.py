@@ -151,7 +151,7 @@ class DivisionWorkbookAcceptanceTests(unittest.TestCase):
                     _cell(archive, 1, "Z5"),
                     _cell(archive, 1, "AG5"),
                     _cell(archive, 2, "S5"),
-                    _cell(archive, 2, "AK5"),
+                    _cell(archive, 2, "AE5"),
                 ))
 
         self.assertEqual(schemas[0], schemas[1])

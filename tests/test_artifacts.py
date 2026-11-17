@@ -93,7 +93,7 @@ class ArtifactStorageUnitTests(unittest.TestCase):
         self.assertEqual(
             key,
             f"organizations/{organization_id}/reports/{report_id}/snapshots/"
-            f"{snapshot_id}/workbooks/roster-scout-coach-facing-two-sheet-xlsx-v4.xlsx",
+            f"{snapshot_id}/workbooks/roster-scout-coach-facing-two-sheet-xlsx-v5.xlsx",
         )
         with self.assertRaisesRegex(ArtifactStorageError, "invalid artifact key"):
             _validated_object_key(f"../{key}")
@@ -326,7 +326,7 @@ class ArtifactContractTests(unittest.TestCase):
         }
         return hitter, pitcher
 
-    def test_grouped_workbook_has_only_two_sheets_and_four_header_groups(self):
+    def test_grouped_workbook_has_only_two_sheets_and_populated_header_groups(self):
         from roster_scout.workbooks import create_workbook
 
         hitter, pitcher = self._detailed_rows()
@@ -352,7 +352,6 @@ class ArtifactContractTests(unittest.TestCase):
             "Player",
             "Season Stats",
             "Last 10",
-            "Conference Stats",
         ):
             self.assertIn(f">{label}<", shared_strings)
         for excluded in (
@@ -365,6 +364,9 @@ class ArtifactContractTests(unittest.TestCase):
             "Game Logs",
             "Methodology",
             "Status",
+            "Conference Stats",
+            "wOBA",
+            "FIP",
         ):
             self.assertNotIn(f">{excluded}<", shared_strings)
         self.assertIn('xSplit="4"', hitters_xml)
@@ -399,6 +401,19 @@ class ArtifactContractTests(unittest.TestCase):
         self.assertNotIn(b"Partial", shared_strings)
         self.assertNotIn(b"Conference Status", shared_strings)
         self.assertNotIn(b"Conference G</t></si><si><t>0", shared_strings)
+
+    def test_grouped_workbook_omits_wholly_empty_columns_but_keeps_zeroes(self):
+        from roster_scout.workbooks import HITTER_COLUMNS, populated_columns
+
+        columns = populated_columns(
+            [{"Name": "Zero Value", "PA": 0, "wOBA": "", "Last 10 G": None}],
+            HITTER_COLUMNS,
+        )
+        headers = [column.header for column in columns]
+
+        self.assertIn("PA", headers)
+        self.assertNotIn("wOBA", headers)
+        self.assertNotIn("Games", headers)
 
     def test_two_way_player_keeps_identity_on_both_sheets(self):
         from roster_scraper import split_roster
@@ -464,7 +479,7 @@ class ArtifactContractTests(unittest.TestCase):
             source_record_id=batting_source_id,
             games=32,
             games_started=31,
-            plate_appearances=140,
+            plate_appearances=None,
             at_bats=119,
             runs=29,
             hits=41,
@@ -545,6 +560,7 @@ class ArtifactContractTests(unittest.TestCase):
             hitters[0]["_player_url"], "https://stats.ncaa.org/players/9001"
         )
         self.assertEqual(hitters[0]["G"], 32)
+        self.assertEqual(hitters[0]["PA"], 140)
         self.assertEqual(hitters[0]["OPS"], "1.050")
         self.assertEqual(hitters[0]["Last 10 G"], 10)
         self.assertEqual(hitters[0]["Last 10 AVG"], "0.368")
@@ -581,11 +597,17 @@ class ArtifactContractTests(unittest.TestCase):
             f"{snapshot_id}/workbooks/roster-scout-coach-facing-two-sheet-xlsx-v3.xlsx"
         )
 
-        self.assertEqual(ARTIFACT_SCHEMA_VERSION, "coach-facing-two-sheet-xlsx-v4")
+        historical_v4 = (
+            f"organizations/{organization_id}/reports/{report_id}/snapshots/"
+            f"{snapshot_id}/workbooks/roster-scout-coach-facing-two-sheet-xlsx-v4.xlsx"
+        )
+
+        self.assertEqual(ARTIFACT_SCHEMA_VERSION, "coach-facing-two-sheet-xlsx-v5")
         self.assertIn(ARTIFACT_SCHEMA_VERSION, current)
         self.assertEqual(_validated_object_key(historical_v1), historical_v1)
         self.assertEqual(_validated_object_key(historical_v2), historical_v2)
         self.assertEqual(_validated_object_key(historical_v3), historical_v3)
+        self.assertEqual(_validated_object_key(historical_v4), historical_v4)
 
 
 class ArtifactLifecycleTests(_PostgreSQLJobTestCase):

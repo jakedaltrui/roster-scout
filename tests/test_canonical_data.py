@@ -275,6 +275,41 @@ class CanonicalDataTests(unittest.TestCase):
             {"at_bats": None, "hits": None, "walks": None, "strikeouts": None},
         )
 
+    def test_participating_hitters_treat_explicit_blank_count_cells_as_zero(self):
+        canonical = canonicalize_ncaa_collection(collection([
+            {
+                "Player": "Published Blanks",
+                "GP": "53",
+                "AB": "202",
+                "BB": "28",
+                "HBP": "",
+                "SF": "4",
+                "SH": "1",
+                "RBI": "",
+                "_player_id": "1",
+            },
+            {
+                "Player": "Roster Only",
+                "GP": "",
+                "AB": "",
+                "BB": "",
+                "HBP": "",
+                "SF": "",
+                "SH": "",
+                "_player_id": "2",
+            },
+        ], []))
+        facts = {
+            player.display_name: fact.detailed_values
+            for player, fact in zip(canonical.players, canonical.facts, strict=True)
+        }
+
+        self.assertEqual(facts["Published Blanks"]["hit_by_pitch"], 0)
+        self.assertEqual(facts["Published Blanks"]["runs_batted_in"], 0)
+        self.assertEqual(facts["Published Blanks"]["plate_appearances"], 235)
+        self.assertIsNone(facts["Roster Only"]["hit_by_pitch"])
+        self.assertIsNone(facts["Roster Only"]["plate_appearances"])
+
     def test_innings_are_outs_and_missing_is_not_zero(self):
         self.assertEqual(innings_to_outs("7.2"), 23)
         self.assertIsNone(innings_to_outs(""))

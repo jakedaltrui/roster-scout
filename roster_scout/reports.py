@@ -786,6 +786,7 @@ class SnapshotHistoryItem:
 class ReportDetailView:
     id: uuid.UUID
     opponent_name: str
+    source_team_id: str
     division: str
     season_year: int
     latest_snapshot: SnapshotHistoryItem | None
@@ -886,8 +887,8 @@ def _status_view(job, sections):
         elif job.build_profile == "detailed" and not terminal:
             heading = "Adding detailed stats"
             message = (
-                "Your season workbook is available while Last 10, conference, "
-                "splits, and dashboard data are added."
+                "Your season workbook is ready now. Last 10, conference, splits, "
+                "and dashboard detail are being added in the background."
             )
     updated_at = (
         job.finished_at
@@ -998,6 +999,7 @@ def load_report_detail(session, organization_id, report_id, *, history_page=1):
     return ReportDetailView(
         id=record.report_id,
         opponent_name=record.team_name or record.report_name,
+        source_team_id=record.source_team_id,
         division=record.division,
         season_year=record.season_year,
         latest_snapshot=latest_snapshot,

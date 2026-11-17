@@ -39,11 +39,12 @@ from .metrics import DEFINITION_VERSION, calculate_metric
 from .workbooks import create_workbook, workbook_branding
 
 
-ARTIFACT_SCHEMA_VERSION = "coach-facing-two-sheet-xlsx-v4"
+ARTIFACT_SCHEMA_VERSION = "coach-facing-two-sheet-xlsx-v5"
 SUPPORTED_ARTIFACT_SCHEMA_VERSIONS = frozenset({
     "basic-xlsx-v1",
     "detailed-two-sheet-xlsx-v2",
     "coach-facing-two-sheet-xlsx-v3",
+    "coach-facing-two-sheet-xlsx-v4",
     ARTIFACT_SCHEMA_VERSION,
 })
 MAX_ARTIFACT_BYTES = 25 * 1024 * 1024
@@ -371,6 +372,17 @@ def _metric_text(code, value):
     return f"{value:.{precision}f}"
 
 
+def _plate_appearances(counts):
+    """Return a published or safely derived PA count without inventing inputs."""
+    published = counts.get("plate_appearances")
+    if published is not None:
+        return published
+    result = calculate_metric("pa", counts)
+    if result.status != "available" or result.value is None:
+        return ""
+    return int(result.value)
+
+
 def _scope_label(status):
     return {
         "complete": "Complete",
@@ -470,7 +482,7 @@ def _project_snapshot_workbook_rows(
         if scope.status != "complete" or fact is None:
             return
         counts = dict(fact.counts_json or {})
-        row[f"{prefix} PA"] = counts.get("plate_appearances", "")
+        row[f"{prefix} PA"] = _plate_appearances(counts)
         row[f"{prefix} AB"] = counts.get("at_bats", "")
         row[f"{prefix} AVG"] = metric_value(
             player_id,
@@ -546,7 +558,7 @@ def _project_snapshot_workbook_rows(
         row.update({
             "G": fact.games,
             "GS": fact.games_started,
-            "PA": fact.plate_appearances,
+            "PA": _plate_appearances(counts),
             "AB": fact.at_bats,
             "H": fact.hits,
             "2B": fact.doubles,

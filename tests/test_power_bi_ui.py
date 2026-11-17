@@ -174,7 +174,7 @@ class NativeDashboardUIContractTests(unittest.TestCase):
     def test_workbook_actions_remain_before_lightweight_dashboard(self):
         template = (ROOT / "templates/report_detail.html").read_text()
         self.assertLess(
-            template.index("Current workbook"),
+            template.index("Workbook ready"),
             template.index("Opponent dashboard"),
         )
         for phrase in (

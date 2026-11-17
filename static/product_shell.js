@@ -115,6 +115,17 @@
         if (oauthUrl) {
           const csrf = form.querySelector('input[name="csrf_token"]');
           if (!csrf) return;
+          const googleWindow = window.open("about:blank", "_blank");
+          if (!googleWindow) {
+            const status = form.querySelector("[data-download-status]");
+            if (status) {
+              status.textContent = "Allow pop-ups to open Google Sheets in a new tab.";
+              status.focus();
+            }
+            return;
+          }
+          googleWindow.opener = null;
+          googleWindow.document.title = "Opening Google Sheets…";
           closeDialog(dialog);
           button.disabled = true;
           button.textContent = "Connecting…";
@@ -132,8 +143,9 @@
             if (!response.ok || typeof payload.authorization_url !== "string") {
               throw new Error("Google authorization is unavailable.");
             }
-            window.location.assign(payload.authorization_url);
+            googleWindow.location.assign(payload.authorization_url);
           } catch (_error) {
+            googleWindow.close();
             button.disabled = false;
             button.textContent = "Continue with Google";
             if (status) {
@@ -149,6 +161,24 @@
         form.requestSubmit();
         delete form.dataset.exportTarget;
       });
+    });
+  }
+
+  function enhanceLocalTimes() {
+    document.querySelectorAll("time[data-local-time]").forEach((element) => {
+      const parsed = new Date(element.getAttribute("datetime"));
+      if (Number.isNaN(parsed.getTime())) return;
+      const compact = element.dataset.localTime === "compact";
+      const formatted = new Intl.DateTimeFormat(undefined, {
+        month: "short",
+        day: "numeric",
+        ...(compact ? {} : { year: "numeric" }),
+        hour: "numeric",
+        minute: "2-digit",
+        timeZoneName: "short",
+      }).format(parsed).replace(/, (?=\d{1,2}:\d{2})/, " · ");
+      element.textContent = formatted;
+      element.title = `Your local time: ${formatted}`;
     });
   }
 
@@ -196,6 +226,7 @@
     }
     enhanceDialogs();
     enhanceGoogleSheetsExports();
+    enhanceLocalTimes();
     enhanceRoleConfirmations();
     enhancePendingForms();
     enhanceTeamLogos();

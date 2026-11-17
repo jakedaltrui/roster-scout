@@ -112,6 +112,17 @@ PITCHER_COLUMNS = PLAYER_COLUMNS + (
 )
 
 
+def populated_columns(rows, columns):
+    """Keep identity columns and omit stat columns with no published values."""
+    identity_keys = {column.key for column in PLAYER_COLUMNS}
+    return tuple(
+        column
+        for column in columns
+        if column.key in identity_keys
+        or any(row.get(column.key) not in (None, "") for row in rows)
+    )
+
+
 def workbook_download_name(
     team_name: str,
     *,
@@ -489,8 +500,20 @@ def create_workbook(hitters, pitchers, branding=None) -> io.BytesIO:
         "author": "Axis Baseball",
         "company": "Axis Baseball",
     })
-    _write_worksheet(workbook, "Hitters", hitters, HITTER_COLUMNS, branding)
-    _write_worksheet(workbook, "Pitchers", pitchers, PITCHER_COLUMNS, branding)
+    _write_worksheet(
+        workbook,
+        "Hitters",
+        hitters,
+        populated_columns(hitters, HITTER_COLUMNS),
+        branding,
+    )
+    _write_worksheet(
+        workbook,
+        "Pitchers",
+        pitchers,
+        populated_columns(pitchers, PITCHER_COLUMNS),
+        branding,
+    )
     workbook.close()
     output.seek(0)
     return output
