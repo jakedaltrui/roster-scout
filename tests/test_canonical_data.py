@@ -310,6 +310,54 @@ class CanonicalDataTests(unittest.TestCase):
         self.assertIsNone(facts["Roster Only"]["hit_by_pitch"])
         self.assertIsNone(facts["Roster Only"]["plate_appearances"])
 
+    def test_pitcher_only_zero_batting_row_is_not_a_hitting_fact(self):
+        canonical = canonicalize_ncaa_collection(collection([
+            {
+                "Player": "Pitcher Only", "Pos": "RHP", "GP": "15",
+                "AB": "", "H": "", "BB": "", "HBP": "", "SF": "",
+                "_player_id": "10",
+            },
+            {
+                "Player": "Two Way", "Pos": "P/OF", "GP": "12",
+                "AB": "1", "H": "1", "BB": "", "HBP": "", "SF": "", "SH": "",
+                "_player_id": "11",
+            },
+        ], [
+            {
+                "Player": "Pitcher Only", "Pos": "RHP", "APP": "15",
+                "IP": "20.0", "_player_id": "10",
+            },
+            {
+                "Player": "Two Way", "Pos": "P/OF", "APP": "2",
+                "IP": "1.0", "_player_id": "11",
+            },
+        ]))
+        batting = {
+            fact.identity_key: fact
+            for fact in canonical.facts
+            if fact.section == "batting"
+        }
+
+        self.assertNotIn("ncaa:10", batting)
+        self.assertEqual(batting["ncaa:11"].detailed_values["plate_appearances"], 1)
+
+    def test_participating_pitchers_treat_explicit_blank_counts_as_zero(self):
+        canonical = canonicalize_ncaa_collection(collection([], [{
+            "Player": "Scoreless Pitcher", "Pos": "P", "APP": "4",
+            "GS": "", "IP": "5.0", "H": "3", "R": "", "ER": "",
+            "BB": "", "SO": "6", "HR-A": "", "HB": "", "BF": "20",
+            "P-OAB": "17", "SFA": "", "_player_id": "12",
+        }]))
+        fact = next(item for item in canonical.facts if item.section == "pitching")
+
+        self.assertEqual(fact.detailed_values["games_started"], 0)
+        self.assertEqual(fact.detailed_values["earned_runs"], 0)
+        self.assertEqual(fact.detailed_values["walks"], 0)
+        self.assertEqual(fact.detailed_values["home_runs_allowed"], 0)
+        self.assertEqual(fact.detailed_values["hit_batters"], 0)
+        self.assertEqual(fact.detailed_values["opponent_at_bats"], 17)
+        self.assertEqual(fact.detailed_values["opponent_sacrifice_flies"], 0)
+
     def test_innings_are_outs_and_missing_is_not_zero(self):
         self.assertEqual(innings_to_outs("7.2"), 23)
         self.assertIsNone(innings_to_outs(""))

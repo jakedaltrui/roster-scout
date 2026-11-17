@@ -494,11 +494,18 @@ def create_workbook(hitters, pitchers, branding=None) -> io.BytesIO:
         "strings_to_urls": False,
     })
     school_name = (branding or {}).get("school_name", "Axis Baseball")
+    generated_on = (branding or {}).get("generated_on")
+    created_at = (
+        datetime.combine(generated_on, datetime.min.time())
+        if isinstance(generated_on, date)
+        else datetime(2000, 1, 1)
+    )
     workbook.set_properties({
         "title": f"{school_name} Baseball Roster Scout",
         "subject": "Baseball roster and season statistics",
         "author": "Axis Baseball",
         "company": "Axis Baseball",
+        "created": created_at,
     })
     _write_worksheet(
         workbook,

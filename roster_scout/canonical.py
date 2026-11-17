@@ -201,6 +201,14 @@ def _normalized_support(row: NcaaSourceRow) -> tuple[str, str]:
     )
 
 
+def _pitcher_only_position(value: str | None) -> bool:
+    """Identify roster positions that contain no non-pitching role."""
+    tokens = tuple(
+        token for token in re.split(r"[^a-z]+", (value or "").casefold()) if token
+    )
+    return bool(tokens) and all(token in {"p", "rhp", "lhp"} for token in tokens)
+
+
 def _compatible(left: NcaaSourceRow, right: NcaaSourceRow) -> bool:
     for a, b in zip(_normalized_support(left), _normalized_support(right)):
         if a and b and a != b:
@@ -456,49 +464,72 @@ def canonicalize_ncaa_collection(collection: NcaaCollection) -> CanonicalCollect
                     fact_batting_values["plate_appearances"] = int(
                         derived_pa.value
                     )
-            facts.append(CanonicalFact(
-                "batting",
-                identity_key,
-                (batting.section, batting.row_ordinal),
-                {
-                    "at_bats": batting_values["at_bats"],
-                    "hits": batting_values["hits"],
-                    "walks": batting_values["walks"],
-                    "strikeouts": batting_values["strikeouts"],
-                },
-                fact_batting_values,
-            ))
-
-            def calculated_avg():
-                hits = _integer(batting, "H")
-                at_bats = _integer(batting, "AB")
-                return Decimal(hits) / Decimal(at_bats) if hits is not None and at_bats else None
-
-            metrics.append(_metric(identity_key, batting, "AVG", ("BA", "AVG"), calculated_avg))
-            for code in (
-                "pa",
-                "avg",
-                "obp",
-                "slg",
-                "ops",
-                "iso",
-                "batting_bb_pct",
-                "batting_k_pct",
-                "babip",
-                "singles",
-                "total_bases",
-                "woba",
-            ):
-                detailed_metrics.append(_detailed_metric_lineage(
+            batting_opportunities = fact_batting_values.get("plate_appearances")
+            has_offensive_activity = any(
+                (fact_batting_values.get(key) or 0) > 0
+                for key in (
+                    "at_bats", "hits", "walks", "hit_by_pitch",
+                    "sacrifice_flies", "sacrifice_hits", "stolen_bases",
+                    "caught_stealing", "runs", "runs_batted_in",
+                )
+            )
+            pitcher_only_without_offense = (
+                _pitcher_only_position(_raw(batting, "Pos", "Position"))
+                and not has_offensive_activity
+                and not batting_opportunities
+            )
+            if not pitcher_only_without_offense:
+                facts.append(CanonicalFact(
+                    "batting",
                     identity_key,
-                    code,
-                    calculate_metric(
-                        code,
-                        batting_values,
-                        season_id=collection.season.season_id,
-                        division=collection.team.division,
-                    ),
+                    (batting.section, batting.row_ordinal),
+                    {
+                        "at_bats": batting_values["at_bats"],
+                        "hits": batting_values["hits"],
+                        "walks": batting_values["walks"],
+                        "strikeouts": batting_values["strikeouts"],
+                    },
+                    fact_batting_values,
                 ))
+
+                def calculated_avg():
+                    hits = _integer(batting, "H")
+                    at_bats = _integer(batting, "AB")
+                    return Decimal(hits) / Decimal(at_bats) if hits is not None and at_bats else None
+
+                metrics.append(
+                    _metric(
+                        identity_key,
+                        batting,
+                        "AVG",
+                        ("BA", "AVG"),
+                        calculated_avg,
+                    )
+                )
+                for code in (
+                    "pa",
+                    "avg",
+                    "obp",
+                    "slg",
+                    "ops",
+                    "iso",
+                    "batting_bb_pct",
+                    "batting_k_pct",
+                    "babip",
+                    "singles",
+                    "total_bases",
+                    "woba",
+                ):
+                    detailed_metrics.append(_detailed_metric_lineage(
+                        identity_key,
+                        code,
+                        calculate_metric(
+                            code,
+                            batting_values,
+                            season_id=collection.season.season_id,
+                            division=collection.team.division,
+                        ),
+                    ))
         if fielding:
             fielding_values = MappingProxyType({
                 "games": _integer(fielding, "G"),
@@ -524,21 +555,32 @@ def canonicalize_ncaa_collection(collection: NcaaCollection) -> CanonicalCollect
                 fielding_values,
             ))
         if pitching:
+            published_appearances = _integer(pitching, "APP", "G")
+            published_innings = innings_to_outs(_raw(pitching, "IP"))
+            has_pitching_participation = (
+                published_appearances is not None or published_innings is not None
+            )
+
+            def pitching_count(*keys):
+                if has_pitching_participation:
+                    return _integer_with_published_blank_zero(pitching, *keys)
+                return _integer(pitching, *keys)
+
             pitching_values = {
-                "appearances": _integer(pitching, "APP", "G"),
-                "games_started": _integer(pitching, "GS"),
-                "innings_outs": innings_to_outs(_raw(pitching, "IP")),
+                "appearances": pitching_count("APP", "G"),
+                "games_started": pitching_count("GS"),
+                "innings_outs": published_innings,
                 "innings_raw": _raw(pitching, "IP"),
-                "hits_allowed": _integer(pitching, "H"),
-                "runs_allowed": _integer(pitching, "R"),
-                "earned_runs": _integer(pitching, "ER"),
-                "walks": _integer(pitching, "BB"),
-                "strikeouts": _integer(pitching, "SO", "K"),
-                "home_runs_allowed": _integer(pitching, "HR"),
-                "hit_batters": _integer(pitching, "HBP"),
-                "batters_faced": _integer(pitching, "BF"),
-                "opponent_at_bats": _integer(pitching, "AB", "OAB"),
-                "opponent_sacrifice_flies": _integer(pitching, "SF", "OSF"),
+                "hits_allowed": pitching_count("H"),
+                "runs_allowed": pitching_count("R"),
+                "earned_runs": pitching_count("ER"),
+                "walks": pitching_count("BB"),
+                "strikeouts": pitching_count("SO", "K"),
+                "home_runs_allowed": pitching_count("HR", "HR-A"),
+                "hit_batters": pitching_count("HBP", "HB"),
+                "batters_faced": pitching_count("BF"),
+                "opponent_at_bats": pitching_count("AB", "OAB", "P-OAB"),
+                "opponent_sacrifice_flies": pitching_count("SF", "OSF", "SFA"),
             }
             facts.append(CanonicalFact(
                 "pitching",

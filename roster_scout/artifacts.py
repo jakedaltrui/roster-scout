@@ -356,6 +356,18 @@ def _first_present(mapping, *keys):
     return ""
 
 
+def _published_count(mapping, *keys):
+    """Keep a source count, treating an explicit blank cell as zero."""
+    lowered = {str(key).casefold(): value for key, value in mapping.items()}
+    for key in keys:
+        folded = key.casefold()
+        if folded not in lowered or lowered[folded] is None:
+            continue
+        value = str(lowered[folded]).strip()
+        return 0 if value == "" else value
+    return ""
+
+
 def _innings_text(outs):
     if outs is None:
         return ""
@@ -613,9 +625,9 @@ def _project_snapshot_workbook_rows(
             "G": fact.appearances,
             "GS": fact.games_started,
             "IP": _innings_text(fact.innings_outs),
-            "W": _first_present(raw, "W", "Wins"),
-            "L": _first_present(raw, "L", "Losses"),
-            "SV": _first_present(raw, "SV", "Saves"),
+            "W": _published_count(raw, "W", "Wins"),
+            "L": _published_count(raw, "L", "Losses"),
+            "SV": _published_count(raw, "SV", "Saves"),
             "H": fact.hits_allowed,
             "ER": fact.earned_runs,
             "BB": fact.walks,

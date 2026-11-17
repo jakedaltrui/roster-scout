@@ -1881,6 +1881,30 @@ def _persist_canonical(session, job, snapshot, sections):
             raise RuntimeError("metric definition conflict was not visible")
         metric_definition_ids[(code, version)] = definition_id
 
+    woba_definition_id = metric_definition_ids.get(("woba", DEFINITION_VERSION))
+    if woba_definition_id is not None:
+        from .metric_constants import ensure_woba_constant_set
+
+        ensure_woba_constant_set(
+            session,
+            metric_definition_id=woba_definition_id,
+            season_id=season.id,
+            year=season.year,
+            division=team_season.division,
+        )
+
+    fip_definition_id = metric_definition_ids.get(("fip", DEFINITION_VERSION))
+    if fip_definition_id is not None:
+        from .metric_constants import ensure_fip_constant_set
+
+        ensure_fip_constant_set(
+            session,
+            metric_definition_id=fip_definition_id,
+            season_id=season.id,
+            year=season.year,
+            division=team_season.division,
+        )
+
     for fact in canonical.facts:
         source = source_by_key[fact.source_record]
         identity = identities[fact.identity_key]

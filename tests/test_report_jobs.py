@@ -1355,7 +1355,7 @@ class FullSeasonMetricPublicationTests(PostgreSQLJobTestCase):
             self.assertEqual(len(rows), 64)
             self.assertEqual(
                 session.scalar(select(func.count()).select_from(MetricConstantSet)),
-                0,
+                2,
             )
             metrics = {
                 (identity.display_name, definition.code): (value, definition)
@@ -1398,13 +1398,23 @@ class FullSeasonMetricPublicationTests(PostgreSQLJobTestCase):
             )
             woba, _ = metrics[("Complete Two Way", "woba")]
             fip, _ = metrics[("Complete Two Way", "fip")]
-            for constant_metric in (woba, fip):
-                self.assertEqual(constant_metric.status, "unavailable_constant")
-                self.assertEqual(
-                    constant_metric.reason_code,
-                    "verified_ncaa_constant_required",
-                )
-                self.assertIsNone(constant_metric.constant_set_id)
+            self.assertEqual(woba.status, "available")
+            self.assertEqual(woba.value, Decimal("0.59618829"))
+            self.assertIsNotNone(woba.constant_set_id)
+            constant = session.get(MetricConstantSet, woba.constant_set_id)
+            self.assertEqual(constant.version, "ncaa-bbstats-1.4.2-eb7e4af63cb6")
+            self.assertEqual(
+                constant.payload_sha256,
+                "eb7e4af63cb60455904b6377b361e50f57628b779d52e53ff86fdab26e86e6bb",
+            )
+            self.assertEqual(fip.status, "available")
+            self.assertEqual(fip.value, Decimal("5.72170000"))
+            self.assertIsNotNone(fip.constant_set_id)
+            fip_constant = session.get(MetricConstantSet, fip.constant_set_id)
+            self.assertEqual(
+                fip_constant.version,
+                "ncaa-bbstats-1.4.2-ef3dfcbcd9e7",
+            )
 
     def test_publication_rejects_missing_inputs_sample_or_formula_lineage(self):
         from roster_scout.models import MetricDefinition, MetricValue
