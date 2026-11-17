@@ -300,7 +300,7 @@ class CollectionBudgetTests(unittest.TestCase):
         self.assertEqual(defaults.navigation_concurrency, 2)
         self.assertEqual(defaults.live_page_budget, 150)
         self.assertEqual(defaults.navigation_timeout_seconds, 45)
-        self.assertEqual(defaults.wall_time_seconds, 12 * 60)
+        self.assertEqual(defaults.wall_time_seconds, 15 * 60)
 
         overridden = load_phase3_collection_limits({
             "PHASE3_NAVIGATION_CONCURRENCY": "1",
@@ -359,6 +359,21 @@ class CollectionBudgetTests(unittest.TestCase):
 
         self.assertEqual(result, (20, 10))
         self.assertEqual(maximum_active, 2)
+
+    def test_connection_loss_at_collection_wall_becomes_classified_timeout(self):
+        from unittest.mock import patch
+
+        from sqlalchemy.exc import OperationalError
+
+        from roster_scout.collection_control import CollectionDeadlineExceeded
+        from roster_scout.jobs import _reserve_until_deadline
+
+        def disconnected():
+            raise OperationalError("UPDATE report_jobs", {}, Exception("closed"))
+
+        with patch("roster_scout.jobs.time.monotonic", return_value=10.0):
+            with self.assertRaises(CollectionDeadlineExceeded):
+                _reserve_until_deadline(disconnected, deadline_monotonic=10.0)
 
     def test_one_shared_budget_accounts_for_planned_cache_and_live_outcomes(self):
         from roster_scout.jobs import CollectionBudget, load_phase3_collection_limits

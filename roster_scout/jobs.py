@@ -16,6 +16,7 @@ from threading import RLock
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.exc import OperationalError
 
 from roster_scraper import NCAA_PARSER_VERSION
 from usage_limits import BrowserCapacityExceeded
@@ -83,6 +84,18 @@ def _map_with_bounded_concurrency(items, worker, *, max_workers):
         return tuple(pool.map(worker, items))
 
 
+def _reserve_until_deadline(reserve, *, deadline_monotonic):
+    """Turn a connection loss at the hard wall into a classified timeout."""
+    try:
+        return reserve()
+    except OperationalError:
+        if time.monotonic() >= deadline_monotonic:
+            raise CollectionDeadlineExceeded(
+                "phase3_collection_deadline_exceeded"
+            ) from None
+        raise
+
+
 TERMINAL_JOB_STATUSES = frozenset({"ready", "partial", "failed", "blocked"})
 SCHEMA_VERSION = os.environ.get("REPORT_SCHEMA_VERSION", "schema-1")
 PARSER_VERSION = NCAA_PARSER_VERSION
@@ -137,7 +150,7 @@ def load_phase3_collection_limits(environment=None):
             environment, "PHASE3_NAVIGATION_TIMEOUT_SECONDS", 45, 5, 120
         ),
         wall_time_seconds=_bounded_collection_integer(
-            environment, "PHASE3_BUILD_WALL_TIME_SECONDS", 12 * 60, 60, 1800
+            environment, "PHASE3_BUILD_WALL_TIME_SECONDS", 15 * 60, 60, 1800
         ),
     )
 
@@ -3055,12 +3068,15 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
                 entry = entries.get(family)
                 if entry is None:
                     raise DeterministicJobError("schema_validation")
-                remaining = _reserve_job_live_pages(
-                    session_factory,
-                    job_id=job_uuid,
-                    dispatch_generation=dispatch_generation,
-                    page_count=1,
-                    page_budget=limits.live_page_budget,
+                remaining = _reserve_until_deadline(
+                    lambda: _reserve_job_live_pages(
+                        session_factory,
+                        job_id=job_uuid,
+                        dispatch_generation=dispatch_generation,
+                        page_count=1,
+                        page_budget=limits.live_page_budget,
+                    ),
+                    deadline_monotonic=deadline_monotonic,
                 )
                 if remaining is None:
                     raise CollectionBudgetExceeded(
