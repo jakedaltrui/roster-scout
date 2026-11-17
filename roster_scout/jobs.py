@@ -7,6 +7,7 @@ import os
 import random
 import re
 import time
+import traceback
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -2824,10 +2825,21 @@ def run_report_job(session_factory, job_id, generation=None, *, collector):
                 return published
         except Exception as exc:
             classified = _classified_error(exc)
+            failure_frame = traceback.extract_tb(exc.__traceback__)[-1]
+            missing_module = re.sub(
+                r"[^A-Za-z0-9_.-]",
+                "?",
+                str(getattr(exc, "name", ""))[:120],
+            )
             LOGGER.error(
-                "report_job_failed error_type=%s category=%s",
+                "report_job_failed error_type=%s category=%s module=%s "
+                "location=%s:%s:%s",
                 type(exc).__name__,
                 classified.category,
+                missing_module or "none",
+                os.path.basename(failure_frame.filename),
+                failure_frame.lineno,
+                failure_frame.name,
             )
             safe_error = _record_failure(
                 claimed_sessions,
