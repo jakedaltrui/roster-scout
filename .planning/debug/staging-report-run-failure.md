@@ -2,15 +2,15 @@
 status: fixing
 trigger: "The latest hosted report run did not work; inspect the logs, explain why, and prevent recurrence. Also simplify the workbook metadata banner to the date and remove the Last 10 status column."
 created: 2026-11-17T00:00:00-06:00
-updated: 2026-11-17T01:24:00-06:00
+updated: 2026-11-17T01:42:00-06:00
 ---
 
 ## Current Focus
 
-hypothesis: confirmed collector/schema drift plus unused bounded navigation concurrency caused partial data; the corrected full collection needs a small wall-time margin beyond 12 minutes
-test: retain two-session player-history concurrency, allow a 15-minute bounded wall, classify a database disconnect at the exact wall as a source timeout, then rerun Central Arkansas
-expecting: schedule evidence parses all Central Arkansas games, fielding/split controls resolve, and the 136-page full-roster path publishes instead of failing at the wall
-next_action: deploy the deadline margin and safe timeout classification to staging, then rerun Central Arkansas through artifact publication
+hypothesis: confirmed collector/schema drift plus unused navigation concurrency caused partial data; a detached advisory-lock connection also went idle during the long live collection and was dropped before publication
+test: heartbeat the lock connection during collection, retain two-session player-history concurrency, and raise the measured bounded page budget from 150 to 200
+expecting: the 150-plus-page Central Arkansas collection retains its job claim and publishes within the 15-minute wall
+next_action: deploy the advisory heartbeat and measured page budget to staging, then rerun Central Arkansas through artifact publication
 
 ## Symptoms
 
@@ -41,6 +41,7 @@ started: Latest staging run reported by the user on Nov 17, 2026.
 - Staging v18 crossed the repaired schedule boundary and began player history, but consumed only 51 pages in 9m16s because `PHASE3_NAVIGATION_CONCURRENCY=2` was validated but never used by the sequential history loop. At that observed rate, a normal full roster would hit the 12-minute wall before all player pages completed.
 - The sequential diagnostic ended at 07:08:37Z, 12m02s after it started, after 67 live pages. Its final database operation lost the connection and the job was safely marked `failed/unexpected`, confirming that the full-roster sequential path cannot fit inside the enforced wall.
 - Staging v19 proved bounded concurrency was active and reached 136 pages in 12m03s, but Central Arkansas still had a few split requests left. It hit the same exact wall and was marked `failed/unexpected`; the default wall therefore lacked enough margin even after concurrency was corrected.
+- Staging v20 reached the old 150-page budget in 13m50s but failed on the next database operation. The repeated `OperationalError` came from the detached PostgreSQL connection holding the job advisory lock: it remained idle while separate collector sessions recorded page reservations, then was no longer usable for publication. The full Central Arkansas request set also demonstrably exceeds 150 pages.
 
 
 ## Resolution

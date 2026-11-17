@@ -21,7 +21,7 @@ from sqlalchemy.exc import OperationalError
 from roster_scraper import NCAA_PARSER_VERSION
 from usage_limits import BrowserCapacityExceeded
 
-from .database import session_advisory_lock
+from .database import session_advisory_heartbeat, session_advisory_lock
 from .models import (
     BattingGameLogFact,
     BattingFact,
@@ -144,7 +144,7 @@ def load_phase3_collection_limits(environment=None):
             environment, "PHASE3_NAVIGATION_CONCURRENCY", 2, 1, 2
         ),
         live_page_budget=_bounded_collection_integer(
-            environment, "PHASE3_LIVE_PAGE_BUDGET", 150, 1, 500
+            environment, "PHASE3_LIVE_PAGE_BUDGET", 200, 1, 500
         ),
         navigation_timeout_seconds=_bounded_collection_integer(
             environment, "PHASE3_NAVIGATION_TIMEOUT_SECONDS", 45, 5, 120
@@ -2811,9 +2811,13 @@ def run_report_job(session_factory, job_id, generation=None, *, collector):
             raise DeterministicJobError("retry_exhausted")
 
         try:
-            sections = recovered_sections or collector(
-                str(job_id), cached_sections=frozenset(cached)
-            )
+            if recovered_sections:
+                sections = recovered_sections
+            else:
+                with session_advisory_heartbeat(claim):
+                    sections = collector(
+                        str(job_id), cached_sections=frozenset(cached)
+                    )
             with claimed_sessions.begin() as session:
                 job = session.scalar(
                     select(ReportJob).where(ReportJob.id == job_id).with_for_update()

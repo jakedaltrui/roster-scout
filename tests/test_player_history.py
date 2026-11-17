@@ -298,7 +298,7 @@ class CollectionBudgetTests(unittest.TestCase):
 
         defaults = load_phase3_collection_limits({})
         self.assertEqual(defaults.navigation_concurrency, 2)
-        self.assertEqual(defaults.live_page_budget, 150)
+        self.assertEqual(defaults.live_page_budget, 200)
         self.assertEqual(defaults.navigation_timeout_seconds, 45)
         self.assertEqual(defaults.wall_time_seconds, 15 * 60)
 
@@ -374,6 +374,24 @@ class CollectionBudgetTests(unittest.TestCase):
         with patch("roster_scout.jobs.time.monotonic", return_value=10.0):
             with self.assertRaises(CollectionDeadlineExceeded):
                 _reserve_until_deadline(disconnected, deadline_monotonic=10.0)
+
+    def test_advisory_heartbeat_keeps_long_collection_connection_active(self):
+        from types import SimpleNamespace
+        from threading import Event
+        from unittest.mock import Mock
+
+        from roster_scout.database import session_advisory_heartbeat
+
+        pinged = Event()
+        connection = Mock()
+        connection.exec_driver_sql.side_effect = lambda statement: pinged.set()
+        claim = SimpleNamespace(connection=connection)
+
+        with session_advisory_heartbeat(claim, interval_seconds=0.01):
+            self.assertTrue(pinged.wait(timeout=0.5))
+
+        connection.exec_driver_sql.assert_called_with("SELECT 1")
+        connection.commit.assert_called()
 
     def test_one_shared_budget_accounts_for_planned_cache_and_live_outcomes(self):
         from roster_scout.jobs import CollectionBudget, load_phase3_collection_limits
