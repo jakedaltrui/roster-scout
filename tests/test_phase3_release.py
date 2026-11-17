@@ -312,11 +312,95 @@ class MigrationLifecycleTests(unittest.TestCase):
         with self.engine.connect() as connection:
             self.assertEqual(
                 connection.scalar(text("SELECT version_num FROM alembic_version")),
-                "0027",
+                "0028",
             )
         downgrade_database(self.database_url)
         upgrade_database(self.database_url)
         self.assertEqual(set(inspect(self.engine).get_table_names()) & PHASE3_SNAPSHOT_TABLES, PHASE3_SNAPSHOT_TABLES)
+
+    def test_0028_adds_reversible_two_stage_build_contract(self):
+        command.downgrade(alembic_config(self.database_url), "0027")
+        before = inspect(self.engine)
+        self.assertNotIn(
+            "build_profile",
+            {column["name"] for column in before.get_columns("report_jobs")},
+        )
+
+        command.upgrade(alembic_config(self.database_url), "0028")
+        current = inspect(self.engine)
+        self.assertIn(
+            "build_profile",
+            {column["name"] for column in current.get_columns("report_jobs")},
+        )
+        job_checks = {
+            constraint["name"]: constraint.get("sqltext", "")
+            for constraint in current.get_check_constraints("report_jobs")
+        }
+        snapshot_checks = {
+            constraint["name"]: constraint.get("sqltext", "")
+            for constraint in current.get_check_constraints("report_snapshots")
+        }
+        self.assertIn("ck_report_jobs_build_profile", job_checks)
+        self.assertIn("quick", job_checks["ck_report_jobs_build_profile"])
+        self.assertIn(
+            "quick-season-v1",
+            snapshot_checks["ck_report_snapshots_collection_contract_version"],
+        )
+        ids = {name: uuid.uuid4() for name in (
+            "organization", "team", "season", "team_season", "report",
+            "snapshot", "job",
+        )}
+        with self.engine.begin() as connection:
+            connection.execute(text(
+                "INSERT INTO organizations (id, name) VALUES (:id, 'Quick Org')"
+            ), {"id": ids["organization"]})
+            connection.execute(text(
+                "INSERT INTO teams (id, source, source_team_id, name) "
+                "VALUES (:id, 'ncaa', 'quick-team', 'Quick Team')"
+            ), {"id": ids["team"]})
+            connection.execute(text(
+                "INSERT INTO seasons (id, source, source_season_id, year) "
+                "VALUES (:id, 'ncaa', 'quick-season', 2026)"
+            ), {"id": ids["season"]})
+            connection.execute(text(
+                "INSERT INTO team_seasons "
+                "(id, team_id, season_id, source_season_team_id, division) "
+                "VALUES (:team_season, :team, :season, "
+                "'quick-team-season', 'd1')"
+            ), ids)
+            connection.execute(text(
+                "INSERT INTO reports (id, organization_id, team_season_id, name) "
+                "VALUES (:report, :organization, :team_season, 'Quick Report')"
+            ), ids)
+            connection.execute(text(
+                "INSERT INTO report_snapshots "
+                "(id, organization_id, report_id, status, schema_version, "
+                " collection_contract_version, published_at) "
+                "VALUES (:snapshot, :organization, :report, 'ready', 'test', "
+                " 'quick-season-v1', now())"
+            ), ids)
+            connection.execute(text(
+                "INSERT INTO report_jobs "
+                "(id, organization_id, report_id, result_snapshot_id, "
+                " idempotency_key, build_profile, status) "
+                "VALUES (:job, :organization, :report, :snapshot, "
+                " 'quick-migration', 'quick', 'ready')"
+            ), ids)
+
+        command.downgrade(alembic_config(self.database_url), "0027")
+        with self.engine.connect() as connection:
+            self.assertEqual(
+                connection.scalar(text(
+                    "SELECT collection_contract_version FROM report_snapshots "
+                    "WHERE id = :snapshot"
+                ), ids),
+                "legacy-core-v1",
+            )
+        self.assertNotIn(
+            "build_profile",
+            {column["name"] for column in inspect(self.engine).get_columns("report_jobs")},
+        )
+        command.upgrade(alembic_config(self.database_url), "0028")
 
 
 class DivisionParityTests(unittest.TestCase):

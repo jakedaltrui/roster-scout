@@ -1013,6 +1013,132 @@ class PublicationTests(PostgreSQLJobTestCase):
         self.assertTrue(result.successful())
 
 
+class TwoStagePublicationTests(PostgreSQLJobTestCase):
+    def test_quick_publication_queues_one_detailed_successor(self):
+        from roster_scout.jobs import accept_report_job, run_report_job
+        from roster_scout.models import (
+            ReportArtifact,
+            ReportJob,
+            ReportJobDispatch,
+            ReportSnapshot,
+        )
+
+        organization_id, report_id = self.fixture()
+        quick = accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            "quick-first",
+            dispatch=None,
+            build_profile="quick",
+        )
+        snapshot = run_report_job(
+            self.Session,
+            quick.id,
+            collector=Mock(return_value=PublicationTests.successful_sections()),
+        )
+        replay = run_report_job(
+            self.Session,
+            quick.id,
+            collector=Mock(side_effect=AssertionError("terminal replay collected")),
+        )
+
+        self.assertEqual(replay.id, snapshot.id)
+        self.assertEqual(snapshot.status, "ready")
+        with self.Session() as session:
+            jobs = list(session.scalars(
+                select(ReportJob).order_by(ReportJob.created_at, ReportJob.id)
+            ))
+            self.assertEqual(len(jobs), 2)
+            self.assertEqual(jobs[0].id, quick.id)
+            self.assertEqual(jobs[0].build_profile, "quick")
+            self.assertEqual(jobs[0].status, "ready")
+            self.assertEqual(jobs[1].build_profile, "detailed")
+            self.assertEqual(jobs[1].status, "queued")
+            self.assertEqual(jobs[1].idempotency_key, f"detailed:{quick.id}")
+            stored_snapshot = session.get(ReportSnapshot, snapshot.id)
+            self.assertEqual(
+                stored_snapshot.collection_contract_version, "quick-season-v1"
+            )
+            artifacts = list(session.scalars(select(ReportArtifact)))
+            self.assertEqual(len(artifacts), 1)
+            self.assertEqual(artifacts[0].snapshot_id, snapshot.id)
+            successor_dispatches = list(session.scalars(
+                select(ReportJobDispatch).where(
+                    ReportJobDispatch.job_id == jobs[1].id
+                )
+            ))
+            self.assertEqual(len(successor_dispatches), 1)
+            self.assertEqual(successor_dispatches[0].status, "pending")
+
+    def test_detailed_publication_does_not_queue_another_job(self):
+        from roster_scout.jobs import accept_report_job, run_report_job
+        from roster_scout.models import ReportJob
+
+        organization_id, report_id = self.fixture()
+        detailed = accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            "detailed-only",
+            dispatch=None,
+        )
+        run_report_job(
+            self.Session,
+            detailed.id,
+            collector=Mock(return_value=PublicationTests.successful_sections()),
+        )
+        with self.Session() as session:
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(ReportJob)), 1
+            )
+
+    def test_quick_status_waits_for_the_downloadable_artifact(self):
+        from roster_scout.jobs import accept_report_job, run_report_job
+        from roster_scout.models import ReportArtifact
+        from roster_scout.reports import load_report_status
+
+        organization_id, report_id = self.fixture()
+        quick = accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            "quick-artifact-boundary",
+            dispatch=None,
+            build_profile="quick",
+        )
+        run_report_job(
+            self.Session,
+            quick.id,
+            collector=Mock(return_value=PublicationTests.successful_sections()),
+        )
+        with self.Session() as session:
+            saving = load_report_status(
+                session,
+                organization_id,
+                report_id,
+                job_id=quick.id,
+            )
+            self.assertEqual(saving.state, "saving")
+            self.assertFalse(saving.terminal)
+
+        with self.Session.begin() as session:
+            artifact = session.scalar(select(ReportArtifact))
+            artifact.status = "ready"
+            artifact.sha256 = "a" * 64
+            artifact.object_key = "test/quick.xlsx"
+
+        with self.Session() as session:
+            ready = load_report_status(
+                session,
+                organization_id,
+                report_id,
+                job_id=quick.id,
+            )
+            self.assertEqual(ready.state, "ready")
+            self.assertTrue(ready.terminal)
+
+
 class FullSeasonMetricPublicationTests(PostgreSQLJobTestCase):
     @staticmethod
     def detailed_sections():
@@ -2748,7 +2874,9 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
             "</table></body></html>"
         )
 
-    def _accepted_job(self, division, idempotency_key):
+    def _accepted_job(
+        self, division, idempotency_key, *, build_profile="detailed"
+    ):
         from roster_scout.jobs import accept_report_job
         from roster_scout.models import Report, Season, Team, TeamSeason
 
@@ -2773,6 +2901,7 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
             report_id,
             idempotency_key,
             dispatch=None,
+            build_profile=build_profile,
         )
 
     def _run_real_collector(self, job, generation=None):
@@ -2788,6 +2917,97 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
                 cached_sections=cached_sections,
             ),
         )
+
+    def test_quick_collector_stops_after_core_sections(self):
+        import roster_scraper as scraper
+        from roster_scraper import (
+            NcaaCollection,
+            NcaaCollectionMetadata,
+            NcaaSeason,
+            NcaaSection,
+            NcaaTeam,
+        )
+        from roster_scout.models import ReportJob, ReportSection, ReportSnapshot
+
+        job = self._accepted_job(
+            1, "quick-core-only", build_profile="quick"
+        )
+        source = self.TEAMS[1]
+
+        def collect_core(*_args, request_reserver=None, **_kwargs):
+            request_reserver("batting")
+            request_reserver("pitching")
+            return NcaaCollection(
+                team=NcaaTeam(
+                    team_id=source["team_id"],
+                    name=source["team_name"],
+                    season_team_id=source["season_team_id"],
+                    division="d1",
+                ),
+                season=NcaaSeason(
+                    season_id=self.SEASON_ID,
+                    year=2026,
+                    batting_category_id=self.BATTING_ID,
+                    pitching_category_id=self.PITCHING_ID,
+                    fielding_category_id=self.FIELDING_ID,
+                ),
+                metadata=NcaaCollectionMetadata(collected_at=datetime.now(UTC)),
+                sections=tuple(
+                    NcaaSection(
+                        name=name,
+                        source_url=f"https://stats.ncaa.org/{name}",
+                        stat_category_id=category_id,
+                        html_sha256="a" * 64,
+                        rows=(),
+                        verified_empty=True,
+                    )
+                    for name, category_id in (
+                        ("batting", self.BATTING_ID),
+                        ("pitching", self.PITCHING_ID),
+                    )
+                ),
+                players=(),
+                team_label=source["team_name"],
+            )
+
+        with patch.object(
+            scraper, "collect_ncaa_by_id", side_effect=collect_core
+        ) as core, patch.object(
+            scraper,
+            "collect_ncaa_schedule_evidence",
+            side_effect=AssertionError("quick build fetched schedule"),
+        ), patch.object(
+            scraper,
+            "collect_ncaa_player_detail_evidence",
+            side_effect=AssertionError("quick build fetched player history"),
+        ), patch.object(
+            scraper,
+            "collect_ncaa_split_results",
+            side_effect=AssertionError("quick build fetched splits"),
+        ):
+            snapshot = self._run_real_collector(job)
+
+        self.assertEqual(core.call_count, 1)
+        self.assertEqual(snapshot.status, "ready")
+        with self.Session() as session:
+            stored_snapshot = session.get(ReportSnapshot, snapshot.id)
+            self.assertEqual(
+                stored_snapshot.collection_contract_version,
+                "quick-season-v1",
+            )
+            self.assertEqual(
+                set(session.scalars(
+                    select(ReportSection.section).where(
+                        ReportSection.snapshot_id == snapshot.id
+                    )
+                )),
+                {"batting", "pitching"},
+            )
+            successor = session.scalar(
+                select(ReportJob).where(ReportJob.id != job.id)
+            )
+            self.assertIsNotNone(successor)
+            self.assertEqual(successor.build_profile, "detailed")
 
     @staticmethod
     def _fixture_page_transport(pages, *, error=None):

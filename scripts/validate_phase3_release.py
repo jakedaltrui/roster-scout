@@ -15,7 +15,7 @@ from sqlalchemy.exc import ArgumentError, SQLAlchemyError
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_MIGRATION_HEAD = "0027"
+EXPECTED_MIGRATION_HEAD = "0028"
 SAFE_DATABASE_ERROR = "phase3_test_database_unavailable"
 
 # Release children get a deliberately small environment. In particular, do not

@@ -996,14 +996,16 @@ def detail_status(report_id):
                 session,
                 context.organization_id,
                 report_id,
+                job_id=request.args.get("job_id"),
+                prefer_current=request.args.get("prefer_current") == "1",
             )
-    except ReportLibraryFailure:
+    except (ReportLibraryFailure, ValueError):
         return _json_not_found(
             context,
             target_type="report",
             target_id=report_id,
         )
-    except (SQLAlchemyError, RuntimeError, ValueError):
+    except (SQLAlchemyError, RuntimeError):
         return jsonify(error="report_service_unavailable"), 503
     return jsonify(status.as_dict())
 
@@ -1149,7 +1151,10 @@ def create_report():
     if request.accept_mimetypes.best == "application/json":
         return jsonify(
             report_url=destination,
-            status_url=f"/reports/{accepted.report_id}/status",
+            status_url=(
+                f"/reports/{accepted.report_id}/status"
+                f"?job_id={accepted.job_id}&prefer_current=1"
+            ),
         ), 202
     return redirect(destination, code=303)
 

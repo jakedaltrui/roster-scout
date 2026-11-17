@@ -29,6 +29,7 @@ from .enums import (
     COLLECTION_CONTRACT_VERSIONS,
     ARTIFACT_STATUSES,
     ARTIFACT_TYPES,
+    BUILD_PROFILES,
     IDENTITY_STATUSES,
     JOB_STATUSES,
     METRIC_STATUSES,
@@ -1905,6 +1906,9 @@ class ReportJob(UUIDPrimaryKey, Timestamped, Base):
         ),
     )
     idempotency_key: Mapped[str] = mapped_column(String(200), nullable=False)
+    build_profile: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="detailed"
+    )
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued", server_default="queued")
     failure_category: Mapped[str | None] = mapped_column(String(100))
     failure_message: Mapped[str | None] = mapped_column(String(200))
@@ -1944,6 +1948,10 @@ class ReportJob(UUIDPrimaryKey, Timestamped, Base):
             name="fk_report_jobs_requester_membership",
         ),
         CheckConstraint(_allowed("status", JOB_STATUSES), name="ck_report_jobs_status"),
+        CheckConstraint(
+            _allowed("build_profile", BUILD_PROFILES),
+            name="ck_report_jobs_build_profile",
+        ),
         CheckConstraint("attempt_count >= 0", name="ck_report_jobs_attempt_count_nonnegative"),
         CheckConstraint("max_attempts BETWEEN 1 AND 10", name="ck_report_jobs_max_attempts_bounded"),
         CheckConstraint(

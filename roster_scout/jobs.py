@@ -22,6 +22,7 @@ from roster_scraper import NCAA_PARSER_VERSION
 from usage_limits import BrowserCapacityExceeded
 
 from .database import session_advisory_heartbeat, session_advisory_lock
+from .enums import BUILD_PROFILES
 from .models import (
     BattingGameLogFact,
     BattingFact,
@@ -1059,10 +1060,13 @@ def create_or_get_job(
     idempotency_key,
     *,
     requested_by_account_id=None,
+    build_profile="detailed",
 ):
     """Accept one durable job per organization/idempotency key."""
     if not idempotency_key or len(idempotency_key) > 200:
         raise ValueError("idempotency_key must contain 1-200 characters")
+    if build_profile not in BUILD_PROFILES:
+        raise ValueError("build_profile must be quick or detailed")
     job_id = uuid.uuid4()
     statement = (
         postgresql_insert(ReportJob)
@@ -1072,6 +1076,7 @@ def create_or_get_job(
             report_id=report_id,
             requested_by_account_id=requested_by_account_id,
             idempotency_key=idempotency_key,
+            build_profile=build_profile,
             status="queued",
             max_attempts=MAX_ATTEMPTS,
         )
@@ -1099,8 +1104,24 @@ def create_or_get_job(
         raise RuntimeError("idempotent job conflict was not visible")
     if job.report_id != report_id:
         raise ValueError("idempotency_key is already bound to another report")
+    if job.build_profile != build_profile:
+        raise ValueError("idempotency_key is already bound to another build profile")
     ensure_report_dispatch(session, job)
     return job
+
+
+def ensure_detailed_successor(session, job):
+    """Create exactly one background detailed build after a quick publication."""
+    if job.build_profile != "quick" or job.status not in {"ready", "partial"}:
+        return None
+    return create_or_get_job(
+        session,
+        job.organization_id,
+        job.report_id,
+        f"detailed:{job.id}",
+        requested_by_account_id=job.requested_by_account_id,
+        build_profile="detailed",
+    )
 
 
 def accept_report_job(
@@ -1110,11 +1131,16 @@ def accept_report_job(
     idempotency_key,
     *,
     dispatch,
+    build_profile="detailed",
 ):
     """Atomically accept a job and durable dispatch intent, then publish a lease."""
     with session_factory.begin() as session:
         job = create_or_get_job(
-            session, organization_id, report_id, idempotency_key
+            session,
+            organization_id,
+            report_id,
+            idempotency_key,
+            build_profile=build_profile,
         )
         job_id = job.id
     if dispatch is None:
@@ -1149,7 +1175,11 @@ def _new_or_existing_snapshot(session, job):
         report_id=job.report_id,
         predecessor_snapshot_id=previous.id if previous else None,
         schema_version=SCHEMA_VERSION,
-        collection_contract_version="phase3-detailed-v1",
+        collection_contract_version=(
+            "quick-season-v1"
+            if job.build_profile == "quick"
+            else "phase3-detailed-v1"
+        ),
         created_by_account_id=job.requested_by_account_id,
     )
     session.add(snapshot)
@@ -2882,6 +2912,7 @@ def run_report_job(session_factory, job_id, generation=None, *, collector):
                 job.status = published.status
                 job.finished_at = _utcnow()
                 close_report_dispatches(session, job.id)
+                ensure_detailed_successor(session, job)
                 return published
         except Exception as exc:
             classified = _classified_error(exc)
@@ -2993,6 +3024,7 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
         if job is None:
             raise DeterministicJobError("schema_validation", "Report job does not exist.")
         dispatch_generation = job.dispatch_generation
+        build_profile = job.build_profile
         budget = CollectionBudget(
             limits,
             initial_live_count=job.phase3_live_pages_consumed,
@@ -3308,6 +3340,9 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
         for entry in core_entries.values():
             finish_live(entry, outcome="live_complete")
         fetched.extend(core_fetched)
+
+    if build_profile == "quick":
+        return finalized_sections()
 
     if fielding_missing:
         fielding_entry = begin_live(

@@ -495,10 +495,10 @@ class SnapshotHistoryTests(unittest.TestCase):
             b"Current workbook",
             b"Ready for your staff",
             b"Ready",
-            b"Refreshing report",
-            b"New workbook in progress",
-            b"Collecting",
-            b"current workbook stays available while this refresh runs",
+            b"Adding detail",
+            b"Detailed stats in progress",
+            b"Adding detailed stats",
+            b"season workbook stays available while detailed stats are added",
             b"Report history",
             b"Batting",
             b"Pitching",
@@ -506,7 +506,7 @@ class SnapshotHistoryTests(unittest.TestCase):
             self.assertIn(value, response.data)
         self.assertLess(
             response.data.index(b"Current workbook"),
-            response.data.index(b"Refreshing report"),
+            response.data.index(b"Adding detail"),
         )
         self.assertIn(b'data-report-status-url=', response.data)
         self.assertIn(b'aria-live="polite"', response.data)
@@ -563,6 +563,87 @@ class SnapshotHistoryTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, serialized)
         self.assertIn("NCAA source unavailable", serialized)
+
+    def test_quick_workbook_is_terminal_while_targeted_detail_status_continues(self):
+        from hashlib import sha256
+
+        from roster_scout.models import ReportArtifact, ReportJob, ReportSnapshot
+
+        organization_id, accounts = self._organization(
+            "Two Stage University", ("coach@example.edu", "member")
+        )
+        report_id = self._report(organization_id, "Two Stage Tigers", 509)
+        with self.Session.begin() as session:
+            snapshot = ReportSnapshot(
+                organization_id=organization_id,
+                report_id=report_id,
+                status="draft",
+                schema_version="2026.1",
+                collection_contract_version="quick-season-v1",
+                source_collected_at=self.now - timedelta(minutes=1),
+            )
+            session.add(snapshot)
+            session.flush()
+            snapshot.status = "ready"
+            snapshot.published_at = self.now
+            payload = b"quick-workbook"
+            session.add(ReportArtifact(
+                organization_id=organization_id,
+                snapshot_id=snapshot.id,
+                artifact_type="xlsx",
+                status="ready",
+                schema_version="coach-facing-two-sheet-xlsx-v4",
+                sha256=sha256(payload).hexdigest(),
+                object_key="test/two-stage.xlsx",
+            ))
+            detail_job = ReportJob(
+                organization_id=organization_id,
+                report_id=report_id,
+                idempotency_key=f"detailed:{uuid.uuid4()}",
+                build_profile="detailed",
+                status="running",
+                started_at=self.now,
+            )
+            session.add(detail_job)
+            session.flush()
+            detail_job_id = detail_job.id
+
+        client = self._client(accounts[0], organization_id)
+        quick_status = client.get(f"/reports/{report_id}/status")
+        detailed_status = client.get(
+            f"/reports/{report_id}/status?job_id={detail_job_id}"
+        )
+        reused_status = client.get(
+            f"/reports/{report_id}/status?job_id={detail_job_id}"
+            "&prefer_current=1"
+        )
+
+        self.assertEqual(quick_status.status_code, 200)
+        self.assertTrue(quick_status.get_json()["terminal"])
+        self.assertEqual(
+            quick_status.get_json()["heading"], "Season workbook ready"
+        )
+        self.assertIn(
+            "continuing in the background", quick_status.get_json()["message"]
+        )
+        self.assertEqual(detailed_status.status_code, 200)
+        self.assertFalse(detailed_status.get_json()["terminal"])
+        self.assertEqual(
+            detailed_status.get_json()["heading"], "Adding detailed stats"
+        )
+        self.assertTrue(reused_status.get_json()["terminal"])
+        self.assertEqual(
+            reused_status.get_json()["heading"], "Season workbook ready"
+        )
+
+        foreign_id, foreign_accounts = self._organization(
+            "Foreign Two Stage University", ("other@example.edu", "member")
+        )
+        foreign_client = self._client(foreign_accounts[0], foreign_id)
+        denied = foreign_client.get(
+            f"/reports/{report_id}/status?job_id={detail_job_id}"
+        )
+        self.assertEqual(denied.status_code, 404)
 
     def test_absent_and_foreign_detail_and_status_share_one_404_contract(self):
         first_id, first_accounts = self._organization(
@@ -2331,6 +2412,7 @@ class ReportAcceptanceIdempotencyTests(unittest.TestCase):
                 end=self.now + timedelta(minutes=1),
             )
         self.assertEqual(job.requested_by_account_id, account_id)
+        self.assertEqual(job.build_profile, "quick")
         self.assertEqual(usage.actor_account_id, account_id)
         self.assertEqual(usage.organization_id, organization_id)
         self.assertEqual(usage.event_key, str(job.id))
@@ -2702,7 +2784,12 @@ class ReportAcceptanceIdempotencyTests(unittest.TestCase):
         self.assertEqual(response.status_code, 202)
         payload = response.get_json()
         self.assertRegex(payload["report_url"], r"^/reports/[0-9a-f-]{36}$")
-        self.assertEqual(payload["status_url"], payload["report_url"] + "/status")
+        status_url = urlsplit(payload["status_url"])
+        self.assertEqual(status_url.path, payload["report_url"] + "/status")
+        self.assertRegex(
+            parse_qs(status_url.query)["job_id"][0], r"^[0-9a-f-]{36}$"
+        )
+        self.assertEqual(parse_qs(status_url.query)["prefer_current"], ["1"])
         self.assertEqual(self._counts()["reports"], 1)
         self.assertEqual(self._counts()["jobs"], 1)
 

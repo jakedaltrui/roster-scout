@@ -88,7 +88,11 @@ def build_report_job(job_id, generation):
                     _session_factory(), artifact_id, attempt, store=store
                 )
         provider = _power_bi_client()
-        if provider.configured and provider.settings.mode == "live":
+        if (
+            snapshot.collection_contract_version == "phase3-detailed-v1"
+            and provider.configured
+            and provider.settings.mode == "live"
+        ):
             try:
                 ensure_dashboard_refresh(
                     _session_factory(),
