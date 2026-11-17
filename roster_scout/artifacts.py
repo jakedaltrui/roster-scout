@@ -469,7 +469,7 @@ def _project_snapshot_workbook_rows(
         if candidates and candidates[0][0].status == "available":
             return _metric_text(code, candidates[0][0].value)
         result = calculate_metric(code, counts)
-        return _metric_text(code, result.value) if result.status == "available" else ""
+        return _metric_text(code, result.value) if result.status == "available" else "—"
 
     def identity(player_id, preferred_section):
         player = players[player_id]

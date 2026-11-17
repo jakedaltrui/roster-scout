@@ -619,6 +619,54 @@ class ArtifactContractTests(unittest.TestCase):
         self.assertEqual(hitters, [])
         self.assertEqual(pitchers, [])
 
+    def test_canonical_projection_marks_undefined_rates_instead_of_leaving_blanks(self):
+        from roster_scout.artifacts import _project_snapshot_workbook_rows
+
+        player_id = uuid.uuid4()
+        source_id = uuid.uuid4()
+        player = SimpleNamespace(
+            id=player_id,
+            display_name="Pinch Runner",
+            jersey_number="3",
+            position="INF",
+        )
+        source = SimpleNamespace(
+            id=source_id,
+            player_team_season_id=player_id,
+            section="batting",
+            source_player_id="123",
+            source_url="https://stats.ncaa.org/teams/701",
+            raw_values={"Yr": "Sr"},
+        )
+        batting = SimpleNamespace(
+            player_team_season_id=player_id,
+            source_record_id=source_id,
+            games=18,
+            games_started=9,
+            plate_appearances=0,
+            at_bats=0,
+            runs=1,
+            hits=0,
+            doubles=0,
+            triples=0,
+            home_runs=0,
+            runs_batted_in=0,
+            walks=0,
+            hit_by_pitch=0,
+            strikeouts=0,
+            sacrifice_flies=0,
+            sacrifice_hits=0,
+            stolen_bases=0,
+        )
+
+        hitters, _ = _project_snapshot_workbook_rows(
+            (player,), (source,), (batting,), (), (), (), (), ()
+        )
+
+        self.assertEqual(hitters[0]["PA"], 0)
+        self.assertEqual(hitters[0]["AVG"], "—")
+        self.assertEqual(hitters[0]["wOBA"], "—")
+
     def test_artifact_schema_bump_accepts_exact_historical_keys(self):
         from roster_scout.artifacts import (
             ARTIFACT_SCHEMA_VERSION,
