@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import logging
 import os
 import random
 import re
@@ -64,6 +65,9 @@ from .repositories import (
     reopen_report_dispatch,
     release_report_dispatch,
 )
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 TERMINAL_JOB_STATUSES = frozenset({"ready", "partial", "failed", "blocked"})
@@ -2819,11 +2823,17 @@ def run_report_job(session_factory, job_id, generation=None, *, collector):
                 close_report_dispatches(session, job.id)
                 return published
         except Exception as exc:
+            classified = _classified_error(exc)
+            LOGGER.error(
+                "report_job_failed error_type=%s category=%s",
+                type(exc).__name__,
+                classified.category,
+            )
             safe_error = _record_failure(
                 claimed_sessions,
                 job_id,
                 delivery_generation,
-                _classified_error(exc),
+                classified,
             )
             raise safe_error from None
 
