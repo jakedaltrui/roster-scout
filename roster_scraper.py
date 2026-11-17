@@ -2228,23 +2228,36 @@ def _fetch_ncaa_browser_pages_locked(
     return rendered
 
 
-def _close_browserless_session(browser, playwright):
+def _close_browserless_session(authenticated_ws, playwright):
     """Best-effort remote cleanup that never replaces a collection result.
 
     Browserless reconnect sessions have a bounded TTL, so a remote browser may
     already be closed by the time collection finishes.  Cleanup still attempts
-    every boundary, but an expired CDP session must not turn valid collected
-    data (or a classified source failure) into an unrelated job failure.
+    every boundary, but an expired session must not turn valid collected data
+    (or a classified source failure) into an unrelated job failure.  Use a
+    separate bounded WebSocket instead of the connected Playwright client: a
+    broken CDP driver can otherwise block ``Browser.close`` past the report's
+    collection deadline.
     """
-    if browser is not None:
+    connection = None
+    if authenticated_ws:
         try:
-            browser.new_browser_cdp_session().send("Browser.close")
+            import websocket
+
+            connection = websocket.create_connection(
+                authenticated_ws,
+                timeout=5,
+            )
+            connection.send(json.dumps({"id": 1, "method": "Browser.close"}))
+            connection.recv()
         except Exception:
             pass
-        try:
-            browser.close()
-        except Exception:
-            pass
+        finally:
+            if connection is not None:
+                try:
+                    connection.close(timeout=1)
+                except Exception:
+                    pass
     if playwright is not None:
         try:
             playwright.stop()
@@ -2336,6 +2349,12 @@ def _fetch_ncaa_browserless_pages(
     except (KeyError, TypeError, ValueError) as exc:
         raise NcaaAccessError("Browserless returned an invalid session response.") from exc
 
+    authenticated_ws = (
+        ws_endpoint
+        + ("&" if "?" in ws_endpoint else "?")
+        + "token="
+        + quote(token, safe="")
+    )
     rendered = {}
     browser = None
     playwright = None
@@ -2347,12 +2366,6 @@ def _fetch_ncaa_browserless_pages(
             lambda _allowance: sync_playwright().start(),
             deadline_monotonic,
             navigation_timeout_seconds,
-        )
-        authenticated_ws = (
-            ws_endpoint
-            + ("&" if "?" in ws_endpoint else "?")
-            + "token="
-            + quote(token, safe="")
         )
         browser = run_with_deadline(
             lambda allowance: playwright.chromium.connect_over_cdp(
@@ -2482,7 +2495,7 @@ def _fetch_ncaa_browserless_pages(
         # session before the account-capacity lease is freed when it still
         # exists, without allowing an already-expired session to replace the
         # classified collection outcome.
-        _close_browserless_session(browser, playwright)
+        _close_browserless_session(authenticated_ws, playwright)
     return rendered
 
 
