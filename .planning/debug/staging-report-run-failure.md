@@ -1,16 +1,16 @@
 ---
-status: fixing
+status: resolved
 trigger: "The latest hosted report run did not work; inspect the logs, explain why, and prevent recurrence. Also simplify the workbook metadata banner to the date and remove the Last 10 status column."
 created: 2026-11-17T00:00:00-06:00
-updated: 2026-11-17T02:56:00-06:00
+updated: 2026-11-17T03:13:00-06:00
 ---
 
 ## Current Focus
 
-hypothesis: legacy saved reports lack the numeric NCAA season/category identities required by the new computed scopes, even though the live collector can authoritatively recover them
-test: reproduce that exact legacy record shape locally, recover source identities from the current NCAA season contract, and rerun the exact Central Arkansas report on staging
-expecting: canonical persistence receives non-null batting and pitching category identities, publishes a partial or ready snapshot, and creates the exact two-sheet workbook
-next_action: deploy the compatibility fix to staging and complete one final exact live replay
+hypothesis: confirmed; legacy saved reports lacked the NCAA season/category identities required by computed scopes
+test: passed; the exact Central Arkansas staging replay recovered the authoritative IDs and crossed collection, persistence, and artifact creation
+expecting: met; a truthful partial snapshot and checksum-valid two-sheet workbook were published
+next_action: none; production remains unchanged pending explicit deployment approval
 
 ## Symptoms
 
@@ -48,11 +48,15 @@ started: Latest staging run reported by the user on Nov 17, 2026.
 - The authoritative 2026 NCAA season contract resolves season `17040`, batting category `15867`, pitching category `15868`, and fielding category `15869`; these values are now recovered before supplemental collection and reused by computed Last 10/conference scopes.
 - The regression fixture now mutates a report to the same legacy shape (`source_season_id="2026"`, null batting/pitching category IDs) and proves schedule/history/game-log publication succeeds without a null scope identity.
 - The focused persistence, recovery, evidence, workbook, and history suite passed 138 tests. The first 817-test sweep exposed two test-order issues; both failing tests then passed alone and in the 138-test focused suite after the guard was kept source-agnostic at persistence and authoritative at the NCAA boundary.
+- Final staging job `78b5f7ab-d7be-4c09-9a72-29b0a445b3b3` completed on attempt 1 in 883.02 seconds after 163 live pages and published snapshot `82235900-ee90-4f3b-9f3e-b83e0450f4ef`.
+- The final snapshot recovered source season `17040`, batting category `15867`, and pitching category `15868` in every applicable split and computed scope. Its XLSX artifact is `ready`, uses schema `coach-facing-two-sheet-xlsx-v4`, and passed its stored SHA-256 check.
+- Direct inspection of the stored 25,359-byte XLSX verified exactly two worksheets, the date `NOVEMBER 17, 2026`, a `Games` header, no `Status` header, and none of `PUBLISHED` or `PARTIAL SNAPSHOT`.
+- The final snapshot remains truthfully `partial`: core batting (34 rows) and pitching (17 rows) are complete, while NCAA returned blocked/incomplete supplemental fielding, schedule, split, history, and game-log evidence. Those source gaps no longer prevent the usable report or workbook from publishing.
 
 
 ## Resolution
 
 root_cause: NCAA markup drift first hid the schedule, split, and fielding data; after those adapters were repaired, the full supplemental request set exposed undersized execution limits, an idle advisory-lock connection, dropped partial schedule rows, and finally legacy report records with null NCAA stat-category identities. The last defect violated `statistic_scopes.source_stat_category_id` during computed scope persistence.
 fix: The collectors accept current NCAA markup, history fetches run with bounded concurrency under a 200-page/18-minute budget, the advisory claim is heartbeated, partial schedule evidence is retained, and legacy reports recover authoritative season/category IDs from the current NCAA season contract before split or computed-scope persistence. Workbook schema v4 renders only the date in its metadata banner and omits the Last 10 Status column while retaining Games.
-verification: Targeted legacy-shape PostgreSQL regression passed; 138 focused report/evidence/history/artifact/workbook tests passed; workbook release acceptance, Phase 3 focused/security gates, browser state machines, compilation, and diff hygiene passed. Final staging live replay remains.
+verification: Targeted legacy-shape PostgreSQL regression passed; 138 focused report/evidence/history/artifact/workbook tests passed; workbook release acceptance, Phase 3 focused/security gates, browser state machines, compilation, and diff hygiene passed. The exact staging replay completed in 883.02 seconds on attempt 1, published a checksum-valid v4 workbook, and direct XLSX inspection confirmed the requested date-only banner and Last 10 column cleanup.
 files_changed: [scripts/capture_phase3_ncaa_fixtures.py, roster_scout/ncaa_detail.py, roster_scout/jobs.py, roster_scout/workbooks.py, roster_scout/artifacts.py, tests/test_report_jobs.py, tests/test_player_history.py]
