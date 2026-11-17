@@ -93,7 +93,7 @@ class ArtifactStorageUnitTests(unittest.TestCase):
         self.assertEqual(
             key,
             f"organizations/{organization_id}/reports/{report_id}/snapshots/"
-            f"{snapshot_id}/workbooks/roster-scout-detailed-two-sheet-xlsx-v2.xlsx",
+            f"{snapshot_id}/workbooks/roster-scout-coach-facing-two-sheet-xlsx-v3.xlsx",
         )
         with self.assertRaisesRegex(ArtifactStorageError, "invalid artifact key"):
             _validated_object_key(f"../{key}")
@@ -308,7 +308,7 @@ class ArtifactContractTests(unittest.TestCase):
         }
         return hitter, pitcher
 
-    def test_grouped_workbook_has_only_two_sheets_and_five_header_groups(self):
+    def test_grouped_workbook_has_only_two_sheets_and_four_header_groups(self):
         from roster_scout.workbooks import create_workbook
 
         hitter, pitcher = self._detailed_rows()
@@ -325,30 +325,38 @@ class ArtifactContractTests(unittest.TestCase):
             hitters_xml = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
             pitchers_xml = archive.read("xl/worksheets/sheet2.xml").decode("utf-8")
             shared_strings = archive.read("xl/sharedStrings.xml").decode("utf-8")
-            hitters_table = archive.read("xl/tables/table1.xml").decode("utf-8")
-            pitchers_table = archive.read("xl/tables/table2.xml").decode("utf-8")
+            archive_names = set(archive.namelist())
 
         self.assertEqual(workbook_xml.count("<sheet "), 2)
         self.assertIn('name="Hitters"', workbook_xml)
         self.assertIn('name="Pitchers"', workbook_xml)
         for label in (
             "Player",
-            "Season",
-            "Derived Metrics",
-            "Last 10 Games",
-            "Conference Games",
+            "Season Stats",
+            "Last 10",
+            "Conference Stats",
         ):
             self.assertIn(f">{label}<", shared_strings)
-        for excluded in ("Fielding", "Career", "Game Logs", "Methodology"):
+        for excluded in (
+            "NCAA Player ID",
+            "Source URL",
+            "Derived Metrics",
+            "Conference Status",
+            "Fielding",
+            "Career",
+            "Game Logs",
+            "Methodology",
+        ):
             self.assertNotIn(f">{excluded}<", shared_strings)
-        self.assertIn('xSplit="6"', hitters_xml)
+        self.assertIn('xSplit="4"', hitters_xml)
         self.assertIn('ySplit="4"', hitters_xml)
-        self.assertIn('xSplit="6"', pitchers_xml)
+        self.assertIn('xSplit="4"', pitchers_xml)
         self.assertIn('ySplit="4"', pitchers_xml)
-        self.assertIn("<autoFilter", hitters_table)
-        self.assertIn("<autoFilter", pitchers_table)
+        self.assertIn("<autoFilter", hitters_xml)
+        self.assertIn("<autoFilter", pitchers_xml)
+        self.assertFalse(any(name.startswith("xl/tables/") for name in archive_names))
 
-    def test_grouped_workbook_preserves_ids_safe_text_and_scope_semantics(self):
+    def test_grouped_workbook_omits_audit_ids_and_preserves_scope_semantics(self):
         from roster_scout.workbooks import create_workbook
 
         hitter, pitcher = self._detailed_rows()
@@ -365,10 +373,12 @@ class ArtifactContractTests(unittest.TestCase):
 
         self.assertNotIn(b"<f>", worksheets)
         self.assertNotIn(b"<hyperlinks", worksheets)
-        self.assertIn(b"9001", shared_strings)
-        self.assertIn(b"https://stats.ncaa.org/players/9001", shared_strings)
+        self.assertNotIn(b"9001", shared_strings)
+        self.assertNotIn(b"https://stats.ncaa.org/players/9001", shared_strings)
         self.assertIn(b"=1+1", shared_strings)
-        self.assertIn(b"Unavailable", shared_strings)
+        self.assertIn(b"Complete", shared_strings)
+        self.assertIn(b"Partial", shared_strings)
+        self.assertNotIn(b"Conference Status", shared_strings)
         self.assertNotIn(b"Conference G</t></si><si><t>0", shared_strings)
 
     def test_two_way_player_keeps_identity_on_both_sheets(self):
@@ -538,14 +548,19 @@ class ArtifactContractTests(unittest.TestCase):
         report_id = uuid.uuid4()
         snapshot_id = uuid.uuid4()
         current = artifact_object_key(organization_id, report_id, snapshot_id)
-        historical = (
+        historical_v1 = (
             f"organizations/{organization_id}/reports/{report_id}/snapshots/"
             f"{snapshot_id}/workbooks/roster-scout-basic-xlsx-v1.xlsx"
         )
+        historical_v2 = (
+            f"organizations/{organization_id}/reports/{report_id}/snapshots/"
+            f"{snapshot_id}/workbooks/roster-scout-detailed-two-sheet-xlsx-v2.xlsx"
+        )
 
-        self.assertEqual(ARTIFACT_SCHEMA_VERSION, "detailed-two-sheet-xlsx-v2")
+        self.assertEqual(ARTIFACT_SCHEMA_VERSION, "coach-facing-two-sheet-xlsx-v3")
         self.assertIn(ARTIFACT_SCHEMA_VERSION, current)
-        self.assertEqual(_validated_object_key(historical), historical)
+        self.assertEqual(_validated_object_key(historical_v1), historical_v1)
+        self.assertEqual(_validated_object_key(historical_v2), historical_v2)
 
 
 class ArtifactLifecycleTests(_PostgreSQLJobTestCase):

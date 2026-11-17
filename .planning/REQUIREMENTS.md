@@ -80,8 +80,8 @@
 
 ### Excel Report
 
-- [x] **XLSX-01**: A ready or partial snapshot can produce the established branded two-sheet workbook (`Hitters` and `Pitchers`) with grouped Player, Season, Derived Metrics, Last 10 Games, and Conference Games columns.
-- [x] **XLSX-02**: Both worksheets identify the opponent, season, snapshot generation time, data freshness, stable player identity, and source URL; unavailable or partial scoped metrics remain explicit instead of appearing as zero.
+- [x] **XLSX-01**: A ready or partial snapshot can produce the established branded two-sheet workbook (`Hitters` and `Pitchers`) with grouped Player, Season Stats, Last 10, and Conference Stats columns.
+- [x] **XLSX-02**: Both worksheets identify the opponent, season, snapshot generation time, and data freshness while keeping audit-only player IDs and source URLs in canonical storage; unavailable Last 10 metrics remain explicit instead of appearing as zero.
 - [x] **XLSX-03**: The workbook writes numeric cells as numbers, preserves safe plain-text handling, and applies the correct display precision for each metric.
 - [x] **XLSX-04**: Downloading an older snapshot returns its exact stored workbook artifact rather than rebuilding it from current upstream data.
 - [x] **XLSX-05**: The workbook records a schema version and SHA-256 artifact checksum in snapshot metadata.

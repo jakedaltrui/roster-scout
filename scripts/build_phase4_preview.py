@@ -37,6 +37,13 @@ def _rows():
         avg = hits / at_bats
         slg = (hits - doubles - triples - home_runs + 2 * doubles + 3 * triples + 4 * home_runs) / at_bats
         obp = (hits + walks + 2) / (at_bats + walks + 4)
+        preview_woba = (
+            0.70 * (walks + 2)
+            + 0.90 * (hits - doubles - triples - home_runs)
+            + 1.25 * doubles
+            + 1.60 * triples
+            + 2.00 * home_runs
+        ) / pa
         hitters.append({
             "_player_id": f"PREVIEW-474-H{index:02d}",
             "_player_url": f"https://stats.ncaa.org/players/preview-h{index:02d}",
@@ -65,6 +72,7 @@ def _rows():
             "BB%": f"{walks / pa:.3f}",
             "K%": f"{strikeouts / pa:.3f}",
             "BABIP": f"{(hits - home_runs) / (at_bats - strikeouts - home_runs + 2):.3f}",
+            "wOBA": f"{preview_woba:.3f}",
             "Last 10 G": 10,
             "Last 10 PA": 39 + index,
             "Last 10 AB": 34 + index,

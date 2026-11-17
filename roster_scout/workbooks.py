@@ -32,89 +32,85 @@ class WorkbookColumn:
 
 
 PLAYER_COLUMNS = (
-    WorkbookColumn("Player", "NCAA Player ID", "_player_id", width=15),
     WorkbookColumn("Player", "Name", "Name", width=24),
     WorkbookColumn("Player", "#", "#", "integer", 5),
     WorkbookColumn("Player", "Position", "Position", width=11),
     WorkbookColumn("Player", "Class", "Class", width=8),
-    WorkbookColumn("Player", "Source URL", "_player_url", width=18),
 )
 
 HITTER_COLUMNS = PLAYER_COLUMNS + (
-    WorkbookColumn("Season", "G", "G", "integer", 6),
-    WorkbookColumn("Season", "GS", "GS", "integer", 6),
-    WorkbookColumn("Season", "PA", "PA", "integer", 7),
-    WorkbookColumn("Season", "AB", "AB", "integer", 7),
-    WorkbookColumn("Season", "H", "H", "integer", 6),
-    WorkbookColumn("Season", "2B", "2B", "integer", 6),
-    WorkbookColumn("Season", "3B", "3B", "integer", 6),
-    WorkbookColumn("Season", "HR", "HR", "integer", 6),
-    WorkbookColumn("Season", "RBI", "RBI", "integer", 7),
-    WorkbookColumn("Season", "R", "R", "integer", 6),
-    WorkbookColumn("Season", "BB", "BB", "integer", 6),
-    WorkbookColumn("Season", "SO", "SO", "integer", 6),
-    WorkbookColumn("Season", "SB", "SB", "integer", 6),
-    WorkbookColumn("Season", "AVG", "AVG", "three", 8),
-    WorkbookColumn("Season", "OBP", "OBP", "three", 8),
-    WorkbookColumn("Season", "SLG", "SLG", "three", 8),
-    WorkbookColumn("Derived Metrics", "OPS", "OPS", "three", 8),
-    WorkbookColumn("Derived Metrics", "ISO", "ISO", "three", 8),
-    WorkbookColumn("Derived Metrics", "BB%", "BB%", "percent", 8),
-    WorkbookColumn("Derived Metrics", "K%", "K%", "percent", 8),
-    WorkbookColumn("Derived Metrics", "BABIP", "BABIP", "three", 8),
-    WorkbookColumn("Derived Metrics", "wOBA", "wOBA", "three", 8),
-    WorkbookColumn("Last 10 Games", "L10 G", "Last 10 G", "integer", 7),
-    WorkbookColumn("Last 10 Games", "L10 PA", "Last 10 PA", "integer", 8),
-    WorkbookColumn("Last 10 Games", "L10 AB", "Last 10 AB", "integer", 8),
-    WorkbookColumn("Last 10 Games", "L10 AVG", "Last 10 AVG", "three", 9),
-    WorkbookColumn("Last 10 Games", "L10 OPS", "Last 10 OPS", "three", 9),
-    WorkbookColumn("Last 10 Games", "L10 K%", "Last 10 K%", "percent", 9),
-    WorkbookColumn("Last 10 Games", "L10 Status", "Last 10 Status", width=12),
-    WorkbookColumn("Conference Games", "CONF G", "Conference G", "integer", 8),
-    WorkbookColumn("Conference Games", "CONF PA", "Conference PA", "integer", 9),
-    WorkbookColumn("Conference Games", "CONF AB", "Conference AB", "integer", 9),
-    WorkbookColumn("Conference Games", "CONF AVG", "Conference AVG", "three", 10),
-    WorkbookColumn("Conference Games", "CONF OPS", "Conference OPS", "three", 10),
-    WorkbookColumn("Conference Games", "CONF K%", "Conference K%", "percent", 10),
-    WorkbookColumn("Conference Games", "CONF Status", "Conference Status", width=12),
+    WorkbookColumn("Season Stats", "G", "G", "integer", 6),
+    WorkbookColumn("Season Stats", "GS", "GS", "integer", 6),
+    WorkbookColumn("Season Stats", "PA", "PA", "integer", 7),
+    WorkbookColumn("Season Stats", "AB", "AB", "integer", 7),
+    WorkbookColumn("Season Stats", "H", "H", "integer", 6),
+    WorkbookColumn("Season Stats", "2B", "2B", "integer", 6),
+    WorkbookColumn("Season Stats", "3B", "3B", "integer", 6),
+    WorkbookColumn("Season Stats", "HR", "HR", "integer", 6),
+    WorkbookColumn("Season Stats", "RBI", "RBI", "integer", 7),
+    WorkbookColumn("Season Stats", "R", "R", "integer", 6),
+    WorkbookColumn("Season Stats", "BB", "BB", "integer", 6),
+    WorkbookColumn("Season Stats", "SO", "SO", "integer", 6),
+    WorkbookColumn("Season Stats", "SB", "SB", "integer", 6),
+    WorkbookColumn("Season Stats", "AVG", "AVG", "three", 8),
+    WorkbookColumn("Season Stats", "OBP", "OBP", "three", 8),
+    WorkbookColumn("Season Stats", "SLG", "SLG", "three", 8),
+    WorkbookColumn("Season Stats", "OPS", "OPS", "three", 8),
+    WorkbookColumn("Season Stats", "ISO", "ISO", "three", 8),
+    WorkbookColumn("Season Stats", "BB%", "BB%", "percent", 8),
+    WorkbookColumn("Season Stats", "K%", "K%", "percent", 8),
+    WorkbookColumn("Season Stats", "BABIP", "BABIP", "three", 8),
+    WorkbookColumn("Season Stats", "wOBA", "wOBA", "three", 8),
+    WorkbookColumn("Last 10", "G", "Last 10 G", "integer", 7),
+    WorkbookColumn("Last 10", "PA", "Last 10 PA", "integer", 8),
+    WorkbookColumn("Last 10", "AB", "Last 10 AB", "integer", 8),
+    WorkbookColumn("Last 10", "AVG", "Last 10 AVG", "three", 9),
+    WorkbookColumn("Last 10", "OPS", "Last 10 OPS", "three", 9),
+    WorkbookColumn("Last 10", "K%", "Last 10 K%", "percent", 9),
+    WorkbookColumn("Last 10", "Status", "Last 10 Status", width=12),
+    WorkbookColumn("Conference Stats", "G", "Conference G", "integer", 8),
+    WorkbookColumn("Conference Stats", "PA", "Conference PA", "integer", 9),
+    WorkbookColumn("Conference Stats", "AB", "Conference AB", "integer", 9),
+    WorkbookColumn("Conference Stats", "AVG", "Conference AVG", "three", 10),
+    WorkbookColumn("Conference Stats", "OPS", "Conference OPS", "three", 10),
+    WorkbookColumn("Conference Stats", "K%", "Conference K%", "percent", 10),
 )
 
 PITCHER_COLUMNS = PLAYER_COLUMNS + (
-    WorkbookColumn("Season", "G", "G", "integer", 6),
-    WorkbookColumn("Season", "GS", "GS", "integer", 6),
-    WorkbookColumn("Season", "IP", "IP", width=7),
-    WorkbookColumn("Season", "W", "W", "integer", 6),
-    WorkbookColumn("Season", "L", "L", "integer", 6),
-    WorkbookColumn("Season", "SV", "SV", "integer", 6),
-    WorkbookColumn("Season", "H", "H", "integer", 6),
-    WorkbookColumn("Season", "ER", "ER", "integer", 6),
-    WorkbookColumn("Season", "BB", "BB", "integer", 6),
-    WorkbookColumn("Season", "SO", "SO", "integer", 6),
-    WorkbookColumn("Season", "HR", "HR", "integer", 6),
-    WorkbookColumn("Season", "BF", "BF", "integer", 7),
-    WorkbookColumn("Season", "ERA", "ERA", "two", 8),
-    WorkbookColumn("Season", "WHIP", "WHIP", "two", 8),
-    WorkbookColumn("Derived Metrics", "K/9", "K/9", "two", 8),
-    WorkbookColumn("Derived Metrics", "BB/9", "BB/9", "two", 8),
-    WorkbookColumn("Derived Metrics", "H/9", "H/9", "two", 8),
-    WorkbookColumn("Derived Metrics", "HR/9", "HR/9", "two", 8),
-    WorkbookColumn("Derived Metrics", "K/BB", "K/BB", "two", 8),
-    WorkbookColumn("Derived Metrics", "K%", "K%", "percent", 8),
-    WorkbookColumn("Derived Metrics", "BB%", "BB%", "percent", 8),
-    WorkbookColumn("Derived Metrics", "BABIP", "BABIP", "three", 8),
-    WorkbookColumn("Derived Metrics", "FIP", "FIP", "two", 8),
-    WorkbookColumn("Last 10 Games", "L10 G", "Last 10 G", "integer", 7),
-    WorkbookColumn("Last 10 Games", "L10 IP", "Last 10 IP", width=8),
-    WorkbookColumn("Last 10 Games", "L10 ERA", "Last 10 ERA", "two", 9),
-    WorkbookColumn("Last 10 Games", "L10 WHIP", "Last 10 WHIP", "two", 10),
-    WorkbookColumn("Last 10 Games", "L10 K/9", "Last 10 K/9", "two", 9),
-    WorkbookColumn("Last 10 Games", "L10 Status", "Last 10 Status", width=12),
-    WorkbookColumn("Conference Games", "CONF G", "Conference G", "integer", 8),
-    WorkbookColumn("Conference Games", "CONF IP", "Conference IP", width=9),
-    WorkbookColumn("Conference Games", "CONF ERA", "Conference ERA", "two", 10),
-    WorkbookColumn("Conference Games", "CONF WHIP", "Conference WHIP", "two", 11),
-    WorkbookColumn("Conference Games", "CONF K/9", "Conference K/9", "two", 10),
-    WorkbookColumn("Conference Games", "CONF Status", "Conference Status", width=12),
+    WorkbookColumn("Season Stats", "G", "G", "integer", 6),
+    WorkbookColumn("Season Stats", "GS", "GS", "integer", 6),
+    WorkbookColumn("Season Stats", "IP", "IP", width=7),
+    WorkbookColumn("Season Stats", "W", "W", "integer", 6),
+    WorkbookColumn("Season Stats", "L", "L", "integer", 6),
+    WorkbookColumn("Season Stats", "SV", "SV", "integer", 6),
+    WorkbookColumn("Season Stats", "H", "H", "integer", 6),
+    WorkbookColumn("Season Stats", "ER", "ER", "integer", 6),
+    WorkbookColumn("Season Stats", "BB", "BB", "integer", 6),
+    WorkbookColumn("Season Stats", "SO", "SO", "integer", 6),
+    WorkbookColumn("Season Stats", "HR", "HR", "integer", 6),
+    WorkbookColumn("Season Stats", "BF", "BF", "integer", 7),
+    WorkbookColumn("Season Stats", "ERA", "ERA", "two", 8),
+    WorkbookColumn("Season Stats", "WHIP", "WHIP", "two", 8),
+    WorkbookColumn("Season Stats", "K/9", "K/9", "two", 8),
+    WorkbookColumn("Season Stats", "BB/9", "BB/9", "two", 8),
+    WorkbookColumn("Season Stats", "H/9", "H/9", "two", 8),
+    WorkbookColumn("Season Stats", "HR/9", "HR/9", "two", 8),
+    WorkbookColumn("Season Stats", "K/BB", "K/BB", "two", 8),
+    WorkbookColumn("Season Stats", "K%", "K%", "percent", 8),
+    WorkbookColumn("Season Stats", "BB%", "BB%", "percent", 8),
+    WorkbookColumn("Season Stats", "BABIP", "BABIP", "three", 8),
+    WorkbookColumn("Season Stats", "FIP", "FIP", "two", 8),
+    WorkbookColumn("Last 10", "G", "Last 10 G", "integer", 7),
+    WorkbookColumn("Last 10", "IP", "Last 10 IP", width=8),
+    WorkbookColumn("Last 10", "ERA", "Last 10 ERA", "two", 9),
+    WorkbookColumn("Last 10", "WHIP", "Last 10 WHIP", "two", 10),
+    WorkbookColumn("Last 10", "K/9", "Last 10 K/9", "two", 9),
+    WorkbookColumn("Last 10", "Status", "Last 10 Status", width=12),
+    WorkbookColumn("Conference Stats", "G", "Conference G", "integer", 8),
+    WorkbookColumn("Conference Stats", "IP", "Conference IP", width=9),
+    WorkbookColumn("Conference Stats", "ERA", "Conference ERA", "two", 10),
+    WorkbookColumn("Conference Stats", "WHIP", "Conference WHIP", "two", 11),
+    WorkbookColumn("Conference Stats", "K/9", "Conference K/9", "two", 10),
 )
 
 
@@ -384,8 +380,6 @@ def _write_worksheet(workbook, title, rows, columns, branding=None):
             + [len(str(player.get(column.key, "") or "")) for player in rows]
         )
         width = min(max(content_width + 2, column.width), max(column.width, 34))
-        if column.key == "_player_url":
-            width = column.width
         column_widths.append(width)
         worksheet.set_column(col_index, col_index, width)
 
@@ -457,7 +451,7 @@ def _write_worksheet(workbook, title, rows, columns, branding=None):
         banded = (row_index - first_data_row) % 2 == 1
         for col_index, column in enumerate(columns):
             raw_value = player.get(column.key, "")
-            if column.key in {"Last 10 Status", "Conference Status"} and not raw_value:
+            if column.key == "Last 10 Status" and not raw_value:
                 raw_value = "Unavailable"
             value = excel_value(column.kind, raw_value)
             kind = column.kind if isinstance(value, (int, float)) else "text"
@@ -465,25 +459,13 @@ def _write_worksheet(workbook, title, rows, columns, branding=None):
                 row_index, col_index, value,
                 formats[(kind, banded, column.key == "Name")],
             )
-    if rows:
-        worksheet.add_table(
-            first_header_row,
-            0,
-            first_header_row + len(rows),
-            last_col,
-            {
-                "columns": [
-                    {"header": column.header, "header_format": header_format}
-                    for column in columns
-                ],
-                "style": None,
-                "banded_rows": False,
-                "name": f"{title}Table",
-            },
-        )
-    else:
-        worksheet.autofilter(first_header_row, 0, first_header_row, last_col)
     last_row = first_header_row + max(len(rows), 1)
+    worksheet.autofilter(
+        first_header_row,
+        0,
+        first_header_row + len(rows),
+        last_col,
+    )
     worksheet.set_landscape()
     worksheet.fit_to_pages(1, 0)
     worksheet.repeat_rows(first_group_row, first_header_row)

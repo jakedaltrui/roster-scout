@@ -39,9 +39,10 @@ from .metrics import DEFINITION_VERSION, calculate_metric
 from .workbooks import create_workbook, workbook_branding
 
 
-ARTIFACT_SCHEMA_VERSION = "detailed-two-sheet-xlsx-v2"
+ARTIFACT_SCHEMA_VERSION = "coach-facing-two-sheet-xlsx-v3"
 SUPPORTED_ARTIFACT_SCHEMA_VERSIONS = frozenset({
     "basic-xlsx-v1",
+    "detailed-two-sheet-xlsx-v2",
     ARTIFACT_SCHEMA_VERSION,
 })
 MAX_ARTIFACT_BYTES = 25 * 1024 * 1024

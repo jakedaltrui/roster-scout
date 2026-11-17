@@ -310,8 +310,8 @@ Plans:
 **Requirements:** XLSX-01, XLSX-02, XLSX-03, XLSX-04, XLSX-05, XLSX-06
 **Success Criteria** (what must be TRUE):
 
-1. A complete snapshot renders exactly two worksheets, `Hitters` and `Pitchers`, using the established workbook styling and grouped Player, Season, Derived Metrics, Last 10 Games, and Conference Games columns.
-2. Stable NCAA player IDs and source URLs remain available in the workbook, while partial or unavailable last-10 and conference scopes are labeled explicitly rather than rendered as zero.
+1. A complete snapshot renders exactly two worksheets, `Hitters` and `Pitchers`, using the established workbook styling and grouped Player, Season Stats, Last 10, and Conference Stats columns.
+2. Stable NCAA player IDs and source URLs remain available in canonical storage but are omitted from the coach-facing workbook; partial or unavailable Last 10 scopes are labeled explicitly rather than rendered as zero.
 3. Workbook numeric types, precision, formula/URL safety, school-derived branding, filters, frozen headers, print behavior, and two-way-player logic remain correct for representative D1/D2/D3 fixtures.
 4. Downloading an older snapshot returns its original checksummed artifact rather than rebuilding from newer data.
 5. Shared fixture metrics match canonical storage and Power BI-facing views.

@@ -9,6 +9,8 @@ import xml.etree.ElementTree as ET
 from datetime import date
 from hashlib import sha256
 
+from PIL import Image
+
 from roster_scout.workbooks import HITTER_COLUMNS, PITCHER_COLUMNS, create_workbook
 
 
@@ -44,6 +46,7 @@ def _sample_rows():
         "BB%": "0.114",
         "K%": "0.143",
         "BABIP": "0.382",
+        "wOBA": "0.401",
         "Last 10 G": 10,
         "Last 10 PA": 44,
         "Last 10 AB": 38,
@@ -52,7 +55,11 @@ def _sample_rows():
         "Last 10 K%": "0.114",
         "Last 10 Status": "Complete",
         "Conference G": 8,
-        "Conference Status": "Partial",
+        "Conference PA": 35,
+        "Conference AB": 30,
+        "Conference AVG": "0.367",
+        "Conference OPS": "1.090",
+        "Conference K%": "0.114",
     }
     pitcher = {
         "_player_id": "100",
@@ -84,7 +91,11 @@ def _sample_rows():
         "BB%": "0.066",
         "BABIP": "0.311",
         "Last 10 Status": "Unavailable",
-        "Conference Status": "Failed",
+        "Conference G": 7,
+        "Conference IP": "21.0",
+        "Conference ERA": "2.57",
+        "Conference WHIP": "1.05",
+        "Conference K/9": "9.88",
     }
     return hitter, pitcher
 
@@ -124,19 +135,23 @@ class DivisionWorkbookAcceptanceTests(unittest.TestCase):
             ).getvalue()
             with zipfile.ZipFile(io.BytesIO(payload)) as archive:
                 workbook_xml = archive.read("xl/workbook.xml").decode("utf-8")
-                hitter_table = archive.read("xl/tables/table1.xml").decode("utf-8")
-                pitcher_table = archive.read("xl/tables/table2.xml").decode("utf-8")
+                hitter_sheet = archive.read(
+                    "xl/worksheets/sheet1.xml"
+                ).decode("utf-8")
+                pitcher_sheet = archive.read(
+                    "xl/worksheets/sheet2.xml"
+                ).decode("utf-8")
                 schemas.append((
                     workbook_xml.count("<sheet "),
-                    hitter_table.split("tableColumns", 1)[1],
-                    pitcher_table.split("tableColumns", 1)[1],
+                    hitter_sheet.split("<sheetData", 1)[0],
+                    pitcher_sheet.split("<sheetData", 1)[0],
                 ))
                 values.append((
-                    _cell(archive, 1, "W5"),
-                    _cell(archive, 1, "AI5"),
-                    _cell(archive, 1, "AP5"),
-                    _cell(archive, 2, "U5"),
-                    _cell(archive, 2, "AO5"),
+                    _cell(archive, 1, "U5"),
+                    _cell(archive, 1, "Z5"),
+                    _cell(archive, 1, "AG5"),
+                    _cell(archive, 2, "S5"),
+                    _cell(archive, 2, "AL5"),
                 ))
 
         self.assertEqual(schemas[0], schemas[1])
@@ -144,10 +159,11 @@ class DivisionWorkbookAcceptanceTests(unittest.TestCase):
         self.assertEqual(values[0], values[1])
         self.assertEqual(values[1], values[2])
         self.assertEqual(values[0][0], ("1.043", "number"))
-        self.assertEqual(values[0][1], ("Complete", "string"))
-        self.assertEqual(values[0][2], ("Partial", "string"))
+        self.assertEqual(values[0][1], ("0.401", "number"))
+        self.assertEqual(values[0][2], ("Complete", "string"))
         self.assertEqual(values[0][3], ("10.51", "number"))
-        self.assertEqual(values[0][4], ("Failed", "string"))
+        self.assertEqual(values[0][4][1], "number")
+        self.assertAlmostEqual(float(values[0][4][0]), 9.88, places=2)
 
     def test_workbook_structure_typing_safety_and_bytes_are_deterministic(self):
         hitter, pitcher = _sample_rows()
@@ -164,27 +180,49 @@ class DivisionWorkbookAcceptanceTests(unittest.TestCase):
                 for name in archive.namelist()
                 if name.startswith("xl/worksheets/sheet")
             )
-            tables = (
-                archive.read("xl/tables/table1.xml").decode("utf-8"),
-                archive.read("xl/tables/table2.xml").decode("utf-8"),
-            )
+            archive_names = set(archive.namelist())
 
         self.assertEqual(workbook_xml.count("<sheet "), 2)
-        self.assertEqual(len(HITTER_COLUMNS), 42)
-        self.assertEqual(len(PITCHER_COLUMNS), 41)
+        self.assertEqual(len(HITTER_COLUMNS), 39)
+        self.assertEqual(len(PITCHER_COLUMNS), 38)
         for label in (
             "Player",
-            "Season",
-            "Derived Metrics",
-            "Last 10 Games",
-            "Conference Games",
+            "Season Stats",
+            "Last 10",
+            "Conference Stats",
         ):
             self.assertIn(f">{label}<", strings)
+        for removed in (
+            "NCAA Player ID",
+            "Source URL",
+            "Derived Metrics",
+            "Conference Status",
+        ):
+            self.assertNotIn(f">{removed}<", strings)
         self.assertIn("=SAFE TEXT", strings)
         self.assertNotIn(b"<f>", worksheets)
         self.assertNotIn(b"<hyperlinks", worksheets)
-        self.assertIn('ref="A2:AP3"', tables[0])
-        self.assertIn('ref="A2:AO3"', tables[1])
+        self.assertIn(b"<autoFilter", worksheets)
+        self.assertFalse(any(name.startswith("xl/tables/") for name in archive_names))
+
+    def test_school_logo_is_embedded_in_both_sheets(self):
+        hitter, pitcher = _sample_rows()
+        logo = io.BytesIO()
+        Image.new("RGBA", (32, 32), (0, 71, 171, 255)).save(logo, format="PNG")
+        payload = create_workbook(
+            [hitter],
+            [pitcher],
+            branding={
+                "school_name": "Logo University",
+                "generated_on": date(2026, 11, 16),
+                "logo_png": logo.getvalue(),
+            },
+        ).getvalue()
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            names = set(archive.namelist())
+        self.assertIn("xl/media/image1.png", names)
+        self.assertIn("xl/drawings/drawing1.xml", names)
+        self.assertIn("xl/drawings/drawing2.xml", names)
 
 
 if __name__ == "__main__":
