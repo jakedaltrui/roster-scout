@@ -100,6 +100,19 @@ def _scoped_counts(row, stat_type):
         value = getattr(row, field, None)
         if value is not None:
             counts[field] = value
+    sample = dict(row.sample_json or {})
+    sample_fields = {
+        "batting": {"plate_appearances": "pa", "at_bats": "ab"},
+        "pitching": {
+            "batters_faced": "bf",
+            "innings_outs": "outs",
+            "opponent_at_bats": "ab",
+        },
+        "fielding": {"total_chances": "opportunities"},
+    }[stat_type]
+    for field, sample_key in sample_fields.items():
+        if counts.get(field) is None and sample.get(sample_key) is not None:
+            counts[field] = sample[sample_key]
     return counts
 
 

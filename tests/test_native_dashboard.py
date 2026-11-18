@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unittest
 import uuid
+from types import SimpleNamespace
 
 
 class NativeDashboardProjectionTests(unittest.TestCase):
@@ -74,6 +75,26 @@ class NativeDashboardProjectionTests(unittest.TestCase):
             _fielding_percentage({"putouts": 80, "assists": 15, "total_chances": 100}),
             0.95,
         )
+
+    def test_scoped_dashboard_restores_published_sample_denominators(self):
+        from roster_scout.native_dashboard import _scoped_counts
+
+        row = SimpleNamespace(
+            counts_json={
+                "at_bats": 39,
+                "hits": 15,
+                "walks": 3,
+                "hit_by_pitch": 3,
+                "sacrifice_flies": 1,
+                "sacrifice_hits": 0,
+            },
+            sample_json={"ab": 39, "pa": 46},
+        )
+
+        counts = _scoped_counts(row, "batting")
+
+        self.assertEqual(counts["plate_appearances"], 46)
+        self.assertEqual(counts["at_bats"], 39)
 
     def test_split_cards_show_only_metrics_supported_by_published_counts(self):
         from roster_scout.native_dashboard import _split_card_values
