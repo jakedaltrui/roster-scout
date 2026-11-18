@@ -3212,20 +3212,23 @@ def collect_ncaa_split_results(
         active_types = {
             scope.stat_type for scope in candidates.values()
         }
-        _fetch_ncaa_pages(
-            {
-                stat_type: urls[stat_type]
-                for stat_type in ("batting", "pitching")
-                if stat_type in active_types
-            },
-            page_consumer=consume,
-            request_reserver=(
-                (lambda key: request_reserver(f"splits:{key}"))
-                if request_reserver is not None else None
-            ),
-            navigation_timeout_seconds=navigation_timeout_seconds,
-            deadline_monotonic=deadline_monotonic,
-        )
+        # Browserless reconnect sessions are intentionally short lived. Keep
+        # each stat family in its own session so seven split interactions for
+        # batting cannot exhaust the same remote browser before pitching is
+        # collected.
+        for stat_type in ("batting", "pitching"):
+            if stat_type not in active_types:
+                continue
+            _fetch_ncaa_pages(
+                {stat_type: urls[stat_type]},
+                page_consumer=consume,
+                request_reserver=(
+                    (lambda key: request_reserver(f"splits:{key}"))
+                    if request_reserver is not None else None
+                ),
+                navigation_timeout_seconds=navigation_timeout_seconds,
+                deadline_monotonic=deadline_monotonic,
+            )
     return tuple(
         parse_live_split_result(
             rendered[f"{scope.stat_type}:{scope.scope_code}"]

@@ -3598,7 +3598,7 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
             transport_stages,
             [
                 "core", "fielding", "schedule", "player_detail",
-                "split_controls", "split_results",
+                "split_controls", "split_results", "split_results",
             ],
         )
         self.assertEqual(snapshot.status, "ready")
