@@ -23,6 +23,7 @@ from .models import (
     ScopedFieldingFact,
     ScopedPitchingFact,
     StatisticScope,
+    StatisticScopeGame,
 )
 
 
@@ -120,6 +121,27 @@ def _aggregate(rows):
     if not rows:
         return {}
     return aggregate_compatible_counts(rows)
+
+
+def _available_metric(rows, code):
+    """Aggregate only the published rows that can support one exact metric."""
+    compatible = tuple(
+        counts for counts in rows
+        if calculate_metric(code, counts).status == "available"
+    )
+    return _metric(code, _aggregate(compatible))
+
+
+def _available_xbh_rate(rows):
+    compatible = tuple(counts for counts in rows if _xbh_rate(counts) is not None)
+    return _xbh_rate(_aggregate(compatible))
+
+
+def _available_fielding_percentage(rows):
+    compatible = tuple(
+        counts for counts in rows if _fielding_percentage(counts) is not None
+    )
+    return _fielding_percentage(_aggregate(compatible))
 
 
 def _fielding_percentage(counts):
@@ -374,9 +396,9 @@ def _scope_projection(
     batting_rows, batting_status, batting_games = scope_rows["batting"]
     pitching_rows, pitching_status, pitching_games = scope_rows["pitching"]
     fielding_rows, fielding_status, fielding_games = scope_rows["fielding"]
-    batting = _aggregate([counts for _, counts in batting_rows])
-    pitching = _aggregate([counts for _, counts in pitching_rows])
-    fielding = _aggregate([counts for _, counts in fielding_rows])
+    batting_counts = tuple(counts for _, counts in batting_rows)
+    pitching_counts = tuple(counts for _, counts in pitching_rows)
+    fielding_counts = tuple(counts for _, counts in fielding_rows)
     statuses = (batting_status, pitching_status, fielding_status)
     if all(status == "complete" for status in statuses):
         status = "complete"
@@ -393,15 +415,17 @@ def _scope_projection(
         "status": status,
         "games": games,
         "metrics": {
-            "ops": _metric("ops", batting),
-            "strikeoutRate": _metric("batting_k_pct", batting),
-            "walkRate": _metric("batting_bb_pct", batting),
-            "xbhRate": _xbh_rate(batting),
-            "whip": _metric("whip", pitching),
-            "era": _metric("era", pitching),
-            "kPer9": _metric("k_per_9", pitching),
-            "bbPer9": _metric("bb_per_9", pitching),
-            "fielding": _fielding_percentage(fielding),
+            "ops": _available_metric(batting_counts, "ops"),
+            "strikeoutRate": _available_metric(
+                batting_counts, "batting_k_pct"
+            ),
+            "walkRate": _available_metric(batting_counts, "batting_bb_pct"),
+            "xbhRate": _available_xbh_rate(batting_counts),
+            "whip": _available_metric(pitching_counts, "whip"),
+            "era": _available_metric(pitching_counts, "era"),
+            "kPer9": _available_metric(pitching_counts, "k_per_9"),
+            "bbPer9": _available_metric(pitching_counts, "bb_per_9"),
+            "fielding": _available_fielding_percentage(fielding_counts),
         },
         "hittingLeaders": _hitting_leaders(batting_rows, players),
         "pitchingLeaders": _pitching_leaders(pitching_rows, players),
@@ -410,23 +434,44 @@ def _scope_projection(
     }
 
 
-def _recent_games(session, organization_id, snapshot_id):
-    games = tuple(
-        session.scalars(
-            select(Game)
+def _recent_games(session, organization_id, snapshot_id, *, scope_code="full_season"):
+    query = select(Game).where(
+        Game.organization_id == organization_id,
+        Game.snapshot_id == snapshot_id,
+        Game.status == "completed",
+    )
+    if scope_code == "full_season":
+        query = query.order_by(
+            Game.game_date.desc(),
+            Game.doubleheader_ordinal.desc(),
+            Game.source_game_id.desc().nullslast(),
+        ).limit(10)
+    else:
+        scope = session.scalar(
+            select(StatisticScope).where(
+                StatisticScope.organization_id == organization_id,
+                StatisticScope.snapshot_id == snapshot_id,
+                StatisticScope.scope_kind == "computed_game",
+                StatisticScope.scope_code == scope_code,
+                StatisticScope.stat_type == "batting",
+            )
+        )
+        if scope is None:
+            return []
+        query = (
+            query.join(
+                StatisticScopeGame,
+                StatisticScopeGame.game_id == Game.id,
+            )
             .where(
-                Game.organization_id == organization_id,
-                Game.snapshot_id == snapshot_id,
-                Game.status == "completed",
+                StatisticScopeGame.organization_id == organization_id,
+                StatisticScopeGame.snapshot_id == snapshot_id,
+                StatisticScopeGame.statistic_scope_id == scope.id,
             )
-            .order_by(
-                Game.game_date.desc(),
-                Game.doubleheader_ordinal.desc(),
-                Game.source_game_id.desc().nullslast(),
-            )
+            .order_by(StatisticScopeGame.membership_ordinal.desc())
             .limit(10)
         )
-    )
+    games = tuple(session.scalars(query))
     result = []
     for game in reversed(games):
         scored = session.scalar(
@@ -570,14 +615,22 @@ def load_native_dashboard(session, *, organization_id, report_id, snapshot_id):
             for row in sorted(player_rows, key=lambda item: item.display_name.casefold())
         ],
         "scopes": {
-            code: _scope_projection(
-                session,
-                organization_id,
-                snapshot_id,
-                code,
-                players,
-                section_statuses=section_statuses,
-            )
+            code: {
+                **_scope_projection(
+                    session,
+                    organization_id,
+                    snapshot_id,
+                    code,
+                    players,
+                    section_statuses=section_statuses,
+                ),
+                "trend": _recent_games(
+                    session,
+                    organization_id,
+                    snapshot_id,
+                    scope_code=code,
+                ),
+            }
             for code in _SCOPE_LABELS
         },
         "recentGames": _recent_games(session, organization_id, snapshot_id),

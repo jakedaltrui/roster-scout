@@ -26,13 +26,14 @@
     return number(value, 3);
   }
 
-  function chartPoints(values) {
-    const available = values.filter(function (value) { return Number.isFinite(value); });
+  function chartPoints(values, maximum) {
+    const available = values.map(function (value, index) {
+      return { value: value, index: index };
+    }).filter(function (point) { return Number.isFinite(point.value); });
     if (available.length < 2) return "";
-    const maximum = Math.max(10, ...available);
-    return values.map(function (value, index) {
-      const x = 12 + index * (376 / Math.max(1, values.length - 1));
-      const normalized = Number.isFinite(value) ? value / maximum : 0;
+    return available.map(function (point) {
+      const x = 12 + point.index * (376 / Math.max(1, values.length - 1));
+      const normalized = point.value / maximum;
       const y = 142 - normalized * 120;
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     }).join(" ");
@@ -279,7 +280,10 @@
     const allowed = games.map(function (game) {
       return game.allowed === null || game.allowed === undefined ? Number.NaN : Number(game.allowed);
     });
-    const hasScores = games.length > 1 && scored.every(Number.isFinite) && allowed.every(Number.isFinite);
+    const scoredAvailable = scored.filter(Number.isFinite);
+    const allowedAvailable = allowed.filter(Number.isFinite);
+    const maximum = Math.max(10, ...scoredAvailable, ...allowedAvailable);
+    const hasScores = scoredAvailable.length > 1 || allowedAvailable.length > 1;
     const scoredLine = root.querySelector('[data-chart-series="for"]');
     const allowedLine = root.querySelector('[data-chart-series="against"]');
     const summary = root.querySelector("[data-run-summary]");
@@ -289,12 +293,16 @@
       if (summary) summary.textContent = "Completed game scoring is not available";
       return;
     }
-    if (scoredLine) scoredLine.setAttribute("points", chartPoints(scored));
-    if (allowedLine) allowedLine.setAttribute("points", chartPoints(allowed));
+    if (scoredLine) scoredLine.setAttribute("points", chartPoints(scored, maximum));
+    if (allowedLine) allowedLine.setAttribute("points", chartPoints(allowed, maximum));
     if (summary) {
-      const totalScored = scored.reduce(function (total, value) { return total + value; }, 0);
-      const totalAllowed = allowed.reduce(function (total, value) { return total + value; }, 0);
-      summary.textContent = `${totalScored} scored · ${totalAllowed} allowed over ${games.length} games`;
+      const totalScored = scoredAvailable.reduce(function (total, value) { return total + value; }, 0);
+      const totalAllowed = allowedAvailable.reduce(function (total, value) { return total + value; }, 0);
+      if (scoredAvailable.length === games.length && allowedAvailable.length === games.length) {
+        summary.textContent = `${totalScored} scored · ${totalAllowed} allowed over ${games.length} games`;
+      } else {
+        summary.textContent = `${totalScored} scored in ${scoredAvailable.length} games · ${totalAllowed} allowed in ${allowedAvailable.length} available games`;
+      }
     }
   }
 
@@ -336,6 +344,7 @@
     renderPitching(root, scope.pitchingLeaders || []);
     renderFielding(root, scope.fieldingLeaders || []);
     renderPlayer(root, scope.players || [], root.dataset.selectedPlayer);
+    updateTrend(root, scope.trend || []);
     const canvas = root.querySelector(".dashboard-native");
     if (canvas) {
       canvas.classList.remove("is-updating");

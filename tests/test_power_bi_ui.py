@@ -210,6 +210,7 @@ class NativeDashboardUIContractTests(unittest.TestCase):
             "fieldingLeaders",
             "data-dashboard-roster",
             "data-dashboard-quality-list",
+            "scope.trend",
         ):
             self.assertIn(required, script)
         self.assertNotIn("Illustrative values", script)

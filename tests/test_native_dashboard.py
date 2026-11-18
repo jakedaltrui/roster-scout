@@ -76,6 +76,35 @@ class NativeDashboardProjectionTests(unittest.TestCase):
             0.95,
         )
 
+    def test_team_overview_uses_the_exact_available_metric_sample(self):
+        from roster_scout.native_dashboard import (
+            _available_fielding_percentage,
+            _available_metric,
+            _available_xbh_rate,
+        )
+
+        complete = {
+            "at_bats": 20, "hits": 8, "doubles": 2, "triples": 0,
+            "home_runs": 1, "walks": 3, "hit_by_pitch": 1,
+            "sacrifice_flies": 1, "sacrifice_hits": 0,
+            "strikeouts": 4, "plate_appearances": 25,
+        }
+        incomplete = {**complete, "doubles": None, "plate_appearances": None}
+
+        self.assertIsNotNone(_available_metric((complete, incomplete), "ops"))
+        self.assertEqual(
+            _available_metric((complete, incomplete), "batting_k_pct"),
+            0.16,
+        )
+        self.assertEqual(_available_xbh_rate((complete, incomplete)), 0.15)
+        self.assertEqual(
+            _available_fielding_percentage((
+                {"putouts": 8, "assists": 1, "total_chances": 10},
+                {"putouts": None, "assists": 2, "total_chances": 4},
+            )),
+            0.9,
+        )
+
     def test_scoped_dashboard_restores_published_sample_denominators(self):
         from roster_scout.native_dashboard import _scoped_counts
 
