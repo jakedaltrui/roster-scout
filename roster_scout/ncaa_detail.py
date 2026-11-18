@@ -1295,6 +1295,15 @@ def parse_live_split_result(
             player_row = player_row.find_previous_sibling("tr")
         if player_row is None:
             raise SplitContractError("schema_validation")
+        identity_labels = {
+            _normalized(cell.get_text(" ", strip=True))
+            for cell in player_row.find_all(["th", "td"], recursive=False)
+        }
+        if identity_labels & {
+            "team", "total", "totals", "team total", "team totals",
+            "opponent total", "opponent totals",
+        }:
+            continue
         link = player_row.find("a", href=re.compile(r"^/players/\d+$"))
         if link is not None:
             player_path = link.get("href")

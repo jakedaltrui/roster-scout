@@ -1560,6 +1560,33 @@ class SplitProvenanceTests(_SplitContractMixin, unittest.TestCase):
                 self._live_duplicate_grid((3, 5)), discovered_scope=scope
             )
 
+    def test_live_split_omits_published_team_totals(self):
+        api = fielding_api()
+        html = """
+        <button data-stat-seq="123">Vs LHP</button>
+        <table id="stat_grid">
+          <thead><tr><th>Player</th><th>H</th><th>AB</th></tr></thead>
+          <tbody>
+            <tr id="player_42"><td><a href="/players/42">Player</a></td></tr>
+            <tr class="sport_stat_123"><td>2</td><td>5</td></tr>
+            <tr id="player_426889744"><td>Totals</td></tr>
+            <tr class="sport_stat_123"><td>388</td><td>1,353</td></tr>
+          </tbody>
+        </table>
+        """
+        scope = next(item for item in api.discover_live_split_controls(
+            html,
+            season_id="17040",
+            season_team_id="614606",
+            stat_type="batting",
+            source_stat_category_id="15867",
+        ) if item.scope_code == "vs_lhp")
+        result = api.parse_live_split_result(html, discovered_scope=scope)
+        self.assertEqual(
+            [(row.source_player_id, row.hits, row.at_bats) for row in result.rows],
+            [("42", 2, 5)],
+        )
+
     def test_capture_split_duplicates_reject_conflicting_evidence(self):
         api = FixtureCaptureSafetyTests.capture_api()
         identical = self._live_duplicate_grid((2, 5))
