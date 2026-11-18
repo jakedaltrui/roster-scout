@@ -639,6 +639,11 @@ class FixtureCaptureSafetyTests(unittest.TestCase):
             ["history:batting", "history:pitching", "history:fielding"],
         )
         self.assertEqual(page.goto.call_count, 2)
+        self.assertEqual(page.wait_for_function.call_count, 3)
+        self.assertEqual(
+            [call.args[1][1] for call in page.wait_for_function.call_args_list],
+            ["ab", "ip", "po"],
+        )
 
     def test_player_batch_reuses_one_terms_session_across_players(self):
         api = self.capture_api()

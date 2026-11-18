@@ -1919,6 +1919,32 @@ def _bounded_player_batch_fetch(
                         deadline_monotonic,
                         limits.timeout_seconds,
                     )
+                    expected_header = {
+                        "batting": "ab",
+                        "pitching": "ip",
+                        "fielding": "po",
+                    }[key]
+                    run_with_deadline(
+                        lambda allowance, player=player,
+                        expected_header=expected_header: page.wait_for_function(
+                            """
+                            ([selector, expected]) => {
+                              const table = document.querySelector(selector);
+                              if (!table) return false;
+                              const rows = table.querySelectorAll('thead tr');
+                              const header = rows.length ? rows[rows.length - 1] : null;
+                              if (!header) return false;
+                              return [...header.querySelectorAll('th, td')].some(
+                                (cell) => cell.textContent.trim().toLowerCase() === expected
+                              );
+                            }
+                            """,
+                            [f"#game_log_{player}_player", expected_header],
+                            timeout=allowance,
+                        ),
+                        deadline_monotonic,
+                        limits.timeout_seconds,
+                    )
                     rendered[player][key] = rs._bounded_playwright_action(
                         page,
                         page.content,
