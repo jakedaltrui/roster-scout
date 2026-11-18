@@ -4398,6 +4398,45 @@ class ComputedScopePublicationTests(PostgreSQLJobTestCase):
             )
             self.assertTrue(section.rows)
 
+    def test_partial_game_logs_still_populate_scoped_facts(self):
+        from roster_scout.jobs import accept_report_job, run_report_job
+        from roster_scout.models import ScopedPitchingFact, StatisticScope
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            "computed-partial-game-logs",
+            dispatch=None,
+        )
+        snapshot = run_report_job(
+            self.Session,
+            job.id,
+            collector=Mock(return_value=self._sections(
+                11,
+                complete_stat_types=frozenset({"batting"}),
+            )),
+        )
+
+        self.assertEqual(snapshot.status, "partial")
+        with self.Session() as session:
+            pitching_scope = session.scalar(select(StatisticScope).where(
+                StatisticScope.snapshot_id == snapshot.id,
+                StatisticScope.scope_kind == "computed_game",
+                StatisticScope.scope_code == "last_10",
+                StatisticScope.stat_type == "pitching",
+            ))
+            self.assertEqual(pitching_scope.status, "partial")
+            self.assertEqual(
+                pitching_scope.availability_reason,
+                "game_log_evidence_incomplete",
+            )
+            self.assertGreater(
+                session.scalar(select(func.count()).select_from(ScopedPitchingFact)),
+                0,
+            )
+
     def test_refresh_replaces_last_ten_only_in_successor_snapshot(self):
         from roster_scout.jobs import accept_report_job, run_report_job
         from roster_scout.models import (

@@ -144,12 +144,14 @@ def _validate_computed_game_scopes(session, snapshot, by_name):
                 MetricValue.statistic_scope_id == scope.id,
             )
         )
-        if scope.status != "complete":
+        if scope.status == "unavailable":
             if facts or metric_count:
                 raise SnapshotPublicationError(
-                    "incomplete computed scope contains fabricated facts"
+                    "unavailable computed scope contains fabricated facts"
                 )
             continue
+        if scope.status not in {"complete", "partial"}:
+            raise SnapshotPublicationError("computed scope status is invalid")
         expected_metric_count = len(facts) if scope.stat_type != "fielding" else 0
         if metric_count != expected_metric_count:
             raise SnapshotPublicationError("computed scope fact/metric parity failed")

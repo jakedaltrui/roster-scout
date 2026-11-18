@@ -2531,7 +2531,12 @@ def _persist_schedule_scopes(session, job, snapshot, sections, identities):
             if scope_status == "complete" and (
                 log_section is None or log_section.status != "complete"
             ):
-                scope_status, reason = "partial", "game_log_evidence_unavailable"
+                scope_status = "partial"
+                reason = (
+                    "game_log_evidence_incomplete"
+                    if log_section is not None and log_section.status == "partial"
+                    else "game_log_evidence_unavailable"
+                )
             raw_facts = []
             invalid_link = False
             for source in log_records[stat_type]:
@@ -2604,8 +2609,6 @@ def _persist_schedule_scopes(session, job, snapshot, sections, identities):
                     game_id=game.id,
                     membership_ordinal=ordinal,
                 ))
-            if scope_status != "complete":
-                continue
             selected_ids = tuple(item.identity for item in selected.games)
             by_player = {}
             sources_by_fact_id = {}
