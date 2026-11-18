@@ -3116,17 +3116,32 @@ def collect_ncaa_split_results(
         stat_type: f"{base_url}?year_stat_category_id={category_id}"
         for stat_type, category_id in categories.items()
     }
+
+    def fetch_split_pages(page_urls, *, page_consumer=None):
+        """Retry one transient Browserless handoff without hiding hard failures."""
+        for attempt in range(2):
+            try:
+                return _fetch_ncaa_pages(
+                    page_urls,
+                    page_consumer=page_consumer,
+                    request_reserver=(
+                        (lambda key: request_reserver(f"splits:{key}"))
+                        if request_reserver is not None else None
+                    ),
+                    navigation_timeout_seconds=navigation_timeout_seconds,
+                    deadline_monotonic=deadline_monotonic,
+                )
+            except NcaaAccessError:
+                if attempt == 1:
+                    raise
+                remaining_timeout_seconds(
+                    deadline_monotonic, navigation_timeout_seconds
+                )
+                time.sleep(0.75)
+
     controls = {}
     for stat_type in ("batting", "pitching"):
-        controls.update(_fetch_ncaa_pages(
-            {stat_type: urls[stat_type]},
-            request_reserver=(
-                (lambda key: request_reserver(f"splits:{key}"))
-                if request_reserver is not None else None
-            ),
-            navigation_timeout_seconds=navigation_timeout_seconds,
-            deadline_monotonic=deadline_monotonic,
-        ))
+        controls.update(fetch_split_pages({stat_type: urls[stat_type]}))
     collected_at = datetime.now(timezone.utc)
     discovered = tuple(
         scope
@@ -3221,15 +3236,9 @@ def collect_ncaa_split_results(
         for stat_type in ("batting", "pitching"):
             if stat_type not in active_types:
                 continue
-            _fetch_ncaa_pages(
+            fetch_split_pages(
                 {stat_type: urls[stat_type]},
                 page_consumer=consume,
-                request_reserver=(
-                    (lambda key: request_reserver(f"splits:{key}"))
-                    if request_reserver is not None else None
-                ),
-                navigation_timeout_seconds=navigation_timeout_seconds,
-                deadline_monotonic=deadline_monotonic,
             )
     return tuple(
         parse_live_split_result(

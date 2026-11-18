@@ -3528,8 +3528,10 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
             ),
         }
         transport_stages = []
+        split_result_failures = 0
 
         def fetch_pages(urls, **kwargs):
+            nonlocal split_result_failures
             reserve = kwargs.get("request_reserver")
             consumer = kwargs.get("page_consumer")
             for key in urls:
@@ -3546,6 +3548,9 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
                 transport_stages.append("split_controls")
                 return {key: split_controls[key] for key in urls}
             transport_stages.append("split_results")
+            if split_result_failures == 0:
+                split_result_failures += 1
+                raise scraper.NcaaAccessError("transient split session handoff")
             output = {}
             for key, source_url in urls.items():
                 page = self._split_result_page(key, split_labels[key])
@@ -3599,7 +3604,7 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
             [
                 "core", "fielding", "schedule", "player_detail",
                 "split_controls", "split_controls",
-                "split_results", "split_results",
+                "split_results", "split_results", "split_results",
             ],
         )
         self.assertEqual(snapshot.status, "ready")
