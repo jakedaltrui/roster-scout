@@ -248,6 +248,72 @@ def _pitching_leaders(rows, players):
     return leaders[:8]
 
 
+def _fielding_leaders(rows, players):
+    leaders = []
+    for player_id, counts in rows:
+        chances = counts.get("total_chances")
+        if chances is None:
+            continue
+        leaders.append({
+            "id": str(player_id),
+            "name": players.get(player_id, {}).get("name", "Unknown player"),
+            "position": players.get(player_id, {}).get("position") or "—",
+            "games": counts.get("games"),
+            "totalChances": chances,
+            "errors": counts.get("errors"),
+            "percentage": _fielding_percentage(counts),
+        })
+    leaders.sort(key=lambda item: (-item["totalChances"], item["name"].casefold()))
+    return leaders[:12]
+
+
+def _player_cards(scope_rows, players):
+    cards = {
+        player_id: {
+            "id": str(player_id),
+            "name": details["name"],
+            "position": details.get("position") or "—",
+            "batting": None,
+            "pitching": None,
+            "fielding": None,
+        }
+        for player_id, details in players.items()
+    }
+    for player_id, counts in scope_rows["batting"][0]:
+        cards[player_id]["batting"] = {
+            "plateAppearances": counts.get("plate_appearances"),
+            "average": _metric("avg", counts),
+            "onBase": _metric("obp", counts),
+            "slugging": _metric("slg", counts),
+            "ops": _metric("ops", counts),
+            "iso": _metric("iso", counts),
+            "walkRate": _metric("batting_bb_pct", counts),
+            "strikeoutRate": _metric("batting_k_pct", counts),
+            "babip": _metric("babip", counts),
+        }
+    for player_id, counts in scope_rows["pitching"][0]:
+        cards[player_id]["pitching"] = {
+            "inningsOuts": counts.get("innings_outs"),
+            "era": _metric("era", counts),
+            "whip": _metric("whip", counts),
+            "kPer9": _metric("k_per_9", counts),
+            "bbPer9": _metric("bb_per_9", counts),
+            "hPer9": _metric("h_per_9", counts),
+            "hrPer9": _metric("hr_per_9", counts),
+            "strikeoutRate": _metric("pitching_k_pct", counts),
+            "walkRate": _metric("pitching_bb_pct", counts),
+            "babip": _metric("babip_allowed", counts),
+        }
+    for player_id, counts in scope_rows["fielding"][0]:
+        cards[player_id]["fielding"] = {
+            "games": counts.get("games"),
+            "totalChances": counts.get("total_chances"),
+            "errors": counts.get("errors"),
+            "percentage": _fielding_percentage(counts),
+        }
+    return sorted(cards.values(), key=lambda item: item["name"].casefold())
+
+
 def _scope_projection(
     session,
     organization_id,
@@ -298,6 +364,8 @@ def _scope_projection(
         },
         "hittingLeaders": _hitting_leaders(batting_rows, players),
         "pitchingLeaders": _pitching_leaders(pitching_rows, players),
+        "fieldingLeaders": _fielding_leaders(fielding_rows, players),
+        "players": _player_cards(scope_rows, players),
     }
 
 
@@ -422,7 +490,11 @@ def load_native_dashboard(session, *, organization_id, report_id, snapshot_id):
         )
     )
     players = {
-        row.id: {"name": row.display_name, "position": row.position}
+        row.id: {
+            "name": row.display_name,
+            "position": row.position,
+            "jersey": row.jersey_number,
+        }
         for row in player_rows
     }
     job = session.scalar(
@@ -459,6 +531,15 @@ def load_native_dashboard(session, *, organization_id, report_id, snapshot_id):
         "publishedAt": snapshot.published_at.isoformat(),
         "status": snapshot.status,
         "readiness": readiness,
+        "roster": [
+            {
+                "id": str(row.id),
+                "name": row.display_name,
+                "number": row.jersey_number,
+                "position": row.position,
+            }
+            for row in sorted(player_rows, key=lambda item: item.display_name.casefold())
+        ],
         "scopes": {
             code: _scope_projection(
                 session,

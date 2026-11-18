@@ -97,6 +97,136 @@
     });
   }
 
+  function renderRoster(root, roster) {
+    const body = root.querySelector("[data-dashboard-roster]");
+    if (!body) return;
+    body.replaceChildren();
+    (roster || []).forEach(function (player) {
+      const row = document.createElement("tr");
+      row.append(
+        cell(player.name, "dashboard-table__player"),
+        cell(player.number || "—"),
+        cell(player.position || "—")
+      );
+      body.appendChild(row);
+    });
+    if (!body.children.length) body.appendChild(emptyRow(3, "No roster is available for this saved report."));
+  }
+
+  function renderFielding(root, leaders) {
+    const body = root.querySelector("[data-fielding-leaders]");
+    if (!body) return;
+    body.replaceChildren();
+    (leaders || []).forEach(function (player) {
+      const row = document.createElement("tr");
+      row.append(
+        cell(player.name, "dashboard-table__player"),
+        cell(player.position || "—"),
+        cell(player.games ?? "—"),
+        cell(player.totalChances ?? "—"),
+        cell(player.errors ?? "—"),
+        cell(number(player.percentage, 3), "dashboard-table__emphasis")
+      );
+      body.appendChild(row);
+    });
+    if (!body.children.length) body.appendChild(emptyRow(6, "Fielding statistics are not available for this timeframe."));
+  }
+
+  function detailGroup(title, entries) {
+    const card = document.createElement("article");
+    card.className = "dashboard-player-card";
+    const heading = document.createElement("h4");
+    heading.textContent = title;
+    const values = document.createElement("dl");
+    entries.forEach(function (entry) {
+      const group = document.createElement("div");
+      const term = document.createElement("dt");
+      const value = document.createElement("dd");
+      term.textContent = entry[0];
+      value.textContent = entry[1];
+      group.append(term, value);
+      values.appendChild(group);
+    });
+    card.append(heading, values);
+    return card;
+  }
+
+  function renderPlayer(root, players, requestedId) {
+    const select = root.querySelector("[data-player-select]");
+    const detail = root.querySelector("[data-player-detail]");
+    if (!select || !detail) return;
+    const available = (players || []).filter(function (player) {
+      return player.batting || player.pitching || player.fielding;
+    });
+    const selectedId = available.some(function (player) { return player.id === requestedId; })
+      ? requestedId
+      : available[0]?.id;
+    select.replaceChildren();
+    available.forEach(function (player) {
+      const option = document.createElement("option");
+      option.value = player.id;
+      option.textContent = `${player.name} · ${player.position || "—"}`;
+      option.selected = player.id === selectedId;
+      select.appendChild(option);
+    });
+    select.disabled = !available.length;
+    detail.replaceChildren();
+    if (!available.length) {
+      const empty = document.createElement("p");
+      empty.className = "dashboard-splits__empty";
+      empty.textContent = "Player detail is not available for this timeframe.";
+      detail.appendChild(empty);
+      root.dataset.selectedPlayer = "";
+      return;
+    }
+    const player = available.find(function (item) { return item.id === selectedId; });
+    root.dataset.selectedPlayer = player.id;
+    if (player.batting) detail.appendChild(detailGroup("Hitting", [
+      ["PA", player.batting.plateAppearances ?? "—"],
+      ["AVG", number(player.batting.average, 3)],
+      ["OBP", number(player.batting.onBase, 3)],
+      ["SLG", number(player.batting.slugging, 3)],
+      ["OPS", number(player.batting.ops, 3)],
+      ["ISO", number(player.batting.iso, 3)],
+      ["BB%", percent(player.batting.walkRate)],
+      ["K%", percent(player.batting.strikeoutRate)],
+      ["BABIP", number(player.batting.babip, 3)]
+    ]));
+    if (player.pitching) detail.appendChild(detailGroup("Pitching", [
+      ["IP", innings(player.pitching.inningsOuts)],
+      ["ERA", number(player.pitching.era, 2)],
+      ["WHIP", number(player.pitching.whip, 3)],
+      ["K/9", number(player.pitching.kPer9, 2)],
+      ["BB/9", number(player.pitching.bbPer9, 2)],
+      ["H/9", number(player.pitching.hPer9, 2)],
+      ["HR/9", number(player.pitching.hrPer9, 2)],
+      ["K%", percent(player.pitching.strikeoutRate)],
+      ["BB%", percent(player.pitching.walkRate)]
+    ]));
+    if (player.fielding) detail.appendChild(detailGroup("Fielding", [
+      ["G", player.fielding.games ?? "—"],
+      ["Chances", player.fielding.totalChances ?? "—"],
+      ["Errors", player.fielding.errors ?? "—"],
+      ["FLD%", number(player.fielding.percentage, 3)]
+    ]));
+  }
+
+  function renderQuality(root, readiness) {
+    const list = root.querySelector("[data-dashboard-quality-list]");
+    if (!list) return;
+    list.replaceChildren();
+    (readiness.sections || []).forEach(function (section) {
+      const item = document.createElement("li");
+      item.dataset.state = section.status;
+      const name = document.createElement("strong");
+      const state = document.createElement("span");
+      name.textContent = section.code.replaceAll(":", " · ").replaceAll("_", " ");
+      state.textContent = section.status === "complete" ? "Available" : "Unavailable";
+      item.append(name, state);
+      list.appendChild(item);
+    });
+  }
+
   function renderSplits(root, splits) {
     const container = root.querySelector("[data-dashboard-splits]");
     if (!container) return;
@@ -199,6 +329,8 @@
     }
     renderHitting(root, scope.hittingLeaders || []);
     renderPitching(root, scope.pitchingLeaders || []);
+    renderFielding(root, scope.fieldingLeaders || []);
+    renderPlayer(root, scope.players || [], root.dataset.selectedPlayer);
     const canvas = root.querySelector(".dashboard-native");
     if (canvas) {
       canvas.classList.remove("is-updating");
@@ -229,6 +361,8 @@
     }
     updateTrend(root, dashboard.recentGames || []);
     renderSplits(root, dashboard.splits || []);
+    renderRoster(root, dashboard.roster || []);
+    renderQuality(root, dashboard.readiness || { sections: [] });
     updateScope(root, dashboard, "full_season");
 
     root.addEventListener("click", function (event) {
@@ -236,6 +370,19 @@
       if (scope) updateScope(root, dashboard, scope.dataset.dashboardScope);
       const tab = event.target.closest("[data-dashboard-tab]");
       if (tab) activateTab(root, tab.dataset.dashboardTab, false);
+      const player = event.target.closest("[data-player-select]");
+      if (player) {
+        const activeScope = root.querySelector('[data-dashboard-scope][aria-pressed="true"]');
+        const scopeKey = activeScope?.dataset.dashboardScope || "full_season";
+        renderPlayer(root, dashboard.scopes[scopeKey]?.players || [], player.value);
+      }
+    });
+    root.addEventListener("change", function (event) {
+      const player = event.target.closest("[data-player-select]");
+      if (!player) return;
+      const activeScope = root.querySelector('[data-dashboard-scope][aria-pressed="true"]');
+      const scopeKey = activeScope?.dataset.dashboardScope || "full_season";
+      renderPlayer(root, dashboard.scopes[scopeKey]?.players || [], player.value);
     });
     root.addEventListener("keydown", function (event) {
       const tab = event.target.closest("[data-dashboard-tab]");

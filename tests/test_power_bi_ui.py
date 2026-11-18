@@ -190,6 +190,10 @@ class NativeDashboardUIContractTests(unittest.TestCase):
         self.assertNotIn("cdn.jsdelivr.net/npm/powerbi-client", template)
         self.assertNotIn("report_detail.division", template)
         self.assertNotIn("report_detail.season_year", template)
+        for page in (
+            "roster", "fielding", "player", "data-quality",
+        ):
+            self.assertIn(f'data-dashboard-panel="{page}"', template)
 
     def test_native_script_is_dependency_free_keyboard_accessible_and_data_driven(self):
         script = (ROOT / "static/native_dashboard.js").read_text()
@@ -203,6 +207,9 @@ class NativeDashboardUIContractTests(unittest.TestCase):
             "recentGames",
             "hittingLeaders",
             "pitchingLeaders",
+            "fieldingLeaders",
+            "data-dashboard-roster",
+            "data-dashboard-quality-list",
         ):
             self.assertIn(required, script)
         self.assertNotIn("Illustrative values", script)

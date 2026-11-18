@@ -124,6 +124,37 @@ class NativeDashboardProjectionTests(unittest.TestCase):
         )
         self.assertEqual([item["name"] for item in pitchers], ["Alpha", "Bravo"])
 
+    def test_fielding_and_player_views_share_the_selected_scope_counts(self):
+        from roster_scout.native_dashboard import _fielding_leaders, _player_cards
+
+        player_id = uuid.uuid4()
+        players = {
+            player_id: {"name": "Casey", "position": "SS", "jersey": "4"}
+        }
+        batting = {
+            "at_bats": 20, "hits": 7, "doubles": 2, "triples": 0,
+            "home_runs": 1, "walks": 3, "hit_by_pitch": 0,
+            "sacrifice_flies": 1, "sacrifice_hits": 0, "strikeouts": 4,
+            "plate_appearances": 24,
+        }
+        fielding = {
+            "games": 8, "putouts": 12, "assists": 18, "errors": 1,
+            "total_chances": 31,
+        }
+        rows = {
+            "batting": (((player_id, batting),), "complete", None),
+            "pitching": ((), "complete", None),
+            "fielding": (((player_id, fielding),), "complete", None),
+        }
+
+        cards = _player_cards(rows, players)
+        leaders = _fielding_leaders(rows["fielding"][0], players)
+
+        self.assertEqual(cards[0]["batting"]["plateAppearances"], 24)
+        self.assertEqual(cards[0]["fielding"]["totalChances"], 31)
+        self.assertEqual(leaders[0]["name"], "Casey")
+        self.assertEqual(leaders[0]["percentage"], 0.9677)
+
 
 if __name__ == "__main__":
     unittest.main()
