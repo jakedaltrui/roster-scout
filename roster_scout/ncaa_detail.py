@@ -66,6 +66,7 @@ _LIVE_LABEL_PATTERNS = {
     "bases_loaded": (r"\bbases?\s+loaded\b",),
     "risp": (r"\brunners?\s+in\s+scoring\s+position\b", r"\brisp\b", r"\b(?:h|hits?)[- ]ab\s+scorepos\b"),
     "two_outs": (
+        r"^\s*(?:two|2)\s+outs?\s*$",
         r"\b(?:h|hits?)[- ]ab\b.*\b(?:two|2)\s+outs?\b",
         r"\bw2outs?\b",
     ),
