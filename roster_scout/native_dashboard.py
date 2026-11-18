@@ -118,6 +118,34 @@ def _fielding_percentage(counts):
     return _json_number((Decimal(putouts) + Decimal(assists)) / Decimal(total), places=4)
 
 
+def _split_card_values(stat_type, counts):
+    """Expose only metrics supported by NCAA's published H/AB split sample."""
+    if stat_type == "batting":
+        return {
+            "primaryLabel": "AVG",
+            "primaryValue": _metric("avg", counts),
+            "primaryFormat": "rate",
+            "secondaryLabel": "AB",
+            "secondaryValue": counts.get("at_bats"),
+            "secondaryFormat": "count",
+        }
+    hits = counts.get("hits_allowed")
+    at_bats = counts.get("opponent_at_bats")
+    opponent_average = None
+    if hits is not None and at_bats not in (None, 0):
+        opponent_average = _json_number(
+            Decimal(hits) / Decimal(at_bats), places=4
+        )
+    return {
+        "primaryLabel": "Opp AVG",
+        "primaryValue": opponent_average,
+        "primaryFormat": "rate",
+        "secondaryLabel": "OAB",
+        "secondaryValue": at_bats,
+        "secondaryFormat": "count",
+    }
+
+
 def _xbh_rate(counts):
     at_bats = counts.get("at_bats")
     values = tuple(counts.get(key) for key in ("doubles", "triples", "home_runs"))
@@ -441,25 +469,13 @@ def _split_projection(session, organization_id, snapshot_id):
             )
         )
         counts = _aggregate(rows)
-        if scope.stat_type == "batting":
-            primary_label = "OPS"
-            primary_value = _metric("ops", counts)
-            secondary_label = "K%"
-            secondary_value = _metric("batting_k_pct", counts)
-        else:
-            primary_label = "WHIP"
-            primary_value = _metric("whip", counts)
-            secondary_label = "K/9"
-            secondary_value = _metric("k_per_9", counts)
+        values = _split_card_values(scope.stat_type, counts)
         projections.append({
             "code": scope.scope_code,
             "label": scope.display_label,
             "statType": scope.stat_type,
             "status": scope.status,
-            "primaryLabel": primary_label,
-            "primaryValue": primary_value,
-            "secondaryLabel": secondary_label,
-            "secondaryValue": secondary_value,
+            **values,
         })
     return projections
 

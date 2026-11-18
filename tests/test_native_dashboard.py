@@ -75,6 +75,33 @@ class NativeDashboardProjectionTests(unittest.TestCase):
             0.95,
         )
 
+    def test_split_cards_show_only_metrics_supported_by_published_counts(self):
+        from roster_scout.native_dashboard import _split_card_values
+
+        batting = _split_card_values(
+            "batting", {"hits": 30, "at_bats": 100}
+        )
+        self.assertEqual(
+            (batting["primaryLabel"], batting["primaryValue"]),
+            ("AVG", 0.3),
+        )
+        self.assertEqual(
+            (batting["secondaryLabel"], batting["secondaryValue"]),
+            ("AB", 100),
+        )
+
+        pitching = _split_card_values(
+            "pitching", {"hits_allowed": 27, "opponent_at_bats": 90}
+        )
+        self.assertEqual(
+            (pitching["primaryLabel"], pitching["primaryValue"]),
+            ("Opp AVG", 0.3),
+        )
+        self.assertEqual(
+            (pitching["secondaryLabel"], pitching["secondaryValue"]),
+            ("OAB", 90),
+        )
+
     def test_leader_sorting_is_deterministic_and_keeps_missing_metrics_out(self):
         from roster_scout.native_dashboard import (
             _hitting_leaders,

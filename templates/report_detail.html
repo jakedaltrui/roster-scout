@@ -82,9 +82,9 @@
           <div class="opponent-dashboard__heading">
             <div>
               <h2 id="opponent-dashboard-heading">Opponent dashboard</h2>
-              <p>{% if dashboard_data and dashboard_data.readiness.state == "ready" %}Interactive analysis from this saved report.{% elif dashboard_data %}Season statistics are ready. Deeper analysis is not complete for this saved report.{% else %}Interactive analysis is unavailable for this saved report.{% endif %}</p>
+              <p>{% if dashboard_data and dashboard_data.readiness.state == "ready" %}Interactive analysis from this saved report.{% elif dashboard_data %}Available detailed analysis is shown. Any unavailable sections are identified clearly.{% else %}Interactive analysis is unavailable for this saved report.{% endif %}</p>
             </div>
-            {% set dashboard_state = dashboard_data.readiness.state if dashboard_data else "unavailable" %}<span class="status-chip" data-state="{{ dashboard_state }}">{{ "Ready" if dashboard_state == "ready" else "Season stats only" if dashboard_state == "partial" else "Unavailable" }}</span>
+            {% set dashboard_state = dashboard_data.readiness.state if dashboard_data else "unavailable" %}<span class="status-chip" data-state="{{ dashboard_state }}">{{ "Ready" if dashboard_state == "ready" else "Partial detail" if dashboard_state == "partial" else "Unavailable" }}</span>
           </div>
           {% if dashboard_data %}
             <script type="application/json" data-native-dashboard-data>{{ dashboard_data|tojson }}</script>

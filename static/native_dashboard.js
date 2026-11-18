@@ -248,13 +248,18 @@
       type.textContent = split.statType === "batting" ? "Hitting" : "Pitching";
       heading.append(title, type);
       const values = document.createElement("dl");
-      [[split.primaryLabel, split.primaryValue], [split.secondaryLabel, split.secondaryValue]].forEach(function (entry) {
+      [
+        [split.primaryLabel, split.primaryValue, split.primaryFormat],
+        [split.secondaryLabel, split.secondaryValue, split.secondaryFormat]
+      ].forEach(function (entry) {
         const group = document.createElement("div");
         const term = document.createElement("dt");
         const value = document.createElement("dd");
         term.textContent = entry[0];
         value.textContent = entry[1] === null || entry[1] === undefined
           ? "—"
+          : entry[2] === "count"
+            ? String(entry[1])
           : entry[0].includes("%")
             ? percent(entry[1])
             : number(entry[1], 3);
