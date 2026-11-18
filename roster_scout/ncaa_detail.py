@@ -1590,8 +1590,19 @@ def parse_fielding_page(
             raise FieldingParseError("schema_validation")
         link = cells[player_index].find("a")
         href = link.get("href", "") if link is not None else ""
-        player_match = re.fullmatch(r"/players/(\d+)", href)
-        if player_match is None:
+        parsed_player_url = urlparse(href)
+        player_match = re.fullmatch(r"/players/(\d+)", parsed_player_url.path)
+        player_query = parse_qs(parsed_player_url.query, strict_parsing=True)
+        if (
+            player_match is None
+            or parsed_player_url.scheme
+            or parsed_player_url.netloc
+            or parsed_player_url.fragment
+            or (
+                player_query
+                and player_query != {"year_stat_category_id": [stat_category_id]}
+            )
+        ):
             raise FieldingParseError("schema_validation")
         player_id = player_match.group(1)
         raw = dict(zip(raw_headers, values))

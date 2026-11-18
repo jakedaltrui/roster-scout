@@ -140,6 +140,23 @@ class FieldingTests(unittest.TestCase):
         self.assertFalse(section.verified_empty)
         self.assertEqual(section.rows[0].source_player_id, "11001")
 
+    def test_live_player_links_may_repeat_the_exact_fielding_category(self):
+        html = fixture("d1").replace(
+            'href="/players/11001"',
+            'href="/players/11001?year_stat_category_id=15869"',
+        )
+
+        section = self.parse(html)
+
+        self.assertEqual(section.rows[0].source_player_id, "11001")
+        for unsafe in (
+            "year_stat_category_id=15870",
+            "year_stat_category_id=15869&amp;next=https://example.com",
+        ):
+            with self.subTest(unsafe=unsafe):
+                with self.assertRaises(fielding_api().FieldingParseError):
+                    self.parse(html.replace("year_stat_category_id=15869", unsafe))
+
     def test_rejects_missing_duplicate_or_renamed_required_headers(self):
         valid = fixture("d2")
         cases = (
