@@ -1304,9 +1304,32 @@ def parse_live_split_result(
             "opponent total", "opponent totals",
         }:
             continue
-        link = player_row.find("a", href=re.compile(r"^/players/\d+$"))
+        link = player_row.find(
+            "a", href=re.compile(r"^/players/\d+(?:\?.*)?$")
+        )
         if link is not None:
-            player_path = link.get("href")
+            parsed_player_url = urlparse(link.get("href", ""))
+            player_match = re.fullmatch(r"/players/(\d+)", parsed_player_url.path)
+            try:
+                player_query = parse_qs(parsed_player_url.query, strict_parsing=True)
+            except ValueError as exc:
+                raise SplitContractError("schema_validation") from exc
+            if (
+                player_match is None
+                or parsed_player_url.scheme
+                or parsed_player_url.netloc
+                or parsed_player_url.fragment
+                or (
+                    player_query
+                    and player_query != {
+                        "year_stat_category_id": [
+                            discovered_scope.source_stat_category_id
+                        ]
+                    }
+                )
+            ):
+                raise SplitContractError("schema_validation")
+            player_path = f"/players/{player_match.group(1)}"
         else:
             match = re.fullmatch(r"player_(\d+)", str(player_row.get("id") or ""))
             if match is None:

@@ -1587,6 +1587,35 @@ class SplitProvenanceTests(_SplitContractMixin, unittest.TestCase):
             [("42", 2, 5)],
         )
 
+    def test_live_split_uses_stable_player_id_from_exact_category_link(self):
+        api = fielding_api()
+        html = """
+        <button data-stat-seq="123">Vs LHP</button>
+        <table id="stat_grid">
+          <thead><tr><th>Player</th><th>H</th><th>AB</th></tr></thead>
+          <tbody>
+            <tr id="player_426889718"><td><a href="/players/11216290?year_stat_category_id=15867">Player</a></td></tr>
+            <tr class="sport_stat_123"><td>4</td><td>26</td></tr>
+          </tbody>
+        </table>
+        """
+        scope = next(item for item in api.discover_live_split_controls(
+            html,
+            season_id="17040",
+            season_team_id="614606",
+            stat_type="batting",
+            source_stat_category_id="15867",
+        ) if item.scope_code == "vs_lhp")
+        result = api.parse_live_split_result(html, discovered_scope=scope)
+        self.assertEqual(result.rows[0].source_player_id, "11216290")
+
+        unsafe = html.replace(
+            "year_stat_category_id=15867",
+            "year_stat_category_id=15867&amp;redirect=https://example.com",
+        )
+        with self.assertRaises(api.SplitContractError):
+            api.parse_live_split_result(unsafe, discovered_scope=scope)
+
     def test_capture_split_duplicates_reject_conflicting_evidence(self):
         api = FixtureCaptureSafetyTests.capture_api()
         identical = self._live_duplicate_grid((2, 5))
