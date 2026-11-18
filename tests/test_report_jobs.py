@@ -4384,6 +4384,7 @@ class ComputedScopePublicationTests(PostgreSQLJobTestCase):
         )
 
     def test_partial_game_log_rows_remain_publishable(self):
+        self.fixture()
         sections = self._sections(1, complete_stat_types=frozenset({"batting"}))
         by_name = {section.name: section for section in sections}
 
