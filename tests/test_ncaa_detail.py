@@ -2075,6 +2075,43 @@ class FieldingPublicationTests(
             self.assertEqual(facts[0].putouts, 121)
             self.assertIsNone(facts[1].passed_balls)
 
+    def test_live_fielding_header_aliases_publish_complete_typed_counts(self):
+        from dataclasses import replace
+        from decimal import Decimal
+        from sqlalchemy import select
+        from roster_scout.jobs import accept_report_job, run_report_job
+        from roster_scout.models import FieldingFact
+
+        sections = list(self._sections())
+        fielding = sections[-1]
+        live_rows = []
+        for row in fielding.rows:
+            live = dict(row)
+            live["GP"] = live.pop("G")
+            live["FldPct"] = live.pop("FPCT")
+            live["IDP"] = live.pop("DP")
+            live_rows.append(live)
+        sections[-1] = replace(fielding, rows=tuple(live_rows))
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session, organization_id, report_id,
+            "fielding-live-aliases", dispatch=None,
+        )
+        snapshot = run_report_job(
+            self.Session, job.id,
+            collector=lambda *_args, **_kwargs: tuple(sections),
+        )
+        with self.Session() as session:
+            facts = list(session.scalars(
+                select(FieldingFact)
+                .where(FieldingFact.snapshot_id == snapshot.id)
+                .order_by(FieldingFact.games.desc())
+            ))
+            self.assertEqual(facts[0].games, 18)
+            self.assertEqual(facts[0].double_plays, 3)
+            self.assertEqual(facts[0].fielding_percentage, Decimal("0.98500"))
+
     def test_unavailable_fielding_publishes_truthful_partial(self):
         from sqlalchemy import func, select
         from roster_scout.jobs import accept_report_job, run_report_job

@@ -509,17 +509,17 @@ def canonicalize_ncaa_collection(collection: NcaaCollection) -> CanonicalCollect
                 ))
         if fielding:
             fielding_values = MappingProxyType({
-                "games": _integer(fielding, "G"),
-                "games_started": _integer(fielding, "GS"),
-                "putouts": _integer(fielding, "PO"),
-                "assists": _integer(fielding, "A"),
-                "errors": _integer(fielding, "E"),
-                "total_chances": _integer(fielding, "TC"),
-                "double_plays": _integer(fielding, "DP"),
-                "fielding_percentage": _decimal(fielding, "FPCT"),
-                "passed_balls": _integer(fielding, "PB"),
-                "stolen_base_attempts": _integer(fielding, "SBA"),
-                "caught_stealing_by": _integer(fielding, "CSB"),
+                "games": _integer_with_published_blank_zero(fielding, "G", "GP"),
+                "games_started": _integer_with_published_blank_zero(fielding, "GS"),
+                "putouts": _integer_with_published_blank_zero(fielding, "PO"),
+                "assists": _integer_with_published_blank_zero(fielding, "A"),
+                "errors": _integer_with_published_blank_zero(fielding, "E"),
+                "total_chances": _integer_with_published_blank_zero(fielding, "TC"),
+                "double_plays": _integer_with_published_blank_zero(fielding, "DP", "IDP"),
+                "fielding_percentage": _decimal(fielding, "FPCT", "FLDPCT"),
+                "passed_balls": _integer_with_published_blank_zero(fielding, "PB"),
+                "stolen_base_attempts": _integer_with_published_blank_zero(fielding, "SBA"),
+                "caught_stealing_by": _integer_with_published_blank_zero(fielding, "CSB"),
             })
             percentage = fielding_values["fielding_percentage"]
             if percentage is not None and not Decimal("0") <= percentage <= Decimal("1"):
