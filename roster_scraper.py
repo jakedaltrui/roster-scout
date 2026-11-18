@@ -3406,6 +3406,7 @@ def collect_ncaa_player_detail_batch_evidence(
     season_team_id: str,
     source_player_ids,
     *,
+    player_stat_types=None,
     division=None,
     year: int | None = None,
     request_reserver=None,
@@ -3440,10 +3441,25 @@ def collect_ncaa_player_detail_batch_evidence(
     }
     if any(not value.isdigit() for value in categories.values()):
         raise NcaaError("NCAA player-detail categories are incomplete.")
+    allowed_stat_types = frozenset(categories)
+    if player_stat_types is None:
+        requested_stat_types = {
+            player_id: allowed_stat_types for player_id in player_ids
+        }
+    else:
+        if set(player_stat_types) != set(player_ids):
+            raise ValueError("player stat-type requests are incomplete")
+        requested_stat_types = {}
+        for player_id in player_ids:
+            values = frozenset(player_stat_types[player_id])
+            if not values or not values <= allowed_stat_types:
+                raise ValueError("player stat-type request is invalid")
+            requested_stat_types[player_id] = values
     player_urls = {
         player_id: {
-            stat_type: build_player_detail_url(player_id, category_id)
-            for stat_type, category_id in categories.items()
+            stat_type: build_player_detail_url(player_id, categories[stat_type])
+            for stat_type in ("batting", "pitching", "fielding")
+            if stat_type in requested_stat_types[player_id]
         }
         for player_id in player_ids
     }
@@ -3474,7 +3490,10 @@ def collect_ncaa_player_detail_batch_evidence(
                 season_team_id=str(team["season_team_id"]),
                 season_year=year,
                 division=str(team["division"]),
-                categories=categories,
+                categories={
+                    stat_type: categories[stat_type]
+                    for stat_type in requested_stat_types[player_id]
+                },
                 captured_at=captured_at,
             )
         except (CaptureUnavailable, KeyError) as exc:

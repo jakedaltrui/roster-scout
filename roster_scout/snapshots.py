@@ -746,18 +746,17 @@ def publish_snapshot(session, snapshot_id):
     }
     if "fielding" in by_name:
         required_ledger_families.add("fielding")
-    core_player_ids = set(session.scalars(select(
-        SourceRecord.source_player_id
+    core_history_types = set(session.scalars(select(
+        SourceRecord.section
     ).where(
         SourceRecord.snapshot_id == snapshot.id,
         SourceRecord.organization_id == snapshot.organization_id,
         SourceRecord.section.in_(("batting", "pitching", "fielding")),
         SourceRecord.source_player_id.is_not(None),
-    )))
-    if core_player_ids:
-        required_ledger_families.update({
-            "history:batting", "history:pitching", "history:fielding",
-        })
+    ).distinct()))
+    required_ledger_families.update(
+        f"history:{stat_type}" for stat_type in core_history_types
+    )
     ledger_families = {item.family for item in effective_request_ledgers}
     missing_required_phase3_family = phase3_contract and (
         not required_phase3_sections <= set(by_name)

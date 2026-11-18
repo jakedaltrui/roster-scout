@@ -12,6 +12,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal, InvalidOperation
 from threading import RLock
 
 from sqlalchemy import delete, select, update
@@ -89,6 +90,65 @@ def _bounded_history_deadline(build_deadline, history_seconds, *, now=None):
     """Reserve the remaining build allowance for team-level dashboard work."""
     current = time.monotonic() if now is None else now
     return min(build_deadline, current + history_seconds)
+
+
+_PLAYER_HISTORY_ACTIVITY_HEADERS = {
+    "batting": frozenset({
+        "ab", "r", "h", "2b", "3b", "hr", "rbi", "bb", "hbp", "sf",
+        "sh", "k", "so", "sb", "cs", "gdp",
+    }),
+    "pitching": frozenset({
+        "app", "gp", "gs", "ip", "h", "r", "er", "bb", "so", "bf",
+        "p-oab", "hr-a", "hb", "w", "l", "sv", "pitches",
+    }),
+    "fielding": frozenset({
+        "po", "a", "e", "tc", "dp", "idp", "pb", "sba", "csb", "tp",
+    }),
+}
+
+
+def _published_stat_activity(value):
+    text = str(value or "").strip()
+    if not text or text.casefold() in {"-", "--", "n/a", "na"}:
+        return False
+    try:
+        return Decimal(text) > 0
+    except InvalidOperation:
+        return False
+
+
+def _active_player_history_types(sections):
+    """Return only categories each player demonstrably used this season."""
+    player_types = {}
+    unavailable_player_count = 0
+    for section in sections:
+        activity_headers = _PLAYER_HISTORY_ACTIVITY_HEADERS.get(section.name)
+        if activity_headers is None:
+            continue
+        for row in section.rows:
+            normalized = {
+                re.sub(r"\s+", "", str(key or "")).casefold(): value
+                for key, value in row.items()
+                if not str(key or "").startswith("_")
+            }
+            if not any(
+                key in activity_headers and _published_stat_activity(value)
+                for key, value in normalized.items()
+            ):
+                continue
+            player_id = str(row.get("_player_id") or "")
+            if not player_id.isdigit():
+                unavailable_player_count += 1
+                continue
+            player_types.setdefault(player_id, set()).add(section.name)
+    ordered = {
+        player_id: tuple(
+            stat_type for stat_type in ("batting", "pitching", "fielding")
+            if stat_type in stat_types
+        )
+        for player_id, stat_types in player_types.items()
+    }
+    return ordered, unavailable_player_count
 
 
 def _reserve_until_deadline(reserve, *, deadline_monotonic):
@@ -3501,18 +3561,9 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
         os.environ.get("NCAA_BROWSER_PROVIDER") == "browserless"
     )
     current_sections = (*reconstructed, *fetched)
-    source_player_ids = []
-    unavailable_player_count = 0
-    for section in current_sections:
-        if section.name not in {"batting", "pitching", "fielding"}:
-            continue
-        for row in section.rows:
-            player_id = str(row.get("_player_id") or "")
-            if player_id.isdigit():
-                if player_id not in source_player_ids:
-                    source_player_ids.append(player_id)
-            else:
-                unavailable_player_count += 1
+    player_history_types, unavailable_player_count = (
+        _active_player_history_types(current_sections)
+    )
 
     schedule_entry = begin_live(
         "schedule", source_team_id, source_season_id, season_team_id
@@ -3572,7 +3623,7 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
             details = []
             history_complete = True
             history_requests = []
-            for player_id in source_player_ids:
+            for player_id, stat_types in player_history_types.items():
                 history_entries = begin_live_batch(
                     tuple(
                         (
@@ -3587,12 +3638,13 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
                             ("pitching", split_category_ids["pitching"]),
                             ("fielding", discovered_fielding_id),
                         )
+                        if stat_type in stat_types
                     ),
                 )
                 if history_entries is None:
                     history_complete = False
                     continue
-                history_requests.append((player_id, history_entries))
+                history_requests.append((player_id, history_entries, stat_types))
 
             from scripts.capture_phase3_ncaa_fixtures import (
                 PLAYER_HISTORY_BATCH_MAX_PLAYERS,
@@ -3606,7 +3658,14 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
             )
 
             def collect_player_history_batch(requests):
-                entries_by_player = dict(requests)
+                entries_by_player = {
+                    player_id: entries
+                    for player_id, entries, _stat_types in requests
+                }
+                stat_types_by_player = {
+                    player_id: stat_types
+                    for player_id, _entries, stat_types in requests
+                }
 
                 def reserve(player_id, stat_type):
                     request_reserver(entries_by_player[player_id])(
@@ -3617,6 +3676,7 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
                     batch_details = collect_ncaa_player_detail_batch_evidence(
                         season_team_id,
                         tuple(entries_by_player),
+                        player_stat_types=stat_types_by_player,
                         division=division,
                         year=year,
                         request_reserver=reserve,
@@ -3634,10 +3694,11 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
                 else:
                     return tuple(
                         ("complete", entries, batch_details[player_id])
-                        for player_id, entries in requests
+                        for player_id, entries, _stat_types in requests
                     )
                 return tuple(
-                    (outcome, entries, None) for _, entries in requests
+                    (outcome, entries, None)
+                    for _player_id, entries, _stat_types in requests
                 )
 
             # Career and per-player game logs are valuable, but they must not

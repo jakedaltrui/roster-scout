@@ -588,12 +588,19 @@ def parse_player_detail_fixture(
         raise PlayerDetailContractError("schema_validation") from exc
     sections = root.find_all("stat-section", recursive=False)
     by_type = {item.get("data-stat-type"): item for item in sections}
-    if len(sections) != 3 or set(by_type) != {"batting", "pitching", "fielding"}:
+    if (
+        not sections
+        or len(sections) != len(by_type)
+        or not set(by_type) <= {"batting", "pitching", "fielding"}
+    ):
         raise PlayerDetailContractError("schema_validation")
     identity_key = f"ncaa:{expected_player_id}"
     career_rows = []
     game_rows = []
-    for stat_type in ("batting", "pitching", "fielding"):
+    for stat_type in (
+        item for item in ("batting", "pitching", "fielding")
+        if item in by_type
+    ):
         section = by_type[stat_type]
         category_id = section.get("data-source-stat-category-id") or ""
         payload_sha256 = section.get("data-source-payload-sha256") or ""

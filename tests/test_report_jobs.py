@@ -3048,11 +3048,16 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
             _season_team_id,
             player_ids,
             *,
+            player_stat_types=None,
             request_reserver=None,
             **_kwargs,
         ):
             for player_id in player_ids:
-                for stat_type in ("batting", "pitching", "fielding"):
+                for stat_type in (
+                    player_stat_types.get(str(player_id), ())
+                    if player_stat_types is not None
+                    else ("batting", "pitching", "fielding")
+                ):
                     request_reserver(player_id, stat_type)
             return {str(player_id): result for player_id in player_ids}
 
@@ -4269,7 +4274,7 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
             )))
             self.assertTrue({
                 "schedule", "history:batting", "history:pitching",
-                "history:fielding", "splits:batting", "splits:pitching",
+                "splits:batting", "splits:pitching",
             } <= families)
             identity, player = session.execute(
                 select(PlayerTeamSeason, Player)

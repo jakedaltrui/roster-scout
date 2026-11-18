@@ -6,7 +6,7 @@ from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from types import MappingProxyType
+from types import MappingProxyType, SimpleNamespace
 import re
 import unittest
 
@@ -108,6 +108,26 @@ class CareerSeasonTests(unittest.TestCase):
             with self.subTest(player_id=player_id, category_id=category_id):
                 with self.assertRaises(ValueError):
                     build(player_id, category_id)
+
+    def test_role_specific_player_contract_accepts_only_requested_sections(self):
+        from bs4 import BeautifulSoup
+
+        soup = BeautifulSoup(fixture("d1"), "html.parser")
+        for stat_type in ("pitching", "fielding"):
+            soup.find("stat-section", {"data-stat-type": stat_type}).decompose()
+        detail = history_api().parse_player_detail_fixture(
+            str(soup),
+            expected_player_id="9698671",
+            expected_season_id="17040",
+            expected_season_team_id="614606",
+            expected_division="d1",
+        )
+
+        self.assertTrue(detail.game_logs)
+        self.assertEqual(
+            {row.stat_type for row in (*detail.career_seasons, *detail.game_logs)},
+            {"batting"},
+        )
 
     def test_career_models_repeat_snapshot_player_and_source_ownership(self):
         from roster_scout.models import CareerAggregate, CareerSeasonFact
@@ -303,6 +323,36 @@ class HistoryCompletenessTests(unittest.TestCase):
 
 
 class CollectionBudgetTests(unittest.TestCase):
+    def test_player_history_requests_only_categories_with_season_activity(self):
+        from roster_scout.jobs import _active_player_history_types
+
+        sections = (
+            SimpleNamespace(name="batting", rows=(
+                {"_player_id": "10", "AB": "189", "GP": "56"},
+                {"_player_id": "20", "AB": "", "GP": "15"},
+                {"_player_id": "30", "AB": "1", "GP": "19"},
+            )),
+            SimpleNamespace(name="pitching", rows=(
+                {"_player_id": "20", "IP": "77.0", "App": "15"},
+                {"_player_id": "30", "IP": "2.0", "App": "2"},
+            )),
+            SimpleNamespace(name="fielding", rows=(
+                {"_player_id": "10", "TC": "203"},
+                {"_player_id": "20", "TC": "19"},
+                {"_player_id": "30", "TC": "2"},
+                {"_player_id": "40", "TC": "0", "GP": "5"},
+            )),
+        )
+
+        player_types, unavailable = _active_player_history_types(sections)
+
+        self.assertEqual(unavailable, 0)
+        self.assertEqual(player_types, {
+            "10": ("batting", "fielding"),
+            "20": ("pitching", "fielding"),
+            "30": ("batting", "pitching", "fielding"),
+        })
+
     def test_shared_phase3_request_ledger_contract(self):
         """Named RED sentinel: imports/preflight succeed before one missing contract fails."""
         from roster_scout import models

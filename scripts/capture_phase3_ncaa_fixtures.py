@@ -1667,9 +1667,11 @@ def sanitize_player_detail(
     player = _numeric(player_id, "player ID")
     season = _numeric(season_id, "season ID")
     report_team = _numeric(season_team_id, "season team ID")
-    if set(pages) != set(categories) or set(categories) != {
-        "batting", "pitching", "fielding"
-    }:
+    if (
+        not pages
+        or set(pages) != set(categories)
+        or not set(categories) <= {"batting", "pitching", "fielding"}
+    ):
         raise CaptureUnavailable(CAPTURE_FAILURE, stage="player_page_types")
     if not 2000 <= int(season_year) <= 2100:
         raise ValueError("season year is invalid")
@@ -1691,7 +1693,10 @@ def sanitize_player_detail(
         for key, value in sorted(root_attrs.items())
     )
     lines = [f"<player-detail {root_text}>"]
-    for stat_type in ("batting", "pitching", "fielding"):
+    for stat_type in (
+        item for item in ("batting", "pitching", "fielding")
+        if item in pages
+    ):
         raw_html = pages[stat_type]
         if not isinstance(raw_html, str) or len(raw_html.encode("utf-8")) > MAX_RAW_PAGE_BYTES:
             raise CaptureUnavailable(CAPTURE_FAILURE, stage="player_page_payload")
