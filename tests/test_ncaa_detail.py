@@ -973,7 +973,7 @@ class FixtureCaptureSafetyTests(unittest.TestCase):
                             deadline_monotonic=405.0,
                         )
 
-                self.assertEqual(fetch_calls[0], 2)
+                self.assertEqual(fetch_calls[0], 3)
                 self.assertEqual(clock[0], 405.0)
 
     def test_manifest_is_allowlisted_sorted_and_contains_no_raw_source(self):
