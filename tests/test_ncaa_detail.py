@@ -1157,7 +1157,8 @@ class SplitDiscoveryTests(unittest.TestCase):
 
         live_html = """
         <table id="stat_grid"><thead><tr><th>Player</th><th>AB</th><th>H</th></tr></thead></table>
-        <a class="sport_stat_menu_option_4" data-sport-stat-id="4">Hits-AB vs Left Handed Pitchers</a>
+        <a class="sport_stat_menu_option_4" data-sport-stat-id="4"
+           href="javascript:toggleSituationalStat(4);">Hits-AB vs Left Handed Pitchers</a>
         """
         live_scopes = api.discover_live_split_controls(
             live_html,
@@ -1169,6 +1170,22 @@ class SplitDiscoveryTests(unittest.TestCase):
         self.assertEqual(
             next(item for item in live_scopes if item.scope_code == "vs_lhp").source_identifier,
             "4",
+        )
+        unsafe_javascript = live_html.replace(
+            "javascript:toggleSituationalStat(4);",
+            "javascript:alert(document.cookie)",
+        )
+        unsafe_scopes = api.discover_live_split_controls(
+            unsafe_javascript,
+            season_id="17040",
+            season_team_id="614606",
+            stat_type="batting",
+            source_stat_category_id="15867",
+        )
+        self.assertIsNone(
+            next(
+                item for item in unsafe_scopes if item.scope_code == "vs_lhp"
+            ).source_identifier
         )
         ambiguous = html.replace(
             'data-stat-seq="123"',

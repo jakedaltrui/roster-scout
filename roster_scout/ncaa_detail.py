@@ -985,9 +985,24 @@ def _live_split_identifier(element, *, excluded: set[str]) -> str | None:
         value = str(element.get("value") or "")
         if value.isdigit() and value not in excluded:
             candidates.add(value)
-    parsed = urlparse(element.get("href") or "")
-    if parsed.scheme and (parsed.scheme != "https" or parsed.netloc != "stats.ncaa.org"):
-        return None
+    href = element.get("href") or ""
+    javascript_identifier = re.fullmatch(
+        r"javascript:toggleSituationalStat\((\d+)\);?",
+        href,
+    )
+    if href.startswith("javascript:"):
+        if javascript_identifier is None:
+            return None
+        identifier = javascript_identifier.group(1)
+        if identifier not in excluded:
+            candidates.add(identifier)
+        parsed = urlparse("")
+    else:
+        parsed = urlparse(href)
+        if parsed.scheme and (
+            parsed.scheme != "https" or parsed.netloc != "stats.ncaa.org"
+        ):
+            return None
     for key, values in parse_qs(parsed.query, keep_blank_values=False).items():
         if not _LIVE_SPLIT_IDENTIFIER_QUERY.fullmatch(key):
             continue
