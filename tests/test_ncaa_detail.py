@@ -1048,6 +1048,14 @@ class FixtureCaptureSafetyTests(unittest.TestCase):
 
 
 class SplitDiscoveryTests(unittest.TestCase):
+    def test_live_counts_accept_only_well_formed_thousands_separators(self):
+        api = fielding_api()
+        self.assertEqual(api._parse_split_count("1,353"), 1353)
+        self.assertEqual(api._parse_split_count("388"), 388)
+        for value in ("13,53", "1 353", "1,353.0"):
+            with self.subTest(value=value), self.assertRaises(api.SplitContractError):
+                api._parse_split_count(value)
+
     """Live controls remain candidates until their exact source contract matches."""
 
     REPRESENTATIVES = {

@@ -1367,9 +1367,9 @@ def parse_live_split_result(
 
 def _parse_split_count(value: str) -> int:
     text = str(value or "").strip()
-    if not re.fullmatch(r"\d+", text):
+    if not re.fullmatch(r"(?:\d+|\d{1,3}(?:,\d{3})+)", text):
         raise SplitContractError("schema_validation")
-    return int(text)
+    return int(text.replace(",", ""))
 
 
 def _validate_source_url(source_url: str, stat_category_id: str) -> None:
