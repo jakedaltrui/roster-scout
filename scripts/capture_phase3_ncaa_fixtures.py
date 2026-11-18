@@ -1932,7 +1932,9 @@ def _bounded_player_batch_fetch(
                               const table = document.querySelector(selector);
                               if (!table) return false;
                               const rows = table.querySelectorAll('thead tr');
-                              const header = rows.length ? rows[rows.length - 1] : null;
+                              const header = rows.length
+                                ? rows[rows.length - 1]
+                                : table.querySelector('tr');
                               if (!header) return false;
                               return [...header.querySelectorAll('th, td')].some(
                                 (cell) => cell.textContent.trim().toLowerCase() === expected
