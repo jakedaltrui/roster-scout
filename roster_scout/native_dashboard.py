@@ -16,6 +16,8 @@ from .models import (
     PitchingFact,
     PitchingGameLogFact,
     PlayerTeamSeason,
+    ReportJob,
+    ReportSection,
     ReportSnapshot,
     ScopedBattingFact,
     ScopedFieldingFact,
@@ -58,6 +60,17 @@ _SCOPE_LABELS = {
     "last_10": "Last 10",
     "conference": "Conference",
 }
+_DASHBOARD_SECTION_NAMES = (
+    "batting",
+    "pitching",
+    "fielding",
+    "schedule",
+    "game_logs:batting",
+    "game_logs:pitching",
+    "game_logs:fielding",
+    "splits:batting",
+    "splits:pitching",
+)
 
 
 class NativeDashboardNotFound(LookupError):
@@ -113,8 +126,45 @@ def _xbh_rate(counts):
     return _json_number(sum(Decimal(value) for value in values) / Decimal(at_bats), places=4)
 
 
-def _scope_rows(session, organization_id, snapshot_id, scope_code):
+def _dashboard_readiness(build_profile, sections):
+    """Describe dashboard coverage without promoting a quick snapshot to ready."""
+    statuses = {
+        name: sections.get(name, {}).get("status", "unavailable")
+        for name in _DASHBOARD_SECTION_NAMES
+    }
+    core_ready = all(statuses[name] == "complete" for name in ("batting", "pitching"))
+    if not core_ready:
+        state = "unavailable"
+    elif build_profile == "detailed" and all(
+        status == "complete" for status in statuses.values()
+    ):
+        state = "ready"
+    else:
+        state = "partial"
+    return {
+        "state": state,
+        "buildProfile": build_profile or "unknown",
+        "sections": [
+            {
+                "code": name,
+                "status": statuses[name],
+                "reason": sections.get(name, {}).get("reason"),
+            }
+            for name in _DASHBOARD_SECTION_NAMES
+        ],
+    }
+
+
+def _scope_rows(
+    session,
+    organization_id,
+    snapshot_id,
+    scope_code,
+    *,
+    section_statuses=None,
+):
     if scope_code == "full_season":
+        section_statuses = section_statuses or {}
         return {
             stat_type: (
                 tuple(
@@ -126,7 +176,7 @@ def _scope_rows(session, organization_id, snapshot_id, scope_code):
                         )
                     )
                 ),
-                "complete",
+                section_statuses.get(stat_type, "unavailable"),
                 None,
             )
             for stat_type, model in _SEASON_MODELS.items()
@@ -198,8 +248,22 @@ def _pitching_leaders(rows, players):
     return leaders[:8]
 
 
-def _scope_projection(session, organization_id, snapshot_id, scope_code, players):
-    scope_rows = _scope_rows(session, organization_id, snapshot_id, scope_code)
+def _scope_projection(
+    session,
+    organization_id,
+    snapshot_id,
+    scope_code,
+    players,
+    *,
+    section_statuses=None,
+):
+    scope_rows = _scope_rows(
+        session,
+        organization_id,
+        snapshot_id,
+        scope_code,
+        section_statuses=section_statuses,
+    )
     batting_rows, batting_status, batting_games = scope_rows["batting"]
     pitching_rows, pitching_status, pitching_games = scope_rows["pitching"]
     fielding_rows, fielding_status, fielding_games = scope_rows["fielding"]
@@ -361,10 +425,40 @@ def load_native_dashboard(session, *, organization_id, report_id, snapshot_id):
         row.id: {"name": row.display_name, "position": row.position}
         for row in player_rows
     }
+    job = session.scalar(
+        select(ReportJob).where(
+            ReportJob.organization_id == organization_id,
+            ReportJob.report_id == report_id,
+            ReportJob.result_snapshot_id == snapshot_id,
+        )
+    )
+    section_rows = tuple(
+        session.scalars(
+            select(ReportSection).where(
+                ReportSection.organization_id == organization_id,
+                ReportSection.snapshot_id == snapshot_id,
+            )
+        )
+    )
+    section_details = {
+        row.section: {
+            "status": row.status,
+            "reason": row.failure_category,
+        }
+        for row in section_rows
+    }
+    section_statuses = {
+        name: details["status"] for name, details in section_details.items()
+    }
+    readiness = _dashboard_readiness(
+        job.build_profile if job is not None else None,
+        section_details,
+    )
     return {
         "snapshotId": str(snapshot.id),
         "publishedAt": snapshot.published_at.isoformat(),
         "status": snapshot.status,
+        "readiness": readiness,
         "scopes": {
             code: _scope_projection(
                 session,
@@ -372,6 +466,7 @@ def load_native_dashboard(session, *, organization_id, report_id, snapshot_id):
                 snapshot_id,
                 code,
                 players,
+                section_statuses=section_statuses,
             )
             for code in _SCOPE_LABELS
         },

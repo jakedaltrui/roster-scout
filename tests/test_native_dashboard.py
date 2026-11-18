@@ -7,6 +7,38 @@ import uuid
 
 
 class NativeDashboardProjectionTests(unittest.TestCase):
+    def test_dashboard_readiness_never_promotes_quick_season_snapshot(self):
+        from roster_scout.native_dashboard import _dashboard_readiness
+
+        sections = {
+            "batting": {"status": "complete"},
+            "pitching": {"status": "complete"},
+        }
+        result = _dashboard_readiness("quick", sections)
+
+        self.assertEqual(result["state"], "partial")
+        statuses = {item["code"]: item["status"] for item in result["sections"]}
+        self.assertEqual(statuses["fielding"], "unavailable")
+
+    def test_dashboard_ready_requires_every_coach_facing_section(self):
+        from roster_scout.native_dashboard import (
+            _DASHBOARD_SECTION_NAMES,
+            _dashboard_readiness,
+        )
+
+        sections = {
+            name: {"status": "complete"} for name in _DASHBOARD_SECTION_NAMES
+        }
+        self.assertEqual(
+            _dashboard_readiness("detailed", sections)["state"],
+            "ready",
+        )
+        sections["game_logs:fielding"] = {"status": "unavailable"}
+        self.assertEqual(
+            _dashboard_readiness("detailed", sections)["state"],
+            "partial",
+        )
+
     def test_team_aggregation_fields_never_include_derived_metric_codes(self):
         from roster_scout.metrics import METRIC_DEFINITIONS
         from roster_scout.native_dashboard import _SEASON_FIELDS

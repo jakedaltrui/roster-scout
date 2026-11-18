@@ -178,7 +178,7 @@ class NativeDashboardUIContractTests(unittest.TestCase):
             template.index("Opponent dashboard"),
         )
         for phrase in (
-            "same saved statistics included in your workbook",
+            "Season statistics are ready",
             "Recent run trend",
             "Hitting leaders",
             "Pitching leaders",
@@ -188,6 +188,8 @@ class NativeDashboardUIContractTests(unittest.TestCase):
         self.assertIn('aria-label="Opponent analysis"', template)
         self.assertIn("data-native-dashboard-data", template)
         self.assertNotIn("cdn.jsdelivr.net/npm/powerbi-client", template)
+        self.assertNotIn("report_detail.division", template)
+        self.assertNotIn("report_detail.season_year", template)
 
     def test_native_script_is_dependency_free_keyboard_accessible_and_data_driven(self):
         script = (ROOT / "static/native_dashboard.js").read_text()
