@@ -4300,7 +4300,12 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
             )
 
 class ComputedScopePublicationTests(PostgreSQLJobTestCase):
-    def _sections(self, game_count):
+    def _sections(
+        self,
+        game_count,
+        *,
+        complete_stat_types=frozenset({"batting", "pitching", "fielding"}),
+    ):
         from roster_scout.jobs import (
             CollectedGameFact,
             to_collected_schedule_sections,
@@ -4374,9 +4379,23 @@ class ComputedScopePublicationTests(PostgreSQLJobTestCase):
             *to_collected_schedule_sections(
                 schedule,
                 game_facts=tuple(facts),
-                complete_stat_types=frozenset({"batting", "pitching", "fielding"}),
+                complete_stat_types=complete_stat_types,
             ),
         )
+
+    def test_partial_game_log_rows_remain_publishable(self):
+        sections = self._sections(1, complete_stat_types=frozenset({"batting"}))
+        by_name = {section.name: section for section in sections}
+
+        self.assertEqual(by_name["game_logs:batting"].status, "complete")
+        for stat_type in ("pitching", "fielding"):
+            section = by_name[f"game_logs:{stat_type}"]
+            self.assertEqual(section.status, "partial")
+            self.assertEqual(
+                section.failure_category,
+                "game_log_evidence_incomplete",
+            )
+            self.assertTrue(section.rows)
 
     def test_refresh_replaces_last_ten_only_in_successor_snapshot(self):
         from roster_scout.jobs import accept_report_job, run_report_job

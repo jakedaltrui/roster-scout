@@ -660,6 +660,15 @@ def to_collected_schedule_sections(
         raise DeterministicJobError("schema_validation")
     for stat_type, rows in typed.items():
         available = stat_type in complete_stat_types
+        if available:
+            section_status = "complete"
+            failure_category = None
+        elif rows:
+            section_status = "partial"
+            failure_category = "game_log_evidence_incomplete"
+        else:
+            section_status = "unavailable"
+            failure_category = "game_log_evidence_unavailable"
         sections.append(CollectedSection(
             name=f"game_logs:{stat_type}",
             critical=False,
@@ -671,8 +680,8 @@ def to_collected_schedule_sections(
             source_season_team_id=schedule.source_season_team_id,
             source_stat_category_id=None,
             collected_at=schedule.collected_at,
-            status="complete" if available else "unavailable",
-            failure_category=None if available else "game_log_evidence_unavailable",
+            status=section_status,
+            failure_category=failure_category,
         ))
     return tuple(sections)
 
