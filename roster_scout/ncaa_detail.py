@@ -1532,7 +1532,7 @@ def parse_fielding_page(
 ) -> FieldingSection:
     """Validate one NCAA fielding grid before any source row is accepted."""
     _validate_source_url(source_url, stat_category_id)
-    if not html or "access denied" in html.casefold():
+    if not html:
         raise FieldingParseError("source_blocked")
     soup = BeautifulSoup(html, "html.parser")
     table = soup.select_one("#stat_grid")

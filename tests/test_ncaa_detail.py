@@ -130,6 +130,16 @@ class FieldingTests(unittest.TestCase):
             Decimal(".985"),
         )
 
+    def test_valid_fielding_grid_wins_over_unrelated_access_denied_copy(self):
+        html = fixture("d1") + (
+            '<template id="generic-error-copy">Access Denied</template>'
+        )
+
+        section = self.parse(html)
+
+        self.assertFalse(section.verified_empty)
+        self.assertEqual(section.rows[0].source_player_id, "11001")
+
     def test_rejects_missing_duplicate_or_renamed_required_headers(self):
         valid = fixture("d2")
         cases = (
