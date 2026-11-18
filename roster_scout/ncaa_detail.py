@@ -660,14 +660,22 @@ def parse_player_detail_fixture(
             ):
                 raise PlayerDetailContractError("schema_validation")
             game_date = _history_date(date_label, active_year)
+            # A fully blank NCAA row is a non-participation placeholder, not
+            # a zero-stat appearance.  Establish that the source published at
+            # least one value before translating the remaining blank count
+            # cells to sourced zeroes.
+            published_counts, published_rates = _history_values(row, stat_type)
+            if all(
+                value is None
+                for value in (*published_counts.values(), *published_rates.values())
+            ):
+                continue
             counts, rates = _history_values(
                 row,
                 stat_type,
                 published_blank_zero=True,
             )
             if not counts and not rates:
-                continue
-            if all(value is None for value in (*counts.values(), *rates.values())):
                 continue
             source_identity = (source_game_id, game_date, opponent_team_id)
             if source_identity in game_identities:
