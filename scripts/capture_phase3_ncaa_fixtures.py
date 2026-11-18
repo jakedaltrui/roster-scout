@@ -1927,7 +1927,7 @@ def _bounded_player_batch_fetch(
                     run_with_deadline(
                         lambda allowance, player=player,
                         expected_header=expected_header: page.wait_for_function(
-                            """
+                            r"""
                             ([selector, expected]) => {
                               const table = document.querySelector(selector);
                               if (!table) return false;
@@ -1937,7 +1937,13 @@ def _bounded_player_batch_fetch(
                                 : table.querySelector('tr');
                               if (!header) return false;
                               return [...header.querySelectorAll('th, td')].some(
-                                (cell) => cell.textContent.trim().toLowerCase() === expected
+                                (cell) => {
+                                  const label = cell.textContent
+                                    .replace(/\s+/g, ' ')
+                                    .trim()
+                                    .toLowerCase();
+                                  return label === expected || label.startsWith(`${expected} `);
+                                }
                               );
                             }
                             """,
