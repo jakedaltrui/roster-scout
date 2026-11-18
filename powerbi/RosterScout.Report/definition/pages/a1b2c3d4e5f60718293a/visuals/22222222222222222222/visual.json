@@ -1,0 +1,10 @@
+{
+  "$schema":"https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.9.0/schema.json",
+  "name":"22222222222222222222","position":{"x":24,"y":24,"z":1000,"height":672,"width":1232,"tabOrder":0},
+  "visual":{"visualType":"tableEx","query":{"queryState":{"Values":{"projections":[
+    {"field":{"Column":{"Expression":{"SourceRef":{"Entity":"Player"}},"Property":"display_name"}},"queryRef":"Player.display_name","nativeQueryRef":"Player"},
+    {"field":{"Column":{"Expression":{"SourceRef":{"Entity":"Player"}},"Property":"jersey_number"}},"queryRef":"Player.jersey_number","nativeQueryRef":"#"},
+    {"field":{"Column":{"Expression":{"SourceRef":{"Entity":"Player"}},"Property":"position"}},"queryRef":"Player.position","nativeQueryRef":"Position"},
+    {"field":{"Column":{"Expression":{"SourceRef":{"Entity":"Player"}},"Property":"class_year"}},"queryRef":"Player.class_year","nativeQueryRef":"Class"},
+    {"field":{"Column":{"Expression":{"SourceRef":{"Entity":"Player"}},"Property":"source_player_id"}},"queryRef":"Player.source_player_id","nativeQueryRef":"NCAA ID"}
+  ]}}},"drillFilterOtherVisuals":true}}

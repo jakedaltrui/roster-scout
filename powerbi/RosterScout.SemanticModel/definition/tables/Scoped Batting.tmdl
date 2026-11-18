@@ -1,0 +1,57 @@
+table 'Scoped Batting'
+	column security_key
+		dataType: string
+		sourceColumn: security_key
+	column statistic_scope_id
+		dataType: string
+		sourceColumn: statistic_scope_id
+	column player_team_season_id
+		dataType: string
+		sourceColumn: player_team_season_id
+	column at_bats
+		dataType: int64
+		sourceColumn: at_bats
+	column hits
+		dataType: int64
+		sourceColumn: hits
+	column plate_appearances
+		dataType: int64
+		sourceColumn: plate_appearances
+	column walks
+		dataType: int64
+		sourceColumn: walks
+	column hit_by_pitch
+		dataType: int64
+		sourceColumn: hit_by_pitch
+	column strikeouts
+		dataType: int64
+		sourceColumn: strikeouts
+	column sacrifice_flies
+		dataType: int64
+		sourceColumn: sacrifice_flies
+	column home_runs
+		dataType: int64
+		sourceColumn: home_runs
+	column total_bases
+		dataType: int64
+		sourceColumn: total_bases
+	measure AVG = DIVIDE(SUM('Scoped Batting'[hits]), SUM('Scoped Batting'[at_bats]))
+		formatString: 0.000
+	measure OBP = DIVIDE(SUM('Scoped Batting'[hits]) + SUM('Scoped Batting'[walks]) + SUM('Scoped Batting'[hit_by_pitch]), SUM('Scoped Batting'[at_bats]) + SUM('Scoped Batting'[walks]) + SUM('Scoped Batting'[hit_by_pitch]) + SUM('Scoped Batting'[sacrifice_flies]))
+		formatString: 0.000
+	measure SLG = DIVIDE(SUM('Scoped Batting'[total_bases]), SUM('Scoped Batting'[at_bats]))
+		formatString: 0.000
+	measure OPS = [OBP] + [SLG]
+		formatString: 0.000
+	measure ISO = [SLG] - [AVG]
+		formatString: 0.000
+	measure 'BB%' = DIVIDE(SUM('Scoped Batting'[walks]), SUM('Scoped Batting'[plate_appearances]))
+		formatString: 0.0%
+	measure 'K%' = DIVIDE(SUM('Scoped Batting'[strikeouts]), SUM('Scoped Batting'[plate_appearances]))
+		formatString: 0.0%
+	measure BABIP = DIVIDE(SUM('Scoped Batting'[hits]) - SUM('Scoped Batting'[home_runs]), SUM('Scoped Batting'[at_bats]) - SUM('Scoped Batting'[strikeouts]) - SUM('Scoped Batting'[home_runs]) + SUM('Scoped Batting'[sacrifice_flies]))
+		formatString: 0.000
+	partition 'Scoped Batting' = m
+		mode: import
+		source =
+			let Source = PostgreSQL.Database(RosterScoutDatabaseServer, RosterScoutDatabaseName), View = Source{[Schema="public",Item="pbi_scoped_batting"]}[Data] in View

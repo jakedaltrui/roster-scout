@@ -1,6 +1,7 @@
 """Durable report-job, redelivery, cache, and evidence-retention contract."""
 
 import gzip
+import hashlib
 import inspect as python_inspect
 import multiprocessing
 import os
@@ -8,10 +9,12 @@ import threading
 import unittest
 import uuid
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
+from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from tests.db_support import clean_database, require_test_database_url, upgrade_database
 
@@ -549,7 +552,7 @@ class AttemptGenerationDeliveryTests(PostgreSQLJobTestCase):
             2,
             collector=Mock(return_value=PublicationTests.successful_sections()),
         )
-        self.assertEqual(snapshot.status, "ready")
+        self.assertEqual(snapshot.status, "partial")
         with self.Session() as session:
             stored = session.get(ReportJob, job.id)
             self.assertEqual(stored.attempt_count, 2)
@@ -839,7 +842,7 @@ class CrashAfterGenerationCasRecoveryTests(PostgreSQLJobTestCase):
                     )
                 )
             )
-            self.assertEqual(stored.status, "ready")
+            self.assertEqual(stored.status, "partial")
             self.assertEqual(stored.attempt_count, 2)
             self.assertEqual(stored.started_generation, 2)
             self.assertEqual(stored.dispatch_generation, 2)
@@ -917,8 +920,62 @@ class PublicationTests(PostgreSQLJobTestCase):
             artifact = session.scalar(select(ReportArtifact))
             self.assertEqual(artifact.snapshot_id, snapshot.id)
             self.assertEqual(artifact.status, "pending")
-            self.assertEqual(artifact.schema_version, "basic-xlsx-v1")
+            self.assertEqual(artifact.schema_version, "coach-facing-two-sheet-xlsx-v5")
             self.assertEqual(artifact.attempt_count, 0)
+
+    def test_partial_schedule_rows_are_persisted_before_scope_publication(self):
+        from roster_scout.jobs import (
+            PARSER_VERSION,
+            CollectedSection,
+            accept_report_job,
+            run_report_job,
+        )
+        from roster_scout.models import SourceRecord
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session, organization_id, report_id, "partial-schedule", dispatch=None
+        )
+        collected_at = datetime.now(UTC)
+        schedule = CollectedSection(
+            name="schedule",
+            critical=False,
+            rows=({
+                "source_game_id": "fixture-1",
+                "game_date": "2026-03-01",
+                "doubleheader_ordinal": 1,
+                "status": "completed",
+                "venue": "home",
+                "result_sha256": "a" * 64,
+                "conference_evidence_status": "source_absent",
+                "schedule_complete": False,
+            },),
+            source_url="https://stats.ncaa.org/teams/fixture/schedule",
+            source_team_id="team",
+            source_season_id="season",
+            source_season_team_id="team-season",
+            source_stat_category_id="schedule",
+            collected_at=collected_at,
+            parser_version=PARSER_VERSION,
+            schema_version="schema-1",
+            status="partial",
+            failure_category="schedule_evidence_incomplete",
+        )
+
+        snapshot = run_report_job(
+            self.Session,
+            job.id,
+            collector=Mock(return_value=(*self.successful_sections(collected_at), schedule)),
+        )
+
+        self.assertEqual(snapshot.status, "partial")
+        with self.Session() as session:
+            records = list(session.scalars(select(SourceRecord).where(
+                SourceRecord.snapshot_id == snapshot.id,
+                SourceRecord.section == "schedule",
+            )))
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0].raw_values["source_game_id"], "fixture-1")
 
     def test_same_job_cache_reuse_preserves_source_collection_time(self):
         from roster_scout.jobs import accept_report_job, run_report_job
@@ -954,6 +1011,631 @@ class PublicationTests(PostgreSQLJobTestCase):
         finally:
             celery_app.conf.task_always_eager = previous_eager
         self.assertTrue(result.successful())
+
+
+class TwoStagePublicationTests(PostgreSQLJobTestCase):
+    def test_quick_publication_queues_one_detailed_successor(self):
+        from roster_scout.jobs import accept_report_job, run_report_job
+        from roster_scout.models import (
+            ReportArtifact,
+            ReportJob,
+            ReportJobDispatch,
+            ReportSnapshot,
+        )
+
+        organization_id, report_id = self.fixture()
+        quick = accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            "quick-first",
+            dispatch=None,
+            build_profile="quick",
+        )
+        snapshot = run_report_job(
+            self.Session,
+            quick.id,
+            collector=Mock(return_value=PublicationTests.successful_sections()),
+        )
+        replay = run_report_job(
+            self.Session,
+            quick.id,
+            collector=Mock(side_effect=AssertionError("terminal replay collected")),
+        )
+
+        self.assertEqual(replay.id, snapshot.id)
+        self.assertEqual(snapshot.status, "ready")
+        with self.Session() as session:
+            jobs = list(session.scalars(
+                select(ReportJob).order_by(ReportJob.created_at, ReportJob.id)
+            ))
+            self.assertEqual(len(jobs), 2)
+            self.assertEqual(jobs[0].id, quick.id)
+            self.assertEqual(jobs[0].build_profile, "quick")
+            self.assertEqual(jobs[0].status, "ready")
+            self.assertEqual(jobs[1].build_profile, "detailed")
+            self.assertEqual(jobs[1].status, "queued")
+            self.assertEqual(jobs[1].idempotency_key, f"detailed:{quick.id}")
+            stored_snapshot = session.get(ReportSnapshot, snapshot.id)
+            self.assertEqual(
+                stored_snapshot.collection_contract_version, "quick-season-v1"
+            )
+            artifacts = list(session.scalars(select(ReportArtifact)))
+            self.assertEqual(len(artifacts), 1)
+            self.assertEqual(artifacts[0].snapshot_id, snapshot.id)
+            successor_dispatches = list(session.scalars(
+                select(ReportJobDispatch).where(
+                    ReportJobDispatch.job_id == jobs[1].id
+                )
+            ))
+            self.assertEqual(len(successor_dispatches), 1)
+            self.assertEqual(successor_dispatches[0].status, "pending")
+
+    def test_detailed_publication_does_not_queue_another_job(self):
+        from roster_scout.jobs import accept_report_job, run_report_job
+        from roster_scout.models import ReportJob
+
+        organization_id, report_id = self.fixture()
+        detailed = accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            "detailed-only",
+            dispatch=None,
+        )
+        run_report_job(
+            self.Session,
+            detailed.id,
+            collector=Mock(return_value=PublicationTests.successful_sections()),
+        )
+        with self.Session() as session:
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(ReportJob)), 1
+            )
+
+    def test_quick_status_waits_for_the_downloadable_artifact(self):
+        from roster_scout.jobs import accept_report_job, run_report_job
+        from roster_scout.models import ReportArtifact
+        from roster_scout.reports import load_report_status
+
+        organization_id, report_id = self.fixture()
+        quick = accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            "quick-artifact-boundary",
+            dispatch=None,
+            build_profile="quick",
+        )
+        run_report_job(
+            self.Session,
+            quick.id,
+            collector=Mock(return_value=PublicationTests.successful_sections()),
+        )
+        with self.Session() as session:
+            saving = load_report_status(
+                session,
+                organization_id,
+                report_id,
+                job_id=quick.id,
+            )
+            self.assertEqual(saving.state, "saving")
+            self.assertFalse(saving.terminal)
+
+        with self.Session.begin() as session:
+            artifact = session.scalar(select(ReportArtifact))
+            artifact.status = "ready"
+            artifact.sha256 = "a" * 64
+            artifact.object_key = "test/quick.xlsx"
+
+        with self.Session() as session:
+            ready = load_report_status(
+                session,
+                organization_id,
+                report_id,
+                job_id=quick.id,
+            )
+            self.assertEqual(ready.state, "ready")
+            self.assertTrue(ready.terminal)
+
+
+class FullSeasonMetricPublicationTests(PostgreSQLJobTestCase):
+    @staticmethod
+    def detailed_sections():
+        from roster_scout.jobs import CollectedSection, PARSER_VERSION, SCHEMA_VERSION
+
+        collected_at = datetime(2026, 4, 1, 18, 30, tzinfo=UTC)
+        batting_rows = (
+            {
+                "Player": "Complete Two Way",
+                "G": "12",
+                "GS": "11",
+                "AB": "10",
+                "R": "3",
+                "H": "4",
+                "2B": "1",
+                "3B": "1",
+                "HR": "1",
+                "RBI": "4",
+                "BB": "2",
+                "HBP": "1",
+                "K": "2",
+                "SF": "1",
+                "SH": "1",
+                "SB": "2",
+                "CS": "0",
+                "TB": "10",
+                "_player_id": "100",
+                "_player_url": "https://stats.ncaa.org/players/100",
+            },
+            {
+                "Player": "Available Zero",
+                "AB": "4",
+                "H": "0",
+                "2B": "0",
+                "3B": "0",
+                "HR": "0",
+                "BB": "0",
+                "HBP": "0",
+                "K": "1",
+                "SF": "0",
+                "SH": "0",
+                "_player_id": "101",
+            },
+            {
+                "Player": "Undefined Average",
+                "AB": "0",
+                "H": "0",
+                "2B": "0",
+                "3B": "0",
+                "HR": "0",
+                "BB": "0",
+                "HBP": "0",
+                "K": "0",
+                "SF": "0",
+                "SH": "0",
+                "_player_id": "102",
+            },
+            {
+                "Player": "Missing Average",
+                "AB": "-",
+                "H": "-",
+                "2B": "-",
+                "3B": "-",
+                "HR": "-",
+                "BB": "-",
+                "HBP": "-",
+                "K": "-",
+                "SF": "-",
+                "SH": "-",
+                "_player_id": "103",
+            },
+        )
+        pitching_rows = (
+            {
+                "Player": "Complete Two Way",
+                "APP": "5",
+                "GS": "2",
+                "IP": "7.0",
+                "H": "6",
+                "R": "3",
+                "ER": "2",
+                "BB": "3",
+                "SO": "9",
+                "HR": "1",
+                "HBP": "1",
+                "BF": "30",
+                "AB": "26",
+                "SF": "1",
+                "_player_id": "100",
+                "_player_url": "https://stats.ncaa.org/players/100",
+            },
+        )
+        return tuple(
+            CollectedSection(
+                name=name,
+                critical=True,
+                rows=rows,
+                source_url=f"https://stats.ncaa.org/{name}",
+                source_team_id="team",
+                source_season_id="season",
+                source_season_team_id="team-season",
+                source_stat_category_id=name,
+                collected_at=collected_at,
+                parser_version=PARSER_VERSION,
+                schema_version=SCHEMA_VERSION,
+            )
+            for name, rows in (
+                ("batting", batting_rows),
+                ("pitching", pitching_rows),
+            )
+        )
+
+    def _build_published_snapshot(self, key="detailed-published"):
+        from roster_scout.jobs import accept_report_job, run_report_job
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session, organization_id, report_id, key, dispatch=None
+        )
+        snapshot = run_report_job(
+            self.Session,
+            job.id,
+            collector=Mock(return_value=self.detailed_sections()),
+        )
+        return organization_id, report_id, snapshot.id
+
+    def _build_draft_snapshot(self, key):
+        from roster_scout.jobs import (
+            _new_or_existing_snapshot,
+            _persist_canonical,
+            _persist_sections,
+            accept_report_job,
+        )
+        from roster_scout.models import ReportJob
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session, organization_id, report_id, key, dispatch=None
+        )
+        sections = self.detailed_sections()
+        with self.Session.begin() as session:
+            stored = session.get(ReportJob, job.id)
+            snapshot = _new_or_existing_snapshot(session, stored)
+            _persist_sections(session, stored, snapshot, sections)
+            session.flush()
+            snapshot_id = snapshot.id
+        with self.Session.begin() as session:
+            stored = session.get(ReportJob, job.id)
+            snapshot = session.get(type(snapshot), snapshot_id)
+            _persist_canonical(session, stored, snapshot, sections)
+            session.flush()
+        return snapshot_id
+
+    def test_current_contract_missing_ledgers_and_phase3_families_stays_partial(self):
+        from roster_scout.models import ReportSnapshot, RequestLedger
+
+        _organization_id, _report_id, snapshot_id = self._build_published_snapshot(
+            "phase3-contract-missing-evidence"
+        )
+        with self.Session() as session:
+            snapshot = session.get(ReportSnapshot, snapshot_id)
+            self.assertEqual(
+                snapshot.collection_contract_version, "phase3-detailed-v1"
+            )
+            self.assertEqual(snapshot.status, "partial")
+            self.assertEqual(
+                session.scalar(
+                    select(func.count()).select_from(RequestLedger).where(
+                        RequestLedger.snapshot_id == snapshot_id
+                    )
+                ),
+                0,
+            )
+
+    def test_normal_report_build_persists_detailed_facts_and_metric_lineage(self):
+        from roster_scout.metrics import DEFINITION_VERSION
+        from roster_scout.models import (
+            BattingFact,
+            MetricConstantSet,
+            MetricDefinition,
+            MetricValue,
+            PitchingFact,
+            PlayerTeamSeason,
+            ReportSnapshot,
+        )
+
+        _organization_id, _report_id, snapshot_id = self._build_published_snapshot()
+        with self.Session() as session:
+            snapshot = session.get(ReportSnapshot, snapshot_id)
+            self.assertEqual(snapshot.status, "partial")
+            batting = session.scalar(
+                select(BattingFact)
+                .join(PlayerTeamSeason)
+                .where(PlayerTeamSeason.display_name == "Complete Two Way")
+            )
+            pitching = session.scalar(
+                select(PitchingFact)
+                .join(PlayerTeamSeason)
+                .where(PlayerTeamSeason.display_name == "Complete Two Way")
+            )
+            self.assertEqual(batting.plate_appearances, 15)
+            self.assertEqual(batting.doubles, 1)
+            self.assertEqual(batting.total_bases, 10)
+            self.assertEqual(pitching.innings_outs, 21)
+            self.assertEqual(pitching.batters_faced, 30)
+            self.assertEqual(pitching.opponent_at_bats, 26)
+
+            rows = session.execute(
+                select(MetricValue, MetricDefinition, PlayerTeamSeason)
+                .join(MetricDefinition)
+                .join(PlayerTeamSeason)
+                .where(MetricValue.snapshot_id == snapshot_id)
+            ).all()
+            self.assertEqual(len(rows), 64)
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(MetricConstantSet)),
+                2,
+            )
+            metrics = {
+                (identity.display_name, definition.code): (value, definition)
+                for value, definition, identity in rows
+            }
+            legacy_avg, legacy_avg_definition = metrics[
+                ("Complete Two Way", "AVG")
+            ]
+            self.assertEqual(legacy_avg.value, Decimal(".4"))
+            self.assertEqual(legacy_avg.status, "available")
+            self.assertEqual(
+                legacy_avg_definition.version,
+                "ncaa-1.0:calculated",
+            )
+            legacy_era, legacy_era_definition = metrics[
+                ("Complete Two Way", "ERA")
+            ]
+            self.assertIsNone(legacy_era.value)
+            self.assertEqual(legacy_era.status, "missing_input")
+            self.assertEqual(legacy_era_definition.formula, "unavailable")
+            available_avg, avg_definition = metrics[("Complete Two Way", "avg")]
+            self.assertEqual(available_avg.status, "available")
+            self.assertEqual(available_avg.value, Decimal(".4"))
+            self.assertEqual(available_avg.inputs_json["hits"], 4)
+            self.assertEqual(available_avg.sample_json["ab"], 10)
+            self.assertEqual(avg_definition.version, DEFINITION_VERSION)
+            self.assertEqual(avg_definition.formula, "H / AB")
+
+            zero_avg, _ = metrics[("Available Zero", "avg")]
+            undefined_avg, _ = metrics[("Undefined Average", "avg")]
+            missing_avg, _ = metrics[("Missing Average", "avg")]
+            self.assertEqual((zero_avg.status, zero_avg.value), ("available", 0))
+            self.assertEqual(
+                (undefined_avg.status, undefined_avg.value),
+                ("undefined_denominator", None),
+            )
+            self.assertEqual(
+                (missing_avg.status, missing_avg.value),
+                ("missing_input", None),
+            )
+            woba, _ = metrics[("Complete Two Way", "woba")]
+            fip, _ = metrics[("Complete Two Way", "fip")]
+            self.assertEqual(woba.status, "available")
+            self.assertEqual(woba.value, Decimal("0.59618829"))
+            self.assertIsNotNone(woba.constant_set_id)
+            constant = session.get(MetricConstantSet, woba.constant_set_id)
+            self.assertEqual(constant.version, "ncaa-bbstats-1.4.2-eb7e4af63cb6")
+            self.assertEqual(
+                constant.payload_sha256,
+                "eb7e4af63cb60455904b6377b361e50f57628b779d52e53ff86fdab26e86e6bb",
+            )
+            self.assertEqual(fip.status, "available")
+            self.assertEqual(fip.value, Decimal("5.72170000"))
+            self.assertIsNotNone(fip.constant_set_id)
+            fip_constant = session.get(MetricConstantSet, fip.constant_set_id)
+            self.assertEqual(
+                fip_constant.version,
+                "ncaa-bbstats-1.4.2-ef3dfcbcd9e7",
+            )
+
+    def test_publication_rejects_missing_inputs_sample_or_formula_lineage(self):
+        from roster_scout.models import MetricDefinition, MetricValue
+        from roster_scout.snapshots import SnapshotPublicationError, publish_snapshot
+        from tests.db_support import clean_database
+
+        mutations = {
+            "inputs": lambda value, definition: setattr(value, "inputs_json", {}),
+            "sample": lambda value, definition: setattr(value, "sample_json", {}),
+            "formula": lambda value, definition: setattr(definition, "formula", ""),
+        }
+        for label, mutate in mutations.items():
+            clean_database(self.database_url)
+            snapshot_id = self._build_draft_snapshot(f"invalid-{label}")
+            with self.subTest(label=label), self.Session.begin() as session:
+                value, definition = session.execute(
+                    select(MetricValue, MetricDefinition)
+                    .join(MetricDefinition)
+                    .where(
+                        MetricValue.snapshot_id == snapshot_id,
+                        MetricDefinition.code == "avg",
+                    )
+                    .limit(1)
+                ).one()
+                mutate(value, definition)
+                session.flush()
+                with self.assertRaises(SnapshotPublicationError):
+                    publish_snapshot(session, snapshot_id)
+
+    def test_verified_exact_scope_constant_is_persisted_and_becomes_immutable(self):
+        from roster_scout.jobs import accept_report_job, run_report_job
+        from roster_scout.metrics import DEFINITION_VERSION, METRIC_DEFINITIONS
+        from roster_scout.models import (
+            MetricConstantSet,
+            MetricDefinition,
+            MetricValue,
+            Report,
+            TeamSeason,
+        )
+
+        organization_id, report_id = self.fixture()
+        with self.Session.begin() as session:
+            report = session.get(Report, report_id)
+            team_season = session.get(TeamSeason, report.team_season_id)
+            definition = MetricDefinition(
+                code="fip",
+                version=DEFINITION_VERSION,
+                formula=METRIC_DEFINITIONS["fip"].formula,
+            )
+            session.add(definition)
+            session.flush()
+            constant = MetricConstantSet(
+                metric_definition_id=definition.id,
+                metric_code="fip",
+                version="ncaa-2026-d2-v1",
+                season_id=team_season.season_id,
+                division=team_season.division,
+                constant_type="additive_constant",
+                values_json={"constant": "3.2"},
+                methodology="Verified NCAA season/division methodology",
+                source_url="https://stats.ncaa.org/constants",
+                source_identifier="fip:2026:d2:v1",
+                collected_at=datetime.now(UTC),
+                payload_sha256="b" * 64,
+                verification_status="verified",
+                verified_at=datetime.now(UTC),
+            )
+            session.add(constant)
+            session.flush()
+            constant_id = constant.id
+
+        job = accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            "verified-fip-constant",
+            dispatch=None,
+        )
+        snapshot = run_report_job(
+            self.Session,
+            job.id,
+            collector=Mock(return_value=self.detailed_sections()),
+        )
+        with self.Session() as session:
+            metric = session.scalar(
+                select(MetricValue)
+                .join(MetricDefinition)
+                .where(
+                    MetricValue.snapshot_id == snapshot.id,
+                    MetricDefinition.code == "fip",
+                )
+            )
+            self.assertEqual(metric.status, "available")
+            self.assertEqual(metric.value, Decimal("4.2"))
+            self.assertEqual(metric.constant_set_id, constant_id)
+        with self.Session.begin() as session:
+            with self.assertRaises(DBAPIError):
+                session.execute(
+                    text(
+                        "UPDATE metric_constant_sets "
+                        "SET values_json = '{\"constant\": \"4.0\"}'::jsonb "
+                        "WHERE id = :constant_id"
+                    ),
+                    {"constant_id": constant_id},
+                )
+
+    def test_publication_rejects_unverified_or_wrong_scope_constant_sets(self):
+        from roster_scout.models import (
+            MetricConstantSet,
+            MetricDefinition,
+            MetricValue,
+            Report,
+            ReportSnapshot,
+            Season,
+            TeamSeason,
+        )
+        from roster_scout.snapshots import SnapshotPublicationError, publish_snapshot
+        from tests.db_support import clean_database
+
+        for label in ("unverified", "wrong_division", "wrong_season"):
+            clean_database(self.database_url)
+            snapshot_id = self._build_draft_snapshot(f"constant-{label}")
+            with self.subTest(label=label), self.Session.begin() as session:
+                snapshot = session.get(ReportSnapshot, snapshot_id)
+                report = session.get(Report, snapshot.report_id)
+                team_season = session.get(TeamSeason, report.team_season_id)
+                value, definition = session.execute(
+                    select(MetricValue, MetricDefinition)
+                    .join(MetricDefinition)
+                    .where(
+                        MetricValue.snapshot_id == snapshot_id,
+                        MetricDefinition.code == "fip",
+                    )
+                ).one()
+                season_id = team_season.season_id
+                division = team_season.division
+                status = "pending"
+                verified_at = None
+                if label != "unverified":
+                    status = "verified"
+                    verified_at = datetime.now(UTC)
+                if label == "wrong_division":
+                    division = "1"
+                if label == "wrong_season":
+                    other_season = Season(
+                        source="ncaa",
+                        source_season_id=str(uuid.uuid4()),
+                        year=2025,
+                    )
+                    session.add(other_season)
+                    session.flush()
+                    season_id = other_season.id
+                constant = MetricConstantSet(
+                    metric_definition_id=definition.id,
+                    metric_code="fip",
+                    version=f"{label}-v1",
+                    season_id=season_id,
+                    division=division,
+                    constant_type="additive_constant",
+                    values_json={"constant": "3.2"},
+                    methodology="Verified NCAA season/division methodology",
+                    source_url="https://stats.ncaa.org/constants",
+                    source_identifier=f"fip:{label}",
+                    collected_at=datetime.now(UTC),
+                    payload_sha256="c" * 64,
+                    verification_status=status,
+                    verified_at=verified_at,
+                )
+                session.add(constant)
+                session.flush()
+                value.status = "available"
+                value.value = Decimal("3.2")
+                value.reason_code = None
+                value.constant_set_id = constant.id
+                session.flush()
+                with self.assertRaises(SnapshotPublicationError):
+                    publish_snapshot(session, snapshot_id)
+
+    def test_constant_definition_fk_rejects_cross_definition_substitution(self):
+        from roster_scout.models import (
+            MetricConstantSet,
+            MetricDefinition,
+            MetricValue,
+            TeamSeason,
+        )
+
+        snapshot_id = self._build_draft_snapshot("constant-definition-mismatch")
+        with self.Session.begin() as session:
+            fip_value, _fip_definition = session.execute(
+                select(MetricValue, MetricDefinition)
+                .join(MetricDefinition)
+                .where(
+                    MetricValue.snapshot_id == snapshot_id,
+                    MetricDefinition.code == "fip",
+                )
+            ).one()
+            avg_definition = session.scalar(
+                select(MetricDefinition).where(MetricDefinition.code == "avg")
+            )
+            constant = MetricConstantSet(
+                metric_definition_id=avg_definition.id,
+                metric_code="fip",
+                version="mismatched-v1",
+                season_id=session.scalar(select(TeamSeason.season_id).limit(1)),
+                division="2",
+                constant_type="additive_constant",
+                values_json={"constant": "3.2"},
+                methodology="Mismatch counterexample",
+                source_url="https://stats.ncaa.org/constants",
+                source_identifier="fip:mismatch",
+                collected_at=datetime.now(UTC),
+                payload_sha256="d" * 64,
+            )
+            session.add(constant)
+            session.flush()
+            fip_value.constant_set_id = constant.id
+            fip_value.status = "available"
+            fip_value.value = Decimal("3.2")
+            fip_value.reason_code = None
+            with self.assertRaises(IntegrityError):
+                session.flush()
 
 
 class ParserContractRecoveryTests(PostgreSQLJobTestCase):
@@ -1076,7 +1758,7 @@ class ParserContractRecoveryTests(PostgreSQLJobTestCase):
         snapshot = run_report_job(
             self.Session, job.id, collector=duplicate_collector
         )
-        self.assertEqual(snapshot.status, "ready")
+        self.assertEqual(snapshot.status, "partial")
         duplicate_collector.assert_not_called()
         with self.Session() as session:
             sections = list(session.scalars(select(ReportSection)))
@@ -1157,12 +1839,12 @@ class FinalAttemptEvidenceRecoveryTests(PostgreSQLJobTestCase):
 
         collector = Mock(side_effect=AssertionError("finalization collected twice"))
         snapshot = run_report_job(self.Session, job.id, collector=collector)
-        self.assertEqual(snapshot.status, "ready")
+        self.assertEqual(snapshot.status, "partial")
         collector.assert_not_called()
         with self.Session() as session:
             stored = session.get(ReportJob, job.id)
             self.assertEqual(stored.attempt_count, expected_attempts)
-            self.assertEqual(stored.status, "ready")
+            self.assertEqual(stored.status, "partial")
 
     def test_max_attempts_one_replays_complete_evidence_without_collection(self):
         job = self.crash_after_source_commit(max_attempts=1, attempt_count=0)
@@ -1308,6 +1990,64 @@ class PerSectionRecoveryTests(PostgreSQLJobTestCase):
             team_label="Tampa",
         )
 
+    @staticmethod
+    def fielding_collection(source):
+        from roster_scraper import (
+            NcaaCollection,
+            NcaaCollectionMetadata,
+            NcaaSection,
+            NcaaSeason,
+            NcaaSourceRow,
+            NcaaTeam,
+        )
+
+        collected_at = datetime(2026, 11, 9, 11, 1, tzinfo=UTC)
+        row = NcaaSourceRow(
+            section="fielding",
+            row_ordinal=0,
+            source_url="https://stats.ncaa.org/fielding-new",
+            source_player_id="recovery-player",
+            player_url="https://stats.ncaa.org/players/recovery-player",
+            raw_values={
+                "Player": "Recovery Player",
+                "G": "10",
+                "GS": "9",
+                "PO": "12",
+                "A": "8",
+                "E": "1",
+                "TC": "21",
+                "DP": "2",
+                "FPCT": ".952",
+                "player_url": "https://stats.ncaa.org/players/recovery-player",
+            },
+            payload_sha256="c" * 64,
+        )
+        return NcaaCollection(
+            team=NcaaTeam(
+                team_id=source["team_id"],
+                name="Tampa",
+                season_team_id=source["season_team_id"],
+                division=f"d{source['division']}",
+            ),
+            season=NcaaSeason(
+                season_id=source["season_id"],
+                year=source["year"],
+                batting_category_id=source["batting_id"],
+                pitching_category_id=source["pitching_id"],
+                fielding_category_id="fielding",
+            ),
+            metadata=NcaaCollectionMetadata(collected_at=collected_at),
+            sections=(NcaaSection(
+                name="fielding",
+                source_url="https://stats.ncaa.org/fielding-new",
+                stat_category_id="fielding",
+                html_sha256="c" * 64,
+                rows=(row,),
+            ),),
+            players=(),
+            team_label="Tampa",
+        )
+
     def test_only_missing_section_is_fetched_and_cached_section_stays_exact(self):
         import roster_scraper as rs
         from roster_scout.jobs import collect_ncaa_sections, run_report_job
@@ -1340,8 +2080,15 @@ class PerSectionRecoveryTests(PostgreSQLJobTestCase):
                 )
             ]
 
+        def collect_section(*_args, section_names, **_kwargs):
+            if section_names == frozenset({"pitching"}):
+                return self.pitching_collection(source)
+            if section_names == frozenset({"fielding"}):
+                return self.fielding_collection(source)
+            raise AssertionError(f"unexpected sections: {section_names}")
+
         with patch.object(
-            rs, "collect_ncaa_by_id", return_value=self.pitching_collection(source)
+            rs, "collect_ncaa_by_id", side_effect=collect_section
         ) as collect:
             snapshot = run_report_job(
                 self.Session,
@@ -1351,13 +2098,11 @@ class PerSectionRecoveryTests(PostgreSQLJobTestCase):
                 ),
             )
 
-        self.assertEqual(snapshot.status, "ready")
-        collect.assert_called_once_with(
-            source["season_team_id"],
-            division=source["division"],
-            year=source["year"],
-            force_refresh=True,
-            section_names=frozenset({"pitching"}),
+        self.assertEqual(snapshot.status, "partial")
+        self.assertEqual(collect.call_count, 2)
+        self.assertEqual(
+            [call.kwargs["section_names"] for call in collect.call_args_list],
+            [frozenset({"pitching"}), frozenset({"fielding"})],
         )
         with self.Session() as session:
             batting = session.scalar(
@@ -1396,7 +2141,7 @@ class PerSectionRecoveryTests(PostgreSQLJobTestCase):
                         SourceRecord.snapshot_id == snapshot_id
                     )
                 ),
-                2,
+                3,
             )
 
     def test_conflicting_content_cannot_extend_a_complete_section(self):
@@ -1495,7 +2240,7 @@ class ConcurrentExecutionClaimTests(PostgreSQLJobTestCase):
         with self.Session() as session:
             stored = session.get(ReportJob, job.id)
             self.assertEqual(stored.attempt_count, 1)
-            self.assertEqual(stored.status, "ready")
+            self.assertEqual(stored.status, "partial")
             self.assertIsNone(stored.failure_category)
             self.assertIsNone(stored.failure_message)
             self.assertEqual(
@@ -1576,7 +2321,7 @@ class CeleryConcurrentDeliveryTests(PostgreSQLJobTestCase):
         with self.Session() as session:
             stored = session.get(ReportJob, job.id)
             self.assertEqual(stored.attempt_count, 1)
-            self.assertEqual(stored.status, "ready")
+            self.assertEqual(stored.status, "partial")
             self.assertIsNone(stored.failure_category)
             self.assertIsNone(stored.failure_message)
             self.assertEqual(
@@ -1945,7 +2690,7 @@ class FailureEvidenceIntegrationTests(PostgreSQLJobTestCase):
             job.id,
             collector=lambda *_args, **_kwargs: PublicationTests.successful_sections(),
         )
-        self.assertEqual(snapshot.status, "ready")
+        self.assertEqual(snapshot.status, "partial")
         with self.Session() as session:
             self.assertEqual(
                 session.scalar(select(func.count()).select_from(FailureEvidence)), 0
@@ -2093,6 +2838,7 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
     SEASON_ID = "17040"
     BATTING_ID = "15867"
     PITCHING_ID = "15868"
+    FIELDING_ID = "15869"
 
     def setUp(self):
         super().setUp()
@@ -2114,6 +2860,7 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
             "id": self.SEASON_ID,
             "batting_id": self.BATTING_ID,
             "pitching_id": self.PITCHING_ID,
+            "fielding_id": self.FIELDING_ID,
         }]
 
     def tearDown(self):
@@ -2137,7 +2884,9 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
             "</table></body></html>"
         )
 
-    def _accepted_job(self, division, idempotency_key):
+    def _accepted_job(
+        self, division, idempotency_key, *, build_profile="detailed"
+    ):
         from roster_scout.jobs import accept_report_job
         from roster_scout.models import Report, Season, Team, TeamSeason
 
@@ -2162,20 +2911,445 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
             report_id,
             idempotency_key,
             dispatch=None,
+            build_profile=build_profile,
         )
 
-    def _run_real_collector(self, job):
+    def _run_real_collector(self, job, generation=None):
         from roster_scout.jobs import collect_ncaa_sections, run_report_job
 
         return run_report_job(
             self.Session,
             job.id,
+            generation,
             collector=lambda job_id, cached_sections=frozenset(): collect_ncaa_sections(
                 self.Session,
                 job_id,
                 cached_sections=cached_sections,
             ),
         )
+
+    def test_quick_collector_stops_after_core_sections(self):
+        import roster_scraper as scraper
+        from roster_scraper import (
+            NcaaCollection,
+            NcaaCollectionMetadata,
+            NcaaSeason,
+            NcaaSection,
+            NcaaTeam,
+        )
+        from roster_scout.models import ReportJob, ReportSection, ReportSnapshot
+
+        job = self._accepted_job(
+            1, "quick-core-only", build_profile="quick"
+        )
+        source = self.TEAMS[1]
+
+        def collect_core(*_args, request_reserver=None, **_kwargs):
+            request_reserver("batting")
+            request_reserver("pitching")
+            return NcaaCollection(
+                team=NcaaTeam(
+                    team_id=source["team_id"],
+                    name=source["team_name"],
+                    season_team_id=source["season_team_id"],
+                    division="d1",
+                ),
+                season=NcaaSeason(
+                    season_id=self.SEASON_ID,
+                    year=2026,
+                    batting_category_id=self.BATTING_ID,
+                    pitching_category_id=self.PITCHING_ID,
+                    fielding_category_id=self.FIELDING_ID,
+                ),
+                metadata=NcaaCollectionMetadata(collected_at=datetime.now(UTC)),
+                sections=tuple(
+                    NcaaSection(
+                        name=name,
+                        source_url=f"https://stats.ncaa.org/{name}",
+                        stat_category_id=category_id,
+                        html_sha256="a" * 64,
+                        rows=(),
+                        verified_empty=True,
+                    )
+                    for name, category_id in (
+                        ("batting", self.BATTING_ID),
+                        ("pitching", self.PITCHING_ID),
+                    )
+                ),
+                players=(),
+                team_label=source["team_name"],
+            )
+
+        with patch.object(
+            scraper, "collect_ncaa_by_id", side_effect=collect_core
+        ) as core, patch.object(
+            scraper,
+            "collect_ncaa_schedule_evidence",
+            side_effect=AssertionError("quick build fetched schedule"),
+        ), patch.object(
+            scraper,
+            "collect_ncaa_player_detail_batch_evidence",
+            side_effect=AssertionError("quick build fetched player history"),
+        ), patch.object(
+            scraper,
+            "collect_ncaa_split_results",
+            side_effect=AssertionError("quick build fetched splits"),
+        ):
+            snapshot = self._run_real_collector(job)
+
+        self.assertEqual(core.call_count, 1)
+        self.assertEqual(snapshot.status, "ready")
+        with self.Session() as session:
+            stored_snapshot = session.get(ReportSnapshot, snapshot.id)
+            self.assertEqual(
+                stored_snapshot.collection_contract_version,
+                "quick-season-v1",
+            )
+            self.assertEqual(
+                set(session.scalars(
+                    select(ReportSection.section).where(
+                        ReportSection.snapshot_id == snapshot.id
+                    )
+                )),
+                {"batting", "pitching"},
+            )
+            successor = session.scalar(
+                select(ReportJob).where(ReportJob.id != job.id)
+            )
+            self.assertIsNotNone(successor)
+            self.assertEqual(successor.build_profile, "detailed")
+
+    @staticmethod
+    def _fixture_page_transport(pages, *, error=None):
+        """Exercise the production collector above a deterministic network adapter."""
+        def fetch(urls, **kwargs):
+            reserve = kwargs.get("request_reserver")
+            for key in urls:
+                if reserve is not None:
+                    reserve(key)
+            if error is not None:
+                raise error
+            return {key: pages[key] for key in urls}
+
+        return fetch
+
+    @staticmethod
+    def _reserving_collector_result(result, families):
+        def collect(*_args, request_reserver=None, **_kwargs):
+            for family in families:
+                request_reserver(family)
+            return result
+
+        return collect
+
+    @staticmethod
+    def _reserving_history_batch_result(result):
+        def collect(
+            _season_team_id,
+            player_ids,
+            *,
+            player_stat_types=None,
+            request_reserver=None,
+            **_kwargs,
+        ):
+            for player_id in player_ids:
+                for stat_type in (
+                    player_stat_types.get(str(player_id), ())
+                    if player_stat_types is not None
+                    else ("batting", "pitching", "fielding")
+                ):
+                    request_reserver(player_id, stat_type)
+            return {str(player_id): result for player_id in player_ids}
+
+        return collect
+
+    def _complete_phase3_evidence(self):
+        from dataclasses import replace
+        from roster_scout.jobs import CollectedSection
+        from roster_scout.ncaa_detail import (
+            parse_player_detail_fixture, parse_schedule_fixture,
+        )
+        from tests.test_ncaa_detail import _SplitContractMixin
+
+        base = FullSeasonMetricPublicationTests.detailed_sections()
+        core = tuple(
+            CollectedSection(
+                **{
+                    **section.__dict__,
+                    "rows": ({
+                        **section.rows[0],
+                        "_player_id": "9698671",
+                        "_player_url": "https://stats.ncaa.org/players/9698671",
+                    },),
+                    "source_team_id": "234",
+                    "source_season_id": "17040",
+                    "source_season_team_id": "614606",
+                    "source_stat_category_id": (
+                        self.BATTING_ID
+                        if section.name == "batting"
+                        else self.PITCHING_ID
+                    ),
+                }
+            )
+            for section in base
+        )
+        schedule = parse_schedule_fixture(
+            self._fixture("ncaa_detail/d1/schedule.html"),
+            expected_season_id="17040",
+            expected_team_id="234",
+            expected_season_team_id="614606",
+            expected_division="1",
+        )
+        detail = parse_player_detail_fixture(
+            self._fixture("ncaa_detail/d1/player_detail.html"),
+            expected_player_id="9698671",
+            expected_season_id="17040",
+            expected_season_team_id="614606",
+            expected_division="1",
+        )
+        detail = replace(
+            detail,
+            career_seasons=tuple(
+                row for row in detail.career_seasons
+                if row.source_season_id == "17040"
+                and row.source_season_team_id == "614606"
+            ),
+        )
+        split_fixture = _SplitContractMixin()
+        split_results = []
+        for stat_type in ("batting", "pitching"):
+            parsed = split_fixture.parse_result(stat_type)
+            row = next(
+                item for item in parsed.rows
+                if item.source_player_id == "9698671"
+            )
+            metric = next(
+                item for item in parsed.metric_results
+                if item.source_player_id == "9698671"
+            )
+            for scope in split_fixture.discovery(stat_type):
+                split_results.append(replace(
+                    parsed,
+                    scope_code=scope.scope_code,
+                    display_label=scope.display_label,
+                    source_identifier=scope.source_identifier,
+                    source_url=scope.source_url,
+                    source_payload_sha256=hashlib.sha256(
+                        f"{stat_type}:{scope.scope_code}:complete".encode()
+                    ).hexdigest(),
+                    rows=(row,),
+                    metric_results=(metric,),
+                ))
+        return (
+            core,
+            schedule,
+            detail,
+            {
+                "season": "2026",
+                "id": "17040",
+                "batting_id": self.BATTING_ID,
+                "pitching_id": self.PITCHING_ID,
+                "fielding_id": "",
+            },
+            tuple(split_results),
+        )
+
+    def _ready_transport_fixtures(self):
+        """Build raw source pages for one complete public-collector run."""
+        from bs4 import BeautifulSoup
+        from html import escape
+
+        player_id = "9698671"
+        core_pages = {
+            "batting": self._table(
+                "".join(f"<th>{item}</th>" for item in (
+                    "Player", "AB", "H", "BB", "K", "HBP", "SF", "SH",
+                    "2B", "3B", "HR", "TB",
+                )),
+                "<tr><td><a href='/players/9698671'>Fixture Player</a></td>"
+                "<td>10</td><td>4</td><td>1</td><td>2</td><td>0</td>"
+                "<td>0</td><td>0</td><td>1</td><td>0</td><td>0</td><td>5</td></tr>",
+            ),
+            "pitching": self._table(
+                "".join(f"<th>{item}</th>" for item in (
+                    "Player", "IP", "H", "R", "ER", "BB", "SO", "HR",
+                    "HBP", "BF", "AB", "SF", "ERA",
+                )),
+                "<tr><td><a href='/players/9698671'>Fixture Player</a></td>"
+                "<td>3.0</td><td>2</td><td>1</td><td>1</td><td>1</td>"
+                "<td>4</td><td>0</td><td>0</td><td>12</td><td>10</td>"
+                "<td>0</td><td>3.00</td></tr>",
+            ),
+            "fielding": self._table(
+                "".join(f"<th>{item}</th>" for item in (
+                    "Player", "G", "GS", "PO", "A", "E", "TC", "DP", "FPCT",
+                )),
+                "<tr><td><a href='/players/9698671'>Fixture Player</a></td>"
+                "<td>2</td><td>2</td><td>3</td><td>1</td><td>0</td>"
+                "<td>4</td><td>1</td><td>1.000</td></tr>",
+            ),
+        }
+        schedule_html = (
+            "<html><body><table data-total-games='2'><thead><tr>"
+            "<th>Date</th><th>Opponent</th><th>Result</th>"
+            "</tr></thead><tbody>"
+            "<tr data-venue='away'><td>05/08/2026</td>"
+            "<td><a href='/teams/614584'>Notre Dame</a></td>"
+            "<td><a href='/contests/6530192/box_score'>W 1-0</a></td></tr>"
+            "<tr data-venue='away'><td>05/09/2026</td>"
+            "<td><a href='/teams/614584'>Notre Dame</a></td>"
+            "<td><a href='/contests/6530195/box_score'>W 2-1</a></td></tr>"
+            "</tbody></table></body></html>"
+        )
+        catalog = (
+            {
+                "team_id": "234", "season_team_id": "614606",
+                "conference_id": "821", "division": "1",
+                "season_id": "17040", "year": "2026",
+            },
+            {
+                "team_id": "147", "season_team_id": "614584",
+                "conference_id": "821", "division": "1",
+                "season_id": "17040", "year": "2026",
+            },
+        )
+
+        fixture = BeautifulSoup(
+            self._fixture("ncaa_detail/d1/player_detail.html"), "html.parser"
+        )
+        player_pages = {}
+        game_ids = {"6530192", "6530195"}
+        for stat_type in ("batting", "pitching", "fielding"):
+            section = fixture.find("stat-section", {"data-stat-type": stat_type})
+            career_row = section.find(
+                "career-totals"
+            ).find("row", {"data-source-season-id": "17040"})
+            game_rows = [
+                row for row in section.find("game-log").find_all("row", recursive=False)
+                if row.get("data-source-game-id") in game_ids
+            ]
+
+            def render_table(kind, rows):
+                identity = (
+                    ("Year", "Team") if kind == "career_totals"
+                    else ("Date", "Opponent", "Result")
+                )
+                values = rows[0].find_all("value", recursive=False)
+                headers = (*identity, *(item["data-source-header"] for item in values))
+                output = [
+                    f"<table id='{kind}_{player_id}_player'><thead><tr>",
+                    *(f"<th>{escape(header)}</th>" for header in headers),
+                    "</tr></thead><tbody>",
+                ]
+                for row in rows:
+                    if kind == "career_totals":
+                        cells = (
+                            escape(row["data-season-label"]),
+                            "<a href='/teams/614606'>Florida St.</a>",
+                        )
+                    else:
+                        game_id = row["data-source-game-id"]
+                        cells = (
+                            escape(row["data-date-label"]),
+                            "<a href='/teams/614584'>Notre Dame</a>",
+                            f"<a href='/contests/{game_id}/box_score'>W</a>",
+                        )
+                    output.append("<tr>")
+                    output.extend(f"<td>{cell}</td>" for cell in cells)
+                    output.extend(
+                        f"<td>{escape(item.get_text(' ', strip=True))}</td>"
+                        for item in row.find_all("value", recursive=False)
+                    )
+                    output.append("</tr>")
+                output.append("</tbody></table>")
+                return "".join(output)
+
+            player_pages[stat_type] = (
+                "<html><body>"
+                + render_table("career_totals", [career_row])
+                + render_table("game_log", game_rows)
+                + "</body></html>"
+            )
+
+        split_labels = {
+            "batting": (
+                "vs. Left-Handed Pitchers", "vs. Right-Handed Pitchers",
+                "Runners On", "Bases Empty", "Bases Loaded",
+                "Runners in Scoring Position", "Two Outs",
+            ),
+            "pitching": (
+                "vs. Left-Handed Batters", "vs. Right-Handed Batters",
+                "Runners On", "Bases Empty", "Bases Loaded",
+                "Runners in Scoring Position", "Two Outs",
+            ),
+        }
+        split_controls = {}
+        for stat_type, labels in split_labels.items():
+            headers = (
+                "<th>Player</th><th>AB</th><th>H</th>"
+                if stat_type == "batting"
+                else "<th>Player</th><th>IP</th><th>ERA</th>"
+            )
+            controls = "".join(
+                f"<button class='sport_stat_menu_option_{index}' "
+                f"data-sport-stat-id='{index}' data-split-id='{index}'>"
+                f"{label}</button>"
+                for index, label in enumerate(labels, start=101)
+            )
+            split_controls[stat_type] = self._table(headers) + controls
+        return core_pages, schedule_html, catalog, player_pages, split_controls
+
+    @staticmethod
+    def _split_result_page(stat_type, labels):
+        """Return a minimal Playwright-shaped page backed by split fixtures."""
+        class Control:
+            def __init__(self, page, identifier, label):
+                self.page = page
+                self.identifier = identifier
+                self.label = label
+
+            def count(self):
+                return 1
+
+            def get_attribute(self, name):
+                return self.identifier if name == "data-sport-stat-id" else None
+
+            def inner_text(self):
+                return self.label
+
+            def evaluate(self, _script):
+                self.page.active = self.identifier
+
+        class Page:
+            active = "101"
+
+            def set_default_timeout(self, _milliseconds):
+                return None
+
+            def wait_for_timeout(self, _milliseconds):
+                return None
+
+            def locator(self, selector):
+                identifier = selector.rsplit("_", 1)[-1]
+                return Control(self, identifier, labels[int(identifier) - 101])
+
+            def content(self):
+                if stat_type == "batting":
+                    headers, values = ("Player", "AB", "H"), ("Fixture Player", "10", "4")
+                else:
+                    headers, values = ("Player", "P-OAB", "H"), ("Fixture Player", "10", "2")
+                return (
+                    "<table id='stat_grid'><thead><tr>"
+                    + "".join(f"<th>{item}</th>" for item in headers)
+                    + "</tr></thead><tbody>"
+                    "<tr id='player_9698671'><td><a href='/players/9698671'>"
+                    f"{values[0]}</a></td><td></td><td></td></tr>"
+                    f"<tr class='sport_stat_{self.active}'><td></td>"
+                    f"<td>{values[1]}</td><td>{values[2]}</td></tr>"
+                    "</tbody></table>"
+                )
+
+        return Page()
 
     def test_malformed_core_headers_fail_closed_with_bounded_evidence(self):
         import roster_scraper as scraper
@@ -2270,13 +3444,14 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
             pages = {
                 "batting": self._fixture("d2_batting.html"),
                 "pitching": self._fixture("d2_pitching.html"),
+                "fielding": self._fixture("ncaa_detail/d2/fielding.html"),
                 section: self._table(headers),
             }
             with self.subTest(section=section), patch.object(
                 scraper, "_fetch_ncaa_pages", return_value=pages
             ):
                 snapshot = self._run_real_collector(job)
-            self.assertEqual(snapshot.status, "ready")
+            self.assertEqual(snapshot.status, "partial")
             with self.Session() as session:
                 stored_section = session.scalar(select(ReportSection).where(
                     ReportSection.snapshot_id == snapshot.id,
@@ -2289,9 +3464,11 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
                     0,
                 )
 
-    def test_valid_d1_d2_d3_pages_still_publish(self):
+    def test_valid_d1_d2_d3_pages_publish_partial_when_split_transport_is_unavailable(self):
         import roster_scraper as scraper
-        from roster_scout.models import BattingFact, PitchingFact
+        from roster_scout.models import (
+            BattingFact, PitchingFact, ReportSection, RequestLedger,
+        )
         from tests.db_support import clean_database
 
         for division in (1, 2, 3):
@@ -2300,12 +3477,20 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
             pages = {
                 "batting": self._fixture(f"d{division}_batting.html"),
                 "pitching": self._fixture(f"d{division}_pitching.html"),
+                "fielding": self._fixture(
+                    f"ncaa_detail/d{division}/fielding.html"
+                ),
             }
-            with self.subTest(division=division), patch.object(
-                scraper, "_fetch_ncaa_pages", return_value=pages
+            with self.subTest(division=division), patch.dict(
+                os.environ, {}, clear=False
+            ), patch.object(
+                scraper,
+                "_fetch_ncaa_pages",
+                side_effect=self._fixture_page_transport(pages),
             ):
+                os.environ.pop("NCAA_BROWSER_PROVIDER", None)
                 snapshot = self._run_real_collector(job)
-            self.assertEqual(snapshot.status, "ready")
+            self.assertEqual(snapshot.status, "partial")
             with self.Session() as session:
                 self.assertGreater(
                     session.scalar(select(func.count()).select_from(BattingFact)), 0
@@ -2313,6 +3498,1039 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
                 self.assertGreater(
                     session.scalar(select(func.count()).select_from(PitchingFact)), 0
                 )
+                split_sections = list(session.scalars(select(ReportSection).where(
+                    ReportSection.snapshot_id == snapshot.id,
+                    ReportSection.section.in_(("splits:batting", "splits:pitching")),
+                )))
+                self.assertEqual({item.section for item in split_sections}, {
+                    "splits:batting", "splits:pitching",
+                })
+                self.assertTrue(all(item.status == "partial" for item in split_sections))
+                split_ledgers = list(session.scalars(select(RequestLedger).where(
+                    RequestLedger.snapshot_id == snapshot.id,
+                    RequestLedger.family.in_(("splits:batting", "splits:pitching")),
+                )))
+                self.assertEqual(len(split_ledgers), 2)
+                self.assertTrue(all(
+                    item.safe_category == "split_transport_unavailable"
+                    for item in split_ledgers
+                ))
+                live_ledgers = list(session.scalars(select(RequestLedger).where(
+                    RequestLedger.snapshot_id == snapshot.id,
+                    RequestLedger.family.in_(("batting", "pitching")),
+                )))
+                self.assertEqual(
+                    {(item.family, item.pages_consumed) for item in live_ledgers},
+                    {("batting", 1), ("pitching", 1)},
+                )
+
+    def test_real_collector_complete_phase3_evidence_publishes_ready(self):
+        import roster_scraper as scraper
+        from roster_scout.models import (
+            BattingGameLogFact, CareerSeasonFact, FieldingFact, Game,
+            RequestLedger, ScopedBattingFact, ScopedPitchingFact, StatisticScope,
+        )
+        from scripts import capture_phase3_ncaa_fixtures as capture
+
+        job = self._accepted_job(1, "phase3-real-collector-complete")
+        (
+            core_pages, schedule_html, catalog, player_pages, split_controls,
+        ) = self._ready_transport_fixtures()
+        split_labels = {
+            "batting": (
+                "vs. Left-Handed Pitchers", "vs. Right-Handed Pitchers",
+                "Runners On", "Bases Empty", "Bases Loaded",
+                "Runners in Scoring Position", "Two Outs",
+            ),
+            "pitching": (
+                "vs. Left-Handed Batters", "vs. Right-Handed Batters",
+                "Runners On", "Bases Empty", "Bases Loaded",
+                "Runners in Scoring Position", "Two Outs",
+            ),
+        }
+        transport_stages = []
+        split_result_failures = 0
+
+        def fetch_pages(urls, **kwargs):
+            nonlocal split_result_failures
+            reserve = kwargs.get("request_reserver")
+            consumer = kwargs.get("page_consumer")
+            for key in urls:
+                if reserve is not None:
+                    reserve(key)
+            if consumer is None and (
+                "core" not in transport_stages or "fielding" in urls
+            ):
+                transport_stages.append(
+                    "fielding" if set(urls) == {"fielding"} else "core"
+                )
+                return {key: core_pages[key] for key in urls}
+            if consumer is None:
+                transport_stages.append("split_controls")
+                return {key: split_controls[key] for key in urls}
+            transport_stages.append("split_results")
+            if split_result_failures == 0:
+                split_result_failures += 1
+                raise scraper.NcaaAccessError("transient split session handoff")
+            output = {}
+            for key, source_url in urls.items():
+                page = self._split_result_page(key, split_labels[key])
+                output[key] = consumer(
+                    key=key,
+                    page=page,
+                    source_url=source_url,
+                    html=split_controls[key],
+                )
+            return output
+
+        def fetch_schedule(_url, _limits, *, request_reserver=None, **_kwargs):
+            transport_stages.append("schedule")
+            request_reserver("schedule")
+            return schedule_html
+
+        def fetch_player(player_urls, _limits, *, request_reserver=None, **_kwargs):
+            transport_stages.append("player_detail")
+            output = {}
+            for player_id in player_urls:
+                for stat_type in ("batting", "pitching", "fielding"):
+                    request_reserver(player_id, stat_type)
+                output[player_id] = player_pages
+            return output
+
+        season_contract = {
+            "season": "2026", "id": "17040",
+            "batting_id": self.BATTING_ID,
+            "pitching_id": self.PITCHING_ID,
+            "fielding_id": self.FIELDING_ID,
+        }
+        with patch.dict(
+            os.environ,
+            {
+                "NCAA_BROWSER_PROVIDER": "browserless",
+                "PHASE3_LIVE_PAGE_BUDGET": "32",
+            },
+            clear=False,
+        ), patch.object(
+            scraper, "_find_ncaa_season", return_value=season_contract
+        ), patch.object(
+            scraper, "_fetch_ncaa_pages", side_effect=fetch_pages
+        ), patch.object(
+            capture, "_catalog_rows_for_season", return_value=catalog
+        ), patch.object(
+            capture, "_bounded_schedule_fetch", side_effect=fetch_schedule
+        ), patch.object(
+            capture, "_bounded_player_batch_fetch", side_effect=fetch_player
+        ):
+            snapshot = self._run_real_collector(job)
+
+        self.assertEqual(
+            transport_stages,
+            [
+                "core", "fielding", "schedule", "player_detail",
+                "split_controls", "split_controls",
+                "split_results", "split_results", "split_results",
+            ],
+        )
+        self.assertEqual(snapshot.status, "ready")
+        with self.Session() as session:
+            ledgers = list(session.scalars(select(RequestLedger).where(
+                RequestLedger.snapshot_id == snapshot.id
+            )))
+            self.assertTrue(ledgers)
+            self.assertNotIn("planned", {item.outcome for item in ledgers})
+            self.assertTrue({
+                "batting", "pitching", "schedule",
+                "history:batting", "history:pitching", "history:fielding",
+                "splits:batting", "splits:pitching",
+            } <= {item.family for item in ledgers})
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(Game)), 2
+            )
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(CareerSeasonFact)), 3
+            )
+            self.assertGreater(
+                session.scalar(select(func.count()).select_from(BattingGameLogFact)), 0
+            )
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(FieldingFact)), 1
+            )
+            self.assertEqual(
+                session.scalar(
+                    select(func.count()).select_from(ScopedBattingFact).join(
+                        StatisticScope,
+                        StatisticScope.id == ScopedBattingFact.statistic_scope_id,
+                    ).where(StatisticScope.scope_kind == "source_split")
+                ),
+                7,
+            )
+            self.assertEqual(
+                session.scalar(
+                    select(func.count()).select_from(ScopedPitchingFact).join(
+                        StatisticScope,
+                        StatisticScope.id == ScopedPitchingFact.statistic_scope_id,
+                    ).where(StatisticScope.scope_kind == "source_split")
+                ),
+                7,
+            )
+
+    def test_live_page_reservation_is_atomic_under_concurrency(self):
+        from roster_scout.jobs import _reserve_job_live_pages
+        from roster_scout.models import ReportJob
+
+        job = self._accepted_job(1, "phase3-concurrent-budget")
+        ready = threading.Barrier(2)
+        results = []
+        errors = []
+
+        def reserve():
+            try:
+                ready.wait()
+                results.append(_reserve_job_live_pages(
+                    self.Session,
+                    job_id=job.id,
+                    dispatch_generation=1,
+                    page_count=1,
+                    page_budget=1,
+                ))
+            except Exception as exc:  # pragma: no cover - assertion reports details
+                errors.append(exc)
+
+        threads = [threading.Thread(target=reserve) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(10)
+
+        self.assertFalse(errors)
+        self.assertEqual(sorted(results, key=lambda item: item is None), [0, None])
+        with self.Session() as session:
+            stored = session.get(ReportJob, job.id)
+            self.assertEqual(stored.phase3_live_pages_consumed, 1)
+
+    def test_retry_generation_reuses_durable_budget_without_ledger_collision(self):
+        import roster_scraper as scraper
+        from roster_scout.jobs import RetryableJobError
+        from roster_scout.models import ReportJob, RequestLedger
+
+        job = self._accepted_job(1, "phase3-retry-budget")
+        pages = {
+            "batting": self._fixture("d1_batting.html"),
+            "pitching": self._fixture("d1_pitching.html"),
+            "fielding": self._fixture("ncaa_detail/d1/fielding.html"),
+        }
+        blocked = scraper.NcaaAccessError("fixture transport blocked")
+        with patch.dict(os.environ, {}, clear=False), patch.object(
+            scraper,
+            "_fetch_ncaa_pages",
+            side_effect=self._fixture_page_transport(pages, error=blocked),
+        ):
+            os.environ.pop("NCAA_BROWSER_PROVIDER", None)
+            with self.assertRaises(RetryableJobError):
+                self._run_real_collector(job, generation=1)
+
+        with self.Session() as session:
+            retried = session.get(ReportJob, job.id)
+            self.assertEqual(retried.dispatch_generation, 2)
+            self.assertEqual(retried.phase3_live_pages_consumed, 2)
+
+        with patch.dict(os.environ, {}, clear=False), patch.object(
+            scraper,
+            "_fetch_ncaa_pages",
+            side_effect=self._fixture_page_transport(pages),
+        ):
+            os.environ.pop("NCAA_BROWSER_PROVIDER", None)
+            snapshot = self._run_real_collector(job, generation=2)
+
+        self.assertEqual(snapshot.status, "partial")
+        with self.Session() as session:
+            stored = session.get(ReportJob, job.id)
+            ledgers = list(session.scalars(
+                select(RequestLedger)
+                .where(RequestLedger.job_id == job.id)
+                .order_by(
+                    RequestLedger.dispatch_generation,
+                    RequestLedger.family,
+                )
+            ))
+            self.assertEqual(stored.phase3_live_pages_consumed, 5)
+            self.assertEqual(
+                sum(item.pages_consumed for item in ledgers),
+                stored.phase3_live_pages_consumed,
+            )
+            self.assertEqual(
+                {
+                    (item.dispatch_generation, item.family, item.pages_consumed)
+                    for item in ledgers
+                    if item.family in {"batting", "pitching"}
+                },
+                {
+                    (1, "batting", 1),
+                    (1, "pitching", 1),
+                    (2, "batting", 1),
+                    (2, "pitching", 1),
+                },
+            )
+            self.assertNotIn("planned", {item.outcome for item in ledgers})
+
+    def test_complete_retry_generation_ignores_prior_failed_ledgers(self):
+        import roster_scraper as scraper
+        from roster_scout.jobs import RetryableJobError
+        from roster_scout.models import RequestLedger
+
+        job = self._accepted_job(1, "phase3-complete-retry-generation")
+        pages = {
+            "batting": self._fixture("d1_batting.html"),
+            "pitching": self._fixture("d1_pitching.html"),
+        }
+        with patch.dict(os.environ, {}, clear=False), patch.object(
+            scraper,
+            "_fetch_ncaa_pages",
+            side_effect=self._fixture_page_transport(
+                pages, error=scraper.NcaaAccessError("fixture blocked")
+            ),
+        ):
+            os.environ.pop("NCAA_BROWSER_PROVIDER", None)
+            with self.assertRaises(RetryableJobError):
+                self._run_real_collector(job, generation=1)
+
+        core, schedule, detail, season_contract, split_results = (
+            self._complete_phase3_evidence()
+        )
+        with patch.dict(
+            os.environ, {"NCAA_BROWSER_PROVIDER": "browserless"}, clear=False
+        ), patch.object(
+            scraper, "_find_ncaa_season", return_value=season_contract
+        ), patch.object(
+            scraper,
+            "collect_ncaa_by_id",
+            side_effect=self._reserving_collector_result(
+                Mock(), ("batting", "pitching")
+            ),
+        ), patch(
+            "roster_scout.canonical.to_collected_sections", return_value=core
+        ), patch.object(
+            scraper,
+            "collect_ncaa_schedule_evidence",
+            side_effect=self._reserving_collector_result(schedule, ("schedule",)),
+        ), patch.object(
+            scraper,
+            "collect_ncaa_player_detail_batch_evidence",
+            side_effect=self._reserving_history_batch_result(detail),
+        ), patch.object(
+            scraper,
+            "collect_ncaa_split_results",
+            side_effect=self._reserving_collector_result(
+                split_results, ("splits:batting", "splits:pitching")
+            ),
+        ):
+            snapshot = self._run_real_collector(job, generation=2)
+
+        self.assertEqual(snapshot.status, "ready")
+        with self.Session() as session:
+            ledgers = list(session.scalars(select(RequestLedger).where(
+                RequestLedger.job_id == job.id
+            )))
+            self.assertIn(
+                "live_failed",
+                {
+                    item.outcome for item in ledgers
+                    if item.dispatch_generation == 1
+                },
+            )
+            self.assertNotIn(
+                "planned",
+                {
+                    item.outcome for item in ledgers
+                    if item.dispatch_generation == 2
+                },
+            )
+
+    def test_reconciliation_terminalizes_planned_generation_before_redelivery(self):
+        import roster_scraper as scraper
+        from roster_scout.jobs import (
+            _new_or_existing_snapshot,
+            reconcile_stale_report_jobs,
+        )
+        from roster_scout.models import ReportJob, RequestLedger
+
+        job = self._accepted_job(1, "phase3-interrupted-generation")
+        stale_at = datetime.now(UTC) - timedelta(hours=2)
+        with self.Session.begin() as session:
+            stored = session.get(ReportJob, job.id)
+            stored.status = "running"
+            stored.started_generation = 1
+            stored.attempt_count = 1
+            stored.started_at = stale_at
+            stored.phase3_live_pages_consumed = 1
+            snapshot = _new_or_existing_snapshot(session, stored)
+            session.add(RequestLedger(
+                organization_id=stored.organization_id,
+                job_id=stored.id,
+                snapshot_id=snapshot.id,
+                dispatch_generation=1,
+                family="batting",
+                source_identity="ncaa:batting:interrupted",
+                request_kind="planned",
+                outcome="planned",
+                started_at=stale_at,
+                budget_remaining=24,
+                pages_consumed=1,
+            ))
+
+        result = reconcile_stale_report_jobs(
+            self.Session,
+            now=datetime.now(UTC),
+            running_timeout=timedelta(minutes=30),
+        )
+        self.assertEqual(result.reopened, 1)
+        with self.Session() as session:
+            stored = session.get(ReportJob, job.id)
+            interrupted = session.scalar(select(RequestLedger).where(
+                RequestLedger.job_id == job.id,
+                RequestLedger.dispatch_generation == 1,
+            ))
+            self.assertEqual(stored.dispatch_generation, 2)
+            self.assertEqual(stored.phase3_live_pages_consumed, 1)
+            self.assertEqual(
+                (interrupted.outcome, interrupted.safe_category),
+                ("interrupted", "worker_interrupted"),
+            )
+            self.assertIsNotNone(interrupted.completed_at)
+
+        core, schedule, detail, season_contract, split_results = (
+            self._complete_phase3_evidence()
+        )
+        with patch.dict(
+            os.environ, {"NCAA_BROWSER_PROVIDER": "browserless"}, clear=False
+        ), patch.object(
+            scraper, "_find_ncaa_season", return_value=season_contract
+        ), patch.object(
+            scraper,
+            "collect_ncaa_by_id",
+            side_effect=self._reserving_collector_result(
+                Mock(), ("batting", "pitching")
+            ),
+        ), patch(
+            "roster_scout.canonical.to_collected_sections", return_value=core
+        ), patch.object(
+            scraper,
+            "collect_ncaa_schedule_evidence",
+            side_effect=self._reserving_collector_result(schedule, ("schedule",)),
+        ), patch.object(
+            scraper,
+            "collect_ncaa_player_detail_batch_evidence",
+            side_effect=self._reserving_history_batch_result(detail),
+        ), patch.object(
+            scraper,
+            "collect_ncaa_split_results",
+            side_effect=self._reserving_collector_result(
+                split_results, ("splits:batting", "splits:pitching")
+            ),
+        ):
+            snapshot = self._run_real_collector(job, generation=2)
+        self.assertEqual(snapshot.status, "ready")
+
+    def test_supplemental_deadline_persists_sanitized_unavailable_sections(self):
+        import roster_scraper as scraper
+        from roster_scout.collection_control import CollectionDeadlineExceeded
+        from roster_scout.models import ReportSection, RequestLedger
+
+        job = self._accepted_job(1, "phase3-deadline-state")
+        pages = {
+            "batting": self._fixture("d1_batting.html"),
+            "pitching": self._fixture("d1_pitching.html"),
+            "fielding": self._fixture("ncaa_detail/d1/fielding.html"),
+        }
+
+        def deadline(family):
+            def collect(*_args, request_reserver=None, **_kwargs):
+                request_reserver(family)
+                raise CollectionDeadlineExceeded("fixture deadline")
+            return collect
+
+        with patch.dict(
+            os.environ, {"NCAA_BROWSER_PROVIDER": "browserless"}, clear=False
+        ), patch.object(
+            scraper,
+            "_fetch_ncaa_pages",
+            side_effect=self._fixture_page_transport(pages),
+        ), patch.object(
+            scraper,
+            "collect_ncaa_schedule_evidence",
+            side_effect=deadline("schedule"),
+        ), patch.object(
+            scraper,
+            "collect_ncaa_split_results",
+            side_effect=deadline("splits:batting"),
+        ):
+            snapshot = self._run_real_collector(job)
+
+        self.assertEqual(snapshot.status, "partial")
+        with self.Session() as session:
+            sections = list(session.scalars(select(ReportSection).where(
+                ReportSection.snapshot_id == snapshot.id,
+                ReportSection.section.in_(("schedule", "splits:batting")),
+            )))
+            self.assertEqual({item.section for item in sections}, {
+                "schedule", "splits:batting",
+            })
+            self.assertEqual(
+                {
+                    (item.section, item.status, item.failure_category)
+                    for item in sections
+                },
+                {
+                    ("schedule", "unavailable", "collection_timeout"),
+                    ("splits:batting", "partial", "collection_timeout"),
+                },
+            )
+            ledgers = list(session.scalars(select(RequestLedger).where(
+                RequestLedger.snapshot_id == snapshot.id,
+                RequestLedger.family.in_(("schedule", "splits:batting")),
+            )))
+            self.assertTrue(all(
+                item.outcome == "live_failed"
+                and item.safe_category == "collection_timeout"
+                and item.pages_consumed == 1
+                for item in ledgers
+            ))
+
+    def test_public_collector_transport_cap_persists_budget_exhaustion(self):
+        import roster_scraper as scraper
+        from roster_scout.models import ReportSection, RequestLedger
+
+        job = self._accepted_job(1, "phase3-public-transport-budget")
+        batting_url = (
+            "https://stats.ncaa.org/teams/614606/season_to_date_stats"
+            f"?year_stat_category_id={self.BATTING_ID}"
+        )
+        pitching_url = (
+            "https://stats.ncaa.org/teams/614606/season_to_date_stats"
+            f"?year_stat_category_id={self.PITCHING_ID}"
+        )
+        pages = {
+            batting_url: self._fixture("d1_batting.html"),
+            pitching_url: self._fixture("d1_pitching.html"),
+        }
+        page = Mock()
+        page.url = batting_url
+        page.goto.side_effect = lambda url, **_kwargs: setattr(page, "url", url)
+        page.content.side_effect = lambda: pages[page.url]
+        browser = Mock()
+        browser.contexts = [Mock(pages=[page])]
+        playwright = Mock()
+        playwright.chromium.connect_over_cdp.return_value = browser
+        starter = Mock()
+        starter.start.return_value = playwright
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            "browserWSEndpoint": "wss://example.test/browser"
+        }
+
+        with patch.dict(os.environ, {
+            "NCAA_BROWSER_PROVIDER": "browserless",
+            "BROWSERLESS_TOKEN": "test-only-token",
+            "PHASE3_LIVE_PAGE_BUDGET": "2",
+        }, clear=False), patch.object(
+            scraper.requests, "post", return_value=response
+        ), patch(
+            "scripts.capture_phase3_ncaa_fixtures._catalog_rows_for_season",
+            return_value=({
+                "team_id": "234",
+                "season_team_id": "614606",
+                "conference_id": "821",
+                "division": "1",
+                "year": "2026",
+            },),
+        ), patch(
+            "patchright.sync_api.sync_playwright", return_value=starter
+        ):
+            snapshot = self._run_real_collector(job)
+
+        self.assertEqual(snapshot.status, "partial")
+        with self.Session() as session:
+            ledgers = list(session.scalars(select(RequestLedger).where(
+                RequestLedger.snapshot_id == snapshot.id
+            )))
+            self.assertEqual(
+                {
+                    (item.family, item.outcome, item.safe_category)
+                    for item in ledgers
+                    if item.family in {"fielding", "schedule"}
+                },
+                {
+                    (
+                        "fielding", "budget_exhausted",
+                        "request_budget_exhausted",
+                    ),
+                    (
+                        "schedule", "budget_exhausted",
+                        "request_budget_exhausted",
+                    ),
+                },
+            )
+            sections = list(session.scalars(select(ReportSection).where(
+                ReportSection.snapshot_id == snapshot.id,
+                ReportSection.section.in_(("fielding", "schedule")),
+            )))
+            self.assertTrue(all(
+                item.failure_category == "request_budget_exhausted"
+                for item in sections
+            ))
+
+    def test_real_collector_budget_boundary_leaves_no_planned_ledgers(self):
+        import roster_scraper as scraper
+        from roster_scout.models import ReportSection, RequestLedger
+
+        job = self._accepted_job(1, "phase3-real-collector-budget-boundary")
+        core, schedule, detail, season_contract, split_results = (
+            self._complete_phase3_evidence()
+        )
+        split_collector = Mock(side_effect=self._reserving_collector_result(
+            split_results, ("splits:batting", "splits:pitching")
+        ))
+        with patch.dict(os.environ, {
+            "NCAA_BROWSER_PROVIDER": "browserless",
+            "PHASE3_LIVE_PAGE_BUDGET": "5",
+        }, clear=False), patch.object(
+            scraper, "_find_ncaa_season", return_value=season_contract
+        ), patch.object(
+            scraper,
+            "collect_ncaa_by_id",
+            side_effect=self._reserving_collector_result(
+                Mock(), ("batting", "pitching")
+            ),
+        ), patch(
+            "roster_scout.canonical.to_collected_sections", return_value=core
+        ), patch.object(
+            scraper,
+            "collect_ncaa_schedule_evidence",
+            side_effect=self._reserving_collector_result(schedule, ("schedule",)),
+        ), patch.object(
+            scraper,
+            "collect_ncaa_player_detail_batch_evidence",
+            side_effect=self._reserving_history_batch_result(detail),
+        ), patch.object(
+            scraper,
+            "collect_ncaa_split_results",
+            split_collector,
+        ):
+            snapshot = self._run_real_collector(job)
+
+        self.assertEqual(snapshot.status, "partial")
+        split_collector.assert_called_once()
+        with self.Session() as session:
+            ledgers = list(session.scalars(select(RequestLedger).where(
+                RequestLedger.snapshot_id == snapshot.id
+            )))
+            self.assertNotIn("planned", {item.outcome for item in ledgers})
+            split_ledgers = [
+                item for item in ledgers if item.family.startswith("splits:")
+            ]
+            self.assertEqual(len(split_ledgers), 2)
+            self.assertTrue(all(
+                item.outcome == "budget_exhausted"
+                and item.safe_category == "request_budget_exhausted"
+                for item in split_ledgers
+            ))
+            split_sections = list(session.scalars(select(ReportSection).where(
+                ReportSection.snapshot_id == snapshot.id,
+                ReportSection.section.in_(("splits:batting", "splits:pitching")),
+            )))
+            self.assertEqual(len(split_sections), 2)
+            self.assertTrue(all(
+                item.failure_category == "request_budget_exhausted"
+                for item in split_sections
+            ))
+
+    def test_real_collector_persists_schedule_history_and_typed_game_logs(self):
+        import roster_scraper as scraper
+        from roster_scout.jobs import CollectedSection
+        from roster_scout.models import (
+            BattingGameLogFact, CareerAggregate, CareerSeasonFact, Game,
+            Player, PlayerTeamSeason, Report, ReportSection, RequestLedger,
+            Season, SourceRecord, TeamSeason,
+        )
+        from roster_scout.ncaa_detail import (
+            parse_player_detail_fixture, parse_schedule_fixture,
+        )
+
+        job = self._accepted_job(1, "phase3-real-collector")
+        # Legacy reports used the year as the season identity and did not
+        # persist NCAA category IDs. Live collection must recover those exact
+        # identities from the authoritative season contract.
+        with self.Session.begin() as session:
+            report = session.get(Report, job.report_id)
+            team_season = session.get(TeamSeason, report.team_season_id)
+            season = session.get(Season, team_season.season_id)
+            season.source_season_id = "2026"
+            team_season.batting_stat_category_id = None
+            team_season.pitching_stat_category_id = None
+        base = FullSeasonMetricPublicationTests.detailed_sections()
+        core = tuple(
+            CollectedSection(
+                **{
+                    **section.__dict__,
+                    "rows": ({
+                        **section.rows[0],
+                        "_player_id": "9698671",
+                        "_player_url": "https://stats.ncaa.org/players/9698671",
+                    },),
+                    "source_team_id": "234",
+                    "source_season_id": "17040",
+                    "source_season_team_id": "614606",
+                    "source_stat_category_id": (
+                        self.BATTING_ID if section.name == "batting" else self.PITCHING_ID
+                    ),
+                }
+            )
+            for section in base
+        )
+        schedule = parse_schedule_fixture(
+            self._fixture("ncaa_detail/d1/schedule.html"),
+            expected_season_id="17040",
+            expected_team_id="234",
+            expected_season_team_id="614606",
+            expected_division="1",
+        )
+        detail = parse_player_detail_fixture(
+            self._fixture("ncaa_detail/d1/player_detail.html"),
+            expected_player_id="9698671",
+            expected_season_id="17040",
+            expected_season_team_id="614606",
+            expected_division="1",
+        )
+        season_contract = {
+            "season": "2026", "id": "17040",
+            "batting_id": self.BATTING_ID,
+            "pitching_id": self.PITCHING_ID,
+            "fielding_id": "",
+        }
+        with patch.dict(os.environ, {"NCAA_BROWSER_PROVIDER": "browserless"}), patch.object(
+            scraper, "_find_ncaa_season", return_value=season_contract
+        ), patch.object(
+            scraper, "collect_ncaa_by_id", return_value=Mock()
+        ), patch(
+            "roster_scout.canonical.to_collected_sections", return_value=core
+        ), patch.object(
+            scraper, "collect_ncaa_schedule_evidence", return_value=schedule
+        ), patch.object(
+            scraper,
+            "collect_ncaa_player_detail_batch_evidence",
+            return_value={"9698671": detail},
+        ), patch.object(
+            scraper, "collect_ncaa_split_results",
+            side_effect=scraper.NcaaAccessError("split unavailable"),
+        ):
+            snapshot = self._run_real_collector(job)
+
+        self.assertEqual(snapshot.status, "partial")
+        with self.Session() as session:
+            section_names = set(session.scalars(select(ReportSection.section).where(
+                ReportSection.snapshot_id == snapshot.id
+            )))
+            self.assertTrue({
+                "schedule", "game_logs:batting", "game_logs:pitching",
+                "game_logs:fielding", "history:batting", "history:pitching",
+                "history:fielding", "splits:batting", "splits:pitching",
+            } <= section_names)
+            self.assertGreater(session.scalar(select(func.count()).select_from(Game)), 0)
+            self.assertGreater(
+                session.scalar(select(func.count()).select_from(CareerSeasonFact)), 0
+            )
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(CareerAggregate)), 3
+            )
+            self.assertGreater(
+                session.scalar(select(func.count()).select_from(BattingGameLogFact)), 0
+            )
+            detail_sources = list(session.scalars(select(SourceRecord).where(
+                SourceRecord.snapshot_id == snapshot.id,
+                SourceRecord.section.in_((
+                    "history:batting", "history:pitching", "history:fielding",
+                    "game_logs:batting", "game_logs:pitching", "game_logs:fielding",
+                )),
+            )))
+            self.assertTrue(detail_sources)
+            self.assertTrue(all(
+                item.source_url == "https://stats.ncaa.org/players/9698671"
+                and item.source_stat_category_id in {
+                    self.BATTING_ID, self.PITCHING_ID, "15869",
+                }
+                and item.source_stat_category_id
+                == item.raw_values["source_stat_category_id"]
+                for item in detail_sources
+            ))
+            self.assertEqual(
+                {item.payload_sha256 for item in detail_sources},
+                {
+                    row.source_payload_sha256
+                    for row in (*detail.career_seasons, *detail.game_logs)
+                },
+            )
+            families = set(session.scalars(select(RequestLedger.family).where(
+                RequestLedger.snapshot_id == snapshot.id
+            )))
+            self.assertTrue({
+                "schedule", "history:batting", "history:pitching",
+                "splits:batting", "splits:pitching",
+            } <= families)
+            identity, player = session.execute(
+                select(PlayerTeamSeason, Player)
+                .join(Player, Player.id == PlayerTeamSeason.player_id)
+                .where(
+                    PlayerTeamSeason.snapshot_id == snapshot.id,
+                    Player.source_player_id == "9698671",
+                )
+            ).one()
+            from roster_scout.player_detail import load_snapshot_player_detail
+
+            drill = load_snapshot_player_detail(
+                session,
+                job.organization_id,
+                job.report_id,
+                snapshot.id,
+                player.id,
+            )
+            self.assertTrue(drill["data"]["career"]["seasons"])
+            self.assertTrue(drill["data"]["career"]["aggregate"])
+            self.assertTrue(drill["data"]["games"])
+            self.assertEqual(
+                {
+                    item["source_stat_category_id"]
+                    for item in drill["data"]["career"]["seasons"]
+                },
+                {self.BATTING_ID, self.PITCHING_ID, "15869"},
+            )
+
+class ComputedScopePublicationTests(PostgreSQLJobTestCase):
+    def _sections(
+        self,
+        game_count,
+        *,
+        complete_stat_types=frozenset({"batting", "pitching", "fielding"}),
+    ):
+        from roster_scout.jobs import (
+            CollectedGameFact,
+            to_collected_schedule_sections,
+        )
+        from roster_scout.models import Report, Season, Team, TeamSeason
+        from roster_scout.ncaa_detail import ScheduleEvidence, ScheduleGameEvidence
+
+        with self.Session() as session:
+            report = session.scalar(select(Report))
+            team_season = session.get(TeamSeason, report.team_season_id)
+            team = session.get(Team, team_season.team_id)
+            season = session.get(Season, team_season.season_id)
+            source = (
+                team.source_team_id,
+                season.source_season_id,
+                team_season.source_season_team_id,
+            )
+        games = tuple(
+            ScheduleGameEvidence(
+                source_game_id=f"game-{index:02d}",
+                game_date=datetime(2026, 3, index, tzinfo=UTC).date(),
+                status="completed",
+                opponent_team_id=f"opponent-{index}",
+                opponent_season_team_id=f"opponent-season-{index}",
+                opponent_conference_id="821",
+                conference_evidence_status="present",
+                opponent_identity_status="present",
+                doubleheader_ordinal=1,
+                result_sha256=f"{index:064x}",
+                venue="home",
+            )
+            for index in range(1, game_count + 1)
+        )
+        schedule = ScheduleEvidence(
+            source_path=f"/team/{source[0]}/{source[1]}",
+            source_url=f"https://stats.ncaa.org/team/{source[0]}/{source[1]}",
+            source_payload_sha256="a" * 64,
+            source_season_id=source[1],
+            source_team_id=source[0],
+            source_season_team_id=source[2],
+            team_conference_id="821",
+            division="d2",
+            schedule_complete=True,
+            collected_at=datetime(2026, 4, 1, tzinfo=UTC),
+            games=games,
+        )
+        facts = []
+        for game in games:
+            facts.extend((
+                CollectedGameFact(
+                    f"bat-{game.source_game_id}", game.source_game_id, "100",
+                    "batting", {"at_bats": 2, "hits": 1},
+                ),
+                CollectedGameFact(
+                    f"pit-{game.source_game_id}", game.source_game_id, "100",
+                    "pitching", {
+                        "earned_runs": 1, "innings_outs": 3,
+                        "opponent_at_bats": 2, "hits_allowed": 1,
+                    },
+                ),
+                CollectedGameFact(
+                    f"fld-{game.source_game_id}", game.source_game_id, "100",
+                    "fielding", {
+                        "putouts": 2, "assists": 1, "errors": 0,
+                        "total_chances": 3,
+                    },
+                ),
+            ))
+        return (
+            *FullSeasonMetricPublicationTests.detailed_sections(),
+            *to_collected_schedule_sections(
+                schedule,
+                game_facts=tuple(facts),
+                complete_stat_types=complete_stat_types,
+            ),
+        )
+
+    def test_partial_game_log_rows_remain_publishable(self):
+        self.fixture()
+        sections = self._sections(1, complete_stat_types=frozenset({"batting"}))
+        by_name = {section.name: section for section in sections}
+
+        self.assertEqual(by_name["game_logs:batting"].status, "complete")
+        for stat_type in ("pitching", "fielding"):
+            section = by_name[f"game_logs:{stat_type}"]
+            self.assertEqual(section.status, "partial")
+            self.assertEqual(
+                section.failure_category,
+                "game_log_evidence_incomplete",
+            )
+            self.assertTrue(section.rows)
+
+    def test_partial_game_logs_still_populate_scoped_facts(self):
+        from roster_scout.jobs import accept_report_job, run_report_job
+        from roster_scout.models import ScopedPitchingFact, StatisticScope
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            "computed-partial-game-logs",
+            dispatch=None,
+        )
+        snapshot = run_report_job(
+            self.Session,
+            job.id,
+            collector=Mock(return_value=self._sections(
+                11,
+                complete_stat_types=frozenset({"batting"}),
+            )),
+        )
+
+        self.assertEqual(snapshot.status, "partial")
+        with self.Session() as session:
+            pitching_scope = session.scalar(select(StatisticScope).where(
+                StatisticScope.snapshot_id == snapshot.id,
+                StatisticScope.scope_kind == "computed_game",
+                StatisticScope.scope_code == "last_10",
+                StatisticScope.stat_type == "pitching",
+            ))
+            self.assertEqual(pitching_scope.status, "partial")
+            self.assertEqual(
+                pitching_scope.availability_reason,
+                "game_log_evidence_incomplete",
+            )
+            self.assertGreater(
+                session.scalar(select(func.count()).select_from(ScopedPitchingFact)),
+                0,
+            )
+
+    def test_refresh_replaces_last_ten_only_in_successor_snapshot(self):
+        from roster_scout.jobs import accept_report_job, run_report_job
+        from roster_scout.models import (
+            Game, ScopedBattingFact, StatisticScope, StatisticScopeGame,
+        )
+
+        organization_id, report_id = self.fixture()
+        first_job = accept_report_job(
+            self.Session, organization_id, report_id, "computed-first", dispatch=None
+        )
+        first = run_report_job(
+            self.Session, first_job.id,
+            collector=Mock(return_value=self._sections(11)),
+        )
+        second_job = accept_report_job(
+            self.Session, organization_id, report_id, "computed-refresh", dispatch=None
+        )
+        second = run_report_job(
+            self.Session, second_job.id,
+            collector=Mock(return_value=self._sections(12)),
+        )
+        self.assertEqual((first.status, second.status), ("partial", "partial"))
+        with self.Session() as session:
+            scopes = list(session.scalars(select(StatisticScope).where(
+                StatisticScope.scope_kind == "computed_game"
+            )))
+            self.assertEqual(len(scopes), 12)
+            first_scope = next(
+                scope for scope in scopes
+                if scope.snapshot_id == first.id
+                and scope.stat_type == "batting"
+                and scope.scope_code == "last_10"
+            )
+            second_scope = next(
+                scope for scope in scopes
+                if scope.snapshot_id == second.id
+                and scope.stat_type == "batting"
+                and scope.scope_code == "last_10"
+            )
+            def members(scope):
+                return tuple(session.scalars(
+                    select(Game.source_game_id)
+                    .join(StatisticScopeGame, StatisticScopeGame.game_id == Game.id)
+                    .where(StatisticScopeGame.statistic_scope_id == scope.id)
+                    .order_by(StatisticScopeGame.membership_ordinal)
+                ))
+            self.assertEqual(members(first_scope), tuple(
+                f"game-{index:02d}" for index in range(2, 12)
+            ))
+            self.assertEqual(members(second_scope), tuple(
+                f"game-{index:02d}" for index in range(3, 13)
+            ))
+            self.assertEqual(
+                session.scalar(select(func.count()).select_from(ScopedBattingFact)),
+                4,
+            )
+
+    def test_publication_rejects_disconnected_computed_fact_lineage(self):
+        from roster_scout.jobs import (
+            _new_or_existing_snapshot,
+            _persist_canonical,
+            _persist_sections,
+            accept_report_job,
+        )
+        from roster_scout.models import ReportJob, ReportSnapshot, ScopedBattingFact
+        from roster_scout.snapshots import SnapshotPublicationError, publish_snapshot
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session, organization_id, report_id, "computed-invalid", dispatch=None
+        )
+        sections = self._sections(11)
+        with self.Session.begin() as session:
+            stored = session.get(ReportJob, job.id)
+            snapshot = _new_or_existing_snapshot(session, stored)
+            _persist_sections(session, stored, snapshot, sections)
+            snapshot_id = snapshot.id
+        with self.Session.begin() as session:
+            stored = session.get(ReportJob, job.id)
+            snapshot = session.get(ReportSnapshot, snapshot_id)
+            _persist_canonical(session, stored, snapshot, sections)
+            session.flush()
+            fact = session.scalar(select(ScopedBattingFact))
+            fact.contributing_fact_ids = ["disconnected-fact"]
+            session.flush()
+            with self.assertRaisesRegex(
+                SnapshotPublicationError, "computed fact source parity failed"
+            ):
+                publish_snapshot(session, snapshot_id)
 
 
 if __name__ == "__main__":

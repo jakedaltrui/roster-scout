@@ -2,16 +2,16 @@
 
 ## Overview
 
-Roster Scout v2.0 is delivered in five dependency-ordered slices. The roadmap first establishes an immutable canonical snapshot and durable job boundary, then gates the product behind organization identity and exposes versioned report history. It next expands NCAA collection and metrics, renders the complete detailed workbook, and finally publishes the same snapshot through a secure customer-facing Power BI experience. Each phase preserves the existing D1/D2/D3 workflow while creating a verifiable capability used by the next phase.
+Roster Scout v2.0 is delivered in five dependency-ordered slices. The roadmap first establishes an immutable canonical snapshot and durable job boundary, then gates the product behind organization identity and exposes versioned report history. It next expands NCAA collection and metrics, renders the complete detailed workbook, and finally presents the same snapshot through a secure lightweight native dashboard with bounded storage retention. Each phase preserves the existing D1/D2/D3 workflow while creating a verifiable capability used by the next phase.
 
 ## Phases
 
 - [x] **Phase 1: Canonical Snapshot Foundation** - Persist provenance-rich immutable snapshots through durable report jobs. (completed 2026-11-11)
 - [x] **Phase 2: Identity, Organizations, and Report Library** - Gate Roster Scout behind passwordless organization access and versioned report workflows. (completed 2026-11-13)
 - [x] **Phase 02.1: Restore public homepage and school-domain sign-in flow** - Reestablish the polished homepage as the primary product, authenticate at generation, auto-join verified school domains, and keep the portal minimal. (INSERTED)
-- [ ] **Phase 3: Detailed NCAA Intelligence** - Add fielding, advanced metrics, situational splits, career history, and game logs.
-- [ ] **Phase 4: Detailed Excel Report** - Deliver the exact detailed snapshot as a branded ten-sheet workbook.
-- [ ] **Phase 5: Embedded Opponent Dashboard** - Securely embed the opponent-branded Power BI report and harden production delivery.
+- [x] **Phase 3: Detailed NCAA Intelligence** - Add fielding, advanced metrics, situational splits, career history, and game logs. (completed 2026-11-16)
+- [x] **Phase 4: Detailed Excel Report** - Extend the established branded two-sheet workbook with auditable season, derived, last-10, and conference statistics. (completed 2026-11-16)
+- [x] **Phase 5: Native Opponent Dashboard** - Lightweight same-snapshot analysis and 30/90-day retention are implemented and verified. (completed 2026-11-17)
 
 ## Phase Details
 
@@ -274,7 +274,7 @@ Plans:
 
 ### Phase 3: Detailed NCAA Intelligence
 
-**Goal:** A snapshot contains auditable season, fielding, derived, split, career, and game-level NCAA intelligence or an explicit unavailable state for each section.
+**Goal:** As a baseball staff member, I want to open an opponent snapshot containing auditable season, fielding, derived, split, career, and game-level NCAA intelligence or an explicit unavailable state for every section, so that I can trust the report's detail and understand any missing data before using it to prepare for a series.
 **Mode:** mvp
 **UI hint:** no
 **Depends on:** Phase 02.1
@@ -287,61 +287,74 @@ Plans:
 4. wOBA and FIP use verified versioned NCAA season/division inputs or return an explanatory unavailable state; no MLB constants are silently substituted.
 5. Collection respects request budgets, bounded concurrency, caching, and retry/backoff while operators can identify unavailable or failed sections.
 
-**Plans:** 4 plans
+**Plans:** 9/9 plans complete
 
 Plans:
 
-- [ ] 03-01: Expand season batting/pitching facts and add NCAA fielding acquisition and normalization.
-- [ ] 03-02: Discover, validate, collect, and normalize the seven batting and pitching split families.
-- [ ] 03-03: Add stable-player career seasons, transfers, career aggregates, and player game logs with request controls.
-- [ ] 03-04: Implement the versioned metric engine, NCAA weight/constant provenance, methodology, and D1/D2/D3 validation fixtures.
+- [x] 03-01-PLAN.md — Add expanded season batting/pitching facts and one auditable metric engine.
+- [x] 03-02-PLAN.md — Acquire, normalize, persist, and partially publish NCAA fielding across D1/D2/D3.
+- [x] 03-03-PLAN.md — Capture and certify current NCAA split controls before implementation.
+- [x] 03-04-PLAN.md — Persist seven batting and pitching split families with explicit availability.
+- [x] 03-06-PLAN.md — Own the canonical Game contract and add exact last-10 and season-correct conference-only scopes.
+- [x] 03-05-PLAN.md — Add stable-player career seasons, aggregates, and current-season game logs.
+- [x] 03-09-PLAN.md — Expose the protected same-snapshot player detail JSON contract.
+- [x] 03-07-PLAN.md — Enforce shared request budgets and persisted privacy-safe operational/external-refresh diagnostics.
+- [x] 03-08-PLAN.md — Finalize revision 0025 and run the disposable-PostgreSQL Phase 3 release gate.
 
 ### Phase 4: Detailed Excel Report
 
-**Goal:** Customers can download the exact detailed snapshot as a safe, branded, analysis-ready workbook with complete methodology and section status.
+**Goal:** Customers can download a safe, branded, analysis-ready two-sheet workbook that preserves the familiar Roster Scout Excel experience while adding canonical season, derived, last-10, and conference statistics.
 **Mode:** mvp
 **UI hint:** no
 **Depends on:** Phase 3
 **Requirements:** XLSX-01, XLSX-02, XLSX-03, XLSX-04, XLSX-05, XLSX-06
 **Success Criteria** (what must be TRUE):
 
-1. A complete snapshot renders Report Summary, Roster, Hitters, Pitchers, Fielding, Hitting Splits, Pitching Splits, Career Stats, Game Logs, and Sources & Methodology worksheets.
-2. A partial snapshot identifies each unavailable section and preserves opponent, season, source freshness, and refresh lineage.
-3. Workbook numeric types, precision, formula/URL safety, branding, and navigation remain correct for representative D1/D2/D3 fixtures.
+1. A complete snapshot renders exactly two worksheets, `Hitters` and `Pitchers`, using the established workbook styling and grouped Player, Season Stats, Last 10, and Conference Stats columns.
+2. Stable NCAA player IDs and source URLs remain available in canonical storage but are omitted from the coach-facing workbook; partial or unavailable Last 10 scopes are labeled explicitly rather than rendered as zero.
+3. Workbook numeric types, precision, formula/URL safety, school-derived branding, filters, frozen headers, print behavior, and two-way-player logic remain correct for representative D1/D2/D3 fixtures.
 4. Downloading an older snapshot returns its original checksummed artifact rather than rebuilding from newer data.
-5. Shared fixture metrics match canonical storage and Power BI-facing views.
+5. Shared fixture metrics match canonical storage and native-dashboard projections.
 
 **Plans:** 3 plans
 
 Plans:
 
-- [ ] 04-01: Build the ten-sheet workbook contract, formatting, methodology, completeness, and branding.
-- [ ] 04-02: Add immutable object storage, checksums, schema versions, and exact historical artifact downloads.
-- [ ] 04-03: Add canonical-to-Excel parity, safety, partial-report, and D1/D2/D3 workbook verification.
+**Wave 1**
 
-### Phase 5: Embedded Opponent Dashboard
+- [x] 04-01: Extend the canonical two-sheet workbook with legacy-matched styling and grouped player, season, derived, last-10, and conference columns.
 
-**Goal:** Customers securely review the same snapshot in an opponent-branded Power BI report and download its full workbook from the report page.
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 04-02: Add immutable object storage, checksums, schema versions, and exact historical artifact downloads.
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 04-03: Add canonical-to-Excel parity, formula/URL safety, partial-scope, visual-format, and D1/D2/D3 workbook verification.
+
+### Phase 5: Native Opponent Dashboard
+
+**Goal:** Customers securely review the same snapshot in a lightweight opponent dashboard and download its full workbook from the report page.
 **Mode:** mvp
 **UI hint:** yes
 **Depends on:** Phase 4
-**Requirements:** SNAP-09, PBI-01, PBI-02, PBI-03, PBI-04, PBI-05, PBI-06, PBI-07, PBI-08, PBI-09, PBI-10, SECU-06
+**Requirements:** SNAP-09, DASH-01, DASH-02, DASH-03, DASH-04, DASH-05, DASH-06, DASH-07, RET-01, RET-02, RET-03, SECU-06
 **Success Criteria** (what must be TRUE):
 
-1. An authenticated customer views the curated embedded report without a Power BI account or customer Power BI license.
-2. The report provides Overview, Roster, Hitting, Pitching, Fielding, Splits, Player Detail, and Sources/Data Quality pages for the authorized snapshot.
-3. Organization A cannot obtain or use an embed token that reveals Organization B data, verified through automated denial tests and a manual two-organization RLS test.
-4. Semantic-model refresh has independent pending/completed/failed state, and its failure never invalidates a completed snapshot or Excel artifact.
-5. The opponent-branded report page exposes freshness, completeness, interactive filters/drill-through, and the exact full-workbook download, and production launch is blocked without supported capacity.
+1. An authenticated customer views the authorized snapshot without a separate BI account, iframe, license, or analytics store.
+2. The report provides season, last-10, conference, hitting, pitching, fielding, recent-game, leader, and split views with explicit unavailable states.
+3. Organization A cannot obtain Organization B dashboard, report, or workbook data through identifier substitution.
+4. The native dashboard remains a read-only projection of canonical snapshot facts and never invalidates the completed snapshot or Excel artifact.
+5. Saved snapshot/workbook data expires after 30 days and raw usage events after 90 days through the independently supervised purge process.
 
-**Plans:** 4 plans
+**Plans:** 4/4 original implementation plans complete; native corrective implementation complete
 
 Plans:
 
-- [ ] 05-01: Provision the capacity-backed Power BI foundation, analytics views, semantic model, curated report, and organization isolation.
-- [ ] 05-02: Add service-principal authentication, short-lived embed-token APIs, semantic refresh orchestration, and readiness state.
-- [ ] 05-03: Build the branded customer report page with embedded navigation, filters, drill-through, completeness, and workbook download.
-- [ ] 05-04: Verify tenant isolation, metric parity, capacity/refresh operations, external failure recovery, and the production release gate.
+- [x] 05-01: Establish canonical analytics projections and organization-isolation contracts.
+- [x] 05-02: Preserve fail-closed same-snapshot authorization and operational readiness.
+- [x] 05-03: Build the branded customer report page with native scope controls, leaders, trends, splits, completeness, and workbook download.
+- [x] 05-04: Replace the external BI runtime with a dependency-free native dashboard and add bounded 30/90-day retention.
 
 ## Progress
 
@@ -352,6 +365,6 @@ Plans:
 | 1. Canonical Snapshot Foundation | 41/41 | Complete | 2026-11-11 |
 | 2. Identity, Organizations, and Report Library | 16/16 | Complete   | 2026-11-13 |
 | 02.1 Restore public homepage and school-domain sign-in flow | 4/4 | Complete | 2026-11-13 |
-| 3. Detailed NCAA Intelligence | 0/4 | Not started | - |
-| 4. Detailed Excel Report | 0/3 | Not started | - |
-| 5. Embedded Opponent Dashboard | 0/4 | Not started | - |
+| 3. Detailed NCAA Intelligence | 9/9 | Complete   | 2026-11-16 |
+| 4. Detailed Excel Report | 3/3 | Complete | 2026-11-16 |
+| 5. Native Opponent Dashboard | 4/4 | Complete | 2026-11-17 |

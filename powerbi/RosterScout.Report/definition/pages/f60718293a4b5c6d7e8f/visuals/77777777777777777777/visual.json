@@ -1,0 +1,11 @@
+{
+  "$schema":"https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.9.0/schema.json",
+  "name":"77777777777777777777","position":{"x":24,"y":24,"z":1000,"height":672,"width":1232,"tabOrder":0},
+  "visual":{"visualType":"tableEx","query":{"queryState":{"Values":{"projections":[
+    {"field":{"Column":{"Expression":{"SourceRef":{"Entity":"Player"}},"Property":"display_name"}},"queryRef":"Player.display_name","nativeQueryRef":"Player"},
+    {"field":{"Column":{"Expression":{"SourceRef":{"Entity":"Career Season"}},"Property":"season_label"}},"queryRef":"Career Season.season_label","nativeQueryRef":"Season"},
+    {"field":{"Column":{"Expression":{"SourceRef":{"Entity":"Career Season"}},"Property":"school_name"}},"queryRef":"Career Season.school_name","nativeQueryRef":"School"},
+    {"field":{"Column":{"Expression":{"SourceRef":{"Entity":"Career Season"}},"Property":"stat_type"}},"queryRef":"Career Season.stat_type","nativeQueryRef":"Type"},
+    {"field":{"Column":{"Expression":{"SourceRef":{"Entity":"Game Log"}},"Property":"game_date"}},"queryRef":"Game Log.game_date","nativeQueryRef":"Game date"},
+    {"field":{"Column":{"Expression":{"SourceRef":{"Entity":"Game Log"}},"Property":"result_code"}},"queryRef":"Game Log.result_code","nativeQueryRef":"Result"}
+  ]}}},"drillFilterOtherVisuals":true}}

@@ -1,0 +1,67 @@
+table Pitching
+	column security_key
+		dataType: string
+		sourceColumn: security_key
+	column player_team_season_id
+		dataType: string
+		sourceColumn: player_team_season_id
+	column innings_outs
+		dataType: int64
+		sourceColumn: innings_outs
+	column hits_allowed
+		dataType: int64
+		sourceColumn: hits_allowed
+	column earned_runs
+		dataType: int64
+		sourceColumn: earned_runs
+	column walks
+		dataType: int64
+		sourceColumn: walks
+	column strikeouts
+		dataType: int64
+		sourceColumn: strikeouts
+	column home_runs_allowed
+		dataType: int64
+		sourceColumn: home_runs_allowed
+	column batters_faced
+		dataType: int64
+		sourceColumn: batters_faced
+	column opponent_at_bats
+		dataType: int64
+		sourceColumn: opponent_at_bats
+	measure ERA = DIVIDE(27 * SUM(Pitching[earned_runs]), SUM(Pitching[innings_outs]))
+		formatString: 0.00
+	measure WHIP = DIVIDE(3 * (SUM(Pitching[walks]) + SUM(Pitching[hits_allowed])), SUM(Pitching[innings_outs]))
+		formatString: 0.00
+	measure 'K/9' = DIVIDE(27 * SUM(Pitching[strikeouts]), SUM(Pitching[innings_outs]))
+		formatString: 0.00
+	measure 'BB/9' = DIVIDE(27 * SUM(Pitching[walks]), SUM(Pitching[innings_outs]))
+		formatString: 0.00
+	measure 'H/9' = DIVIDE(27 * SUM(Pitching[hits_allowed]), SUM(Pitching[innings_outs]))
+		formatString: 0.00
+	measure 'HR/9' = DIVIDE(27 * SUM(Pitching[home_runs_allowed]), SUM(Pitching[innings_outs]))
+		formatString: 0.00
+	measure 'K/BB' = DIVIDE(SUM(Pitching[strikeouts]), SUM(Pitching[walks]))
+		formatString: 0.00
+	measure 'K%' = DIVIDE(SUM(Pitching[strikeouts]), SUM(Pitching[batters_faced]))
+		formatString: 0.0%
+	measure 'BB%' = DIVIDE(SUM(Pitching[walks]), SUM(Pitching[batters_faced]))
+		formatString: 0.0%
+	measure 'Dashboard ERA' = IF(ISBLANK(SELECTEDVALUE(Scope[scope_code])), [ERA], 'Scoped Pitching'[ERA])
+		formatString: 0.00
+	measure 'Dashboard WHIP' = IF(ISBLANK(SELECTEDVALUE(Scope[scope_code])), [WHIP], 'Scoped Pitching'[WHIP])
+		formatString: 0.00
+	measure 'Dashboard K/9' = IF(ISBLANK(SELECTEDVALUE(Scope[scope_code])), [K/9], 'Scoped Pitching'[K/9])
+		formatString: 0.00
+	measure 'Dashboard BB/9' = IF(ISBLANK(SELECTEDVALUE(Scope[scope_code])), [BB/9], 'Scoped Pitching'[BB/9])
+		formatString: 0.00
+	measure 'Dashboard H/9' = IF(ISBLANK(SELECTEDVALUE(Scope[scope_code])), [H/9], 'Scoped Pitching'[H/9])
+		formatString: 0.00
+	measure 'Dashboard HR/9' = IF(ISBLANK(SELECTEDVALUE(Scope[scope_code])), [HR/9], 'Scoped Pitching'[HR/9])
+		formatString: 0.00
+	measure 'Dashboard K/BB' = IF(ISBLANK(SELECTEDVALUE(Scope[scope_code])), [K/BB], 'Scoped Pitching'[K/BB])
+		formatString: 0.00
+	partition Pitching = m
+		mode: import
+		source =
+			let Source = PostgreSQL.Database(RosterScoutDatabaseServer, RosterScoutDatabaseName), View = Source{[Schema="public",Item="pbi_pitching"]}[Data] in View

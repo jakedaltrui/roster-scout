@@ -1,0 +1,17 @@
+role RosterScoutSnapshotReader
+	modelPermission: read
+
+	tablePermission Snapshot = 'Snapshot'[security_key] = CUSTOMDATA()
+	tablePermission Player = Player[security_key] = CUSTOMDATA()
+	tablePermission Batting = Batting[security_key] = CUSTOMDATA()
+	tablePermission Pitching = Pitching[security_key] = CUSTOMDATA()
+	tablePermission Fielding = Fielding[security_key] = CUSTOMDATA()
+	tablePermission Scope = Scope[security_key] = CUSTOMDATA()
+	tablePermission Metrics = Metrics[security_key] = CUSTOMDATA()
+	tablePermission 'Scoped Batting' = 'Scoped Batting'[security_key] = CUSTOMDATA()
+	tablePermission 'Scoped Pitching' = 'Scoped Pitching'[security_key] = CUSTOMDATA()
+	tablePermission 'Scoped Fielding' = 'Scoped Fielding'[security_key] = CUSTOMDATA()
+	tablePermission 'Career Season' = 'Career Season'[security_key] = CUSTOMDATA()
+	tablePermission 'Game Log' = 'Game Log'[security_key] = CUSTOMDATA()
+	tablePermission 'Data Quality' = 'Data Quality'[security_key] = CUSTOMDATA()
+	tablePermission Source = Source[security_key] = CUSTOMDATA()

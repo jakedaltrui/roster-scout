@@ -15,7 +15,9 @@ from .jobs import TERMINAL_JOB_STATUSES, create_or_get_job
 from .models import (
     OrganizationMembership,
     Report,
+    ReportArtifact,
     ReportJob,
+    ReportSection,
     Season,
     SecurityAuditEvent,
     Team,
@@ -320,6 +322,7 @@ def accept_authorized_report_request(
             report.id,
             idempotency_key,
             requested_by_account_id=actor_account_id,
+            build_profile="quick",
         )
     else:
         ensure_report_dispatch(session, job)
@@ -417,6 +420,7 @@ def accept_authorized_report_refresh(
             report.id,
             idempotency_key,
             requested_by_account_id=actor_account_id,
+            build_profile="quick",
         )
     else:
         ensure_report_dispatch(session, job)
@@ -536,6 +540,7 @@ def accept_authorized_report_retry(
             report_id,
             retry_key,
             requested_by_account_id=actor_account_id,
+            build_profile=failed_job.build_profile,
         )
     elif job.status not in TERMINAL_JOB_STATUSES:
         ensure_report_dispatch(session, job)
@@ -746,6 +751,7 @@ class ReportSectionView:
 @dataclass(frozen=True)
 class ReportStatusView:
     id: uuid.UUID | None
+    build_profile: str
     state: str
     heading: str
     message: str
@@ -767,6 +773,7 @@ class ReportStatusView:
 @dataclass(frozen=True)
 class SnapshotHistoryItem:
     id: uuid.UUID
+    version_label: str
     status: str
     published_at: datetime
     source_collected_at: datetime | None
@@ -779,6 +786,7 @@ class SnapshotHistoryItem:
 class ReportDetailView:
     id: uuid.UUID
     opponent_name: str
+    source_team_id: str
     division: str
     season_year: int
     latest_snapshot: SnapshotHistoryItem | None
@@ -873,6 +881,15 @@ def _status_view(job, sections):
             job.status,
             ("queued", "Queued", "Waiting to collect live NCAA data.", False),
         )
+        if job.build_profile == "quick" and not terminal:
+            heading = "Building season workbook"
+            message = "Collecting current season statistics."
+        elif job.build_profile == "detailed" and not terminal:
+            heading = "Adding detailed stats"
+            message = (
+                "Your season workbook is ready now. Last 10, conference, splits, "
+                "and dashboard detail are being added in the background."
+            )
     updated_at = (
         job.finished_at
         or job.started_at
@@ -881,6 +898,7 @@ def _status_view(job, sections):
     )
     return ReportStatusView(
         id=job.id,
+        build_profile=job.build_profile,
         state=state,
         heading=heading,
         message=message,
@@ -926,6 +944,11 @@ def load_report_detail(session, organization_id, report_id, *, history_page=1):
     }
     history = tuple(SnapshotHistoryItem(
         id=snapshot.id,
+        version_label=(
+            "Season stats"
+            if snapshot.collection_contract_version == "quick-season-v1"
+            else "Detailed stats"
+        ),
         status=snapshot.status,
         published_at=snapshot.published_at,
         source_collected_at=snapshot.source_collected_at,
@@ -948,6 +971,12 @@ def load_report_detail(session, organization_id, report_id, *, history_page=1):
             )
         latest_snapshot = SnapshotHistoryItem(
             id=record.latest_snapshot.id,
+            version_label=(
+                "Season stats"
+                if record.latest_snapshot.collection_contract_version
+                == "quick-season-v1"
+                else "Detailed stats"
+            ),
             status=record.latest_snapshot.status,
             published_at=record.latest_snapshot.published_at,
             source_collected_at=record.latest_snapshot.source_collected_at,
@@ -970,6 +999,7 @@ def load_report_detail(session, organization_id, report_id, *, history_page=1):
     return ReportDetailView(
         id=record.report_id,
         opponent_name=record.team_name or record.report_name,
+        source_team_id=record.source_team_id,
         division=record.division,
         season_year=record.season_year,
         latest_snapshot=latest_snapshot,
@@ -989,14 +1019,92 @@ def load_report_detail(session, organization_id, report_id, *, history_page=1):
     )
 
 
-def load_report_status(session, organization_id, report_id):
+def load_report_status(
+    session, organization_id, report_id, *, job_id=None, prefer_current=False
+):
     """Return a complete, sanitized status model or the shared not-found error."""
     record = _detail_record(session, organization_id, report_id)
+    if job_id is not None:
+        job_id = _canonical_uuid(job_id, field="job_id")
+        job = session.scalar(
+            select(ReportJob).where(
+                ReportJob.id == job_id,
+                ReportJob.organization_id == organization_id,
+                ReportJob.report_id == report_id,
+            )
+        )
+        if job is None:
+            raise ReportLibraryFailure("not_found")
+        if (
+            prefer_current
+            and job.build_profile == "detailed"
+            and job.status not in TERMINAL_JOB_STATUSES
+            and record.latest_snapshot is not None
+            and any(
+                artifact.snapshot_id == record.latest_snapshot.id
+                for artifact in record.artifacts
+            )
+        ):
+            latest = record.latest_snapshot
+            return ReportStatusView(
+                id=None,
+                build_profile="quick",
+                state=latest.status,
+                heading="Season workbook ready",
+                message="Detailed stats are continuing in the background.",
+                updated_at=latest.published_at,
+                terminal=True,
+                sections=_section_views(record.snapshot_sections),
+            )
+        sections = tuple(session.scalars(
+            select(ReportSection)
+            .where(
+                ReportSection.organization_id == organization_id,
+                ReportSection.job_id == job.id,
+            )
+            .order_by(ReportSection.section, ReportSection.id)
+        ))
+        if (
+            job.build_profile == "quick"
+            and job.status in {"ready", "partial"}
+            and job.result_snapshot_id is not None
+        ):
+            artifact = session.scalar(
+                select(ReportArtifact).where(
+                    ReportArtifact.organization_id == organization_id,
+                    ReportArtifact.snapshot_id == job.result_snapshot_id,
+                    ReportArtifact.artifact_type == "xlsx",
+                )
+            )
+            if artifact is None or artifact.status in {"pending", "building"}:
+                return ReportStatusView(
+                    id=job.id,
+                    build_profile="quick",
+                    state="saving",
+                    heading="Finishing workbook",
+                    message="Packaging your workbook for download.",
+                    updated_at=job.finished_at or job.created_at,
+                    terminal=False,
+                    sections=_section_views(sections),
+                )
+            if artifact.status == "failed":
+                return ReportStatusView(
+                    id=job.id,
+                    build_profile="quick",
+                    state="failed",
+                    heading="Workbook unavailable",
+                    message="Storage unavailable",
+                    updated_at=job.finished_at or job.created_at,
+                    terminal=True,
+                    sections=_section_views(sections),
+                )
+        return _status_view(job, sections)
     if record.latest_job is None:
         latest = record.latest_snapshot
         if latest is None:
             return ReportStatusView(
                 id=None,
+                build_profile="quick",
                 state="queued",
                 heading="Queued",
                 message="Waiting to collect live NCAA data.",
@@ -1006,6 +1114,11 @@ def load_report_status(session, organization_id, report_id):
             )
         return ReportStatusView(
             id=None,
+            build_profile=(
+                "quick"
+                if latest.collection_contract_version == "quick-season-v1"
+                else "detailed"
+            ),
             state=latest.status,
             heading="Ready" if latest.status == "ready" else "Partial",
             message=(
@@ -1013,6 +1126,26 @@ def load_report_status(session, organization_id, report_id):
                 if latest.status == "ready"
                 else "The saved snapshot has some unavailable sections."
             ),
+            updated_at=latest.published_at,
+            terminal=True,
+            sections=_section_views(record.snapshot_sections),
+        )
+    if (
+        record.latest_job.build_profile == "detailed"
+        and record.latest_job.status not in TERMINAL_JOB_STATUSES
+        and record.latest_snapshot is not None
+        and any(
+            artifact.snapshot_id == record.latest_snapshot.id
+            for artifact in record.artifacts
+        )
+    ):
+        latest = record.latest_snapshot
+        return ReportStatusView(
+            id=None,
+            build_profile="quick",
+            state=latest.status,
+            heading="Season workbook ready",
+            message="Detailed stats are continuing in the background.",
             updated_at=latest.published_at,
             terminal=True,
             sections=_section_views(record.snapshot_sections),

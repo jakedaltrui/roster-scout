@@ -27,6 +27,7 @@ COPY alembic.ini ./
 COPY scripts/run_worker.py ./scripts/run_worker.py
 COPY scripts/run_scheduler.py ./scripts/run_scheduler.py
 COPY scripts/run_purge.py ./scripts/run_purge.py
+COPY scripts/capture_phase3_ncaa_fixtures.py ./scripts/capture_phase3_ncaa_fixtures.py
 COPY templates/ ./templates/
 COPY data/ ./data/
 COPY static/ ./static/

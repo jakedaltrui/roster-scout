@@ -1,0 +1,208 @@
+{
+  "captured_at": "2026-11-16T06:41:36Z",
+  "control_contract_version": "ncaa-split-controls-v1",
+  "control_sources": [
+    {
+      "normalized_headers": [
+        "#",
+        "player",
+        "yr",
+        "pos",
+        "ht",
+        "b/t",
+        "gp",
+        "gs",
+        "ba",
+        "obpct",
+        "slgpct",
+        "r",
+        "ab",
+        "h",
+        "2b",
+        "3b",
+        "tb",
+        "hr",
+        "rbi",
+        "bb",
+        "hbp",
+        "sf",
+        "sh",
+        "k",
+        "opp dp",
+        "cs",
+        "picked",
+        "sb",
+        "ibb",
+        "gdp",
+        "rbi2out"
+      ],
+      "source_path": "/teams/614606/season_to_date_stats",
+      "source_stat_category_id": "15867",
+      "stat_type": "batting"
+    },
+    {
+      "normalized_headers": [
+        "#",
+        "player",
+        "yr",
+        "pos",
+        "ht",
+        "b/t",
+        "app",
+        "gs",
+        "era",
+        "ip",
+        "cg",
+        "h",
+        "r",
+        "er",
+        "bb",
+        "so",
+        "sho",
+        "bf",
+        "p-oab",
+        "2b-a",
+        "3b-a",
+        "bk",
+        "hr-a",
+        "wp",
+        "hb",
+        "ibb",
+        "inh run",
+        "inh run score",
+        "sha",
+        "sfa",
+        "pitches",
+        "go",
+        "fo",
+        "w",
+        "l",
+        "sv",
+        "kl",
+        "pickoffs"
+      ],
+      "source_path": "/teams/614606/season_to_date_stats",
+      "source_stat_category_id": "15868",
+      "stat_type": "pitching"
+    }
+  ],
+  "controls_sha256": "f3befc1d779e5b3ac712b93a5c8e461a58965bbbf74413a3f0e6f75cff2e2326",
+  "division": "d1",
+  "observations": [
+    {
+      "canonical_label": "bases_empty",
+      "identifier": "15",
+      "source_path": "/teams/614606/season_to_date_stats",
+      "source_stat_category_id": "15867",
+      "stat_type": "batting",
+      "status": "candidate"
+    },
+    {
+      "canonical_label": "bases_loaded",
+      "identifier": "16",
+      "source_path": "/teams/614606/season_to_date_stats",
+      "source_stat_category_id": "15867",
+      "stat_type": "batting",
+      "status": "candidate"
+    },
+    {
+      "canonical_label": "runners_in_scoring_position",
+      "identifier": "3",
+      "source_path": "/teams/614606/season_to_date_stats",
+      "source_stat_category_id": "15867",
+      "stat_type": "batting",
+      "status": "candidate"
+    },
+    {
+      "canonical_label": "runners_on",
+      "identifier": "2",
+      "source_path": "/teams/614606/season_to_date_stats",
+      "source_stat_category_id": "15867",
+      "stat_type": "batting",
+      "status": "candidate"
+    },
+    {
+      "canonical_label": "two_outs",
+      "identifier": "1",
+      "source_path": "/teams/614606/season_to_date_stats",
+      "source_stat_category_id": "15867",
+      "stat_type": "batting",
+      "status": "candidate"
+    },
+    {
+      "canonical_label": "vs_lhp",
+      "identifier": "4",
+      "source_path": "/teams/614606/season_to_date_stats",
+      "source_stat_category_id": "15867",
+      "stat_type": "batting",
+      "status": "candidate"
+    },
+    {
+      "canonical_label": "vs_rhp",
+      "identifier": "5",
+      "source_path": "/teams/614606/season_to_date_stats",
+      "source_stat_category_id": "15867",
+      "stat_type": "batting",
+      "status": "candidate"
+    },
+    {
+      "canonical_label": "bases_empty",
+      "identifier": "21",
+      "source_path": "/teams/614606/season_to_date_stats",
+      "source_stat_category_id": "15868",
+      "stat_type": "pitching",
+      "status": "candidate"
+    },
+    {
+      "canonical_label": "bases_loaded",
+      "identifier": "25",
+      "source_path": "/teams/614606/season_to_date_stats",
+      "source_stat_category_id": "15868",
+      "stat_type": "pitching",
+      "status": "candidate"
+    },
+    {
+      "canonical_label": "runners_in_scoring_position",
+      "identifier": "22",
+      "source_path": "/teams/614606/season_to_date_stats",
+      "source_stat_category_id": "15868",
+      "stat_type": "pitching",
+      "status": "candidate"
+    },
+    {
+      "canonical_label": "runners_on",
+      "identifier": "18",
+      "source_path": "/teams/614606/season_to_date_stats",
+      "source_stat_category_id": "15868",
+      "stat_type": "pitching",
+      "status": "candidate"
+    },
+    {
+      "canonical_label": "two_outs",
+      "identifier": "20",
+      "source_path": "/teams/614606/season_to_date_stats",
+      "source_stat_category_id": "15868",
+      "stat_type": "pitching",
+      "status": "candidate"
+    },
+    {
+      "canonical_label": "vs_lhb",
+      "identifier": "19",
+      "source_path": "/teams/614606/season_to_date_stats",
+      "source_stat_category_id": "15868",
+      "stat_type": "pitching",
+      "status": "candidate"
+    },
+    {
+      "canonical_label": "vs_rhb",
+      "identifier": "26",
+      "source_path": "/teams/614606/season_to_date_stats",
+      "source_stat_category_id": "15868",
+      "stat_type": "pitching",
+      "status": "candidate"
+    }
+  ],
+  "sanitizer_version": "phase3-ncaa-split-sanitizer-1",
+  "season_id": "17040",
+  "season_team_id": "614606"
+}

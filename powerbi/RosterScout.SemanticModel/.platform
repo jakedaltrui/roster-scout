@@ -1,0 +1,5 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json",
+  "metadata": { "type": "SemanticModel", "displayName": "RosterScout" },
+  "config": { "version": "2.0", "logicalId": "0b05a9d4-4fca-4bdf-a8c8-27b2f3c15236" }
+}

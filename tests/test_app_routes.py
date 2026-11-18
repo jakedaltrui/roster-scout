@@ -94,12 +94,18 @@ class HomepageReportFlowContractTests(unittest.TestCase):
         self.assertIn(expected, report_new_source)
 
     def test_signed_in_avatar_keeps_initial_and_moves_school_logo_into_menu(self):
-        self.assertIn(
-            'id="account-avatar" data-signed-in="true" aria-hidden="true">{{ account_initial',
-            self.source,
+        account_menu = os.path.join(
+            os.path.dirname(__file__), "..", "templates", "_account_menu.html"
         )
-        self.assertIn('id="account-school-logo"', self.source)
-        self.assertIn('id="account-school-logo-image"', self.source)
+        with open(account_menu, encoding="utf-8") as handle:
+            account_menu_source = handle.read()
+        self.assertIn('{% include "_account_menu.html" %}', self.source)
+        self.assertIn(
+            'id="account-avatar" data-signed-in="true" aria-hidden="true">{{ (account_initial',
+            account_menu_source,
+        )
+        self.assertIn('id="account-school-logo"', account_menu_source)
+        self.assertIn('id="account-school-logo-image"', account_menu_source)
         self.assertIn(
             "accountAvatar.replaceChildren(document.createTextNode(data.account_initial",
             self.source,
@@ -203,11 +209,11 @@ class WorkbookPreparationReceiptTests(unittest.TestCase):
             response.mimetype,
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
-        self.assertIn("Tampa", response.headers["Content-Disposition"])
         self.assertIn(
-            f"Tampa Stats {datetime.now(UTC).strftime('%m-%d-%y')}.xlsx",
+            f"Team Stats {datetime.now(UTC).strftime('%m-%d-%y')}.xlsx",
             response.headers["Content-Disposition"],
         )
+        self.assertNotIn("Tampa", response.headers["Content-Disposition"])
         self.assertTrue(response.data.startswith(b"PK"))
         with zipfile.ZipFile(io.BytesIO(response.data)) as archive:
             workbook_xml = archive.read("xl/workbook.xml").decode("utf-8")
@@ -1340,7 +1346,7 @@ class AuthenticatedSnapshotDownloadAcknowledgementTests(unittest.TestCase):
         self.assertNotIn("background:#20211f", source)
         self.assertIn("Access is limited to files Roster Scout creates", source)
         self.assertIn("Roster Scout never requests access to your Google account.", source)
-        self.assertIn('aria-label="Estimated refresh progress"', source)
+        self.assertIn('aria-label="Estimated report progress"', source)
         self.assertIn("data-status-progress-percent", source)
         self.assertIn("transform:scaleX(var(--report-progress-scale,.08))", source)
         self.assertNotIn("animation:report-progress 4.2s", source)
@@ -1363,7 +1369,10 @@ class AuthenticatedSnapshotDownloadAcknowledgementTests(unittest.TestCase):
         self.assertIn('window.open("https://sheets.new"', shell_script)
         self.assertIn('form.dataset.exportTarget = "google-sheets"', shell_script)
         self.assertIn('headers: { Accept: "application/json" }', shell_script)
-        self.assertIn("window.location.assign(payload.authorization_url)", shell_script)
+        self.assertIn('window.open("about:blank", "_blank")', shell_script)
+        self.assertIn("googleWindow.location.assign(payload.authorization_url)", shell_script)
+        self.assertIn('querySelectorAll("time[data-local-time]")', shell_script)
+        self.assertIn("Intl.DateTimeFormat", shell_script)
         self.assertIn("Couldn’t connect to Google. Try again.", shell_script)
         self.assertIn("googleSheetsOauthUrl", shell_script)
         self.assertNotIn("oauthForm.submit()", shell_script)
@@ -1610,8 +1619,13 @@ class AppRouteTests(unittest.TestCase):
             response.mimetype,
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
-        self.assertIn("attachment", response.headers["Content-Disposition"])
-        self.assertIn(team_name, response.headers["Content-Disposition"])
+        disposition = response.headers["Content-Disposition"]
+        self.assertIn("attachment", disposition)
+        self.assertRegex(
+            disposition,
+            r'filename="Team Stats \d{2}-\d{2}-\d{2}\.xlsx"',
+        )
+        self.assertNotIn(team_name, disposition)
         self.assertEqual(response.headers["X-Roster-Scout-Players"], "1")
         self.assertEqual(response.headers["X-Roster-Scout-Hitters"], "1")
         self.assertEqual(response.headers["X-Roster-Scout-Pitchers"], "0")
@@ -1727,17 +1741,20 @@ class AppRouteTests(unittest.TestCase):
             hitters_xml = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
             drawing_xml = archive.read("xl/drawings/drawing1.xml").decode("utf-8")
             shared_strings_xml = archive.read("xl/sharedStrings.xml").decode("utf-8")
-            table_xml = archive.read("xl/tables/table1.xml").decode("utf-8")
             self.assertIn("Belhaven", shared_strings_xml)
             self.assertIn("OCTOBER 30, 2026", shared_strings_xml)
             self.assertNotIn("D III", shared_strings_xml)
             self.assertNotIn("Hitters, 1 players", shared_strings_xml)
             self.assertIn("tabColor", hitters_xml)
-            self.assertIn('ySplit="3"', hitters_xml)
+            self.assertIn('xSplit="4"', hitters_xml)
+            self.assertIn('ySplit="4"', hitters_xml)
             self.assertIn('mergeCell ref="A1:A2"', hitters_xml)
             self.assertIn('mergeCell ref="B1:D1"', hitters_xml)
             self.assertIn('mergeCell ref="B2:D2"', hitters_xml)
-            self.assertIn('ref="A3:P4"', table_xml)
+            self.assertIn('mergeCell ref="A3:D3"', hitters_xml)
+            self.assertIn('mergeCell ref="E3:O3"', hitters_xml)
+            self.assertNotIn('mergeCell ref="P3:', hitters_xml)
+            self.assertIn('autoFilter ref="A4:O5"', hitters_xml)
             self.assertIn("<xdr:col>0</xdr:col>", drawing_xml)
             self.assertIn("<xdr:row>0</xdr:row>", drawing_xml)
             self.assertEqual(drawing_xml.count("<xdr:twoCellAnchor"), 1)

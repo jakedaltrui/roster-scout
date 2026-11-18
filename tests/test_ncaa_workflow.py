@@ -44,6 +44,47 @@ class NcaaWorkflowTests(unittest.TestCase):
         rs._NCAA_TEAM_ROWS = None
         rs._NCAA_SEASON_ROWS = None
 
+    def test_fresh_lookup_with_incomplete_schema_is_refetched(self):
+        cache_path = Path(self.temp_dir.name) / "ncaa-season-lookup.csv"
+        cache_path.write_text(
+            "season,id,batting_id,pitching_id\n"
+            "2026,17040,15867,15868\n",
+            encoding="utf-8",
+        )
+        response = MagicMock()
+        response.text = (
+            "season,id,batting_id,pitching_id,fielding_id\n"
+            "2026,17040,15867,15868,15869\n"
+        )
+
+        with patch.object(rs.requests, "get", return_value=response) as request:
+            rows = rs._load_csv_rows(
+                "https://example.test/seasons.csv",
+                "ncaa-season-lookup.csv",
+                {"season", "id", "batting_id", "pitching_id", "fielding_id"},
+            )
+
+        request.assert_called_once()
+        response.raise_for_status.assert_called_once()
+        self.assertEqual(rows[0]["fielding_id"], "15869")
+        cached_header = cache_path.read_text(encoding="utf-8").splitlines()[0]
+        self.assertIn("fielding_id", cached_header)
+
+    def test_season_lookup_requires_fielding_category_id(self):
+        rs._NCAA_SEASON_ROWS = None
+        complete = [{
+            "season": "2026",
+            "id": "17040",
+            "batting_id": "15867",
+            "pitching_id": "15868",
+            "fielding_id": "15869",
+        }]
+
+        with patch.object(rs, "_load_csv_rows", return_value=complete) as loader:
+            self.assertEqual(rs._load_ncaa_season_rows(), complete)
+
+        self.assertIn("fielding_id", loader.call_args.args[2])
+
     def test_resolves_representative_team_from_each_division(self):
         self.assertEqual(rs._find_ncaa_team("Florida State", "d1", 2026)["team_id"], "234")
         self.assertEqual(rs._find_ncaa_team("Tampa", "d2", 2026)["team_id"], "689")
@@ -267,6 +308,35 @@ class NcaaWorkflowTests(unittest.TestCase):
         self.assertEqual(pages, expected)
         browserless.assert_called_once_with(urls)
         direct.assert_not_called()
+
+    def test_interactive_extraction_stays_inside_browserless_capacity_boundary(self):
+        consumer = object()
+        expected = {"batting": {"safe": "evidence"}}
+        with patch.dict(os.environ, {
+            "NCAA_BROWSER_PROVIDER": "browserless",
+            "BROWSERLESS_TOKEN": "secret-token",
+        }):
+            with patch.object(
+                rs, "_fetch_ncaa_browserless_pages", return_value=expected
+            ) as browserless:
+                pages = rs._fetch_ncaa_pages(
+                    {"batting": "https://stats.ncaa.org/teams/1/season_to_date_stats"},
+                    page_consumer=consumer,
+                )
+
+        self.assertEqual(pages, expected)
+        browserless.assert_called_once_with(
+            {"batting": "https://stats.ncaa.org/teams/1/season_to_date_stats"},
+            page_consumer=consumer,
+        )
+
+    def test_interactive_extraction_never_falls_back_to_an_unmanaged_browser(self):
+        with patch.dict(os.environ, {"NCAA_BROWSER_PROVIDER": ""}, clear=False):
+            with self.assertRaisesRegex(rs.NcaaAccessError, "configured Browserless"):
+                rs._fetch_ncaa_pages(
+                    {"batting": "https://stats.ncaa.org/teams/1/season_to_date_stats"},
+                    page_consumer=lambda **_kwargs: None,
+                )
 
     def test_browserless_capacity_is_released_after_error(self):
         from usage_limits import BrowserCapacityExceeded, browserless_slot

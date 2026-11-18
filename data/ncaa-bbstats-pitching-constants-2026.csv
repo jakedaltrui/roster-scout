@@ -1,0 +1,4 @@
+year,division,n_teams,lg_era,lg_ip,lg_hr,lg_bb_pit,lg_hbp,lg_so,cfip_constant,bb_allowed_source,hr_allowed_source,method
+2026,1,304,6.0241,143675.3,17725,75131,23355,132444,4.2076,pitching,batting_proxy,league_totals
+2026,2,249,6.7473,100392.3,10901,57102,18682,82854,4.7217,pitching,batting_proxy,league_totals
+2026,3,377,6.5004,124077.3,9563,68063,24377,97290,4.8316,pitching,batting_proxy,league_totals

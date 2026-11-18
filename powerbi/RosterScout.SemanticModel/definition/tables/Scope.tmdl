@@ -1,0 +1,32 @@
+table Scope
+	column security_key
+		dataType: string
+		sourceColumn: security_key
+	column statistic_scope_id
+		dataType: string
+		sourceColumn: statistic_scope_id
+	column scope_kind
+		dataType: string
+		sourceColumn: scope_kind
+	column scope_code
+		dataType: string
+		sourceColumn: scope_code
+	column stat_type
+		dataType: string
+		sourceColumn: stat_type
+	column display_label
+		dataType: string
+		sourceColumn: display_label
+	column status
+		dataType: string
+		sourceColumn: status
+	column availability_reason
+		dataType: string
+		sourceColumn: availability_reason
+	column actual_game_count
+		dataType: int64
+		sourceColumn: actual_game_count
+	partition Scope = m
+		mode: import
+		source =
+			let Source = PostgreSQL.Database(RosterScoutDatabaseServer, RosterScoutDatabaseName), View = Source{[Schema="public",Item="pbi_scopes"]}[Data] in View

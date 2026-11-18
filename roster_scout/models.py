@@ -5,9 +5,11 @@ import uuid
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
+    FetchedValue,
     Index,
     Integer,
     LargeBinary,
@@ -24,10 +26,13 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from .enums import (
+    COLLECTION_CONTRACT_VERSIONS,
     ARTIFACT_STATUSES,
     ARTIFACT_TYPES,
+    BUILD_PROFILES,
     IDENTITY_STATUSES,
     JOB_STATUSES,
+    METRIC_STATUSES,
     SECTION_STATUSES,
     SNAPSHOT_STATUSES,
 )
@@ -38,6 +43,8 @@ AUTHORITATIVE_SOURCE_PLAYER_TRIGGER_NAMES = (
     "trg_players_authoritative_source_player",
     "trg_player_team_seasons_authoritative_source_player",
 )
+
+SCOPE_STATUSES = ("complete", "partial", "unavailable", "failed")
 
 
 def _allowed(column, values):
@@ -358,6 +365,7 @@ class SecurityAuditEvent(UUIDPrimaryKey, Base):
                     "report",
                     "job",
                     "snapshot",
+                    "dashboard",
                     "artifact",
                     "session",
                 ),
@@ -382,6 +390,7 @@ class SecurityAuditEvent(UUIDPrimaryKey, Base):
                     "report.refresh",
                     "report.retry",
                     "snapshot.access",
+                    "dashboard.embed_token",
                     "artifact.download",
                     "authorization.deny",
                 ),
@@ -608,6 +617,11 @@ class ReportSnapshot(UUIDPrimaryKey, Timestamped, Base):
     predecessor_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="draft", server_default="draft")
     schema_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    collection_contract_version: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        server_default="legacy-core-v1",
+    )
     source_collected_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
     published_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
     created_by: Mapped[str | None] = mapped_column(String(200))
@@ -636,6 +650,10 @@ class ReportSnapshot(UUIDPrimaryKey, Timestamped, Base):
             name="fk_report_snapshots_creator_membership",
         ),
         CheckConstraint(_allowed("status", SNAPSHOT_STATUSES), name="ck_report_snapshots_status"),
+        CheckConstraint(
+            _allowed("collection_contract_version", COLLECTION_CONTRACT_VERSIONS),
+            name="ck_report_snapshots_collection_contract_version",
+        ),
         CheckConstraint(
             "(status IN ('ready', 'partial') AND published_at IS NOT NULL) OR "
             "(status IN ('draft', 'failed') AND published_at IS NULL)",
@@ -769,10 +787,24 @@ class BattingFact(UUIDPrimaryKey, Base):
     snapshot_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     player_team_season_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     source_record_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    games: Mapped[int | None] = mapped_column(Integer)
+    games_started: Mapped[int | None] = mapped_column(Integer)
+    plate_appearances: Mapped[int | None] = mapped_column(Integer)
     at_bats: Mapped[int | None] = mapped_column(Integer)
+    runs: Mapped[int | None] = mapped_column(Integer)
     hits: Mapped[int | None] = mapped_column(Integer)
+    doubles: Mapped[int | None] = mapped_column(Integer)
+    triples: Mapped[int | None] = mapped_column(Integer)
+    home_runs: Mapped[int | None] = mapped_column(Integer)
+    runs_batted_in: Mapped[int | None] = mapped_column(Integer)
     walks: Mapped[int | None] = mapped_column(Integer)
+    hit_by_pitch: Mapped[int | None] = mapped_column(Integer)
     strikeouts: Mapped[int | None] = mapped_column(Integer)
+    sacrifice_flies: Mapped[int | None] = mapped_column(Integer)
+    sacrifice_hits: Mapped[int | None] = mapped_column(Integer)
+    stolen_bases: Mapped[int | None] = mapped_column(Integer)
+    caught_stealing: Mapped[int | None] = mapped_column(Integer)
+    total_bases: Mapped[int | None] = mapped_column(Integer)
     __table_args__ = (
         ForeignKeyConstraint(
             ["snapshot_id", "organization_id"], ["report_snapshots.id", "report_snapshots.organization_id"],
@@ -805,6 +837,28 @@ class BattingFact(UUIDPrimaryKey, Base):
             "strikeouts IS NULL OR strikeouts >= 0",
             name="ck_batting_facts_strikeouts_nonnegative",
         ),
+        *(
+            CheckConstraint(
+                f"{column} IS NULL OR {column} >= 0",
+                name=f"ck_batting_facts_{column}_nonnegative",
+            )
+            for column in (
+                "games",
+                "games_started",
+                "plate_appearances",
+                "runs",
+                "doubles",
+                "triples",
+                "home_runs",
+                "runs_batted_in",
+                "hit_by_pitch",
+                "sacrifice_flies",
+                "sacrifice_hits",
+                "stolen_bases",
+                "caught_stealing",
+                "total_bases",
+            )
+        ),
     )
 
 
@@ -814,11 +868,19 @@ class PitchingFact(UUIDPrimaryKey, Base):
     snapshot_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     player_team_season_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     source_record_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    appearances: Mapped[int | None] = mapped_column(Integer)
+    games_started: Mapped[int | None] = mapped_column(Integer)
     innings_outs: Mapped[int | None] = mapped_column(Integer)
     hits_allowed: Mapped[int | None] = mapped_column(Integer)
+    runs_allowed: Mapped[int | None] = mapped_column(Integer)
     earned_runs: Mapped[int | None] = mapped_column(Integer)
     walks: Mapped[int | None] = mapped_column(Integer)
     strikeouts: Mapped[int | None] = mapped_column(Integer)
+    home_runs_allowed: Mapped[int | None] = mapped_column(Integer)
+    hit_batters: Mapped[int | None] = mapped_column(Integer)
+    batters_faced: Mapped[int | None] = mapped_column(Integer)
+    opponent_at_bats: Mapped[int | None] = mapped_column(Integer)
+    opponent_sacrifice_flies: Mapped[int | None] = mapped_column(Integer)
     __table_args__ = (
         ForeignKeyConstraint(
             ["snapshot_id", "organization_id"], ["report_snapshots.id", "report_snapshots.organization_id"],
@@ -858,6 +920,814 @@ class PitchingFact(UUIDPrimaryKey, Base):
             "strikeouts IS NULL OR strikeouts >= 0",
             name="ck_pitching_facts_strikeouts_nonnegative",
         ),
+        *(
+            CheckConstraint(
+                f"{column} IS NULL OR {column} >= 0",
+                name=f"ck_pitching_facts_{column}_nonnegative",
+            )
+            for column in (
+                "appearances",
+                "games_started",
+                "runs_allowed",
+                "home_runs_allowed",
+                "hit_batters",
+                "batters_faced",
+                "opponent_at_bats",
+                "opponent_sacrifice_flies",
+            )
+        ),
+    )
+
+
+class FieldingFact(UUIDPrimaryKey, Base):
+    __tablename__ = "fielding_facts"
+    organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    player_team_season_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    source_record_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    games: Mapped[int | None] = mapped_column(Integer)
+    games_started: Mapped[int | None] = mapped_column(Integer)
+    putouts: Mapped[int | None] = mapped_column(Integer)
+    assists: Mapped[int | None] = mapped_column(Integer)
+    errors: Mapped[int | None] = mapped_column(Integer)
+    total_chances: Mapped[int | None] = mapped_column(Integer)
+    double_plays: Mapped[int | None] = mapped_column(Integer)
+    fielding_percentage: Mapped[object | None] = mapped_column(Numeric(6, 5))
+    passed_balls: Mapped[int | None] = mapped_column(Integer)
+    stolen_base_attempts: Mapped[int | None] = mapped_column(Integer)
+    caught_stealing_by: Mapped[int | None] = mapped_column(Integer)
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["snapshot_id", "organization_id"],
+            ["report_snapshots.id", "report_snapshots.organization_id"],
+            name="fk_fielding_facts_snapshot_organization",
+        ),
+        ForeignKeyConstraint(
+            ["player_team_season_id", "snapshot_id", "organization_id"],
+            ["player_team_seasons.id", "player_team_seasons.snapshot_id", "player_team_seasons.organization_id"],
+            name="fk_fielding_facts_player_snapshot_organization",
+        ),
+        ForeignKeyConstraint(
+            ["source_record_id", "player_team_season_id", "snapshot_id", "organization_id"],
+            ["source_records.id", "source_records.player_team_season_id", "source_records.snapshot_id", "source_records.organization_id"],
+            name="fk_fielding_facts_source_identity",
+        ),
+        CheckConstraint(
+            "fielding_percentage IS NULL OR "
+            "(fielding_percentage >= 0 AND fielding_percentage <= 1)",
+            name="ck_fielding_facts_fielding_percentage_range",
+        ),
+        *(
+            CheckConstraint(
+                f"{column} IS NULL OR {column} >= 0",
+                name=f"ck_fielding_facts_{column}_nonnegative",
+            )
+            for column in (
+                "games",
+                "games_started",
+                "putouts",
+                "assists",
+                "errors",
+                "total_chances",
+                "double_plays",
+                "passed_balls",
+                "stolen_base_attempts",
+                "caught_stealing_by",
+            )
+        ),
+        {
+            "info": {
+                "database_triggers": ("trg_fielding_facts_immutable",)
+            }
+        },
+    )
+
+
+class SeasonConferenceEvidence(UUIDPrimaryKey, Base):
+    __tablename__ = "season_conference_evidence"
+    organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    source_record_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    source_season_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    source_team_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    source_season_team_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    conference_id: Mapped[str | None] = mapped_column(String(100))
+    evidence_status: Mapped[str] = mapped_column(String(20), nullable=False)
+    collected_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=False)
+    payload_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    __table_args__ = (
+        UniqueConstraint(
+            "id", "snapshot_id", "organization_id",
+            name="uq_season_conference_evidence_snapshot_owner",
+        ),
+        UniqueConstraint(
+            "snapshot_id", "source_season_id", "source_season_team_id",
+            name="uq_season_conference_evidence_team_season",
+        ),
+        ForeignKeyConstraint(
+            ["snapshot_id", "organization_id"],
+            ["report_snapshots.id", "report_snapshots.organization_id"],
+            name="fk_season_conference_evidence_snapshot_organization",
+        ),
+        ForeignKeyConstraint(
+            ["source_record_id", "snapshot_id", "organization_id"],
+            ["source_records.id", "source_records.snapshot_id", "source_records.organization_id"],
+            name="fk_season_conference_evidence_source_owner",
+        ),
+        CheckConstraint(
+            _allowed("evidence_status", ("present", "source_absent")),
+            name="ck_season_conference_evidence_status",
+        ),
+        CheckConstraint(
+            "(evidence_status = 'present' AND conference_id IS NOT NULL) OR "
+            "(evidence_status = 'source_absent' AND conference_id IS NULL)",
+            name="ck_season_conference_evidence_value_status",
+        ),
+        CheckConstraint(
+            "char_length(payload_sha256) = 64",
+            name="ck_season_conference_evidence_sha256_length",
+        ),
+        {"info": {"database_triggers": ("trg_season_conference_evidence_immutable",)}},
+    )
+
+
+class Game(UUIDPrimaryKey, Base):
+    __tablename__ = "games"
+    organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    source_record_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    source_season_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    game_date: Mapped[object] = mapped_column(Date, nullable=False)
+    completed_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    result_code: Mapped[str | None] = mapped_column(String(16))
+    result_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    opponent_team_id: Mapped[str | None] = mapped_column(String(100))
+    opponent_season_team_id: Mapped[str | None] = mapped_column(String(100))
+    report_team_conference_evidence_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    opponent_conference_evidence_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    doubleheader_ordinal: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    venue: Mapped[str] = mapped_column(String(16), nullable=False)
+    source_game_id: Mapped[str | None] = mapped_column(String(100))
+    fixture_fallback_key: Mapped[str | None] = mapped_column(String(300))
+    identity_kind: Mapped[str] = mapped_column(String(24), nullable=False)
+    fixture_test_mode: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    __table_args__ = (
+        UniqueConstraint(
+            "id", "snapshot_id", "organization_id",
+            name="uq_games_snapshot_owner",
+        ),
+        ForeignKeyConstraint(
+            ["snapshot_id", "organization_id"],
+            ["report_snapshots.id", "report_snapshots.organization_id"],
+            name="fk_games_snapshot_organization",
+        ),
+        ForeignKeyConstraint(
+            ["source_record_id", "snapshot_id", "organization_id"],
+            ["source_records.id", "source_records.snapshot_id", "source_records.organization_id"],
+            name="fk_games_source_owner",
+        ),
+        ForeignKeyConstraint(
+            ["report_team_conference_evidence_id", "snapshot_id", "organization_id"],
+            ["season_conference_evidence.id", "season_conference_evidence.snapshot_id", "season_conference_evidence.organization_id"],
+            name="fk_games_report_conference_owner",
+        ),
+        ForeignKeyConstraint(
+            ["opponent_conference_evidence_id", "snapshot_id", "organization_id"],
+            ["season_conference_evidence.id", "season_conference_evidence.snapshot_id", "season_conference_evidence.organization_id"],
+            name="fk_games_opponent_conference_owner",
+        ),
+        CheckConstraint(
+            _allowed("status", ("scheduled", "completed", "canceled", "postponed", "no_contest")),
+            name="ck_games_status",
+        ),
+        CheckConstraint(
+            _allowed("venue", ("home", "away", "neutral")),
+            name="ck_games_venue",
+        ),
+        CheckConstraint(
+            "doubleheader_ordinal >= 1",
+            name="ck_games_doubleheader_ordinal_positive",
+        ),
+        CheckConstraint(
+            "char_length(result_sha256) = 64",
+            name="ck_games_result_sha256_length",
+        ),
+        CheckConstraint(
+            "(identity_kind = 'source' AND source_game_id IS NOT NULL "
+            "AND fixture_fallback_key IS NULL AND NOT fixture_test_mode) OR "
+            "(identity_kind = 'fixture_fallback' AND source_game_id IS NULL "
+            "AND fixture_fallback_key IS NOT NULL AND fixture_test_mode)",
+            name="ck_games_identity_contract",
+        ),
+        Index(
+            "uq_games_snapshot_source_identity",
+            "organization_id", "snapshot_id", "source_game_id",
+            unique=True,
+            postgresql_where=text("source_game_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_games_snapshot_fixture_identity",
+            "organization_id", "snapshot_id", "fixture_fallback_key",
+            unique=True,
+            postgresql_where=text(
+                "source_game_id IS NULL AND identity_kind = 'fixture_fallback'"
+            ),
+        ),
+        {"info": {"database_triggers": ("trg_games_immutable",)}},
+    )
+
+
+class StatisticScope(UUIDPrimaryKey, Base):
+    __tablename__ = "statistic_scopes"
+    organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    scope_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    scope_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    stat_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    display_label: Mapped[str] = mapped_column(String(120), nullable=False)
+    source_identifier: Mapped[str | None] = mapped_column(String(100))
+    source_path: Mapped[str] = mapped_column(Text, nullable=False)
+    source_url: Mapped[str | None] = mapped_column(Text)
+    source_season_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    source_season_team_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    source_stat_category_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    availability_reason: Mapped[str | None] = mapped_column(String(100))
+    collected_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=False)
+    parser_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    sample_json: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    source_payload_sha256: Mapped[str | None] = mapped_column(String(64))
+    schedule_source_record_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    start_date: Mapped[object | None] = mapped_column(Date)
+    end_date: Mapped[object | None] = mapped_column(Date)
+    actual_game_count: Mapped[int | None] = mapped_column(Integer)
+    report_conference_id: Mapped[str | None] = mapped_column(String(100))
+    __table_args__ = (
+        UniqueConstraint(
+            "id", "snapshot_id", "organization_id",
+            name="uq_statistic_scopes_snapshot_owner",
+        ),
+        UniqueConstraint(
+            "snapshot_id", "stat_type", "scope_code",
+            name="uq_statistic_scopes_snapshot_type_code",
+        ),
+        ForeignKeyConstraint(
+            ["snapshot_id", "organization_id"],
+            ["report_snapshots.id", "report_snapshots.organization_id"],
+            name="fk_statistic_scopes_snapshot_organization",
+        ),
+        ForeignKeyConstraint(
+            ["schedule_source_record_id", "snapshot_id", "organization_id"],
+            ["source_records.id", "source_records.snapshot_id", "source_records.organization_id"],
+            name="fk_statistic_scopes_schedule_source_owner",
+        ),
+        CheckConstraint(
+            _allowed("scope_kind", ("source_split", "computed_game")),
+            name="ck_statistic_scopes_kind",
+        ),
+        CheckConstraint(
+            _allowed("stat_type", ("batting", "pitching", "fielding")),
+            name="ck_statistic_scopes_stat_type",
+        ),
+        CheckConstraint(
+            _allowed("status", SCOPE_STATUSES),
+            name="ck_statistic_scopes_status",
+        ),
+        CheckConstraint(
+            "(scope_kind = 'source_split' AND status IN ('complete', 'partial') "
+            "AND source_identifier IS NOT NULL) OR "
+            "(scope_kind = 'computed_game' AND source_identifier IS NULL) OR "
+            "status IN ('unavailable', 'failed')",
+            name="ck_statistic_scopes_source_status",
+        ),
+        CheckConstraint(
+            "(status = 'complete' AND availability_reason IS NULL) OR "
+            "(status <> 'complete' AND availability_reason IS NOT NULL)",
+            name="ck_statistic_scopes_reason_status",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(sample_json) = 'object'",
+            name="ck_statistic_scopes_sample_object",
+        ),
+        CheckConstraint(
+            "source_payload_sha256 IS NULL OR char_length(source_payload_sha256) = 64",
+            name="ck_statistic_scopes_sha256_length",
+        ),
+        CheckConstraint(
+            "actual_game_count IS NULL OR actual_game_count >= 0",
+            name="ck_statistic_scopes_game_count_nonnegative",
+        ),
+        CheckConstraint(
+            "scope_kind <> 'computed_game' OR "
+            "(schedule_source_record_id IS NOT NULL AND actual_game_count IS NOT NULL)",
+            name="ck_statistic_scopes_computed_source",
+        ),
+        CheckConstraint(
+            "(actual_game_count IS NULL) OR "
+            "(actual_game_count = 0 AND start_date IS NULL AND end_date IS NULL) OR "
+            "(actual_game_count > 0 AND start_date IS NOT NULL AND end_date IS NOT NULL "
+            "AND start_date <= end_date)",
+            name="ck_statistic_scopes_date_range",
+        ),
+        {"info": {"database_triggers": ("trg_statistic_scopes_immutable",)}},
+    )
+
+
+class StatisticScopeGame(UUIDPrimaryKey, Base):
+    __tablename__ = "statistic_scope_games"
+    organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    statistic_scope_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    game_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    membership_ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    __table_args__ = (
+        UniqueConstraint(
+            "statistic_scope_id", "game_id",
+            name="uq_statistic_scope_games_scope_game",
+        ),
+        UniqueConstraint(
+            "statistic_scope_id", "membership_ordinal",
+            name="uq_statistic_scope_games_scope_ordinal",
+        ),
+        ForeignKeyConstraint(
+            ["snapshot_id", "organization_id"],
+            ["report_snapshots.id", "report_snapshots.organization_id"],
+            name="fk_statistic_scope_games_snapshot_organization",
+        ),
+        ForeignKeyConstraint(
+            ["statistic_scope_id", "snapshot_id", "organization_id"],
+            ["statistic_scopes.id", "statistic_scopes.snapshot_id", "statistic_scopes.organization_id"],
+            name="fk_statistic_scope_games_scope_owner",
+        ),
+        ForeignKeyConstraint(
+            ["game_id", "snapshot_id", "organization_id"],
+            ["games.id", "games.snapshot_id", "games.organization_id"],
+            name="fk_statistic_scope_games_game_owner",
+        ),
+        CheckConstraint(
+            "membership_ordinal >= 1",
+            name="ck_statistic_scope_games_ordinal_positive",
+        ),
+        {"info": {"database_triggers": ("trg_statistic_scope_games_immutable",)}},
+    )
+
+
+class ScopedBattingFact(UUIDPrimaryKey, Base):
+    __tablename__ = "scoped_batting_facts"
+    organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    statistic_scope_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    player_team_season_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    source_record_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    at_bats: Mapped[int | None] = mapped_column(Integer)
+    hits: Mapped[int | None] = mapped_column(Integer)
+    sample_json: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    counts_json: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    contributing_fact_ids: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    __table_args__ = (
+        UniqueConstraint(
+            "statistic_scope_id", "player_team_season_id",
+            name="uq_scoped_batting_facts_scope_player",
+        ),
+        ForeignKeyConstraint(
+            ["snapshot_id", "organization_id"],
+            ["report_snapshots.id", "report_snapshots.organization_id"],
+            name="fk_scoped_batting_facts_snapshot_organization",
+        ),
+        ForeignKeyConstraint(
+            ["statistic_scope_id", "snapshot_id", "organization_id"],
+            ["statistic_scopes.id", "statistic_scopes.snapshot_id", "statistic_scopes.organization_id"],
+            name="fk_scoped_batting_facts_scope_snapshot_organization",
+        ),
+        ForeignKeyConstraint(
+            ["player_team_season_id", "snapshot_id", "organization_id"],
+            ["player_team_seasons.id", "player_team_seasons.snapshot_id", "player_team_seasons.organization_id"],
+            name="fk_scoped_batting_facts_player_snapshot_organization",
+        ),
+        ForeignKeyConstraint(
+            ["source_record_id", "player_team_season_id", "snapshot_id", "organization_id"],
+            ["source_records.id", "source_records.player_team_season_id", "source_records.snapshot_id", "source_records.organization_id"],
+            name="fk_scoped_batting_facts_source_identity",
+        ),
+        CheckConstraint(
+            "at_bats IS NULL OR at_bats >= 0",
+            name="ck_scoped_batting_facts_at_bats_nonnegative",
+        ),
+        CheckConstraint(
+            "hits IS NULL OR hits >= 0",
+            name="ck_scoped_batting_facts_hits_nonnegative",
+        ),
+        CheckConstraint(
+            "hits IS NULL OR at_bats IS NULL OR hits <= at_bats",
+            name="ck_scoped_batting_facts_hits_lte_at_bats",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(sample_json) = 'object'",
+            name="ck_scoped_batting_facts_sample_object",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(counts_json) = 'object'",
+            name="ck_scoped_batting_facts_counts_object",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(contributing_fact_ids) = 'array'",
+            name="ck_scoped_batting_facts_contributions_array",
+        ),
+        {"info": {"database_triggers": ("trg_scoped_batting_facts_immutable",)}},
+    )
+
+
+class ScopedPitchingFact(UUIDPrimaryKey, Base):
+    __tablename__ = "scoped_pitching_facts"
+    organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    statistic_scope_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    player_team_season_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    source_record_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    opponent_at_bats: Mapped[int | None] = mapped_column(Integer)
+    hits_allowed: Mapped[int | None] = mapped_column(Integer)
+    sample_json: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    counts_json: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    contributing_fact_ids: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    __table_args__ = (
+        UniqueConstraint(
+            "statistic_scope_id", "player_team_season_id",
+            name="uq_scoped_pitching_facts_scope_player",
+        ),
+        ForeignKeyConstraint(
+            ["snapshot_id", "organization_id"],
+            ["report_snapshots.id", "report_snapshots.organization_id"],
+            name="fk_scoped_pitching_facts_snapshot_organization",
+        ),
+        ForeignKeyConstraint(
+            ["statistic_scope_id", "snapshot_id", "organization_id"],
+            ["statistic_scopes.id", "statistic_scopes.snapshot_id", "statistic_scopes.organization_id"],
+            name="fk_scoped_pitching_facts_scope_snapshot_organization",
+        ),
+        ForeignKeyConstraint(
+            ["player_team_season_id", "snapshot_id", "organization_id"],
+            ["player_team_seasons.id", "player_team_seasons.snapshot_id", "player_team_seasons.organization_id"],
+            name="fk_scoped_pitching_facts_player_snapshot_organization",
+        ),
+        ForeignKeyConstraint(
+            ["source_record_id", "player_team_season_id", "snapshot_id", "organization_id"],
+            ["source_records.id", "source_records.player_team_season_id", "source_records.snapshot_id", "source_records.organization_id"],
+            name="fk_scoped_pitching_facts_source_identity",
+        ),
+        CheckConstraint(
+            "opponent_at_bats IS NULL OR opponent_at_bats >= 0",
+            name="ck_scoped_pitching_facts_opponent_at_bats_nonnegative",
+        ),
+        CheckConstraint(
+            "hits_allowed IS NULL OR hits_allowed >= 0",
+            name="ck_scoped_pitching_facts_hits_allowed_nonnegative",
+        ),
+        CheckConstraint(
+            "hits_allowed IS NULL OR opponent_at_bats IS NULL "
+            "OR hits_allowed <= opponent_at_bats",
+            name="ck_scoped_pitching_facts_hits_lte_at_bats",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(sample_json) = 'object'",
+            name="ck_scoped_pitching_facts_sample_object",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(counts_json) = 'object'",
+            name="ck_scoped_pitching_facts_counts_object",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(contributing_fact_ids) = 'array'",
+            name="ck_scoped_pitching_facts_contributions_array",
+        ),
+        {"info": {"database_triggers": ("trg_scoped_pitching_facts_immutable",)}},
+    )
+
+
+class ScopedFieldingFact(UUIDPrimaryKey, Base):
+    __tablename__ = "scoped_fielding_facts"
+    organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    statistic_scope_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    player_team_season_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    source_record_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    putouts: Mapped[int | None] = mapped_column(Integer)
+    assists: Mapped[int | None] = mapped_column(Integer)
+    errors: Mapped[int | None] = mapped_column(Integer)
+    total_chances: Mapped[int | None] = mapped_column(Integer)
+    sample_json: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    counts_json: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    contributing_fact_ids: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    __table_args__ = (
+        UniqueConstraint(
+            "statistic_scope_id", "player_team_season_id",
+            name="uq_scoped_fielding_facts_scope_player",
+        ),
+        ForeignKeyConstraint(
+            ["snapshot_id", "organization_id"],
+            ["report_snapshots.id", "report_snapshots.organization_id"],
+            name="fk_scoped_fielding_facts_snapshot_organization",
+        ),
+        ForeignKeyConstraint(
+            ["statistic_scope_id", "snapshot_id", "organization_id"],
+            ["statistic_scopes.id", "statistic_scopes.snapshot_id", "statistic_scopes.organization_id"],
+            name="fk_scoped_fielding_facts_scope_snapshot_organization",
+        ),
+        ForeignKeyConstraint(
+            ["player_team_season_id", "snapshot_id", "organization_id"],
+            ["player_team_seasons.id", "player_team_seasons.snapshot_id", "player_team_seasons.organization_id"],
+            name="fk_scoped_fielding_facts_player_snapshot_organization",
+        ),
+        ForeignKeyConstraint(
+            ["source_record_id", "player_team_season_id", "snapshot_id", "organization_id"],
+            ["source_records.id", "source_records.player_team_season_id", "source_records.snapshot_id", "source_records.organization_id"],
+            name="fk_scoped_fielding_facts_source_identity",
+        ),
+        *(
+            CheckConstraint(
+                f"{column} IS NULL OR {column} >= 0",
+                name=f"ck_scoped_fielding_facts_{column}_nonnegative",
+            )
+            for column in ("putouts", "assists", "errors", "total_chances")
+        ),
+        CheckConstraint(
+            "jsonb_typeof(sample_json) = 'object'",
+            name="ck_scoped_fielding_facts_sample_object",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(counts_json) = 'object'",
+            name="ck_scoped_fielding_facts_counts_object",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(contributing_fact_ids) = 'array'",
+            name="ck_scoped_fielding_facts_contributions_array",
+        ),
+        {"info": {"database_triggers": ("trg_scoped_fielding_facts_immutable",)}},
+    )
+
+
+class CareerSeasonFact(UUIDPrimaryKey, Base):
+    __tablename__ = "career_season_facts"
+    organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    player_team_season_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    source_record_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    row_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    stat_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    season_label: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_season_id: Mapped[str | None] = mapped_column(String(100))
+    school_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    source_season_team_id: Mapped[str | None] = mapped_column(String(100))
+    division: Mapped[str | None] = mapped_column(String(16))
+    source_stat_category_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    counts_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    rates_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    at_bats: Mapped[int | None] = mapped_column(Integer)
+    hits: Mapped[int | None] = mapped_column(Integer)
+    innings_outs: Mapped[int | None] = mapped_column(Integer)
+    earned_runs: Mapped[int | None] = mapped_column(Integer)
+    putouts: Mapped[int | None] = mapped_column(Integer)
+    assists: Mapped[int | None] = mapped_column(Integer)
+    errors: Mapped[int | None] = mapped_column(Integer)
+    total_chances: Mapped[int | None] = mapped_column(Integer)
+    __table_args__ = (
+        UniqueConstraint(
+            "snapshot_id", "player_team_season_id", "stat_type", "row_id",
+            name="uq_career_season_facts_snapshot_player_type_row",
+        ),
+        ForeignKeyConstraint(
+            ["snapshot_id", "organization_id"],
+            ["report_snapshots.id", "report_snapshots.organization_id"],
+            name="fk_career_season_facts_snapshot_organization",
+        ),
+        ForeignKeyConstraint(
+            ["player_team_season_id", "snapshot_id", "organization_id"],
+            ["player_team_seasons.id", "player_team_seasons.snapshot_id", "player_team_seasons.organization_id"],
+            name="fk_career_season_facts_player_snapshot_organization",
+        ),
+        ForeignKeyConstraint(
+            ["source_record_id", "player_team_season_id", "snapshot_id", "organization_id"],
+            ["source_records.id", "source_records.player_team_season_id", "source_records.snapshot_id", "source_records.organization_id"],
+            name="fk_career_season_facts_source_identity",
+        ),
+        CheckConstraint(
+            _allowed("stat_type", ("batting", "pitching", "fielding")),
+            name="ck_career_season_facts_stat_type",
+        ),
+        CheckConstraint(
+            "division IS NULL OR division IN ('d1', 'd2', 'd3')",
+            name="ck_career_season_facts_division",
+        ),
+        CheckConstraint("char_length(row_id) = 64", name="ck_career_season_facts_row_id_length"),
+        CheckConstraint("jsonb_typeof(counts_json) = 'object'", name="ck_career_season_facts_counts_object"),
+        CheckConstraint("jsonb_typeof(rates_json) = 'object'", name="ck_career_season_facts_rates_object"),
+        *(
+            CheckConstraint(
+                f"{column} IS NULL OR {column} >= 0",
+                name=f"ck_career_season_facts_{column}_nonnegative",
+            )
+            for column in (
+                "at_bats", "hits", "innings_outs", "earned_runs", "putouts",
+                "assists", "errors", "total_chances",
+            )
+        ),
+        CheckConstraint(
+            "hits IS NULL OR at_bats IS NULL OR hits <= at_bats",
+            name="ck_career_season_facts_hits_lte_at_bats",
+        ),
+        {"info": {"database_triggers": ("trg_career_season_facts_immutable",)}},
+    )
+
+
+class CareerAggregate(UUIDPrimaryKey, Base):
+    __tablename__ = "career_aggregates"
+    organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    player_team_season_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    stat_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    availability_reason: Mapped[str | None] = mapped_column(String(100))
+    definition_version: Mapped[str] = mapped_column(String(50), nullable=False)
+    counts_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    included_row_ids: Mapped[list] = mapped_column(JSONB, nullable=False)
+    excluded_rows_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    __table_args__ = (
+        UniqueConstraint(
+            "snapshot_id", "player_team_season_id", "stat_type",
+            name="uq_career_aggregates_snapshot_player_type",
+        ),
+        ForeignKeyConstraint(
+            ["snapshot_id", "organization_id"],
+            ["report_snapshots.id", "report_snapshots.organization_id"],
+            name="fk_career_aggregates_snapshot_organization",
+        ),
+        ForeignKeyConstraint(
+            ["player_team_season_id", "snapshot_id", "organization_id"],
+            ["player_team_seasons.id", "player_team_seasons.snapshot_id", "player_team_seasons.organization_id"],
+            name="fk_career_aggregates_player_snapshot_organization",
+        ),
+        CheckConstraint(
+            _allowed("stat_type", ("batting", "pitching", "fielding")),
+            name="ck_career_aggregates_stat_type",
+        ),
+        CheckConstraint(
+            _allowed("status", ("complete", "partial", "unavailable")),
+            name="ck_career_aggregates_status",
+        ),
+        CheckConstraint(
+            "(status = 'complete' AND availability_reason IS NULL) OR "
+            "(status <> 'complete' AND availability_reason IS NOT NULL)",
+            name="ck_career_aggregates_reason_status",
+        ),
+        CheckConstraint("jsonb_typeof(counts_json) = 'object'", name="ck_career_aggregates_counts_object"),
+        CheckConstraint("jsonb_typeof(included_row_ids) = 'array'", name="ck_career_aggregates_included_array"),
+        CheckConstraint("jsonb_typeof(excluded_rows_json) = 'object'", name="ck_career_aggregates_excluded_object"),
+        {"info": {"database_triggers": ("trg_career_aggregates_immutable",)}},
+    )
+
+
+def _game_log_constraints(table_name: str, count_columns: tuple[str, ...]):
+    return (
+        UniqueConstraint(
+            "snapshot_id", "player_team_season_id", "game_id",
+            name=f"uq_{table_name}_snapshot_player_game",
+        ),
+        ForeignKeyConstraint(
+            ["snapshot_id", "organization_id"],
+            ["report_snapshots.id", "report_snapshots.organization_id"],
+            name=f"fk_{table_name}_snapshot_organization",
+        ),
+        ForeignKeyConstraint(
+            ["player_team_season_id", "snapshot_id", "organization_id"],
+            ["player_team_seasons.id", "player_team_seasons.snapshot_id", "player_team_seasons.organization_id"],
+            name=f"fk_{table_name}_player_snapshot_organization",
+        ),
+        ForeignKeyConstraint(
+            ["source_record_id", "player_team_season_id", "snapshot_id", "organization_id"],
+            ["source_records.id", "source_records.player_team_season_id", "source_records.snapshot_id", "source_records.organization_id"],
+            name=f"fk_{table_name}_source_identity",
+        ),
+        ForeignKeyConstraint(
+            ["game_id", "snapshot_id", "organization_id"],
+            ["games.id", "games.snapshot_id", "games.organization_id"],
+            name=f"fk_{table_name}_game_owner",
+        ),
+        CheckConstraint("char_length(row_id) = 64", name=f"ck_{table_name}_row_id_length"),
+        CheckConstraint("jsonb_typeof(counts_json) = 'object'", name=f"ck_{table_name}_counts_object"),
+        *(
+            CheckConstraint(
+                f"{column} IS NULL OR {column} >= 0",
+                name=f"ck_{table_name}_{column}_nonnegative",
+            )
+            for column in count_columns
+        ),
+    )
+
+
+class BattingGameLogFact(UUIDPrimaryKey, Base):
+    __tablename__ = "batting_game_log_facts"
+    organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    player_team_season_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    source_record_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    game_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    row_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    at_bats: Mapped[int | None] = mapped_column(Integer)
+    hits: Mapped[int | None] = mapped_column(Integer)
+    runs: Mapped[int | None] = mapped_column(Integer)
+    home_runs: Mapped[int | None] = mapped_column(Integer)
+    walks: Mapped[int | None] = mapped_column(Integer)
+    strikeouts: Mapped[int | None] = mapped_column(Integer)
+    counts_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    __table_args__ = (
+        *_game_log_constraints(
+            "batting_game_log_facts",
+            ("at_bats", "hits", "runs", "home_runs", "walks", "strikeouts"),
+        ),
+        CheckConstraint(
+            "hits IS NULL OR at_bats IS NULL OR hits <= at_bats",
+            name="ck_batting_game_log_facts_hits_lte_at_bats",
+        ),
+        {"info": {"database_triggers": ("trg_batting_game_log_facts_immutable",)}},
+    )
+
+
+class PitchingGameLogFact(UUIDPrimaryKey, Base):
+    __tablename__ = "pitching_game_log_facts"
+    organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    player_team_season_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    source_record_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    game_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    row_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    innings_outs: Mapped[int | None] = mapped_column(Integer)
+    hits_allowed: Mapped[int | None] = mapped_column(Integer)
+    runs_allowed: Mapped[int | None] = mapped_column(Integer)
+    earned_runs: Mapped[int | None] = mapped_column(Integer)
+    walks: Mapped[int | None] = mapped_column(Integer)
+    strikeouts: Mapped[int | None] = mapped_column(Integer)
+    batters_faced: Mapped[int | None] = mapped_column(Integer)
+    counts_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    __table_args__ = (
+        *_game_log_constraints(
+            "pitching_game_log_facts",
+            (
+                "innings_outs", "hits_allowed", "runs_allowed", "earned_runs",
+                "walks", "strikeouts", "batters_faced",
+            ),
+        ),
+        {"info": {"database_triggers": ("trg_pitching_game_log_facts_immutable",)}},
+    )
+
+
+class FieldingGameLogFact(UUIDPrimaryKey, Base):
+    __tablename__ = "fielding_game_log_facts"
+    organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    player_team_season_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    source_record_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    game_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    row_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    putouts: Mapped[int | None] = mapped_column(Integer)
+    assists: Mapped[int | None] = mapped_column(Integer)
+    errors: Mapped[int | None] = mapped_column(Integer)
+    total_chances: Mapped[int | None] = mapped_column(Integer)
+    passed_balls: Mapped[int | None] = mapped_column(Integer)
+    stolen_base_attempts: Mapped[int | None] = mapped_column(Integer)
+    caught_stealing_by: Mapped[int | None] = mapped_column(Integer)
+    counts_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    __table_args__ = (
+        *_game_log_constraints(
+            "fielding_game_log_facts",
+            (
+                "putouts", "assists", "errors", "total_chances", "passed_balls",
+                "stolen_base_attempts", "caught_stealing_by",
+            ),
+        ),
+        {"info": {"database_triggers": ("trg_fielding_game_log_facts_immutable",)}},
     )
 
 
@@ -870,6 +1740,86 @@ class MetricDefinition(UUIDPrimaryKey, Timestamped, Base):
     __table_args__ = (UniqueConstraint("code", "version", name="uq_metric_definitions_code_version"),)
 
 
+class MetricConstantSet(UUIDPrimaryKey, Timestamped, Base):
+    __tablename__ = "metric_constant_sets"
+    metric_definition_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(
+            "metric_definitions.id",
+            name="fk_metric_constant_sets_definition",
+        ),
+        nullable=False,
+    )
+    metric_code: Mapped[str] = mapped_column(String(16), nullable=False)
+    version: Mapped[str] = mapped_column(String(100), nullable=False)
+    season_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("seasons.id", name="fk_metric_constant_sets_season"),
+        nullable=False,
+    )
+    division: Mapped[str] = mapped_column(String(16), nullable=False)
+    constant_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    values_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    methodology: Mapped[str] = mapped_column(Text, nullable=False)
+    source_url: Mapped[str] = mapped_column(Text, nullable=False)
+    source_identifier: Mapped[str] = mapped_column(String(200), nullable=False)
+    collected_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=False)
+    payload_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    verification_status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="pending", server_default="pending"
+    )
+    verified_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
+    verified_by_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("accounts.id", name="fk_metric_constant_sets_verifier")
+    )
+    __table_args__ = (
+        UniqueConstraint(
+            "metric_definition_id",
+            "season_id",
+            "division",
+            "version",
+            name="uq_metric_constant_sets_definition_season_division_version",
+        ),
+        UniqueConstraint(
+            "id",
+            "metric_definition_id",
+            name="uq_metric_constant_sets_id_definition",
+        ),
+        CheckConstraint(
+            _allowed("metric_code", ("woba", "fip")),
+            name="ck_metric_constant_sets_metric_code",
+        ),
+        CheckConstraint(
+            _allowed("verification_status", ("pending", "verified", "rejected")),
+            name="ck_metric_constant_sets_verification_status",
+        ),
+        CheckConstraint(
+            "char_length(payload_sha256) = 64",
+            name="ck_metric_constant_sets_sha256_length",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(values_json) = 'object'",
+            name="ck_metric_constant_sets_values_object",
+        ),
+        CheckConstraint(
+            "(metric_code = 'woba' AND constant_type = 'weight_set') OR "
+            "(metric_code = 'fip' AND constant_type = 'additive_constant')",
+            name="ck_metric_constant_sets_code_type",
+        ),
+        CheckConstraint(
+            "(verification_status = 'verified' AND verified_at IS NOT NULL) OR "
+            "(verification_status <> 'verified' AND verified_at IS NULL "
+            "AND verified_by_account_id IS NULL)",
+            name="ck_metric_constant_sets_verified_fields",
+        ),
+        {
+            "info": {
+                "database_triggers": (
+                    "trg_metric_constant_sets_append_only",
+                )
+            }
+        },
+    )
+
+
 class MetricValue(UUIDPrimaryKey, Base):
     __tablename__ = "metric_values"
     organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
@@ -878,6 +1828,19 @@ class MetricValue(UUIDPrimaryKey, Base):
     player_team_season_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     value: Mapped[object | None] = mapped_column(Numeric(20, 8))
     unavailable_reason: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="available", server_default="available"
+    )
+    reason_code: Mapped[str | None] = mapped_column(String(100))
+    inputs_json: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    sample_json: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    scope: Mapped[str | None] = mapped_column(String(64))
+    statistic_scope_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    constant_set_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     __table_args__ = (
         ForeignKeyConstraint(
             ["snapshot_id", "organization_id"], ["report_snapshots.id", "report_snapshots.organization_id"],
@@ -888,7 +1851,44 @@ class MetricValue(UUIDPrimaryKey, Base):
             ["player_team_seasons.id", "player_team_seasons.snapshot_id", "player_team_seasons.organization_id"],
             name="fk_metric_values_player_snapshot_organization",
         ),
-        CheckConstraint("value IS NOT NULL OR unavailable_reason IS NOT NULL", name="ck_metric_values_value_or_reason"),
+        ForeignKeyConstraint(
+            ["statistic_scope_id", "snapshot_id", "organization_id"],
+            ["statistic_scopes.id", "statistic_scopes.snapshot_id", "statistic_scopes.organization_id"],
+            name="fk_metric_values_statistic_scope_owner",
+        ),
+        ForeignKeyConstraint(
+            ["constant_set_id", "metric_definition_id"],
+            ["metric_constant_sets.id", "metric_constant_sets.metric_definition_id"],
+            name="fk_metric_values_constant_definition",
+        ),
+        CheckConstraint(
+            _allowed("status", METRIC_STATUSES),
+            name="ck_metric_values_status",
+        ),
+        CheckConstraint(
+            "(status = 'available' AND value IS NOT NULL AND reason_code IS NULL) OR "
+            "(status <> 'available' AND value IS NULL AND reason_code IS NOT NULL) OR "
+            "(value IS NULL AND unavailable_reason IS NOT NULL "
+            "AND reason_code IS NULL)",
+            name="ck_metric_values_value_status_reason",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(inputs_json) = 'object'",
+            name="ck_metric_values_inputs_object",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(sample_json) = 'object'",
+            name="ck_metric_values_sample_object",
+        ),
+        CheckConstraint(
+            "scope IS NULL OR char_length(scope) > 0",
+            name="ck_metric_values_scope_nonempty",
+        ),
+        CheckConstraint(
+            "(status = 'unavailable_constant' AND constant_set_id IS NULL) OR "
+            "status <> 'unavailable_constant'",
+            name="ck_metric_values_unavailable_constant_reference",
+        ),
     )
 
 
@@ -906,6 +1906,9 @@ class ReportJob(UUIDPrimaryKey, Timestamped, Base):
         ),
     )
     idempotency_key: Mapped[str] = mapped_column(String(200), nullable=False)
+    build_profile: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="detailed"
+    )
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued", server_default="queued")
     failure_category: Mapped[str | None] = mapped_column(String(100))
     failure_message: Mapped[str | None] = mapped_column(String(200))
@@ -916,6 +1919,12 @@ class ReportJob(UUIDPrimaryKey, Timestamped, Base):
     )
     started_generation: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
+    )
+    phase3_live_pages_consumed: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )
+    phase3_collection_started_at: Mapped[object | None] = mapped_column(
+        DateTime(timezone=True), server_default=FetchedValue()
     )
     enqueued_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
     broker_message_id: Mapped[str | None] = mapped_column(String(100))
@@ -939,6 +1948,10 @@ class ReportJob(UUIDPrimaryKey, Timestamped, Base):
             name="fk_report_jobs_requester_membership",
         ),
         CheckConstraint(_allowed("status", JOB_STATUSES), name="ck_report_jobs_status"),
+        CheckConstraint(
+            _allowed("build_profile", BUILD_PROFILES),
+            name="ck_report_jobs_build_profile",
+        ),
         CheckConstraint("attempt_count >= 0", name="ck_report_jobs_attempt_count_nonnegative"),
         CheckConstraint("max_attempts BETWEEN 1 AND 10", name="ck_report_jobs_max_attempts_bounded"),
         CheckConstraint(
@@ -952,6 +1965,10 @@ class ReportJob(UUIDPrimaryKey, Timestamped, Base):
         CheckConstraint(
             "started_generation <= dispatch_generation",
             name="ck_report_jobs_started_generation_current",
+        ),
+        CheckConstraint(
+            "phase3_live_pages_consumed BETWEEN 0 AND 500",
+            name="ck_report_jobs_phase3_live_pages_consumed_bounded",
         ),
     )
 
@@ -1025,6 +2042,176 @@ class ReportJobDispatch(UUIDPrimaryKey, Timestamped, Base):
         ),
         Index(
             "ix_report_job_dispatch_organization", "organization_id", "job_id"
+        ),
+    )
+
+
+class RequestLedger(UUIDPrimaryKey, Base):
+    """Content-free accounting for one supplemental collection request."""
+
+    __tablename__ = "request_ledgers"
+    organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    job_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    dispatch_generation: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
+    family: Mapped[str] = mapped_column(String(50), nullable=False)
+    source_identity: Mapped[str] = mapped_column(String(200), nullable=False)
+    request_kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(32), nullable=False)
+    started_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
+    safe_category: Mapped[str | None] = mapped_column(String(100))
+    budget_remaining: Mapped[int] = mapped_column(Integer, nullable=False)
+    pages_consumed: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "job_id", "dispatch_generation",
+            "family", "source_identity",
+            name="uq_request_ledgers_job_generation_family_source",
+        ),
+        ForeignKeyConstraint(
+            ["job_id", "organization_id"],
+            ["report_jobs.id", "report_jobs.organization_id"],
+            name="fk_request_ledgers_job_organization",
+        ),
+        ForeignKeyConstraint(
+            ["snapshot_id", "organization_id"],
+            ["report_snapshots.id", "report_snapshots.organization_id"],
+            name="fk_request_ledgers_snapshot_organization",
+        ),
+        CheckConstraint(
+            "family ~ '^[a-z][a-z0-9_:]{0,49}$'",
+            name="ck_request_ledgers_family_safe",
+        ),
+        CheckConstraint(
+            "source_identity ~ '^[a-z0-9][a-z0-9:_-]{0,199}$'",
+            name="ck_request_ledgers_source_identity_safe",
+        ),
+        CheckConstraint(
+            _allowed("request_kind", ("planned", "cache", "live")),
+            name="ck_request_ledgers_request_kind",
+        ),
+        CheckConstraint(
+            _allowed(
+                "outcome",
+                (
+                    "planned", "cache_hit", "live_complete", "live_failed",
+                    "budget_exhausted", "capacity_exhausted", "interrupted",
+                ),
+            ),
+            name="ck_request_ledgers_outcome",
+        ),
+        CheckConstraint(
+            "safe_category IS NULL OR "
+            "safe_category ~ '^[a-z][a-z0-9_]{0,99}$'",
+            name="ck_request_ledgers_safe_category",
+        ),
+        CheckConstraint(
+            "budget_remaining BETWEEN 0 AND 500",
+            name="ck_request_ledgers_budget_remaining",
+        ),
+        CheckConstraint(
+            "dispatch_generation >= 1",
+            name="ck_request_ledgers_dispatch_generation_positive",
+        ),
+        CheckConstraint(
+            "pages_consumed BETWEEN 0 AND 500",
+            name="ck_request_ledgers_pages_consumed_bounded",
+        ),
+        CheckConstraint(
+            "(outcome = 'planned' AND completed_at IS NULL) OR "
+            "(outcome <> 'planned' AND completed_at IS NOT NULL "
+            "AND completed_at >= started_at)",
+            name="ck_request_ledgers_lifecycle",
+        ),
+        Index(
+            "ix_request_ledgers_job",
+            "job_id",
+            "dispatch_generation",
+            "started_at",
+        ),
+    )
+
+
+class ExternalRefreshDiagnostic(UUIDPrimaryKey, Base):
+    """Provider-neutral, tenant-owned metadata for downstream refresh attempts."""
+
+    __tablename__ = "external_refresh_diagnostics"
+    organization_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    report_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    safe_category: Mapped[str | None] = mapped_column(String(100))
+    safe_reason_code: Mapped[str | None] = mapped_column(String(100))
+    attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    correlation_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    requested_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=False)
+    started_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[object | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=False)
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["report_id", "organization_id"],
+            ["reports.id", "reports.organization_id"],
+            name="fk_external_refresh_diagnostics_report_organization",
+        ),
+        ForeignKeyConstraint(
+            ["snapshot_id", "report_id", "organization_id"],
+            ["report_snapshots.id", "report_snapshots.report_id", "report_snapshots.organization_id"],
+            name="fk_external_refresh_diagnostics_snapshot_lineage",
+        ),
+        UniqueConstraint(
+            "organization_id", "snapshot_id", "provider", "attempt_number",
+            name="uq_external_refresh_diagnostics_snapshot_attempt",
+        ),
+        UniqueConstraint(
+            "provider", "correlation_id",
+            name="uq_external_refresh_diagnostics_provider_correlation",
+        ),
+        CheckConstraint(
+            "provider ~ '^[a-z][a-z0-9_]{0,31}$'",
+            name="ck_external_refresh_diagnostics_provider_safe",
+        ),
+        CheckConstraint(
+            _allowed("status", ("pending", "completed", "failed")),
+            name="ck_external_refresh_diagnostics_status",
+        ),
+        CheckConstraint(
+            "safe_category IS NULL OR safe_category ~ '^[a-z][a-z0-9_]{0,99}$'",
+            name="ck_external_refresh_diagnostics_category_safe",
+        ),
+        CheckConstraint(
+            "safe_reason_code IS NULL OR safe_reason_code ~ '^[a-z][a-z0-9_]{0,99}$'",
+            name="ck_external_refresh_diagnostics_reason_safe",
+        ),
+        CheckConstraint(
+            "correlation_id ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$'",
+            name="ck_external_refresh_diagnostics_correlation_safe",
+        ),
+        CheckConstraint(
+            "attempt_number > 0",
+            name="ck_external_refresh_diagnostics_attempt_positive",
+        ),
+        CheckConstraint(
+            "updated_at >= requested_at AND "
+            "(started_at IS NULL OR started_at >= requested_at) AND "
+            "(completed_at IS NULL OR "
+            "(started_at IS NOT NULL AND completed_at >= started_at))",
+            name="ck_external_refresh_diagnostics_timestamp_order",
+        ),
+        CheckConstraint(
+            "(status = 'pending' AND completed_at IS NULL) OR "
+            "(status IN ('completed', 'failed') AND completed_at IS NOT NULL)",
+            name="ck_external_refresh_diagnostics_lifecycle",
+        ),
+        Index(
+            "ix_external_refresh_diagnostics_snapshot",
+            "organization_id", "snapshot_id", "requested_at",
         ),
     )
 

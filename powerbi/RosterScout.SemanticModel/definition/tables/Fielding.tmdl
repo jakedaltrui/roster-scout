@@ -1,0 +1,43 @@
+table Fielding
+	column security_key
+		dataType: string
+		sourceColumn: security_key
+	column player_team_season_id
+		dataType: string
+		sourceColumn: player_team_season_id
+	column putouts
+		dataType: int64
+		sourceColumn: putouts
+	column assists
+		dataType: int64
+		sourceColumn: assists
+	column errors
+		dataType: int64
+		sourceColumn: errors
+	column total_chances
+		dataType: int64
+		sourceColumn: total_chances
+	column double_plays
+		dataType: int64
+		sourceColumn: double_plays
+	column fielding_percentage
+		dataType: decimal
+		formatString: 0.000
+		sourceColumn: fielding_percentage
+	column passed_balls
+		dataType: int64
+		sourceColumn: passed_balls
+	column stolen_base_attempts
+		dataType: int64
+		sourceColumn: stolen_base_attempts
+	column caught_stealing_by
+		dataType: int64
+		sourceColumn: caught_stealing_by
+	measure 'Fielding %' = DIVIDE(SUM(Fielding[putouts]) + SUM(Fielding[assists]), SUM(Fielding[total_chances]))
+		formatString: 0.000
+	measure 'Dashboard Fielding %' = IF(ISBLANK(SELECTEDVALUE(Scope[scope_code])), [Fielding %], 'Scoped Fielding'[Fielding %])
+		formatString: 0.000
+	partition Fielding = m
+		mode: import
+		source =
+			let Source = PostgreSQL.Database(RosterScoutDatabaseServer, RosterScoutDatabaseName), View = Source{[Schema="public",Item="pbi_fielding"]}[Data] in View

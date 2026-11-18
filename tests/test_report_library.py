@@ -9,6 +9,7 @@ from urllib.parse import parse_qs, urlsplit
 from types import SimpleNamespace
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from threading import Barrier
 from unittest.mock import Mock, patch
 
@@ -491,21 +492,18 @@ class SnapshotHistoryTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         for value in (
             b"History Hawks",
-            b"Current workbook",
-            b"Ready for your staff",
+            b"Workbook ready",
             b"Ready",
-            b"Refreshing report",
-            b"New workbook in progress",
-            b"Collecting",
-            b"current workbook stays available while this refresh runs",
-            b"Report history",
-            b"Batting",
-            b"Pitching",
+            b"Adding Last 10 and conference stats",
+            b"Adding detailed stats",
+            b"season workbook is ready now",
+            b"data-local-time",
+            b"data-team-logo",
         ):
             self.assertIn(value, response.data)
         self.assertLess(
-            response.data.index(b"Current workbook"),
-            response.data.index(b"Refreshing report"),
+            response.data.index(b"Adding Last 10 and conference stats"),
+            response.data.index(b"Workbook ready"),
         )
         self.assertIn(b'data-report-status-url=', response.data)
         self.assertIn(b'aria-live="polite"', response.data)
@@ -563,6 +561,87 @@ class SnapshotHistoryTests(unittest.TestCase):
             self.assertNotIn(forbidden, serialized)
         self.assertIn("NCAA source unavailable", serialized)
 
+    def test_quick_workbook_is_terminal_while_targeted_detail_status_continues(self):
+        from hashlib import sha256
+
+        from roster_scout.models import ReportArtifact, ReportJob, ReportSnapshot
+
+        organization_id, accounts = self._organization(
+            "Two Stage University", ("coach@example.edu", "member")
+        )
+        report_id = self._report(organization_id, "Two Stage Tigers", 509)
+        with self.Session.begin() as session:
+            snapshot = ReportSnapshot(
+                organization_id=organization_id,
+                report_id=report_id,
+                status="draft",
+                schema_version="2026.1",
+                collection_contract_version="quick-season-v1",
+                source_collected_at=self.now - timedelta(minutes=1),
+            )
+            session.add(snapshot)
+            session.flush()
+            snapshot.status = "ready"
+            snapshot.published_at = self.now
+            payload = b"quick-workbook"
+            session.add(ReportArtifact(
+                organization_id=organization_id,
+                snapshot_id=snapshot.id,
+                artifact_type="xlsx",
+                status="ready",
+                schema_version="coach-facing-two-sheet-xlsx-v4",
+                sha256=sha256(payload).hexdigest(),
+                object_key="test/two-stage.xlsx",
+            ))
+            detail_job = ReportJob(
+                organization_id=organization_id,
+                report_id=report_id,
+                idempotency_key=f"detailed:{uuid.uuid4()}",
+                build_profile="detailed",
+                status="running",
+                started_at=self.now,
+            )
+            session.add(detail_job)
+            session.flush()
+            detail_job_id = detail_job.id
+
+        client = self._client(accounts[0], organization_id)
+        quick_status = client.get(f"/reports/{report_id}/status")
+        detailed_status = client.get(
+            f"/reports/{report_id}/status?job_id={detail_job_id}"
+        )
+        reused_status = client.get(
+            f"/reports/{report_id}/status?job_id={detail_job_id}"
+            "&prefer_current=1"
+        )
+
+        self.assertEqual(quick_status.status_code, 200)
+        self.assertTrue(quick_status.get_json()["terminal"])
+        self.assertEqual(
+            quick_status.get_json()["heading"], "Season workbook ready"
+        )
+        self.assertIn(
+            "continuing in the background", quick_status.get_json()["message"]
+        )
+        self.assertEqual(detailed_status.status_code, 200)
+        self.assertFalse(detailed_status.get_json()["terminal"])
+        self.assertEqual(
+            detailed_status.get_json()["heading"], "Adding detailed stats"
+        )
+        self.assertTrue(reused_status.get_json()["terminal"])
+        self.assertEqual(
+            reused_status.get_json()["heading"], "Season workbook ready"
+        )
+
+        foreign_id, foreign_accounts = self._organization(
+            "Foreign Two Stage University", ("other@example.edu", "member")
+        )
+        foreign_client = self._client(foreign_accounts[0], foreign_id)
+        denied = foreign_client.get(
+            f"/reports/{report_id}/status?job_id={detail_job_id}"
+        )
+        self.assertEqual(denied.status_code, 404)
+
     def test_absent_and_foreign_detail_and_status_share_one_404_contract(self):
         first_id, first_accounts = self._organization(
             "First History Org", ("first@example.edu", "admin")
@@ -604,11 +683,13 @@ class SnapshotHistoryTests(unittest.TestCase):
 
         self.assertEqual(first.status_code, 200)
         self.assertEqual(second.status_code, 200)
-        self.assertEqual(first.data.count(b"data-snapshot-row"), 25)
+        self.assertEqual(first.data.count(b"data-snapshot-row"), 24)
         self.assertEqual(second.data.count(b"data-snapshot-row"), 2)
         self.assertIn(b"Next", first.data)
         self.assertIn(b"Previous", second.data)
-        self.assertIn(b"Showing 1\xe2\x80\x9325 of 27 versions", first.data)
+        self.assertIn(b"Previous reports", first.data)
+        self.assertIn(b"26 saved", first.data)
+        self.assertNotIn(b"Showing 1\xe2\x80\x9325", first.data)
 
     def test_partial_snapshot_keeps_ready_sections_and_names_unavailable_sections(self):
         from roster_scout.models import ReportSection, ReportSnapshot
@@ -664,10 +745,627 @@ class SnapshotHistoryTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Some data is unavailable.", response.data)
         self.assertIn(b"The saved workbook is still available. Missing:", response.data)
-        self.assertIn(b"Batting", response.data)
-        self.assertIn(b"Ready", response.data)
         self.assertIn(b"Fielding", response.data)
-        self.assertIn(b"Unavailable \xc2\xb7 NCAA source unavailable", response.data)
+        self.assertNotIn(b"NCAA source unavailable", response.data)
+
+
+class SnapshotPlayerDetailRouteTests(unittest.TestCase):
+    """Published player detail remains immutable, bounded, and tenant scoped."""
+
+    setUpClass = SharedLibraryTests.__dict__["setUpClass"]
+    tearDownClass = SharedLibraryTests.__dict__["tearDownClass"]
+    setUp = SharedLibraryTests.setUp
+    tearDown = SharedLibraryTests.tearDown
+    _organization = SharedLibraryTests._organization
+    _client = SharedLibraryTests._client
+    _report = SharedLibraryTests._report
+
+    def _source(
+        self,
+        *,
+        organization_id,
+        snapshot_id,
+        player_team_season_id,
+        section,
+        row_ordinal,
+        source_player_id="9001",
+    ):
+        from roster_scout.models import SourceRecord
+
+        return SourceRecord(
+            organization_id=organization_id,
+            snapshot_id=snapshot_id,
+            player_team_season_id=player_team_season_id,
+            section=section,
+            row_ordinal=row_ordinal,
+            source_url=(
+                "https://stats.ncaa.org/players/9001?token=do-not-leak"
+            ),
+            source_team_id="team-701",
+            source_season_id="2026",
+            source_season_team_id="season-team-701",
+            source_stat_category_id=f"category-{section}",
+            source_player_id=source_player_id,
+            collected_at=self.now - timedelta(minutes=10),
+            parser_version="parser-test-v1",
+            schema_version="schema-test-v1",
+            payload_sha256=f"{row_ordinal + 1:064x}",
+            raw_values={"private": "secret raw html", "section": section},
+        )
+
+    def _seed_detail_graph(self):
+        from roster_scout.models import (
+            BattingFact,
+            BattingGameLogFact,
+            CareerAggregate,
+            CareerSeasonFact,
+            FieldingFact,
+            FieldingGameLogFact,
+            Game,
+            MetricDefinition,
+            MetricValue,
+            PitchingFact,
+            PitchingGameLogFact,
+            Player,
+            PlayerTeamSeason,
+            Report,
+            ReportSection,
+            ReportSnapshot,
+            ScopedBattingFact,
+            StatisticScope,
+        )
+
+        organization_id, accounts = self._organization(
+            "Detail University", ("detail@example.edu", "member")
+        )
+        foreign_organization_id, foreign_accounts = self._organization(
+            "Foreign Detail University", ("foreign-detail@example.edu", "admin")
+        )
+        report_id = self._report(organization_id, "Detail Falcons", 701)
+        foreign_report_id = self._report(
+            foreign_organization_id, "Private Owls", 702
+        )
+
+        with self.Session.begin() as session:
+            report = session.get(Report, report_id)
+            snapshot = ReportSnapshot(
+                organization_id=organization_id,
+                report_id=report_id,
+                status="draft",
+                schema_version="2026.1",
+                source_collected_at=self.now - timedelta(minutes=10),
+                created_by_account_id=accounts[0],
+            )
+            player = Player(
+                source="ncaa",
+                source_player_id="9001",
+                display_name="Safe Player",
+            )
+            session.add_all((snapshot, player))
+            session.flush()
+            player_team_season = PlayerTeamSeason(
+                organization_id=organization_id,
+                snapshot_id=snapshot.id,
+                player_id=player.id,
+                team_season_id=report.team_season_id,
+                identity_status="authoritative",
+                identity_key="ncaa:9001",
+                display_name="Safe Player",
+                jersey_number="7",
+                position="OF/P",
+            )
+            session.add(player_team_season)
+            session.flush()
+
+            sources = {}
+            for ordinal, section in enumerate((
+                "batting",
+                "pitching",
+                "fielding",
+                "split_batting",
+                "career_batting",
+                "schedule",
+                "batting_game_log",
+                "pitching_game_log",
+                "fielding_game_log",
+            )):
+                source = self._source(
+                    organization_id=organization_id,
+                    snapshot_id=snapshot.id,
+                    player_team_season_id=(
+                        None if section == "schedule" else player_team_season.id
+                    ),
+                    section=section,
+                    row_ordinal=ordinal,
+                    source_player_id=None if section == "schedule" else "9001",
+                )
+                session.add(source)
+                sources[section] = source
+            session.flush()
+
+            session.add_all((
+                BattingFact(
+                    organization_id=organization_id,
+                    snapshot_id=snapshot.id,
+                    player_team_season_id=player_team_season.id,
+                    source_record_id=sources["batting"].id,
+                    games=20,
+                    games_started=19,
+                    plate_appearances=82,
+                    at_bats=70,
+                    runs=18,
+                    hits=28,
+                    doubles=6,
+                    triples=1,
+                    home_runs=4,
+                    runs_batted_in=21,
+                    walks=9,
+                    hit_by_pitch=2,
+                    strikeouts=11,
+                    sacrifice_flies=1,
+                    sacrifice_hits=0,
+                    stolen_bases=5,
+                    caught_stealing=1,
+                    total_bases=48,
+                ),
+                PitchingFact(
+                    organization_id=organization_id,
+                    snapshot_id=snapshot.id,
+                    player_team_season_id=player_team_season.id,
+                    source_record_id=sources["pitching"].id,
+                    appearances=8,
+                    games_started=4,
+                    innings_outs=63,
+                    hits_allowed=17,
+                    runs_allowed=7,
+                    earned_runs=6,
+                    walks=5,
+                    strikeouts=24,
+                    home_runs_allowed=1,
+                    hit_batters=1,
+                    batters_faced=81,
+                    opponent_at_bats=74,
+                    opponent_sacrifice_flies=1,
+                ),
+                FieldingFact(
+                    organization_id=organization_id,
+                    snapshot_id=snapshot.id,
+                    player_team_season_id=player_team_season.id,
+                    source_record_id=sources["fielding"].id,
+                    games=20,
+                    games_started=19,
+                    putouts=32,
+                    assists=4,
+                    errors=1,
+                    total_chances=37,
+                    double_plays=2,
+                    fielding_percentage=Decimal("0.97297"),
+                    passed_balls=0,
+                    stolen_base_attempts=0,
+                    caught_stealing_by=0,
+                ),
+            ))
+
+            metric_definition = MetricDefinition(
+                code="avg",
+                version="metrics-v1",
+                formula="H / AB",
+            )
+            session.add(metric_definition)
+            session.flush()
+            session.add(MetricValue(
+                organization_id=organization_id,
+                snapshot_id=snapshot.id,
+                metric_definition_id=metric_definition.id,
+                player_team_season_id=player_team_season.id,
+                value=Decimal("0.40000000"),
+                status="available",
+                inputs_json={"hits": 28, "at_bats": 70},
+                sample_json={"at_bats": 70},
+                scope="season",
+            ))
+
+            split_scope = StatisticScope(
+                organization_id=organization_id,
+                snapshot_id=snapshot.id,
+                scope_kind="source_split",
+                scope_code="vs_lhp",
+                stat_type="batting",
+                display_label="vs LHP",
+                source_identifier="split-1",
+                source_path="/teams/701/stats?split=1",
+                source_season_id="2026",
+                source_season_team_id="season-team-701",
+                source_stat_category_id="category-split_batting",
+                status="complete",
+                collected_at=self.now - timedelta(minutes=10),
+                parser_version="parser-test-v1",
+                schema_version="schema-test-v1",
+                sample_json={"plate_appearances": 12},
+                source_payload_sha256="a" * 64,
+            )
+            session.add(split_scope)
+            session.flush()
+            session.add(ScopedBattingFact(
+                organization_id=organization_id,
+                snapshot_id=snapshot.id,
+                statistic_scope_id=split_scope.id,
+                player_team_season_id=player_team_season.id,
+                source_record_id=sources["split_batting"].id,
+                at_bats=10,
+                hits=4,
+                sample_json={"plate_appearances": 12},
+                counts_json={"at_bats": 10, "hits": 4, "walks": 2},
+                contributing_fact_ids=[],
+            ))
+            session.add(MetricValue(
+                organization_id=organization_id,
+                snapshot_id=snapshot.id,
+                metric_definition_id=metric_definition.id,
+                player_team_season_id=player_team_season.id,
+                statistic_scope_id=split_scope.id,
+                value=Decimal("0.40000000"),
+                status="available",
+                inputs_json={"hits": 4, "at_bats": 10},
+                sample_json={"at_bats": 10},
+                scope="vs_lhp",
+            ))
+
+            career_row_id = "c" * 64
+            session.add(CareerSeasonFact(
+                organization_id=organization_id,
+                snapshot_id=snapshot.id,
+                player_team_season_id=player_team_season.id,
+                source_record_id=sources["career_batting"].id,
+                row_id=career_row_id,
+                stat_type="batting",
+                season_label="2025-26",
+                source_season_id="2026",
+                school_name="Detail University",
+                source_season_team_id="season-team-701",
+                division="d1",
+                source_stat_category_id="category-career_batting",
+                counts_json={"at_bats": 70, "hits": 28},
+                rates_json={"avg": "0.400"},
+                at_bats=70,
+                hits=28,
+            ))
+            session.add(CareerAggregate(
+                organization_id=organization_id,
+                snapshot_id=snapshot.id,
+                player_team_season_id=player_team_season.id,
+                stat_type="batting",
+                status="complete",
+                definition_version="career-v1",
+                counts_json={"at_bats": 70, "hits": 28},
+                included_row_ids=[career_row_id],
+                excluded_rows_json={},
+            ))
+
+            game = Game(
+                organization_id=organization_id,
+                snapshot_id=snapshot.id,
+                source_record_id=sources["schedule"].id,
+                source_season_id="2026",
+                game_date=self.now.date(),
+                completed_at=self.now - timedelta(hours=2),
+                status="completed",
+                result_code="W",
+                result_sha256="b" * 64,
+                opponent_team_id="opponent-1",
+                opponent_season_team_id="opponent-season-1",
+                doubleheader_ordinal=1,
+                venue="home",
+                source_game_id="game-701",
+                identity_kind="source",
+            )
+            session.add(game)
+            session.flush()
+            session.add_all((
+                BattingGameLogFact(
+                    organization_id=organization_id,
+                    snapshot_id=snapshot.id,
+                    player_team_season_id=player_team_season.id,
+                    source_record_id=sources["batting_game_log"].id,
+                    game_id=game.id,
+                    row_id="d" * 64,
+                    at_bats=4,
+                    hits=2,
+                    runs=1,
+                    home_runs=1,
+                    walks=0,
+                    strikeouts=1,
+                    counts_json={"at_bats": 4, "hits": 2},
+                ),
+                PitchingGameLogFact(
+                    organization_id=organization_id,
+                    snapshot_id=snapshot.id,
+                    player_team_season_id=player_team_season.id,
+                    source_record_id=sources["pitching_game_log"].id,
+                    game_id=game.id,
+                    row_id="e" * 64,
+                    innings_outs=9,
+                    hits_allowed=2,
+                    runs_allowed=1,
+                    earned_runs=1,
+                    walks=1,
+                    strikeouts=4,
+                    batters_faced=12,
+                    counts_json={"innings_outs": 9, "strikeouts": 4},
+                ),
+                FieldingGameLogFact(
+                    organization_id=organization_id,
+                    snapshot_id=snapshot.id,
+                    player_team_season_id=player_team_season.id,
+                    source_record_id=sources["fielding_game_log"].id,
+                    game_id=game.id,
+                    row_id="f" * 64,
+                    putouts=2,
+                    assists=1,
+                    errors=0,
+                    total_chances=3,
+                    passed_balls=0,
+                    stolen_base_attempts=0,
+                    caught_stealing_by=0,
+                    counts_json={"putouts": 2, "assists": 1, "errors": 0},
+                ),
+            ))
+            for section in (
+                "batting",
+                "pitching",
+                "fielding",
+                "splits",
+                "player_history",
+                "game_logs",
+            ):
+                session.add(ReportSection(
+                    organization_id=organization_id,
+                    snapshot_id=snapshot.id,
+                    section=section,
+                    critical=section in {"batting", "pitching"},
+                    status="complete",
+                    row_count=1,
+                    verified_empty=False,
+                    collected_at=self.now - timedelta(minutes=10),
+                ))
+            session.flush()
+            snapshot.status = "ready"
+            snapshot.published_at = self.now - timedelta(hours=1)
+
+            foreign_report = session.get(Report, foreign_report_id)
+            foreign_snapshot = ReportSnapshot(
+                organization_id=foreign_organization_id,
+                report_id=foreign_report_id,
+                status="draft",
+                schema_version="2026.1",
+                source_collected_at=self.now - timedelta(minutes=5),
+                created_by_account_id=foreign_accounts[0],
+            )
+            foreign_player = Player(
+                source="ncaa",
+                source_player_id="9002",
+                display_name="Foreign Player",
+            )
+            session.add_all((foreign_snapshot, foreign_player))
+            session.flush()
+            session.add(PlayerTeamSeason(
+                organization_id=foreign_organization_id,
+                snapshot_id=foreign_snapshot.id,
+                player_id=foreign_player.id,
+                team_season_id=foreign_report.team_season_id,
+                identity_status="authoritative",
+                identity_key="ncaa:9002",
+                display_name="Foreign Player",
+            ))
+            session.flush()
+            foreign_snapshot.status = "ready"
+            foreign_snapshot.published_at = self.now
+
+            return {
+                "organization_id": organization_id,
+                "account_id": accounts[0],
+                "report_id": report_id,
+                "snapshot_id": snapshot.id,
+                "player_id": player.id,
+                "player_team_season_id": player_team_season.id,
+                "game_id": game.id,
+                "foreign_organization_id": foreign_organization_id,
+                "foreign_report_id": foreign_report_id,
+                "foreign_snapshot_id": foreign_snapshot.id,
+                "foreign_player_id": foreign_player.id,
+            }
+
+    @staticmethod
+    def _detail_path(ids, *, report_id=None, snapshot_id=None, player_id=None):
+        return (
+            f"/reports/{report_id or ids['report_id']}"
+            f"/snapshots/{snapshot_id or ids['snapshot_id']}"
+            f"/players/{player_id or ids['player_id']}"
+        )
+
+    def _add_successor(self, ids):
+        from roster_scout.models import (
+            BattingFact,
+            PlayerTeamSeason,
+            Report,
+            ReportSnapshot,
+        )
+
+        with self.Session.begin() as session:
+            report = session.get(Report, ids["report_id"])
+            successor = ReportSnapshot(
+                organization_id=ids["organization_id"],
+                report_id=ids["report_id"],
+                predecessor_snapshot_id=ids["snapshot_id"],
+                status="draft",
+                schema_version="2026.1",
+                source_collected_at=self.now,
+                created_by_account_id=ids["account_id"],
+            )
+            session.add(successor)
+            session.flush()
+            successor_player = PlayerTeamSeason(
+                organization_id=ids["organization_id"],
+                snapshot_id=successor.id,
+                player_id=ids["player_id"],
+                team_season_id=report.team_season_id,
+                identity_status="authoritative",
+                identity_key="ncaa:9001",
+                display_name="Safe Player",
+                jersey_number="7",
+                position="OF/P",
+            )
+            session.add(successor_player)
+            session.flush()
+            source = self._source(
+                organization_id=ids["organization_id"],
+                snapshot_id=successor.id,
+                player_team_season_id=successor_player.id,
+                section="batting",
+                row_ordinal=0,
+            )
+            session.add(source)
+            session.flush()
+            session.add(BattingFact(
+                organization_id=ids["organization_id"],
+                snapshot_id=successor.id,
+                player_team_season_id=successor_player.id,
+                source_record_id=source.id,
+                at_bats=1,
+                hits=1,
+            ))
+            session.flush()
+            successor.status = "ready"
+            successor.published_at = self.now
+            return successor.id
+
+    def test_authorized_same_snapshot_player_detail_contract(self):
+        """Named RED sentinel: one missing route assertion and no setup errors."""
+        ids = self._seed_detail_graph()
+        response = self._client(
+            ids["account_id"], ids["organization_id"]
+        ).get(self._detail_path(ids))
+        self.assertEqual(response.status_code, 200)
+
+    def test_every_view_is_fixed_and_joins_only_the_exact_snapshot(self):
+        ids = self._seed_detail_graph()
+        client = self._client(ids["account_id"], ids["organization_id"])
+        expected_data_keys = {
+            "season": {"season"},
+            "splits": {"splits"},
+            "career": {"career"},
+            "games": {"games"},
+            "all": {"season", "splits", "career", "games"},
+        }
+        for view in (None, "season", "splits", "career", "games", "all"):
+            with self.subTest(view=view or "default"):
+                suffix = "" if view is None else f"?view={view}"
+                response = client.get(f"{self._detail_path(ids)}{suffix}")
+                self.assertEqual(response.status_code, 200)
+                payload = response.get_json()
+                expected_view = view or "all"
+                self.assertEqual(payload["view"], expected_view)
+                self.assertEqual(
+                    set(payload),
+                    {"snapshot", "player", "completeness", "view", "links", "data"},
+                )
+                self.assertEqual(set(payload["data"]), expected_data_keys[expected_view])
+                self.assertEqual(
+                    set(payload["links"]),
+                    {"season", "splits", "career", "games", "all"},
+                )
+
+        payload = client.get(f"{self._detail_path(ids)}?view=all").get_json()
+        self.assertEqual(payload["player"]["id"], str(ids["player_id"]))
+        self.assertEqual(payload["snapshot"]["id"], str(ids["snapshot_id"]))
+        self.assertEqual(payload["data"]["season"]["batting"]["counts"]["hits"], 28)
+        self.assertEqual(payload["data"]["splits"][0]["scope_code"], "vs_lhp")
+        self.assertEqual(payload["data"]["career"]["aggregate"][0]["status"], "complete")
+        self.assertEqual(payload["data"]["games"][0]["game"]["id"], str(ids["game_id"]))
+        self.assertEqual(
+            set(payload["data"]["games"][0]["facts"]),
+            {"batting", "pitching", "fielding"},
+        )
+        serialized = response.get_data(as_text=True).casefold()
+        for forbidden in (
+            "secret raw html",
+            "do-not-leak",
+            "token=",
+            "detail@example.edu",
+            "foreign player",
+            str(ids["foreign_organization_id"]),
+        ):
+            self.assertNotIn(forbidden, serialized)
+
+    def test_foreign_absent_and_mixed_identifiers_share_audited_404(self):
+        from roster_scout.models import SecurityAuditEvent
+
+        ids = self._seed_detail_graph()
+        client = self._client(ids["account_id"], ids["organization_id"])
+        paths = (
+            self._detail_path(ids, report_id=ids["foreign_report_id"]),
+            self._detail_path(ids, snapshot_id=ids["foreign_snapshot_id"]),
+            self._detail_path(ids, player_id=ids["foreign_player_id"]),
+            self._detail_path(ids, player_id=uuid.uuid4()),
+        )
+        responses = [client.get(path) for path in paths]
+        self.assertTrue(all(response.status_code == 404 for response in responses))
+        self.assertTrue(all(response.get_json() == {"error": "not_found"} for response in responses))
+        with self.Session() as session:
+            audits = tuple(session.scalars(
+                select(SecurityAuditEvent).where(
+                    SecurityAuditEvent.action == "authorization.deny"
+                )
+            ))
+        self.assertEqual(len(audits), len(paths))
+        self.assertTrue(all(item.organization_id == ids["organization_id"] for item in audits))
+        self.assertTrue(all(item.outcome == "denied" and item.reason == "not_found" for item in audits))
+
+    def test_invalid_view_and_service_failure_are_fixed(self):
+        ids = self._seed_detail_graph()
+        client = self._client(ids["account_id"], ids["organization_id"])
+        invalid = client.get(f"{self._detail_path(ids)}?view=private")
+        self.assertEqual(invalid.status_code, 400)
+        self.assertEqual(invalid.get_json(), {"error": "invalid_view"})
+        with patch(
+            "roster_scout.report_routes.load_snapshot_player_detail",
+            side_effect=RuntimeError("secret database exception"),
+        ):
+            failed = client.get(self._detail_path(ids))
+        self.assertEqual(failed.status_code, 503)
+        self.assertEqual(
+            failed.get_json(), {"error": "player_detail_service_unavailable"}
+        )
+        self.assertNotIn("secret database exception", failed.get_data(as_text=True))
+
+    def test_successor_creation_cannot_change_predecessor_response(self):
+        ids = self._seed_detail_graph()
+        client = self._client(ids["account_id"], ids["organization_id"])
+        path = f"{self._detail_path(ids)}?view=all"
+        before = client.get(path)
+        successor_id = self._add_successor(ids)
+        after = client.get(path)
+        self.assertEqual(before.status_code, 200)
+        self.assertEqual(after.status_code, 200)
+        self.assertEqual(before.get_json(), after.get_json())
+        self.assertNotIn(str(successor_id), after.get_data(as_text=True))
+
+    def test_route_never_fetches_ncaa_or_mutates_canonical_data(self):
+        from roster_scout.models import SourceRecord
+
+        ids = self._seed_detail_graph()
+        client = self._client(ids["account_id"], ids["organization_id"])
+        with self.Session() as session:
+            before = session.scalar(select(func.count(SourceRecord.id)))
+        with patch(
+            "roster_scout.report_routes.list_ncaa_teams",
+            side_effect=AssertionError("detail route must not contact NCAA"),
+        ):
+            response = client.get(f"{self._detail_path(ids)}?view=games")
+        with self.Session() as session:
+            after = session.scalar(select(func.count(SourceRecord.id)))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(before, after)
 
 
 class FailedBuildRetryTests(unittest.TestCase):
@@ -943,9 +1641,10 @@ class FailedBuildRetryTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data, first_payload)
         self.assertIn(
-            f"Artifact Antelopes Stats {datetime.now(UTC).strftime('%m-%d-%y')}.xlsx",
+            f"Team Stats {datetime.now(UTC).strftime('%m-%d-%y')}.xlsx",
             response.headers["Content-Disposition"],
         )
+        self.assertNotIn("Artifact Antelopes", response.headers["Content-Disposition"])
         self.assertEqual(reader.call_args_list, [(("immutable/first.xlsx",), {})])
         receipt = response.headers["X-Roster-Scout-Download-Event-ID"]
         proof = response.headers["X-Roster-Scout-Download-Ack-Proof"]
@@ -1079,7 +1778,7 @@ class FailedBuildRetryTests(unittest.TestCase):
         self.assertEqual(exported["payload"], payload)
         self.assertRegex(
             exported["workbook_name"],
-            r"^Sheets Sharks Stats \d{2}-\d{2}-\d{2}\.xlsx$",
+            r"^Team Stats \d{2}-\d{2}-\d{2}\.xlsx$",
         )
         with self.Session() as session:
             audit = session.scalar(
@@ -1710,6 +2409,7 @@ class ReportAcceptanceIdempotencyTests(unittest.TestCase):
                 end=self.now + timedelta(minutes=1),
             )
         self.assertEqual(job.requested_by_account_id, account_id)
+        self.assertEqual(job.build_profile, "quick")
         self.assertEqual(usage.actor_account_id, account_id)
         self.assertEqual(usage.organization_id, organization_id)
         self.assertEqual(usage.event_key, str(job.id))
@@ -2081,7 +2781,12 @@ class ReportAcceptanceIdempotencyTests(unittest.TestCase):
         self.assertEqual(response.status_code, 202)
         payload = response.get_json()
         self.assertRegex(payload["report_url"], r"^/reports/[0-9a-f-]{36}$")
-        self.assertEqual(payload["status_url"], payload["report_url"] + "/status")
+        status_url = urlsplit(payload["status_url"])
+        self.assertEqual(status_url.path, payload["report_url"] + "/status")
+        self.assertRegex(
+            parse_qs(status_url.query)["job_id"][0], r"^[0-9a-f-]{36}$"
+        )
+        self.assertEqual(parse_qs(status_url.query)["prefer_current"], ["1"])
         self.assertEqual(self._counts()["reports"], 1)
         self.assertEqual(self._counts()["jobs"], 1)
 

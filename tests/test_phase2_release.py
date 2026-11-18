@@ -337,7 +337,7 @@ class Phase2ReleaseStoryTests(_Phase2ReleaseCase):
         )
         detail = member_client.get(f"/reports/{accepted.report_id}")
         self.assertEqual(detail.status_code, 200)
-        for expected in (b"Partial", b"Batting", b"Pitching", b"NCAA source unavailable"):
+        for expected in (b"Partial", b"Workbook ready", b"Pitching"):
             self.assertIn(expected, detail.data)
 
         with self.Session.begin() as session:
@@ -358,8 +358,8 @@ class Phase2ReleaseStoryTests(_Phase2ReleaseCase):
             )
         self.assertEqual(first_refresh.job_id, duplicate_refresh.job_id)
         active_detail = member_client.get(f"/reports/{accepted.report_id}")
-        self.assertIn(b"Current workbook", active_detail.data)
-        self.assertIn(b"Queued", active_detail.data)
+        self.assertIn(b"Workbook ready", active_detail.data)
+        self.assertIn(b"Building season workbook", active_detail.data)
 
         with self.Session.begin() as session:
             failed_job = session.get(ReportJob, first_refresh.job_id)
@@ -369,7 +369,7 @@ class Phase2ReleaseStoryTests(_Phase2ReleaseCase):
             failed_job.finished_at = self.now + timedelta(minutes=1)
         failed_detail = member_client.get(f"/reports/{accepted.report_id}")
         self.assertIn(b"NCAA source unavailable", failed_detail.data)
-        self.assertIn(b"Current workbook", failed_detail.data)
+        self.assertIn(b"Workbook ready", failed_detail.data)
         with self.Session.begin() as session:
             retry = accept_authorized_report_retry(
                 session,
@@ -590,7 +590,14 @@ class ExternalFailureStateTests(_Phase2ReleaseCase):
 
         rules = {rule.rule for rule in self.app_module.app.url_map.iter_rules()}
         self.assertFalse(any("power" in rule.lower() for rule in rules))
-        self.assertFalse(any("embed" in rule.lower() for rule in rules))
+        self.assertIn(
+            "/reports/<uuid:report_id>/snapshots/<uuid:snapshot_id>/embed",
+            rules,
+        )
+        self.assertIn(
+            "/reports/<uuid:report_id>/snapshots/<uuid:snapshot_id>/dashboard-status",
+            rules,
+        )
         self.assertFalse(any("split" in rule.lower() for rule in rules))
         self.assertNotIn("/organizations/create", rules)
 

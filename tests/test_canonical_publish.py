@@ -119,11 +119,16 @@ class CanonicalPublishTests(unittest.TestCase):
             with self.subTest(division=division):
                 clean_database(self.database_url)
                 _, snapshot = self.publish(division)
-                self.assertEqual(snapshot.status, "ready")
+                self.assertEqual(snapshot.status, "partial")
                 with self.Session() as session:
                     self.assertEqual(session.scalar(select(func.count()).select_from(ReportSnapshot)), 1)
                     sections = list(session.scalars(select(ReportSection)))
-                    self.assertEqual({item.section for item in sections}, {"batting", "pitching"})
+                    self.assertEqual({item.section for item in sections}, {
+                        "batting", "pitching", "schedule",
+                        "game_logs:batting", "game_logs:pitching", "game_logs:fielding",
+                        "history:batting", "history:pitching", "history:fielding",
+                        "splits:batting", "splits:pitching",
+                    })
                     sources = list(session.scalars(select(SourceRecord)))
                     self.assertTrue(sources)
                     self.assertTrue(all(record.source_url.startswith("https://stats.ncaa.org/") for record in sources))
@@ -169,7 +174,7 @@ class CanonicalPublishTests(unittest.TestCase):
             "batting": empty,
             "pitching": fixture("d2_pitching.html"),
         })
-        self.assertEqual(snapshot.status, "ready")
+        self.assertEqual(snapshot.status, "partial")
 
         clean_database(self.database_url)
         job = self.seed(2)
@@ -223,7 +228,7 @@ class CanonicalPublishTests(unittest.TestCase):
                     ),
                 )
         with self.Session() as session:
-            self.assertEqual(session.scalar(select(func.count()).select_from(ReportSection)), 2)
+            self.assertEqual(session.scalar(select(func.count()).select_from(ReportSection)), 11)
             self.assertGreater(session.scalar(select(func.count()).select_from(SourceRecord)), 0)
             self.assertIsNone(session.scalar(
                 select(ReportSnapshot).where(ReportSnapshot.status.in_(("ready", "partial")))
@@ -245,7 +250,7 @@ class CanonicalPublishTests(unittest.TestCase):
                     self.Session, job_id, cached_sections=cached_sections
                 ),
             )
-        self.assertEqual(replay.status, "ready")
+        self.assertEqual(replay.status, "partial")
 
     def test_new_refresh_forces_live_collection_and_does_not_reuse_old_rows(self):
         from roster_scout.jobs import (
@@ -276,7 +281,24 @@ class CanonicalPublishTests(unittest.TestCase):
                     self.Session, job_id, cached_sections=cached_sections
                 ),
             )
-        collect.assert_called_once_with("615087", division="2", year=2026, force_refresh=True)
+        collect.assert_called_once()
+        call_args, call_kwargs = collect.call_args
+        self.assertEqual(call_args, ("615087",))
+        self.assertEqual(
+            {
+                key: value
+                for key, value in call_kwargs.items()
+                if key not in {"request_reserver", "deadline_monotonic"}
+            },
+            {
+                "division": "2",
+                "year": 2026,
+                "force_refresh": True,
+                "navigation_timeout_seconds": 45,
+            },
+        )
+        self.assertTrue(callable(call_kwargs["request_reserver"]))
+        self.assertIsInstance(call_kwargs["deadline_monotonic"], float)
         self.assertNotEqual(second.id, first_snapshot.id)
         with self.Session() as session:
             self.assertEqual(session.scalar(select(func.count()).select_from(ReportSnapshot)), 2)
@@ -341,7 +363,7 @@ class FinalAttemptPublicationTests(CanonicalPublishTests):
             side_effect=AssertionError("evidence replay collected live data")
         )
         snapshot = run_report_job(self.Session, job.id, collector=collector)
-        self.assertEqual(snapshot.status, "ready")
+        self.assertEqual(snapshot.status, "partial")
         collector.assert_not_called()
 
         with self.Session() as session:
@@ -495,7 +517,9 @@ class ConcurrentSharedRecordTests(SharedRecordPublishCase):
     def _assert_shared_rows(self, jobs, snapshots):
         from roster_scout.models import MetricDefinition, Player, ReportJob
 
-        self.assertEqual([snapshot.status for snapshot in snapshots], ["ready", "ready"])
+        self.assertEqual(
+            [snapshot.status for snapshot in snapshots], ["partial", "partial"]
+        )
         with self.Session() as session:
             self.assertEqual(session.scalar(select(func.count()).select_from(Player)), 1)
             self.assertEqual(
@@ -576,7 +600,7 @@ class AuthoritativeIdentityTests(SharedRecordPublishCase):
             first.id,
             collector=lambda *args, **kwargs: self.sections("Alex Smith"),
         )
-        self.assertEqual(first_snapshot.status, "ready")
+        self.assertEqual(first_snapshot.status, "partial")
 
         with self.assertRaises(DeterministicJobError) as raised:
             run_report_job(
@@ -617,7 +641,7 @@ class AuthoritativeIdentityTests(SharedRecordPublishCase):
             benign.id,
             collector=lambda *args, **kwargs: self.sections("  ALEX   smith  "),
         )
-        self.assertEqual(snapshot.status, "ready")
+        self.assertEqual(snapshot.status, "partial")
         with self.Session() as session:
             self.assertEqual(session.scalar(select(func.count()).select_from(Player)), 1)
 
@@ -804,7 +828,7 @@ class PublicationIntegrityTests(CanonicalPublishTests):
             job.id,
             collector=lambda *args, **kwargs: sections,
         )
-        self.assertEqual(snapshot.status, "ready")
+        self.assertEqual(snapshot.status, "partial")
 
     def test_d1_d2_d3_paths_publish_with_exact_traceability(self):
         from roster_scout.models import BattingFact, PitchingFact, ReportSection, SourceRecord
@@ -813,7 +837,7 @@ class PublicationIntegrityTests(CanonicalPublishTests):
             with self.subTest(division=division):
                 clean_database(self.database_url)
                 _job, snapshot = self.publish(division)
-                self.assertEqual(snapshot.status, "ready")
+                self.assertEqual(snapshot.status, "partial")
                 with self.Session() as session:
                     for section_name, fact_model in (
                         ("batting", BattingFact),
@@ -970,7 +994,7 @@ class UnresolvedIdentityPersistenceTests(CanonicalPublishTests):
             job.id,
             collector=lambda *args, **kwargs: self.ambiguous_sections(),
         )
-        self.assertEqual(snapshot.status, "ready")
+        self.assertEqual(snapshot.status, "partial")
         with self.Session() as session:
             identities = list(session.scalars(
                 select(PlayerTeamSeason)
@@ -1208,7 +1232,7 @@ class IdlessCorroborationPublicationTests(CanonicalPublishTests):
             job.id,
             collector=lambda *args, **kwargs: sections,
         )
-        self.assertEqual(snapshot.status, "ready")
+        self.assertEqual(snapshot.status, "partial")
         with self.Session() as session:
             identities = list(session.scalars(
                 select(PlayerTeamSeason)
@@ -1747,7 +1771,7 @@ class AuthoritativeIdentityPublicationSerializationTests(
         with self.Session() as session:
             self.assertEqual(
                 session.get(ReportSnapshot, snapshot_id).status,
-                "ready",
+                "partial",
             )
 
     def test_source_mutation_commits_before_waiting_publication_rechecks(self):
@@ -1802,7 +1826,7 @@ class AuthoritativeIdentityPublicationSerializationTests(
         self.assertEqual(mutation_errors, [])
         self.assertEqual(publication_errors, [])
         with self.Session() as session:
-            self.assertEqual(session.get(ReportSnapshot, snapshot_id).status, "ready")
+            self.assertEqual(session.get(ReportSnapshot, snapshot_id).status, "partial")
 
     def test_publication_commits_before_waiting_source_mutation_is_rejected(self):
         from roster_scout.models import ReportSnapshot, SourceRecord
@@ -1860,7 +1884,7 @@ class AuthoritativeIdentityPublicationSerializationTests(
             {"40P01", "55P03"},
         )
         with self.Session() as session:
-            self.assertEqual(session.get(ReportSnapshot, snapshot_id).status, "ready")
+            self.assertEqual(session.get(ReportSnapshot, snapshot_id).status, "partial")
 
     def test_player_mutation_commits_before_waiting_publication_rechecks(self):
         from roster_scout.models import Player, ReportSnapshot
@@ -1903,7 +1927,7 @@ class AuthoritativeIdentityPublicationSerializationTests(
         self.assertEqual(mutation_errors, [])
         self.assertEqual(publication_errors, [])
         with self.Session() as session:
-            self.assertEqual(session.get(ReportSnapshot, snapshot_id).status, "ready")
+            self.assertEqual(session.get(ReportSnapshot, snapshot_id).status, "partial")
             self.assertTrue(
                 session.get(Player, player_id).source_player_id.startswith("changed-")
             )
@@ -1962,7 +1986,7 @@ class AuthoritativeIdentityPublicationSerializationTests(
             {"40P01", "55P03"},
         )
         with self.Session() as session:
-            self.assertEqual(session.get(ReportSnapshot, snapshot_id).status, "ready")
+            self.assertEqual(session.get(ReportSnapshot, snapshot_id).status, "partial")
 
 
 if __name__ == "__main__":

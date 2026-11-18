@@ -2,6 +2,7 @@
 
 import hashlib
 import os
+import threading
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -32,6 +33,37 @@ class SessionAdvisoryClaim:
 
     connection: object
     session_factory: object
+
+
+@contextmanager
+def session_advisory_heartbeat(claim, *, interval_seconds=30.0):
+    """Keep a long-running job's detached advisory-lock connection alive."""
+    stopped = threading.Event()
+    failures = []
+
+    def heartbeat():
+        while not stopped.wait(interval_seconds):
+            try:
+                claim.connection.exec_driver_sql("SELECT 1")
+                claim.connection.commit()
+            except Exception as exc:  # checked on the owning thread below
+                failures.append(exc)
+                stopped.set()
+                return
+
+    thread = threading.Thread(
+        target=heartbeat,
+        name="report-advisory-heartbeat",
+        daemon=True,
+    )
+    thread.start()
+    try:
+        yield
+    finally:
+        stopped.set()
+        thread.join(timeout=max(1.0, interval_seconds + 1.0))
+    if failures:
+        raise ConnectionError("report advisory lock connection was lost") from None
 
 
 def _advisory_lock_key(identifier):

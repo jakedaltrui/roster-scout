@@ -3,6 +3,7 @@
 import os
 import uuid
 from functools import lru_cache
+import logging
 
 from .artifacts import (
     artifact_store_from_environ,
@@ -20,6 +21,11 @@ from .jobs import (
     run_report_job,
 )
 from .models import ReportSnapshot
+from .power_bi import PowerBIClient, PowerBIFailure
+from .power_bi_refresh import ensure_dashboard_refresh
+
+
+logger = logging.getLogger(__name__)
 
 
 @lru_cache(maxsize=1)
@@ -30,6 +36,11 @@ def _session_factory():
 @lru_cache(maxsize=1)
 def _artifact_store():
     return artifact_store_from_environ(required=bool(os.environ.get("FLY_APP_NAME")))
+
+
+@lru_cache(maxsize=1)
+def _power_bi_client():
+    return PowerBIClient.from_environ()
 
 
 def _ensure_artifact_id(snapshot_id):
@@ -76,6 +87,22 @@ def build_report_job(job_id, generation):
                 build_claimed_snapshot_artifact(
                     _session_factory(), artifact_id, attempt, store=store
                 )
+        provider = _power_bi_client()
+        if (
+            snapshot.collection_contract_version == "phase3-detailed-v1"
+            and provider.configured
+            and provider.settings.mode == "live"
+        ):
+            try:
+                ensure_dashboard_refresh(
+                    _session_factory(),
+                    provider,
+                    organization_id=snapshot.organization_id,
+                    report_id=snapshot.report_id,
+                    snapshot_id=snapshot.id,
+                )
+            except (PowerBIFailure, RuntimeError, ValueError):
+                logger.warning("power_bi_refresh_start_failed")
     return str(snapshot.id) if hasattr(snapshot, "id") else snapshot
 
 

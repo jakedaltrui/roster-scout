@@ -1,0 +1,44 @@
+{
+  "name": "RosterScout-6f2bc9a781db4d17ad50.json",
+  "dataColors": [
+    "#202521",
+    "#5C6B61",
+    "#7C8A80",
+    "#A5B0A8",
+    "#CBD2CD",
+    "#D9A441",
+    "#6B7B91",
+    "#A96C5B"
+  ],
+  "background": "#F6F6F3",
+  "foreground": "#202521",
+  "tableAccent": "#202521",
+  "good": "#347853",
+  "neutral": "#D9A441",
+  "bad": "#A44E46",
+  "maximum": "#202521",
+  "center": "#8C9790",
+  "minimum": "#E6EAE7",
+  "visualStyles": {
+    "*": {
+      "*": {
+        "background": [{"show": true, "color": {"solid": {"color": "#FFFFFF"}}, "transparency": 0}],
+        "border": [{"show": true, "color": {"solid": {"color": "#DEDFDA"}}, "radius": 12}],
+        "title": [{"show": true, "fontFamily": "Arial", "fontSize": 12, "fontColor": {"solid": {"color": "#202521"}}}],
+        "visualHeader": [{"show": false}]
+      }
+    },
+    "page": {
+      "*": {
+        "background": [{"color": {"solid": {"color": "#F6F6F3"}}, "transparency": 0}],
+        "outspace": [{"color": {"solid": {"color": "#E9EAE5"}}, "transparency": 0}]
+      }
+    }
+  },
+  "textClasses": {
+    "callout": {"fontFace": "Arial", "fontSize": 28, "color": "#202521"},
+    "title": {"fontFace": "Arial", "fontSize": 14, "color": "#202521"},
+    "header": {"fontFace": "Arial", "fontSize": 12, "color": "#202521"},
+    "label": {"fontFace": "Arial", "fontSize": 10, "color": "#5C625E"}
+  }
+}

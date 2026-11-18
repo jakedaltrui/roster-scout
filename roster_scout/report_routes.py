@@ -29,7 +29,20 @@ from .authorization import record_scoped_not_found
 from .jobs import drain_report_dispatch_outbox
 from .google_sheets import GoogleSheetsFailure, GoogleSheetsOAuthClient
 from .institution_registry import identity_for_verified_email
-from .models import Account, Organization
+from .native_dashboard import NativeDashboardNotFound, load_native_dashboard
+from .models import (
+    Account,
+    ExternalRefreshDiagnostic,
+    Organization,
+    ReportSnapshot,
+)
+from .power_bi import PowerBIClient, PowerBIFailure
+from .power_bi_refresh import reconcile_dashboard_refresh
+from .player_detail import (
+    PLAYER_DETAIL_VIEWS,
+    PlayerDetailFailure,
+    load_snapshot_player_detail,
+)
 from .reports import (
     CanonicalReportRequest,
     ReportAcceptanceFailure,
@@ -67,6 +80,32 @@ def _session_factory():
 
 def _google_sheets_client():
     return current_app.extensions["roster_scout_google_sheets_oauth"]
+
+
+def _power_bi_client():
+    return current_app.extensions["roster_scout_power_bi"]
+
+
+def _dashboard_state(session, context, report_id, snapshot_id):
+    provider = _power_bi_client()
+    if provider.settings.mode == "fake":
+        return "ready"
+    if not provider.configured:
+        return "disabled"
+    diagnostic = session.scalar(
+        select(ExternalRefreshDiagnostic)
+        .where(
+            ExternalRefreshDiagnostic.organization_id == context.organization_id,
+            ExternalRefreshDiagnostic.report_id == report_id,
+            ExternalRefreshDiagnostic.snapshot_id == snapshot_id,
+            ExternalRefreshDiagnostic.provider == "power_bi",
+        )
+        .order_by(ExternalRefreshDiagnostic.attempt_number.desc())
+        .limit(1)
+    )
+    if diagnostic is None or diagnostic.status == "pending":
+        return "pending"
+    return "ready" if diagnostic.status == "completed" else "failed"
 
 
 def _google_state_serializer():
@@ -383,6 +422,15 @@ def detail(report_id):
                 history_page=history_page,
             )
             if report_detail.latest_snapshot is not None:
+                try:
+                    dashboard_data = load_native_dashboard(
+                        session,
+                        organization_id=context.organization_id,
+                        report_id=report_id,
+                        snapshot_id=report_detail.latest_snapshot.id,
+                    )
+                except NativeDashboardNotFound:
+                    dashboard_data = None
                 append_security_audit_event(
                     session,
                     actor_account_id=context.account_id,
@@ -393,6 +441,8 @@ def detail(report_id):
                     outcome="allowed",
                     reason="snapshot_opened",
                 )
+            else:
+                dashboard_data = None
     except ReportLibraryFailure:
         return _html_not_found(
             context,
@@ -406,16 +456,121 @@ def detail(report_id):
             current_role=context.role,
             account_email=None,
             report_detail=None,
+            dashboard_data=None,
             load_error=True,
         ), 503
     return render_template(
         "report_detail.html",
         **shell,
         report_detail=report_detail,
+        dashboard_data=dashboard_data,
         load_error=False,
         retry_action_id=str(uuid.uuid4()),
         google_sheets_oauth_configured=_google_sheets_client().configured,
     )
+
+
+@report_blueprint.get(
+    "/reports/<uuid:report_id>/snapshots/<uuid:snapshot_id>/embed"
+)
+def snapshot_embed_configuration(report_id, snapshot_id):
+    """Issue one exact, short-lived embed token after tenant reauthorization."""
+    context = g.authorization_context
+    try:
+        with _session_factory().begin() as session:
+            snapshot = session.scalar(
+                select(ReportSnapshot).where(
+                    ReportSnapshot.id == snapshot_id,
+                    ReportSnapshot.report_id == report_id,
+                    ReportSnapshot.organization_id == context.organization_id,
+                    ReportSnapshot.status.in_(("ready", "partial")),
+                    ReportSnapshot.published_at.is_not(None),
+                )
+            )
+            if snapshot is None:
+                raise ReportLibraryFailure("not_found")
+            state = _dashboard_state(
+                session, context, report_id, snapshot_id
+            )
+            if state not in {"ready"}:
+                status = 409 if state in {"pending", "failed"} else 503
+                return jsonify(error=f"dashboard_{state}"), status
+            configuration = _power_bi_client().generate_embed_configuration(
+                account_id=context.account_id,
+                organization_id=context.organization_id,
+                snapshot_id=snapshot_id,
+            )
+            append_security_audit_event(
+                session,
+                actor_account_id=context.account_id,
+                organization_id=context.organization_id,
+                target_type="dashboard",
+                target_id=snapshot_id,
+                action="dashboard.embed_token",
+                outcome="allowed",
+                reason="authorized",
+            )
+    except ReportLibraryFailure:
+        return _json_not_found(
+            context,
+            target_type="dashboard",
+            target_id=snapshot_id,
+        )
+    except PowerBIFailure as failure:
+        current_app.logger.warning("power_bi_embed_failed category=%s", failure.category)
+        return jsonify(error="dashboard_unavailable"), 503
+    except (SQLAlchemyError, RuntimeError, ValueError):
+        current_app.logger.warning("power_bi_embed_failed category=report_service")
+        return jsonify(error="dashboard_unavailable"), 503
+    response = jsonify(configuration.as_dict())
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Pragma"] = "no-cache"
+    return response
+
+
+@report_blueprint.get(
+    "/reports/<uuid:report_id>/snapshots/<uuid:snapshot_id>/dashboard-status"
+)
+def snapshot_dashboard_status(report_id, snapshot_id):
+    """Return one tenant-scoped semantic refresh state without workbook coupling."""
+    context = g.authorization_context
+    provider = _power_bi_client()
+    try:
+        with _session_factory().begin() as session:
+            snapshot = session.scalar(select(ReportSnapshot.id).where(
+                ReportSnapshot.id == snapshot_id,
+                ReportSnapshot.report_id == report_id,
+                ReportSnapshot.organization_id == context.organization_id,
+                ReportSnapshot.status.in_(("ready", "partial")),
+                ReportSnapshot.published_at.is_not(None),
+            ))
+            if snapshot is None:
+                raise ReportLibraryFailure("not_found")
+        if provider.settings.mode == "fake":
+            state = "ready"
+        elif not provider.configured:
+            state = "disabled"
+        else:
+            refresh = reconcile_dashboard_refresh(
+                _session_factory(),
+                provider,
+                organization_id=context.organization_id,
+                report_id=report_id,
+                snapshot_id=snapshot_id,
+            )
+            state = "ready" if refresh.status == "completed" else refresh.status
+    except ReportLibraryFailure:
+        return _json_not_found(
+            context, target_type="dashboard", target_id=snapshot_id
+        )
+    except (PowerBIFailure, SQLAlchemyError, RuntimeError, ValueError) as failure:
+        category = failure.category if isinstance(failure, PowerBIFailure) else "report_service"
+        current_app.logger.warning("power_bi_status_failed category=%s", category)
+        return jsonify(error="dashboard_unavailable"), 503
+    response = jsonify(status=state)
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Pragma"] = "no-cache"
+    return response
 
 
 @report_blueprint.route(
@@ -841,16 +996,50 @@ def detail_status(report_id):
                 session,
                 context.organization_id,
                 report_id,
+                job_id=request.args.get("job_id"),
+                prefer_current=request.args.get("prefer_current") == "1",
             )
-    except ReportLibraryFailure:
+    except (ReportLibraryFailure, ValueError):
         return _json_not_found(
             context,
             target_type="report",
             target_id=report_id,
         )
-    except (SQLAlchemyError, RuntimeError, ValueError):
+    except (SQLAlchemyError, RuntimeError):
         return jsonify(error="report_service_unavailable"), 503
     return jsonify(status.as_dict())
+
+
+@report_blueprint.get(
+    "/reports/<uuid:report_id>/snapshots/<uuid:snapshot_id>"
+    "/players/<uuid:player_id>"
+)
+def snapshot_player_detail(report_id, snapshot_id, player_id):
+    """Return one exact immutable snapshot/player projection for the active tenant."""
+    context = g.authorization_context
+    view = request.args.get("view", "all")
+    if view not in PLAYER_DETAIL_VIEWS:
+        return jsonify(error="invalid_view"), 400
+    try:
+        with _session_factory().begin() as session:
+            detail = load_snapshot_player_detail(
+                session,
+                context.organization_id,
+                report_id,
+                snapshot_id,
+                player_id,
+                view,
+            )
+    except PlayerDetailFailure:
+        return _json_not_found(
+            context,
+            target_type="snapshot",
+            target_id=snapshot_id,
+        )
+    except (SQLAlchemyError, RuntimeError, ValueError):
+        current_app.logger.warning("player_detail_service_unavailable")
+        return jsonify(error="player_detail_service_unavailable"), 503
+    return jsonify(detail)
 
 
 @report_blueprint.route("/reports/new", methods=("GET", "POST"))
@@ -962,7 +1151,10 @@ def create_report():
     if request.accept_mimetypes.best == "application/json":
         return jsonify(
             report_url=destination,
-            status_url=f"/reports/{accepted.report_id}/status",
+            status_url=(
+                f"/reports/{accepted.report_id}/status"
+                f"?job_id={accepted.job_id}&prefer_current=1"
+            ),
         ), 202
     return redirect(destination, code=303)
 
@@ -974,6 +1166,7 @@ def register_report_routes(
     issue_download_ack_proof=None,
     artifact_reader=None,
     google_sheets_client=None,
+    power_bi_client=None,
 ):
     app.extensions["roster_scout_report_session_factory"] = (
         session_factory
@@ -991,6 +1184,10 @@ def register_report_routes(
     app.extensions.setdefault(
         "roster_scout_google_sheets_oauth",
         google_sheets_client or GoogleSheetsOAuthClient.from_environ(),
+    )
+    app.extensions.setdefault(
+        "roster_scout_power_bi",
+        power_bi_client or PowerBIClient.from_environ(),
     )
     @app.context_processor
     def _google_sheets_template_context():

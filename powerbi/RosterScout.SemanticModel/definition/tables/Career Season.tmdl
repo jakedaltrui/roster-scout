@@ -1,0 +1,35 @@
+table 'Career Season'
+	column security_key
+		dataType: string
+		sourceColumn: security_key
+	column player_team_season_id
+		dataType: string
+		sourceColumn: player_team_season_id
+	column stat_type
+		dataType: string
+		sourceColumn: stat_type
+	column season_label
+		dataType: string
+		sourceColumn: season_label
+	column school_name
+		dataType: string
+		sourceColumn: school_name
+	column division
+		dataType: string
+		sourceColumn: division
+	column at_bats
+		dataType: int64
+		sourceColumn: at_bats
+	column hits
+		dataType: int64
+		sourceColumn: hits
+	column innings_outs
+		dataType: int64
+		sourceColumn: innings_outs
+	column earned_runs
+		dataType: int64
+		sourceColumn: earned_runs
+	partition 'Career Season' = m
+		mode: import
+		source =
+			let Source = PostgreSQL.Database(RosterScoutDatabaseServer, RosterScoutDatabaseName), View = Source{[Schema="public",Item="pbi_career_seasons"]}[Data] in View

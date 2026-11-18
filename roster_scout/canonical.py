@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 import hashlib
 import re
+from types import MappingProxyType
 
 from roster_scraper import NcaaCollection, NcaaSourceRow
+
+from .metrics import MetricResult, calculate_metric
 
 
 METRIC_DEFINITION_VERSION = "ncaa-1.0"
@@ -46,6 +49,7 @@ class CanonicalPlayer:
     position: str | None
     batting_source: tuple[str, int] | None
     pitching_source: tuple[str, int] | None
+    fielding_source: tuple[str, int] | None = None
 
 
 @dataclass(frozen=True)
@@ -54,6 +58,7 @@ class CanonicalFact:
     identity_key: str
     source_record: tuple[str, int]
     values: dict
+    detailed_values: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -63,6 +68,11 @@ class MetricLineage:
     value: Decimal | None
     provenance: str
     definition_version: str = METRIC_DEFINITION_VERSION
+    status: str = "available"
+    reason_code: str | None = None
+    inputs: dict = field(default_factory=dict)
+    sample: dict = field(default_factory=dict)
+    constant_set_version: str | None = None
 
 
 @dataclass(frozen=True)
@@ -71,6 +81,40 @@ class CanonicalCollection:
     players: tuple[CanonicalPlayer, ...]
     facts: tuple[CanonicalFact, ...]
     metrics: tuple[MetricLineage, ...]
+    detailed_metrics: tuple[MetricLineage, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
+class CanonicalScopedFact:
+    stat_type: str
+    scope_code: str
+    identity_key: str
+    source_player_id: str
+    row_ordinal: int
+    values: MappingProxyType
+    sample: MappingProxyType
+    metric_results: tuple[MetricLineage, ...]
+
+
+@dataclass(frozen=True)
+class CanonicalSplitCollection:
+    stat_type: str
+    scope_code: str
+    status: str
+    reason: str | None
+    facts: tuple[CanonicalScopedFact, ...]
+
+
+@dataclass(frozen=True)
+class CanonicalPlayerHistory:
+    """One stable NCAA player identity across typed career and game facts."""
+
+    identity_key: str
+    source_player_id: str
+    career_seasons: tuple
+    career_aggregates: tuple
+    game_logs: tuple
+    completeness: MappingProxyType
 
 
 @dataclass(frozen=True)
@@ -103,6 +147,21 @@ def _integer(row: NcaaSourceRow, *keys: str) -> int | None:
     if parsed < 0:
         raise ValueError(f"Integer for {keys[0]} cannot be negative: {value!r}.")
     return parsed
+
+
+def _integer_with_published_blank_zero(
+    row: NcaaSourceRow, *keys: str
+) -> int | None:
+    """Treat an explicit blank count cell as a sourced zero, not missing data."""
+    lowered = {key.casefold(): value for key, value in row.raw_values.items()}
+    for key in keys:
+        folded = key.casefold()
+        if folded not in lowered or lowered[folded] is None:
+            continue
+        if str(lowered[folded]).strip() == "":
+            return 0
+        return _integer(row, key)
+    return None
 
 
 def _decimal(row: NcaaSourceRow, *keys: str) -> Decimal | None:
@@ -287,6 +346,25 @@ def _metric(identity_key: str, row: NcaaSourceRow, code: str, aliases, calculate
     return MetricLineage(identity_key, code, calculated(), "calculated")
 
 
+def _detailed_metric_lineage(
+    identity_key: str,
+    code: str,
+    result: MetricResult,
+) -> MetricLineage:
+    return MetricLineage(
+        identity_key=identity_key,
+        code=code,
+        value=result.value,
+        provenance="calculated" if result.status == "available" else "unavailable",
+        definition_version=result.definition_version,
+        status=result.status,
+        reason_code=result.reason_code,
+        inputs=result.inputs,
+        sample=result.sample,
+        constant_set_version=result.constant_set_version,
+    )
+
+
 def canonicalize_ncaa_collection(collection: NcaaCollection) -> CanonicalCollection:
     source_records = []
     category_ids = {
@@ -314,6 +392,7 @@ def canonicalize_ncaa_collection(collection: NcaaCollection) -> CanonicalCollect
     players = []
     facts = []
     metrics = []
+    detailed_metrics = []
     for group in _identity_groups(collection):
         rows = group.rows
         source_player_id = next((row.source_player_id for row in rows if row.source_player_id), None)
@@ -321,6 +400,7 @@ def canonicalize_ncaa_collection(collection: NcaaCollection) -> CanonicalCollect
         first = rows[0]
         batting = next((row for row in rows if row.section == "batting"), None)
         pitching = next((row for row in rows if row.section == "pitching"), None)
+        fielding = next((row for row in rows if row.section == "fielding"), None)
         players.append(CanonicalPlayer(
             identity_key=identity_key,
             identity_status=group.identity_status,
@@ -330,37 +410,302 @@ def canonicalize_ncaa_collection(collection: NcaaCollection) -> CanonicalCollect
             position=_raw(first, "Pos", "Position"),
             batting_source=(batting.section, batting.row_ordinal) if batting else None,
             pitching_source=(pitching.section, pitching.row_ordinal) if pitching else None,
+            fielding_source=(fielding.section, fielding.row_ordinal) if fielding else None,
         ))
         if batting:
-            facts.append(CanonicalFact("batting", identity_key, (batting.section, batting.row_ordinal), {
-                "at_bats": _integer(batting, "AB"),
-                "hits": _integer(batting, "H"),
-                "walks": _integer(batting, "BB"),
-                "strikeouts": _integer(batting, "K", "SO"),
-            }))
+            published_games = _integer(batting, "G", "GP")
+            published_at_bats = _integer(batting, "AB")
+            has_batting_participation = (
+                published_games is not None or published_at_bats is not None
+            )
+
+            def batting_count(*keys):
+                if has_batting_participation:
+                    return _integer_with_published_blank_zero(batting, *keys)
+                return _integer(batting, *keys)
+
+            batting_values = {
+                "games": batting_count("G", "GP"),
+                "games_started": batting_count("GS"),
+                "plate_appearances": batting_count("PA"),
+                "at_bats": batting_count("AB"),
+                "runs": batting_count("R"),
+                "hits": batting_count("H"),
+                "doubles": batting_count("2B"),
+                "triples": batting_count("3B"),
+                "home_runs": batting_count("HR"),
+                "runs_batted_in": batting_count("RBI"),
+                "walks": batting_count("BB"),
+                "hit_by_pitch": batting_count("HBP"),
+                "strikeouts": batting_count("K", "SO"),
+                "sacrifice_flies": batting_count("SF"),
+                "sacrifice_hits": batting_count("SH", "SAC"),
+                "stolen_bases": batting_count("SB"),
+                "caught_stealing": batting_count("CS"),
+                "total_bases": batting_count("TB"),
+            }
+            fact_batting_values = dict(batting_values)
+            if fact_batting_values["plate_appearances"] is None:
+                derived_pa = calculate_metric(
+                    "pa",
+                    batting_values,
+                    season_id=collection.season.season_id,
+                    division=collection.team.division,
+                )
+                if derived_pa.status == "available":
+                    fact_batting_values["plate_appearances"] = int(
+                        derived_pa.value
+                    )
+            facts.append(CanonicalFact(
+                "batting",
+                identity_key,
+                (batting.section, batting.row_ordinal),
+                {
+                    "at_bats": batting_values["at_bats"],
+                    "hits": batting_values["hits"],
+                    "walks": batting_values["walks"],
+                    "strikeouts": batting_values["strikeouts"],
+                },
+                fact_batting_values,
+            ))
 
             def calculated_avg():
                 hits = _integer(batting, "H")
                 at_bats = _integer(batting, "AB")
                 return Decimal(hits) / Decimal(at_bats) if hits is not None and at_bats else None
 
-            metrics.append(_metric(identity_key, batting, "AVG", ("BA", "AVG"), calculated_avg))
+            metrics.append(
+                _metric(
+                    identity_key,
+                    batting,
+                    "AVG",
+                    ("BA", "AVG"),
+                    calculated_avg,
+                )
+            )
+            for code in (
+                "pa",
+                "avg",
+                "obp",
+                "slg",
+                "ops",
+                "iso",
+                "batting_bb_pct",
+                "batting_k_pct",
+                "babip",
+                "singles",
+                "total_bases",
+                "woba",
+            ):
+                detailed_metrics.append(_detailed_metric_lineage(
+                    identity_key,
+                    code,
+                    calculate_metric(
+                        code,
+                        batting_values,
+                        season_id=collection.season.season_id,
+                        division=collection.team.division,
+                    ),
+                ))
+        if fielding:
+            fielding_values = MappingProxyType({
+                "games": _integer_with_published_blank_zero(fielding, "G", "GP"),
+                "games_started": _integer_with_published_blank_zero(fielding, "GS"),
+                "putouts": _integer_with_published_blank_zero(fielding, "PO"),
+                "assists": _integer_with_published_blank_zero(fielding, "A"),
+                "errors": _integer_with_published_blank_zero(fielding, "E"),
+                "total_chances": _integer_with_published_blank_zero(fielding, "TC"),
+                "double_plays": _integer_with_published_blank_zero(fielding, "DP", "IDP"),
+                "fielding_percentage": _decimal(fielding, "FPCT", "FLDPCT"),
+                "passed_balls": _integer_with_published_blank_zero(fielding, "PB"),
+                "stolen_base_attempts": _integer_with_published_blank_zero(fielding, "SBA"),
+                "caught_stealing_by": _integer_with_published_blank_zero(fielding, "CSB"),
+            })
+            percentage = fielding_values["fielding_percentage"]
+            if percentage is not None and not Decimal("0") <= percentage <= Decimal("1"):
+                raise ValueError("Fielding percentage must be between zero and one.")
+            facts.append(CanonicalFact(
+                "fielding",
+                identity_key,
+                (fielding.section, fielding.row_ordinal),
+                fielding_values,
+                fielding_values,
+            ))
         if pitching:
-            facts.append(CanonicalFact("pitching", identity_key, (pitching.section, pitching.row_ordinal), {
-                "innings_outs": innings_to_outs(_raw(pitching, "IP")),
+            published_appearances = _integer(pitching, "APP", "G")
+            published_innings = innings_to_outs(_raw(pitching, "IP"))
+            has_pitching_participation = (
+                published_appearances is not None or published_innings is not None
+            )
+
+            def pitching_count(*keys):
+                if has_pitching_participation:
+                    return _integer_with_published_blank_zero(pitching, *keys)
+                return _integer(pitching, *keys)
+
+            pitching_values = {
+                "appearances": pitching_count("APP", "G"),
+                "games_started": pitching_count("GS"),
+                "innings_outs": published_innings,
                 "innings_raw": _raw(pitching, "IP"),
-                "hits_allowed": _integer(pitching, "H"),
-                "earned_runs": _integer(pitching, "ER"),
-                "walks": _integer(pitching, "BB"),
-                "strikeouts": _integer(pitching, "SO", "K"),
-            }))
+                "hits_allowed": pitching_count("H"),
+                "runs_allowed": pitching_count("R"),
+                "earned_runs": pitching_count("ER"),
+                "walks": pitching_count("BB"),
+                "strikeouts": pitching_count("SO", "K"),
+                "home_runs_allowed": pitching_count("HR", "HR-A"),
+                "hit_batters": pitching_count("HBP", "HB"),
+                "batters_faced": pitching_count("BF"),
+                "opponent_at_bats": pitching_count("AB", "OAB", "P-OAB"),
+                "opponent_sacrifice_flies": pitching_count("SF", "OSF", "SFA"),
+            }
+            facts.append(CanonicalFact(
+                "pitching",
+                identity_key,
+                (pitching.section, pitching.row_ordinal),
+                {
+                    "innings_outs": pitching_values["innings_outs"],
+                    "innings_raw": pitching_values["innings_raw"],
+                    "hits_allowed": pitching_values["hits_allowed"],
+                    "earned_runs": pitching_values["earned_runs"],
+                    "walks": pitching_values["walks"],
+                    "strikeouts": pitching_values["strikeouts"],
+                },
+                pitching_values,
+            ))
             metrics.append(_metric(identity_key, pitching, "ERA", ("ERA",)))
+            pitching_metric_values = {
+                key: value
+                for key, value in pitching_values.items()
+                if key != "innings_raw"
+            }
+            for code in (
+                "era",
+                "whip",
+                "k_per_9",
+                "bb_per_9",
+                "h_per_9",
+                "hr_per_9",
+                "k_bb",
+                "pitching_k_pct",
+                "pitching_bb_pct",
+                "babip_allowed",
+                "fip",
+            ):
+                detailed_metrics.append(_detailed_metric_lineage(
+                    identity_key,
+                    code,
+                    calculate_metric(
+                        code,
+                        pitching_metric_values,
+                        season_id=collection.season.season_id,
+                        division=collection.team.division,
+                    ),
+                ))
 
     return CanonicalCollection(
         source_records=tuple(source_records),
         players=tuple(players),
         facts=tuple(facts),
         metrics=tuple(metrics),
+        detailed_metrics=tuple(detailed_metrics),
+    )
+
+
+def canonicalize_split_result(result) -> CanonicalSplitCollection:
+    """Convert a validated split grid without introducing another identity path."""
+    from .ncaa_detail import BattingSplitRow, PitchingSplitRow
+
+    facts = []
+    for row in result.rows:
+        if isinstance(row, BattingSplitRow):
+            values = {"at_bats": row.at_bats, "hits": row.hits}
+        elif isinstance(row, PitchingSplitRow):
+            values = {
+                "opponent_at_bats": row.opponent_at_bats,
+                "hits_allowed": row.hits_allowed,
+            }
+        else:
+            raise TypeError("unsupported split row type")
+        metric = calculate_metric(
+            "avg",
+            {
+                "at_bats": row.at_bats,
+                "hits": row.hits if isinstance(row, BattingSplitRow) else row.hits_allowed,
+            },
+        )
+        facts.append(CanonicalScopedFact(
+            stat_type=result.stat_type,
+            scope_code=result.scope_code,
+            identity_key=f"ncaa:{row.source_player_id}",
+            source_player_id=row.source_player_id,
+            row_ordinal=row.row_ordinal,
+            values=MappingProxyType(values),
+            sample=MappingProxyType(dict(row.sample)),
+            metric_results=(
+                _detailed_metric_lineage(
+                    f"ncaa:{row.source_player_id}",
+                    "avg",
+                    metric,
+                ),
+            ),
+        ))
+    return CanonicalSplitCollection(
+        stat_type=result.stat_type,
+        scope_code=result.scope_code,
+        status=result.status,
+        reason=result.reason,
+        facts=tuple(facts),
+    )
+
+
+def canonicalize_player_history(detail, games) -> CanonicalPlayerHistory:
+    """Canonicalize parsed history without creating name-based identity or games."""
+    from .ncaa_detail import aggregate_career_seasons, link_current_season_game_logs
+
+    expected_identity = f"ncaa:{detail.source_player_id}"
+    all_rows = (*detail.career_seasons, *detail.game_logs)
+    if detail.identity_key != expected_identity or any(
+        row.identity_key != expected_identity
+        or row.source_player_id != detail.source_player_id
+        for row in all_rows
+    ):
+        raise IdentityConflictError(
+            "player history rows do not share the authoritative NCAA player ID"
+        )
+
+    aggregates = tuple(
+        aggregate_career_seasons(
+            tuple(
+                row for row in detail.career_seasons
+                if row.stat_type == stat_type
+            ),
+            stat_type=stat_type,
+            metric_codes=metric_codes,
+        )
+        for stat_type, metric_codes in (
+            ("batting", ("avg",)),
+            ("pitching", ("era",)),
+            ("fielding", ()),
+        )
+    )
+    linked_logs = link_current_season_game_logs(detail.game_logs, games)
+    unmatched = sum(item.link_status != "linked" for item in linked_logs)
+    unavailable = sum(item.status == "unavailable" for item in aggregates)
+    partial = unmatched > 0 or unavailable > 0 or any(
+        item.status == "partial" for item in aggregates
+    )
+    return CanonicalPlayerHistory(
+        identity_key=expected_identity,
+        source_player_id=detail.source_player_id,
+        career_seasons=detail.career_seasons,
+        career_aggregates=aggregates,
+        game_logs=linked_logs,
+        completeness=MappingProxyType({
+            "status": "partial" if partial else "complete",
+            "unlinked_game_logs": unmatched,
+            "unavailable_aggregates": unavailable,
+        }),
     )
 
 
@@ -371,7 +716,7 @@ def to_collected_sections(collection: NcaaCollection):
     return tuple(
         CollectedSection(
             name=section.name,
-            critical=True,
+            critical=section.name in {"batting", "pitching"},
             rows=tuple({
                 **row.raw_values,
                 "_player_id": row.source_player_id,

@@ -257,6 +257,32 @@ class DownloadAcknowledgementPublicOriginConfigTests(unittest.TestCase):
 
 
 class WorkerRetentionPreflightTests(unittest.TestCase):
+    def test_worker_exec_preserves_fixed_project_import_path(self):
+        from scripts import run_worker
+
+        existing = "/existing/runtime"
+        with patch.dict(
+            "os.environ",
+            {
+                "FAILURE_EVIDENCE_RETENTION_DAYS": "28",
+                "CELERY_WORKER_CONCURRENCY": "1",
+                "BROWSERLESS_ACCOUNT_MAX_SESSIONS": "1",
+                "PYTHONPATH": existing,
+            },
+            clear=True,
+        ), patch(
+            "roster_scout.artifacts.artifact_store_from_environ"
+        ), patch.object(run_worker.os, "makedirs"), patch.object(
+            run_worker.os, "execvp"
+        ) as execvp:
+            run_worker.main()
+
+            self.assertEqual(
+                os.environ["PYTHONPATH"],
+                os.pathsep.join((str(PROJECT_ROOT), existing)),
+            )
+            execvp.assert_called_once()
+
     def test_invalid_retention_is_rejected_before_worker_command_is_built(self):
         from scripts.run_worker import worker_command
 
@@ -910,7 +936,15 @@ class EvidencePurgeDeploymentTests(unittest.TestCase):
         self.assertEqual(purge["command"], ["python", "scripts/run_purge.py"])
         self.assertEqual(
             set(purge["environment"]),
-            {"DATABASE_URL", "FAILURE_EVIDENCE_PURGE_SECONDS", "LOG_LEVEL"},
+            {
+                "DATABASE_URL",
+                "FAILURE_EVIDENCE_PURGE_SECONDS",
+                "REPORT_RETENTION_DAYS",
+                "USAGE_EVENT_RETENTION_DAYS",
+                "ROSTER_SCOUT_ARTIFACT_BACKEND",
+                "ROSTER_SCOUT_ARTIFACT_DIRECTORY",
+                "LOG_LEVEL",
+            },
         )
         self.assertEqual(
             self.fly["env"]["FAILURE_EVIDENCE_PURGE_SECONDS"],
@@ -921,6 +955,8 @@ class EvidencePurgeDeploymentTests(unittest.TestCase):
             'FAILURE_EVIDENCE_PURGE_SECONDS="$FAILURE_EVIDENCE_PURGE_SECONDS"',
             command,
         )
+        self.assertIn('REPORT_RETENTION_DAYS="$REPORT_RETENTION_DAYS"', command)
+        self.assertIn('BUCKET_NAME="$BUCKET_NAME"', command)
         self.assertIn("run_purge.py", command)
         self.assertNotIn("CELERY_BROKER_URL", command)
         self.assertNotIn("BROWSERLESS", command)
@@ -1013,7 +1049,7 @@ class IndependentPurgeConfigTests(unittest.TestCase):
         with (PROJECT_ROOT / "fly.toml").open("rb") as handle:
             cls.fly = tomllib.load(handle)
 
-    def test_compose_has_exactly_one_postgresql_only_purge_service(self):
+    def test_compose_has_one_database_and_artifact_retention_service(self):
         services = self.compose["services"]
         purge_services = [
             service
@@ -1024,16 +1060,37 @@ class IndependentPurgeConfigTests(unittest.TestCase):
         purge = purge_services[0]
         self.assertEqual(
             set(purge["environment"]),
-            {"DATABASE_URL", "FAILURE_EVIDENCE_PURGE_SECONDS", "LOG_LEVEL"},
+            {
+                "DATABASE_URL",
+                "FAILURE_EVIDENCE_PURGE_SECONDS",
+                "REPORT_RETENTION_DAYS",
+                "USAGE_EVENT_RETENTION_DAYS",
+                "ROSTER_SCOUT_ARTIFACT_BACKEND",
+                "ROSTER_SCOUT_ARTIFACT_DIRECTORY",
+                "LOG_LEVEL",
+            },
         )
         self.assertEqual(purge["environment"]["FAILURE_EVIDENCE_PURGE_SECONDS"], "3600")
+        self.assertEqual(purge["environment"]["REPORT_RETENTION_DAYS"], "30")
+        self.assertEqual(purge["environment"]["USAGE_EVENT_RETENTION_DAYS"], "90")
         self.assertEqual(purge["environment"]["LOG_LEVEL"], "INFO")
         self.assertNotIn("ports", purge)
-        self.assertNotIn("volumes", purge)
+        self.assertEqual(
+            purge["volumes"],
+            [{
+                "type": "volume",
+                "source": "roster-scout-artifacts",
+                "target": "/var/lib/roster-scout-artifacts",
+                "volume": {},
+            }],
+        )
         for forbidden in ("CELERY_BROKER_URL", "BROWSERLESS", "PORT", "ROSTER_SCOUT_CACHE_DIR"):
             with self.subTest(forbidden=forbidden):
                 self.assertFalse(
-                    any(forbidden in name for name in purge["environment"])
+                    any(
+                        (name == forbidden if forbidden == "PORT" else forbidden in name)
+                        for name in purge["environment"]
+                    )
                 )
 
     def test_fly_has_exactly_one_allowlisted_purge_process(self):
@@ -1050,6 +1107,9 @@ class IndependentPurgeConfigTests(unittest.TestCase):
             'FAILURE_EVIDENCE_PURGE_SECONDS="$FAILURE_EVIDENCE_PURGE_SECONDS"',
             command,
         )
+        self.assertIn('REPORT_RETENTION_DAYS="$REPORT_RETENTION_DAYS"', command)
+        self.assertIn('USAGE_EVENT_RETENTION_DAYS="$USAGE_EVENT_RETENTION_DAYS"', command)
+        self.assertIn('AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID"', command)
         self.assertIn("LOG_LEVEL=INFO", command)
         for forbidden in (
             "CELERY_BROKER_URL",
@@ -1105,6 +1165,11 @@ class DispatchSchedulerConfigTests(unittest.TestCase):
         dockerfile = (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8")
         self.assertIn(
             "COPY scripts/run_scheduler.py ./scripts/run_scheduler.py",
+            dockerfile,
+        )
+        self.assertIn(
+            "COPY scripts/capture_phase3_ncaa_fixtures.py "
+            "./scripts/capture_phase3_ncaa_fixtures.py",
             dockerfile,
         )
 

@@ -1,0 +1,10 @@
+{
+  "$schema":"https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.9.0/schema.json",
+  "name":"66666666666666666666","position":{"x":24,"y":24,"z":1000,"height":672,"width":1232,"tabOrder":0},
+  "visual":{"visualType":"tableEx","query":{"queryState":{"Values":{"projections":[
+    {"field":{"Column":{"Expression":{"SourceRef":{"Entity":"Scope"}},"Property":"display_label"}},"queryRef":"Scope.display_label","nativeQueryRef":"Split"},
+    {"field":{"Column":{"Expression":{"SourceRef":{"Entity":"Scope"}},"Property":"stat_type"}},"queryRef":"Scope.stat_type","nativeQueryRef":"Type"},
+    {"field":{"Column":{"Expression":{"SourceRef":{"Entity":"Scope"}},"Property":"status"}},"queryRef":"Scope.status","nativeQueryRef":"Status"},
+    {"field":{"Measure":{"Expression":{"SourceRef":{"Entity":"Scoped Batting"}},"Property":"AVG"}},"queryRef":"Scoped Batting.AVG","nativeQueryRef":"AVG"},
+    {"field":{"Measure":{"Expression":{"SourceRef":{"Entity":"Scoped Pitching"}},"Property":"Opponent AVG"}},"queryRef":"Scoped Pitching.Opponent AVG","nativeQueryRef":"Opponent AVG"}
+  ]}}},"drillFilterOtherVisuals":true}}

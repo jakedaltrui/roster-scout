@@ -3,32 +3,32 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: complete
-stopped_at: Phase 02.1 corrective release gate passed; stopped before Phase 3
-last_updated: "2026-11-14T03:46:14Z"
-last_activity: 2026-11-13
+stopped_at: Phase 5 authenticated staging report, dashboard, Excel, and Google OAuth-start smoke passed
+last_updated: "2026-11-16T23:30:00-06:00"
+last_activity: 2026-11-16 -- live staging report and export paths passed; production unchanged
 progress:
   total_phases: 6
-  completed_phases: 3
-  total_plans: 61
-  completed_plans: 61
-  percent: 50
+  completed_phases: 6
+  total_plans: 77
+  completed_plans: 77
+  percent: 100
 ---
 
 # Project State
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-11-13)
+See: `.planning/PROJECT.md` (updated 2026-11-16)
 
 **Core value:** A baseball staff can reliably turn fragmented opponent data into a trustworthy, reusable scouting report with interactive analysis and a portable Excel download.
-**Current focus:** Phase 02.1 complete; awaiting direction before Phase 3 or deployment
+**Current focus:** Complete the real `.edu` WorkOS code loop before production approval
 
 ## Current Position
 
-Phase: 02.1 (restore-public-homepage-and-school-domain-sign-in-flow) — COMPLETE
-Plan: 4 of 4
-Status: Corrective release gate passed; production unchanged
-Last activity: 2026-11-13
+Phase: 5 (Native Opponent Dashboard) — COMPLETE
+Plan: 4 of 4 implementation plans complete
+Status: Release candidate is healthy on staging; real `.edu` code delivery remains
+Last activity: 2026-11-16 -- authenticated live report, dashboard, Excel, and Google OAuth-start smoke passed
 
 Progress: [██████████] 100%
 
@@ -36,7 +36,7 @@ Progress: [██████████] 100%
 
 **Velocity:**
 
-- Total plans completed: 61
+- Total plans completed: 70
 - Average duration: 43m
 - Total execution time: 41h 18m
 
@@ -46,6 +46,7 @@ Progress: [██████████] 100%
 | 1. Canonical Snapshot Foundation | 41 | 36h 36m | 54m |
 | 2. Identity, Organizations, and Report Library | 16 | 4h 42m | 18m |
 | 02.1 Restore public homepage and school-domain sign-in flow | 4 | corrective | - |
+| 03 | 9 | - | - |
 
 **Plan History:**
 | Phase | Plan | Duration | Tasks | Files |
@@ -239,16 +240,47 @@ Full decision log: `.planning/PROJECT.md`.
 - [Phase 02]: Phase 2 deterministic completion reports code_verified independently from production_auth_verified; production launch stays blocked without reviewed live WorkOS evidence.
 - [Phase 02]: Phase 2 committed diff hygiene audits from the parent of the first Phase 2 implementation commit.
 - [Phase 02]: The Phase 2 release gate preserves deployment topology and never provisions, deploys, or contacts production identity resources.
+- [Phase 03]: Preserve legacy AVG/ERA publication beside the ncaa-detailed-1.0 metric stream.
+- [Phase 03]: Require one verified exact definition/season/division NCAA constant set before wOBA or FIP can be available.
+- [Phase 03]: Keep constant methodologies global while metric values remain tenant-scoped to snapshots.
+- [Phase 03]: Serialize constant references so verified methodologies become immutable once used.
+- [Phase 03]: NCAA fielding URLs are built only from trusted numeric category IDs on the fixed stats.ncaa.org origin.
+- [Phase 03]: Fielding is supplemental when an NCAA build lacks a discovered numeric fielding ID; core batting and pitching remain publishable.
+- [Phase 03]: Fielding publication requires same-snapshot source/fact/row parity and explicit partial status for unavailable supplemental evidence.
+- [Phase 03]: Use the configured Fly runtime only as a secret-consuming in-memory execution boundary; do not deploy capture code or persist remote changes.
+- [Phase 03]: Certify representative batting vs_lhp and pitching vs_lhb grids while retaining discovery evidence for all seven canonical families.
+- [Phase 03]: Map situational H and AB through verified headers and row offsets rather than presentation text or hard-coded split IDs.
+- [Phase 03]: Normalize discovered NCAA split labels to stable typed codes while retaining exact source label and numeric identifier.
+- [Phase 03]: Persist unavailable and failed split scopes with safe reasons and no facts or synthetic metric zeros.
+- [Phase 03]: Validate seven-scope family and source/fact/metric parity before immutable snapshot publication.
+- [Phase 03]: Production Game identity accepts only exact source contest IDs; deterministic fallback identity remains fixture-test-only.
+- [Phase 03]: Game-log families become complete only through an explicit complete_stat_types declaration; row presence never implies exhaustive evidence.
+- [Phase 03]: Computed scope publication validates exact same-snapshot membership and every contributing game-log fact.
+- [Phase 03]: Historical rows without exact season/team/division identity remain separate evidence but are excluded from career aggregates with explicit reasons. — Prevents name-based transfer merges and makes aggregate completeness auditable.
+- [Phase 03]: Player game logs link only through one exact same-snapshot NCAA contest ID; labels and dates never create or guess a Game. — Preserves the schedule-derived canonical Game universe and tenant/snapshot ownership.
+- [Phase 03]: Malformed linked NCAA count cells remain unavailable rather than being coerced into statistics. — Fail-closed parsing avoids silently inventing player performance.
+- [Phase 03]: Organization identity for player drill reads comes only from the revalidated server authorization context; request UUIDs are selectors, not authority.
+- [Phase 03]: Foreign and mixed player-drill substitutions use one audited snapshot-target 404 so organizations, reports, snapshots, and players are not enumerated.
+- [Phase 03]: Player drill responses expose fixed canonical projections and exclude raw source rows and source URLs.
+- [Phase 03]: Request-ledger source identities are SHA-256-derived safe tokens over validated source-contract fields. — Prevents URLs, player/customer values, and provider payloads from entering operator metadata.
+- [Phase 03]: External refresh identity is immutable with one pending-to-terminal lifecycle. — Allows Phase 5 operational attempts after publication without tenant or provider identity drift.
+- [Phase 03]: Operator diagnostics are read-only metadata projections. — Keeps reconciliation as the sole repair path and prevents diagnostics from mutating customer jobs.
+- [Phase 03]: Revision 0025 remains the single additive reversible Phase 3 schema boundary with PostgreSQL-enforced verified-reference and published-child immutability.
+- [Phase 03]: Requested supplemental families must materialize an explicit status before publication so partial and unavailable states cannot be silently omitted.
+- [Phase 03]: The Phase 3 release gate accepts only explicitly marked loopback postgresql+psycopg _test databases and never deploys.
 
 ### Pending Todos
 
-- Add last-10 and conference-only stats (Phase 3) — define auditable recent-form and conference-only batting, pitching, and fielding scopes for canonical storage, Excel, and Power BI.
+- None.
 
 ### Blockers/Concerns
 
 - Fly trial billing was previously unresolved and can stop machines after five minutes; durable report workers require verified uninterrupted hosting.
-- Production Power BI Embedded/Fabric capacity and the Microsoft Entra/service-principal environment are not yet provisioned.
 - Production WorkOS workspace, billing, secrets, live email/federation, and the final two-organization smoke test remain explicit deployment checkpoints.
+- Staging needs a reachable `.edu` mailbox to complete the real WorkOS code loop.
+- Staging Google OAuth is configured and the exact `drive.file` authorization
+  redirect passed; final consent/upload still requires a real signed-in Google
+  account.
 - NCAA split IDs and NCAA-specific wOBA/FIP inputs require current-season validation before metrics can be published.
 
 ## Deferred Items
@@ -294,9 +326,18 @@ Full decision log: `.planning/PROJECT.md`.
 | Phase 02 P16 | 30min | 2 tasks | 7 files |
 | Phase 02 P10 | 11 min | 2 tasks | 5 files |
 | Phase 02 P11 | 29min | 2 tasks | 8 files |
+| Phase 03 P01 | 45min | 3 tasks | 10 files |
+| Phase 03 P02 | 30 min | 3 tasks | 13 files |
+| Phase 03 P03 | 78m | 3 tasks | 16 files |
+| Phase 03 P04 | 21m | 3 tasks | 9 files |
+| Phase 03 P06 | 47min | 3 tasks | 13 files |
+| Phase 03 P05 | 41min | 2 tasks | 11 files |
+| Phase 03 P09 | 15min | 2 tasks | 5 files |
+| Phase 03 P07 | 20min | 3 tasks | 8 files |
+| Phase 03 P08 | 20min | 3 tasks | 6 files |
 
 ## Session Continuity
 
-Last session: 2026-11-13T13:26:27.052Z
-Stopped at: Phase 2 complete and verified; ready to discuss Phase 3
+Last session: 2026-11-16T11:03:39.244Z
+Stopped at: Completed 03-08-PLAN.md
 Resume file: None

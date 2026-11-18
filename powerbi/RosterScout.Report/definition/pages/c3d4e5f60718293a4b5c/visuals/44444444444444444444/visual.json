@@ -1,0 +1,13 @@
+{
+  "$schema":"https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.9.0/schema.json",
+  "name":"44444444444444444444","position":{"x":24,"y":24,"z":1000,"height":672,"width":1232,"tabOrder":0},
+  "visual":{"visualType":"tableEx","query":{"queryState":{"Values":{"projections":[
+    {"field":{"Column":{"Expression":{"SourceRef":{"Entity":"Player"}},"Property":"display_name"}},"queryRef":"Player.display_name","nativeQueryRef":"Player"},
+    {"field":{"Measure":{"Expression":{"SourceRef":{"Entity":"Pitching"}},"Property":"Dashboard ERA"}},"queryRef":"Pitching.Dashboard ERA","nativeQueryRef":"ERA"},
+    {"field":{"Measure":{"Expression":{"SourceRef":{"Entity":"Pitching"}},"Property":"Dashboard WHIP"}},"queryRef":"Pitching.Dashboard WHIP","nativeQueryRef":"WHIP"},
+    {"field":{"Measure":{"Expression":{"SourceRef":{"Entity":"Pitching"}},"Property":"Dashboard K/9"}},"queryRef":"Pitching.Dashboard K/9","nativeQueryRef":"K/9"},
+    {"field":{"Measure":{"Expression":{"SourceRef":{"Entity":"Pitching"}},"Property":"Dashboard BB/9"}},"queryRef":"Pitching.Dashboard BB/9","nativeQueryRef":"BB/9"},
+    {"field":{"Measure":{"Expression":{"SourceRef":{"Entity":"Pitching"}},"Property":"Dashboard H/9"}},"queryRef":"Pitching.Dashboard H/9","nativeQueryRef":"H/9"},
+    {"field":{"Measure":{"Expression":{"SourceRef":{"Entity":"Pitching"}},"Property":"Dashboard HR/9"}},"queryRef":"Pitching.Dashboard HR/9","nativeQueryRef":"HR/9"},
+    {"field":{"Measure":{"Expression":{"SourceRef":{"Entity":"Pitching"}},"Property":"Dashboard K/BB"}},"queryRef":"Pitching.Dashboard K/BB","nativeQueryRef":"K/BB"}
+  ]}}},"drillFilterOtherVisuals":true}}

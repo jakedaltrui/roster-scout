@@ -48,6 +48,7 @@ class ReportDetailRecord:
     report_id: uuid.UUID
     report_name: str
     team_name: str
+    source_team_id: str
     division: str
     season_year: int
     latest_snapshot: ReportSnapshot | None
@@ -152,6 +153,7 @@ def get_report_detail_record(
             Report.id,
             Report.name,
             Team.name,
+            Team.source_team_id,
             TeamSeason.division,
             Season.year,
         )
@@ -260,8 +262,9 @@ def get_report_detail_record(
         report_id=report_row[0],
         report_name=report_row[1],
         team_name=report_row[2],
-        division=report_row[3],
-        season_year=report_row[4],
+        source_team_id=report_row[3],
+        division=report_row[4],
+        season_year=report_row[5],
         latest_snapshot=latest_snapshot,
         snapshots=snapshots,
         snapshot_predecessors=snapshot_predecessors,

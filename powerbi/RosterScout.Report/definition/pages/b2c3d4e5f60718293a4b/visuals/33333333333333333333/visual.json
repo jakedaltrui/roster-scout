@@ -1,0 +1,14 @@
+{
+  "$schema":"https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.9.0/schema.json",
+  "name":"33333333333333333333","position":{"x":24,"y":24,"z":1000,"height":672,"width":1232,"tabOrder":0},
+  "visual":{"visualType":"tableEx","query":{"queryState":{"Values":{"projections":[
+    {"field":{"Column":{"Expression":{"SourceRef":{"Entity":"Player"}},"Property":"display_name"}},"queryRef":"Player.display_name","nativeQueryRef":"Player"},
+    {"field":{"Measure":{"Expression":{"SourceRef":{"Entity":"Batting"}},"Property":"AVG"}},"queryRef":"Batting.AVG","nativeQueryRef":"AVG"},
+    {"field":{"Measure":{"Expression":{"SourceRef":{"Entity":"Batting"}},"Property":"OBP"}},"queryRef":"Batting.OBP","nativeQueryRef":"OBP"},
+    {"field":{"Measure":{"Expression":{"SourceRef":{"Entity":"Batting"}},"Property":"SLG"}},"queryRef":"Batting.SLG","nativeQueryRef":"SLG"},
+    {"field":{"Measure":{"Expression":{"SourceRef":{"Entity":"Batting"}},"Property":"Dashboard OPS"}},"queryRef":"Batting.Dashboard OPS","nativeQueryRef":"OPS"},
+    {"field":{"Measure":{"Expression":{"SourceRef":{"Entity":"Batting"}},"Property":"Dashboard ISO"}},"queryRef":"Batting.Dashboard ISO","nativeQueryRef":"ISO"},
+    {"field":{"Measure":{"Expression":{"SourceRef":{"Entity":"Batting"}},"Property":"Dashboard BB%"}},"queryRef":"Batting.Dashboard BB%","nativeQueryRef":"BB%"},
+    {"field":{"Measure":{"Expression":{"SourceRef":{"Entity":"Batting"}},"Property":"Dashboard K%"}},"queryRef":"Batting.Dashboard K%","nativeQueryRef":"K%"},
+    {"field":{"Measure":{"Expression":{"SourceRef":{"Entity":"Batting"}},"Property":"Dashboard BABIP"}},"queryRef":"Batting.Dashboard BABIP","nativeQueryRef":"BABIP"}
+  ]}}},"drillFilterOtherVisuals":true}}

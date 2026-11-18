@@ -35,7 +35,7 @@
 - [x] **SNAP-06**: A user can review all dated snapshots for a report and identify the newest complete or partial version.
 - [x] **SNAP-07**: Repeating an accepted report-build request with the same idempotency key does not create duplicate jobs or snapshots.
 - [x] **SNAP-08**: A failed report build leaves no snapshot falsely marked ready and can be retried safely.
-- [ ] **SNAP-09**: A Power BI refresh failure does not invalidate a completed snapshot or its Excel artifact.
+- [x] **SNAP-09**: A dashboard projection or rendering failure does not invalidate a completed snapshot or its Excel artifact.
 
 ### Provenance and Canonical Data
 
@@ -48,69 +48,69 @@
 - [x] **DATA-07**: Raw source values needed for audit and metric recomputation remain associated with their snapshot facts.
 - [x] **DATA-08**: Derived values identify the metric-definition version and any season/division weight set used.
 - [x] **DATA-09**: Database constraints prevent canonical facts from referencing another organization's snapshot.
-- [x] **DATA-10**: Power BI-facing views and Excel generation read from the same published snapshot facts.
+- [x] **DATA-10**: Native-dashboard projections and Excel generation read from the same published snapshot facts.
 
 ### Detailed Statistics
 
-- [ ] **STAT-01**: Hitter season facts include the available NCAA counting statistics needed to report PA, AVG, OBP, SLG, OPS, ISO, BB%, K%, BABIP, singles, and total bases.
-- [ ] **STAT-02**: Pitcher season facts include the available NCAA counting statistics needed to report ERA, WHIP, K/9, BB/9, H/9, HR/9, K/BB, K%, BB%, BABIP allowed, and FIP.
-- [ ] **STAT-03**: Fielding facts include games/starts when available, PO, A, E, total chances, double plays, fielding percentage, and available catcher PB/SBA/CSB values.
-- [ ] **STAT-04**: Every derived metric handles a zero or unavailable denominator explicitly without emitting infinity or a misleading zero.
-- [ ] **STAT-05**: wOBA uses a versioned NCAA season/division weight set and is unavailable with an explanatory reason when no verified weight set exists.
-- [ ] **STAT-06**: FIP uses a versioned NCAA season/division constant and is unavailable with an explanatory reason when no verified constant exists.
-- [ ] **STAT-07**: Metric definitions and formulas are available in report methodology metadata.
-- [ ] **STAT-08**: Representative D1, D2, and D3 fixtures produce the same metric schema and classification behavior.
+- [x] **STAT-01**: Hitter season facts include the available NCAA counting statistics needed to report PA, AVG, OBP, SLG, OPS, ISO, BB%, K%, BABIP, singles, and total bases.
+- [x] **STAT-02**: Pitcher season facts include the available NCAA counting statistics needed to report ERA, WHIP, K/9, BB/9, H/9, HR/9, K/BB, K%, BB%, BABIP allowed, and FIP.
+- [x] **STAT-03**: Fielding facts include games/starts when available, PO, A, E, total chances, double plays, fielding percentage, and available catcher PB/SBA/CSB values.
+- [x] **STAT-04**: Every derived metric handles a zero or unavailable denominator explicitly without emitting infinity or a misleading zero.
+- [x] **STAT-05**: wOBA uses a versioned NCAA season/division weight set and is unavailable with an explanatory reason when no verified weight set exists.
+- [x] **STAT-06**: FIP uses a versioned NCAA season/division constant and is unavailable with an explanatory reason when no verified constant exists.
+- [x] **STAT-07**: Metric definitions and formulas are available in report methodology metadata.
+- [x] **STAT-08**: Representative D1, D2, and D3 fixtures produce the same metric schema and classification behavior.
 
 ### Split Statistics
 
-- [ ] **SPLT-01**: Batting split facts support vs LHP, vs RHP, runners on, bases empty, bases loaded, runners in scoring position, and two-outs contexts.
-- [ ] **SPLT-02**: Pitching split facts support vs LHB, vs RHB, runners on, bases empty, bases loaded, runners in scoring position, and two-outs contexts when the NCAA source provides them.
-- [ ] **SPLT-03**: Each split record retains canonical split code, display label, season/stat type, source identifier, source URL, and availability status.
-- [ ] **SPLT-04**: Split source identifiers are discovered or validated per season and stat type rather than assumed permanent.
-- [ ] **SPLT-05**: A missing split is displayed as unavailable and never as a zero-stat split.
+- [x] **SPLT-01**: Batting split facts support vs LHP, vs RHP, runners on, bases empty, bases loaded, runners in scoring position, and two-outs contexts.
+- [x] **SPLT-02**: Pitching split facts support vs LHB, vs RHB, runners on, bases empty, bases loaded, runners in scoring position, and two-outs contexts when the NCAA source provides them.
+- [x] **SPLT-03**: Each split record retains canonical split code, display label, season/stat type, source identifier, source URL, and availability status.
+- [x] **SPLT-04**: Split source identifiers are discovered or validated per season and stat type rather than assumed permanent.
+- [x] **SPLT-05**: A missing split is displayed as unavailable and never as a zero-stat split.
 
 ### Career and Game Logs
 
-- [ ] **HIST-01**: A player's career view lists each available season with school, team ID, division, and season statistics under the stable NCAA player identity.
-- [ ] **HIST-02**: A career aggregate is labeled separately from individual season rows and is recomputed only from available compatible facts.
-- [ ] **HIST-03**: Player game logs identify date, opponent, opponent ID when available, and available batting, pitching, and fielding lines.
-- [ ] **HIST-04**: Missing historical seasons or games are disclosed in section completeness instead of being silently omitted.
-- [ ] **HIST-05**: Career and game-log collection uses bounded concurrency, source caching, request budgets, and retry/backoff controls.
-- [ ] **HIST-06**: A customer can drill from a roster player into season, split, career, and game-log views for the same snapshot.
+- [x] **HIST-01**: A player's career view lists each available season with school, team ID, division, and season statistics under the stable NCAA player identity.
+- [x] **HIST-02**: A career aggregate is labeled separately from individual season rows and is recomputed only from available compatible facts.
+- [x] **HIST-03**: Player game logs identify date, opponent, opponent ID when available, and available batting, pitching, and fielding lines.
+- [x] **HIST-04**: Missing historical seasons or games are disclosed in section completeness instead of being silently omitted.
+- [x] **HIST-05**: Career and game-log collection uses bounded concurrency, source caching, request budgets, and retry/backoff controls.
+- [x] **HIST-06**: A customer can drill from a roster player into season, split, career, and game-log views for the same snapshot.
 
 ### Excel Report
 
-- [ ] **XLSX-01**: A ready or partial snapshot can produce a branded workbook containing Report Summary, Roster, Hitters, Pitchers, Fielding, Hitting Splits, Pitching Splits, Career Stats, Game Logs, and Sources & Methodology worksheets.
-- [ ] **XLSX-02**: The workbook identifies the opponent, season, snapshot generation time, refresh lineage, section completeness, and data freshness.
-- [ ] **XLSX-03**: The workbook writes numeric cells as numbers, preserves safe plain-text handling, and applies the correct display precision for each metric.
-- [ ] **XLSX-04**: Downloading an older snapshot returns its exact stored workbook artifact rather than rebuilding it from current upstream data.
-- [ ] **XLSX-05**: The workbook records a schema version and SHA-256 artifact checksum in snapshot metadata.
-- [ ] **XLSX-06**: Shared fixture values match across canonical facts, Excel cells, and Power BI-facing views.
+- [x] **XLSX-01**: A ready or partial snapshot can produce the established branded two-sheet workbook (`Hitters` and `Pitchers`) with grouped Player, Season Stats, Last 10, and Conference Stats columns.
+- [x] **XLSX-02**: Both worksheets identify the opponent, season, snapshot generation time, and data freshness while keeping audit-only player IDs and source URLs in canonical storage; unavailable Last 10 metrics remain explicit instead of appearing as zero.
+- [x] **XLSX-03**: The workbook writes numeric cells as numbers, preserves safe plain-text handling, and applies the correct display precision for each metric.
+- [x] **XLSX-04**: Downloading an older snapshot returns its exact stored workbook artifact rather than rebuilding it from current upstream data.
+- [x] **XLSX-05**: The workbook records a schema version and SHA-256 artifact checksum in snapshot metadata.
+- [x] **XLSX-06**: Shared fixture values match across canonical facts, Excel cells, and native-dashboard projections.
 
-### Power BI Embedded
+### Native Dashboard and Retention
 
-- [ ] **PBI-01**: An authenticated Roster Scout customer can view the embedded report without signing in to Power BI or holding a Power BI license.
-- [ ] **PBI-02**: The embedded report includes Opponent Overview, Roster, Hitting, Pitching, Fielding, Situational Splits, Player Detail, and Sources & Data Quality pages.
-- [ ] **PBI-03**: The report is branded for the selected opponent and identifies the active snapshot and data freshness.
-- [ ] **PBI-04**: The server generates only short-lived embed tokens after authorizing the user's organization and requested snapshot.
-- [ ] **PBI-05**: The semantic model enforces organization isolation using effective identity and row-level security or a stronger workspace-isolation model.
-- [ ] **PBI-06**: A snapshot publication can trigger an asynchronous semantic-model refresh and expose pending, completed, and failed refresh states.
-- [ ] **PBI-07**: The dashboard remains unavailable for a new snapshot until its semantic refresh completes, while the completed Excel artifact remains downloadable.
-- [ ] **PBI-08**: The report page provides a full snapshot Excel download independent of Power BI visual export.
-- [ ] **PBI-09**: A customer can filter and drill through report visuals without changing the immutable snapshot data.
-- [ ] **PBI-10**: Production embedding is blocked unless the report resides in an Embedded, Premium, or Fabric capacity-backed workspace.
+- [x] **DASH-01**: An authenticated customer can review the authorized saved snapshot without a separate analytics account, iframe, or BI license.
+- [x] **DASH-02**: The dashboard presents full-season, last-10, conference, hitting, pitching, fielding, recent-game, leader, and situational-split views when source facts are available.
+- [x] **DASH-03**: The report identifies the active immutable snapshot, source freshness, completeness, and unavailable data without synthetic values.
+- [x] **DASH-04**: Organization and snapshot authorization is completed server-side before any dashboard facts are projected into the page.
+- [x] **DASH-05**: The dashboard is lightweight, responsive, keyboard operable, and uses no secondary analytics store or chart dependency.
+- [x] **DASH-06**: Scope and view changes never mutate snapshot data and require no additional network request.
+- [x] **DASH-07**: Workbook and Google Sheets exports remain available from the same report page and exact snapshot.
+- [x] **RET-01**: Saved snapshot data and private workbook objects are deleted after 30 days by an independently supervised purge process.
+- [x] **RET-02**: Raw product-usage events are deleted after 90 days, making usage reporting an explicit rolling 90-day window.
+- [x] **RET-03**: Workbook-object deletion precedes exact database-graph deletion, and a storage failure leaves the graph intact for retry.
 
 ### Security and Operations
 
 - [x] **SECU-01**: Cross-organization access is denied for report HTML, JSON APIs, refresh actions, workbook downloads, job status, and embed-token endpoints.
 - [x] **SECU-02**: Authorization checks derive organization context from the authenticated membership, never from an untrusted request field alone.
-- [x] **SECU-03**: Passwordless, invitation, session, Power BI, and service-principal secrets or tokens never appear in application logs.
-- [x] **SECU-04**: Security-relevant membership, report, refresh, export, and embed-token events are auditable by actor, organization, target, and time without recording secret material.
-- [x] **SECU-05**: External failures from NCAA, Browserless, identity, object storage, database, and Power BI produce distinct sanitized operational states.
-- [ ] **SECU-06**: Production readiness includes automated cross-organization denial tests and a manual two-organization Power BI RLS verification.
+- [x] **SECU-03**: Passwordless, invitation, session, Google OAuth, and storage credentials or tokens never appear in application logs.
+- [x] **SECU-04**: Security-relevant membership, report, refresh, and export events are auditable by actor, organization, target, and time without recording secret material.
+- [x] **SECU-05**: External failures from NCAA, Browserless, identity, object storage, and database produce distinct sanitized operational states.
+- [x] **SECU-06**: Production readiness includes automated cross-organization dashboard, report, and workbook denial tests.
 - [x] **OPS-01**: Report jobs apply bounded retries and never run more NCAA browser sessions than the configured capacity permits.
 - [x] **OPS-02**: Successful source responses and normalized sections are cached with schema/version keys to control upstream requests and rebuild cost.
-- [ ] **OPS-03**: Operators can identify stuck jobs, failed Power BI refreshes, unavailable source sections, and capacity exhaustion without reading customer data.
+- [x] **OPS-03**: Operators can identify stuck jobs, unavailable source sections, retention-purge health, and capacity exhaustion without reading customer data.
 - [x] **OPS-04**: Database migrations and snapshot schema upgrades preserve existing published snapshots or explicitly migrate them with verification.
 - [x] **OPS-05**: Existing current-season D1/D2/D3 selector and basic workbook behavior remain covered by regression tests throughout the migration.
 
@@ -134,7 +134,7 @@
 | Anonymous report access | Conflicts with organization-owned customer data and embed-token security |
 | Unverified or non-`.edu` domain membership | Only the identity provider's verified institutional address can grant automatic school membership |
 | Live in-game tracking | Requires a different real-time data product and reliability model |
-| Customer-authored Power BI reports | The milestone delivers a curated scouting product, not a BI authoring platform |
+| External or customer-authored BI reports | The milestone delivers a fast native scouting view without a second analytics product |
 | Native mobile applications | Responsive web and downloadable Excel remain the delivery surfaces |
 | Predictive player or game models | Requires separate model validation, evaluation, and disclosure work |
 | Silent substitution of stale data | Users must see source freshness and section completeness |
@@ -143,11 +143,11 @@
 
 - [x] A verified school member can authenticate passwordlessly, enter the correct organization, create a report, and later reopen its saved report; exact invitations remain available for exceptions.
 - [ ] Refreshing a report creates a second snapshot while the first dashboard and workbook remain reproducible.
-- [ ] A representative D1, D2, and D3 report contains season batting, pitching, fielding, derived metrics, split statistics, career history, game logs, and provenance or an explicit unavailable state for each section.
-- [ ] The same fixture player and snapshot produce matching shared metric values in canonical storage, Excel, and Power BI-facing views.
-- [ ] A member of Organization A cannot access any Organization B report, job, workbook, or Power BI data through identifier substitution.
-- [ ] A customer can review the opponent-branded embedded report and download the complete snapshot workbook from the same report page.
-- [ ] NCAA, Browserless, Power BI, or object-storage failure cannot corrupt an already published snapshot.
+- [ ] A representative D1, D2, and D3 report exposes season and scoped workbook metrics in the two-sheet Excel download, while the dashboard contains fielding, split statistics, career history, game logs, methodology, and provenance or an explicit unavailable state for each section.
+- [ ] The same fixture player and snapshot produce matching shared metric values in canonical storage, Excel, and native-dashboard projections.
+- [ ] A member of Organization A cannot access any Organization B report, job, workbook, or dashboard data through identifier substitution.
+- [ ] A customer can review the lightweight opponent dashboard and download the complete snapshot workbook from the same report page.
+- [ ] NCAA, Browserless, dashboard rendering, or object-storage failure cannot corrupt an already published snapshot.
 
 ## Traceability
 
@@ -156,9 +156,9 @@
 | SNAP-01–04, DATA-01–10, OPS-01–02, OPS-04–05 | Phase 1 | Complete |
 | AUTH-01–05, ORG-01–07, SNAP-05–08, SECU-01–05 | Phase 2 | Superseded in part by Phase 02.1 |
 | AUTH-01–02, AUTH-05–06, ORG-01, ORG-06–08, SNAP-05–08, SECU-01–05, OPS-04–05 | Phase 02.1 | Complete |
-| STAT-01–08, SPLT-01–05, HIST-01–06, OPS-03 | Phase 3 | Pending |
-| XLSX-01–06 | Phase 4 | Pending |
-| SNAP-09, PBI-01–10, SECU-06 | Phase 5 | Pending |
+| STAT-01–08, SPLT-01–05, HIST-01–06, OPS-03 | Phase 3 | Complete |
+| XLSX-01–06 | Phase 4 | Complete |
+| SNAP-09, DASH-01–07, RET-01–03, SECU-06 | Phase 5 | Complete |
 
 **Coverage:**
 - v2.0 requirements: 79 total

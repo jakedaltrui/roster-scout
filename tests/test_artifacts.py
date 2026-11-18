@@ -93,7 +93,7 @@ class ArtifactStorageUnitTests(unittest.TestCase):
         self.assertEqual(
             key,
             f"organizations/{organization_id}/reports/{report_id}/snapshots/"
-            f"{snapshot_id}/workbooks/roster-scout-basic-xlsx-v1.xlsx",
+            f"{snapshot_id}/workbooks/roster-scout-coach-facing-two-sheet-xlsx-v5.xlsx",
         )
         with self.assertRaisesRegex(ArtifactStorageError, "invalid artifact key"):
             _validated_object_key(f"../{key}")
@@ -121,6 +121,10 @@ class ArtifactStorageUnitTests(unittest.TestCase):
                     sha256(replacement).hexdigest(),
                 )
             self.assertEqual(store.read(key), original)
+            store.delete(key)
+            store.delete(key)
+            with self.assertRaisesRegex(ArtifactStorageError, "unavailable"):
+                store.read(key)
 
     def test_s3_store_uses_conditional_private_encrypted_write(self):
         from roster_scout.artifacts import S3ArtifactStore
@@ -140,6 +144,12 @@ class ArtifactStorageUnitTests(unittest.TestCase):
         self.assertEqual(parameters["IfNoneMatch"], "*")
         self.assertEqual(parameters["ServerSideEncryption"], "AES256")
         self.assertEqual(parameters["Metadata"], {"sha256": digest})
+        store = S3ArtifactStore(bucket="private-artifacts", client=client)
+        store.delete(key)
+        client.delete_object.assert_called_once_with(
+            Bucket="private-artifacts",
+            Key=key,
+        )
 
     def test_s3_existing_object_must_match_digest_and_size(self):
         from roster_scout.artifacts import ArtifactStorageError, S3ArtifactStore
@@ -213,6 +223,8 @@ class ArtifactStorageUnitTests(unittest.TestCase):
             team_name="Parity University",
             season_year=2026,
             published_at=published_at,
+            source_collected_at=datetime(2026, 11, 14, 15, 58, tzinfo=UTC),
+            snapshot_status="partial",
             hitters=hitters,
             pitchers=pitchers,
         )
@@ -222,12 +234,503 @@ class ArtifactStorageUnitTests(unittest.TestCase):
             team_id=source.source_team_id,
         )
 
+        payload = build_snapshot_workbook(source)
         self.assertEqual(
-            build_snapshot_workbook(source),
+            payload,
             app_module._create_workbook(
                 list(hitters), list(pitchers), branding=branding
             ).getvalue(),
         )
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            shared_strings = archive.read("xl/sharedStrings.xml")
+        self.assertIn(b"NOVEMBER 14, 2026", shared_strings)
+        for removed in (b"SEASON", b"PUBLISHED", b"SOURCE", b"SNAPSHOT"):
+            self.assertNotIn(removed, shared_strings)
+
+
+class ArtifactContractTests(unittest.TestCase):
+    """Product contract for the detailed, still-two-sheet workbook."""
+
+    @staticmethod
+    def _detailed_rows():
+        hitter = {
+            "_player_id": "9001",
+            "_player_url": "https://stats.ncaa.org/players/9001",
+            "Name": "Taylor Two-Way",
+            "#": "12",
+            "Position": "OF/RHP",
+            "Class": "Jr",
+            "G": "32",
+            "GS": "31",
+            "PA": "140",
+            "AB": "119",
+            "H": "41",
+            "2B": "8",
+            "3B": "2",
+            "HR": "7",
+            "RBI": "34",
+            "R": "29",
+            "BB": "16",
+            "SO": "20",
+            "SB": "9",
+            "AVG": ".345",
+            "OBP": ".421",
+            "SLG": ".622",
+            "OPS": "1.043",
+            "ISO": ".277",
+            "BB%": ".114",
+            "K%": ".143",
+            "BABIP": ".382",
+            "wOBA": "",
+            "Last 10 G": "10",
+            "Last 10 PA": "44",
+            "Last 10 AB": "38",
+            "Last 10 AVG": ".368",
+            "Last 10 OPS": "1.101",
+            "Last 10 K%": ".114",
+            "Last 10 Status": "Complete",
+            "Conference Status": "Unavailable",
+        }
+        pitcher = {
+            "_player_id": "9001",
+            "_player_url": "https://stats.ncaa.org/players/9001",
+            "Name": "Taylor Two-Way",
+            "#": "12",
+            "Position": "OF/RHP",
+            "Class": "Jr",
+            "G": "12",
+            "GS": "7",
+            "IP": "43.2",
+            "W": "5",
+            "L": "2",
+            "SV": "1",
+            "H": "37",
+            "ER": "14",
+            "BB": "12",
+            "SO": "51",
+            "HR": "3",
+            "BF": "183",
+            "ERA": "2.89",
+            "WHIP": "1.12",
+            "K/9": "10.51",
+            "BB/9": "2.47",
+            "H/9": "7.63",
+            "HR/9": ".62",
+            "K/BB": "4.25",
+            "K%": ".279",
+            "BB%": ".066",
+            "BABIP": ".311",
+            "FIP": "",
+            "Last 10 Status": "Partial",
+            "Conference Status": "Unavailable",
+        }
+        return hitter, pitcher
+
+    def test_grouped_workbook_has_only_two_sheets_and_populated_header_groups(self):
+        from roster_scout.workbooks import create_workbook
+
+        hitter, pitcher = self._detailed_rows()
+        payload = create_workbook(
+            [hitter],
+            [pitcher],
+            branding={
+                "school_name": "Parity University",
+                "generated_on": datetime(2026, 11, 16, tzinfo=UTC).date(),
+            },
+        ).getvalue()
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            workbook_xml = archive.read("xl/workbook.xml").decode("utf-8")
+            hitters_xml = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
+            pitchers_xml = archive.read("xl/worksheets/sheet2.xml").decode("utf-8")
+            shared_strings = archive.read("xl/sharedStrings.xml").decode("utf-8")
+            archive_names = set(archive.namelist())
+
+        self.assertEqual(workbook_xml.count("<sheet "), 2)
+        self.assertIn('name="Hitters"', workbook_xml)
+        self.assertIn('name="Pitchers"', workbook_xml)
+        for label in (
+            "Player",
+            "Season Stats",
+            "Last 10",
+        ):
+            self.assertIn(f">{label}<", shared_strings)
+        for excluded in (
+            "NCAA Player ID",
+            "Source URL",
+            "Derived Metrics",
+            "Conference Status",
+            "Fielding",
+            "Career",
+            "Game Logs",
+            "Methodology",
+            "Status",
+            "Conference Stats",
+            "wOBA",
+            "FIP",
+        ):
+            self.assertNotIn(f">{excluded}<", shared_strings)
+        self.assertIn('xSplit="4"', hitters_xml)
+        self.assertIn('ySplit="4"', hitters_xml)
+        self.assertIn('xSplit="4"', pitchers_xml)
+        self.assertIn('ySplit="4"', pitchers_xml)
+        self.assertIn("<autoFilter", hitters_xml)
+        self.assertIn("<autoFilter", pitchers_xml)
+        self.assertFalse(any(name.startswith("xl/tables/") for name in archive_names))
+
+    def test_grouped_workbook_omits_audit_ids_and_preserves_scope_semantics(self):
+        from roster_scout.workbooks import create_workbook
+
+        hitter, pitcher = self._detailed_rows()
+        hitter["Name"] = "=1+1"
+        hitter["Conference G"] = ""
+        payload = create_workbook([hitter], [pitcher]).getvalue()
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            worksheets = b"".join(
+                archive.read(name)
+                for name in archive.namelist()
+                if name.startswith("xl/worksheets/sheet")
+            )
+            shared_strings = archive.read("xl/sharedStrings.xml")
+
+        self.assertNotIn(b"<f>", worksheets)
+        self.assertNotIn(b"<hyperlinks", worksheets)
+        self.assertNotIn(b"9001", shared_strings)
+        self.assertNotIn(b"https://stats.ncaa.org/players/9001", shared_strings)
+        self.assertIn(b"=1+1", shared_strings)
+        self.assertNotIn(b"Complete", shared_strings)
+        self.assertNotIn(b"Partial", shared_strings)
+        self.assertNotIn(b"Conference Status", shared_strings)
+        self.assertNotIn(b"Conference G</t></si><si><t>0", shared_strings)
+
+    def test_rate_columns_use_direction_aware_hot_and_cold_scales(self):
+        from roster_scout.workbooks import (
+            HITTER_COLUMNS,
+            PITCHER_COLUMNS,
+            create_workbook,
+        )
+
+        hitter, pitcher = self._detailed_rows()
+        payload = create_workbook([hitter, {**hitter, "Name": "Second Hitter"}], [
+            pitcher,
+            {**pitcher, "Name": "Second Pitcher"},
+        ]).getvalue()
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            hitters_xml = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
+            pitchers_xml = archive.read("xl/worksheets/sheet2.xml").decode("utf-8")
+
+        hitter_directions = {column.key: column.performance_direction for column in HITTER_COLUMNS}
+        pitcher_directions = {column.key: column.performance_direction for column in PITCHER_COLUMNS}
+        self.assertEqual(hitter_directions["OPS"], "higher")
+        self.assertEqual(hitter_directions["K%"], "lower")
+        self.assertEqual(pitcher_directions["ERA"], "lower")
+        self.assertEqual(pitcher_directions["K/9"], "higher")
+        for worksheet_xml in (hitters_xml, pitchers_xml):
+            self.assertIn("<conditionalFormatting", worksheet_xml)
+            self.assertIn('rgb="FFFFC7CE"', worksheet_xml)
+            self.assertIn('rgb="FFFFF2CC"', worksheet_xml)
+            self.assertIn('rgb="FFC6EFCE"', worksheet_xml)
+
+    def test_grouped_workbook_omits_wholly_empty_columns_but_keeps_zeroes(self):
+        from roster_scout.workbooks import HITTER_COLUMNS, populated_columns
+
+        columns = populated_columns(
+            [{"Name": "Zero Value", "PA": 0, "wOBA": "", "Last 10 G": None}],
+            HITTER_COLUMNS,
+        )
+        headers = [column.header for column in columns]
+
+        self.assertIn("PA", headers)
+        self.assertNotIn("wOBA", headers)
+        self.assertNotIn("Games", headers)
+
+    def test_two_way_player_keeps_identity_on_both_sheets(self):
+        from roster_scraper import split_roster
+
+        hitter, pitcher = self._detailed_rows()
+        combined = {
+            **hitter,
+            "P_H": pitcher["H"],
+            "P_BB": pitcher["BB"],
+            "P_SO": pitcher["SO"],
+            "_has_hitting": True,
+            "_has_pitching": True,
+            "_pos": "OF/RHP",
+        }
+        hitters, pitchers = split_roster([combined])
+
+        self.assertEqual(hitters[0]["_player_id"], "9001")
+        self.assertEqual(pitchers[0]["_player_id"], "9001")
+        self.assertEqual(
+            hitters[0]["_player_url"], "https://stats.ncaa.org/players/9001"
+        )
+        self.assertEqual(
+            pitchers[0]["_player_url"], "https://stats.ncaa.org/players/9001"
+        )
+
+    def test_canonical_projection_uses_exact_snapshot_facts_metrics_and_scopes(self):
+        from roster_scout.artifacts import _project_snapshot_workbook_rows
+
+        player_id = uuid.uuid4()
+        batting_source_id = uuid.uuid4()
+        pitching_source_id = uuid.uuid4()
+        last_ten_batting_id = uuid.uuid4()
+        conference_batting_id = uuid.uuid4()
+        last_ten_pitching_id = uuid.uuid4()
+        conference_pitching_id = uuid.uuid4()
+        player = SimpleNamespace(
+            id=player_id,
+            display_name="Taylor Canonical",
+            jersey_number="12",
+            position="OF/RHP",
+        )
+        batting_source = SimpleNamespace(
+            id=batting_source_id,
+            player_team_season_id=player_id,
+            section="batting",
+            source_player_id="9001",
+            source_url="https://stats.ncaa.org/teams/701",
+            raw_values={
+                "Yr": "Jr",
+                "player_url": "https://stats.ncaa.org/players/9001",
+            },
+        )
+        pitching_source = SimpleNamespace(
+            id=pitching_source_id,
+            player_team_season_id=player_id,
+            section="pitching",
+            source_player_id="9001",
+            source_url="https://stats.ncaa.org/teams/701",
+            raw_values={"W": "5", "L": "2", "SV": "1"},
+        )
+        batting = SimpleNamespace(
+            player_team_season_id=player_id,
+            source_record_id=batting_source_id,
+            games=32,
+            games_started=31,
+            plate_appearances=None,
+            at_bats=119,
+            runs=29,
+            hits=41,
+            doubles=8,
+            triples=2,
+            home_runs=7,
+            runs_batted_in=34,
+            walks=16,
+            hit_by_pitch=3,
+            strikeouts=20,
+            sacrifice_flies=2,
+            sacrifice_hits=0,
+            stolen_bases=9,
+        )
+        pitching = SimpleNamespace(
+            player_team_season_id=player_id,
+            source_record_id=pitching_source_id,
+            appearances=12,
+            games_started=7,
+            innings_outs=131,
+            hits_allowed=37,
+            earned_runs=14,
+            walks=12,
+            strikeouts=51,
+            home_runs_allowed=3,
+            hit_batters=2,
+            batters_faced=183,
+            opponent_at_bats=166,
+            opponent_sacrifice_flies=2,
+        )
+
+        def scope(scope_id, code, stat_type, status, games):
+            return SimpleNamespace(
+                id=scope_id,
+                scope_code=code,
+                stat_type=stat_type,
+                status=status,
+                actual_game_count=games,
+            )
+
+        scopes = (
+            scope(last_ten_batting_id, "last_10", "batting", "complete", 10),
+            scope(conference_batting_id, "conference", "batting", "unavailable", None),
+            scope(last_ten_pitching_id, "last_10", "pitching", "partial", 8),
+            scope(conference_pitching_id, "conference", "pitching", "failed", None),
+        )
+        scoped_batting = (SimpleNamespace(
+            statistic_scope_id=last_ten_batting_id,
+            player_team_season_id=player_id,
+            counts_json={
+                "plate_appearances": 44,
+                "at_bats": 38,
+                "hits": 14,
+                "doubles": 3,
+                "triples": 0,
+                "home_runs": 2,
+                "walks": 5,
+                "hit_by_pitch": 1,
+                "strikeouts": 5,
+                "sacrifice_flies": 0,
+                "sacrifice_hits": 0,
+            },
+        ),)
+
+        hitters, pitchers = _project_snapshot_workbook_rows(
+            (player,),
+            (batting_source, pitching_source),
+            (batting,),
+            (pitching,),
+            (),
+            scopes,
+            scoped_batting,
+            (),
+        )
+
+        self.assertEqual(hitters[0]["_player_id"], "9001")
+        self.assertEqual(
+            hitters[0]["_player_url"], "https://stats.ncaa.org/players/9001"
+        )
+        self.assertEqual(hitters[0]["G"], 32)
+        self.assertEqual(hitters[0]["PA"], 140)
+        self.assertEqual(hitters[0]["OPS"], "1.050")
+        self.assertEqual(hitters[0]["Last 10 G"], 10)
+        self.assertEqual(hitters[0]["Last 10 AVG"], "0.368")
+        self.assertEqual(hitters[0]["Last 10 Status"], "Complete")
+        self.assertEqual(hitters[0]["Conference Status"], "Unavailable")
+        self.assertEqual(pitchers[0]["IP"], "43.2")
+        self.assertEqual(pitchers[0]["K/9"], "10.51")
+        self.assertEqual(pitchers[0]["Last 10 Status"], "Partial")
+        self.assertEqual(pitchers[0]["Conference Status"], "Failed")
+        self.assertNotIn("Last 10 ERA", pitchers[0])
+
+    def test_canonical_projection_hides_pitcher_only_placeholder_from_hitters(self):
+        from roster_scout.artifacts import _project_snapshot_workbook_rows
+
+        player_id = uuid.uuid4()
+        source_id = uuid.uuid4()
+        player = SimpleNamespace(
+            id=player_id,
+            display_name="Pitcher Only",
+            jersey_number="18",
+            position="UT",
+        )
+        source = SimpleNamespace(
+            id=source_id,
+            player_team_season_id=player_id,
+            section="batting",
+            source_player_id="18",
+            source_url="https://stats.ncaa.org/teams/701",
+            raw_values={"Yr": "So", "Pos": "RHP"},
+        )
+        batting = SimpleNamespace(
+            player_team_season_id=player_id,
+            source_record_id=source_id,
+            games=15,
+            games_started=0,
+            plate_appearances=0,
+            at_bats=0,
+            runs=0,
+            hits=0,
+            doubles=0,
+            triples=0,
+            home_runs=0,
+            runs_batted_in=0,
+            walks=0,
+            hit_by_pitch=0,
+            strikeouts=0,
+            sacrifice_flies=0,
+            sacrifice_hits=0,
+            stolen_bases=0,
+        )
+
+        hitters, pitchers = _project_snapshot_workbook_rows(
+            (player,), (source,), (batting,), (), (), (), (), ()
+        )
+
+        self.assertEqual(hitters, [])
+        self.assertEqual(pitchers, [])
+
+    def test_canonical_projection_marks_undefined_rates_instead_of_leaving_blanks(self):
+        from roster_scout.artifacts import _project_snapshot_workbook_rows
+
+        player_id = uuid.uuid4()
+        source_id = uuid.uuid4()
+        player = SimpleNamespace(
+            id=player_id,
+            display_name="Pinch Runner",
+            jersey_number="3",
+            position="INF",
+        )
+        source = SimpleNamespace(
+            id=source_id,
+            player_team_season_id=player_id,
+            section="batting",
+            source_player_id="123",
+            source_url="https://stats.ncaa.org/teams/701",
+            raw_values={"Yr": "Sr"},
+        )
+        batting = SimpleNamespace(
+            player_team_season_id=player_id,
+            source_record_id=source_id,
+            games=18,
+            games_started=9,
+            plate_appearances=0,
+            at_bats=0,
+            runs=1,
+            hits=0,
+            doubles=0,
+            triples=0,
+            home_runs=0,
+            runs_batted_in=0,
+            walks=0,
+            hit_by_pitch=0,
+            strikeouts=0,
+            sacrifice_flies=0,
+            sacrifice_hits=0,
+            stolen_bases=0,
+        )
+
+        hitters, _ = _project_snapshot_workbook_rows(
+            (player,), (source,), (batting,), (), (), (), (), ()
+        )
+
+        self.assertEqual(hitters[0]["PA"], 0)
+        self.assertEqual(hitters[0]["AVG"], "—")
+        self.assertEqual(hitters[0]["wOBA"], "—")
+
+    def test_artifact_schema_bump_accepts_exact_historical_keys(self):
+        from roster_scout.artifacts import (
+            ARTIFACT_SCHEMA_VERSION,
+            _validated_object_key,
+            artifact_object_key,
+        )
+
+        organization_id = uuid.uuid4()
+        report_id = uuid.uuid4()
+        snapshot_id = uuid.uuid4()
+        current = artifact_object_key(organization_id, report_id, snapshot_id)
+        historical_v1 = (
+            f"organizations/{organization_id}/reports/{report_id}/snapshots/"
+            f"{snapshot_id}/workbooks/roster-scout-basic-xlsx-v1.xlsx"
+        )
+        historical_v2 = (
+            f"organizations/{organization_id}/reports/{report_id}/snapshots/"
+            f"{snapshot_id}/workbooks/roster-scout-detailed-two-sheet-xlsx-v2.xlsx"
+        )
+
+        historical_v3 = (
+            f"organizations/{organization_id}/reports/{report_id}/snapshots/"
+            f"{snapshot_id}/workbooks/roster-scout-coach-facing-two-sheet-xlsx-v3.xlsx"
+        )
+
+        historical_v4 = (
+            f"organizations/{organization_id}/reports/{report_id}/snapshots/"
+            f"{snapshot_id}/workbooks/roster-scout-coach-facing-two-sheet-xlsx-v4.xlsx"
+        )
+
+        self.assertEqual(ARTIFACT_SCHEMA_VERSION, "coach-facing-two-sheet-xlsx-v5")
+        self.assertIn(ARTIFACT_SCHEMA_VERSION, current)
+        self.assertEqual(_validated_object_key(historical_v1), historical_v1)
+        self.assertEqual(_validated_object_key(historical_v2), historical_v2)
+        self.assertEqual(_validated_object_key(historical_v3), historical_v3)
+        self.assertEqual(_validated_object_key(historical_v4), historical_v4)
 
 
 class ArtifactLifecycleTests(_PostgreSQLJobTestCase):
@@ -287,6 +790,41 @@ class ArtifactLifecycleTests(_PostgreSQLJobTestCase):
                 self.assertEqual(artifact.attempt_count, 1)
                 self.assertTrue(payload.startswith(b"PK"))
             self.assertIsNone(claim_artifact_build(self.Session, artifact_id))
+
+    def test_detailed_snapshot_source_projects_canonical_rows_not_legacy_rates(self):
+        from roster_scout.artifacts import load_snapshot_workbook_source
+        from roster_scout.jobs import accept_report_job, run_report_job
+        from tests.test_report_jobs import FullSeasonMetricPublicationTests
+
+        organization_id, report_id = self.fixture()
+        job = accept_report_job(
+            self.Session,
+            organization_id,
+            report_id,
+            "detailed-workbook-source",
+            dispatch=None,
+        )
+        snapshot = run_report_job(
+            self.Session,
+            job.id,
+            collector=Mock(
+                return_value=FullSeasonMetricPublicationTests.detailed_sections()
+            ),
+        )
+
+        with self.Session() as session:
+            source = load_snapshot_workbook_source(session, snapshot.id)
+
+        hitter = next(row for row in source.hitters if row["_player_id"] == "100")
+        pitcher = next(row for row in source.pitchers if row["_player_id"] == "100")
+        self.assertEqual(hitter["_player_url"], "https://stats.ncaa.org/players/100")
+        self.assertEqual(hitter["G"], 12)
+        self.assertEqual(hitter["OPS"], "1.500")
+        self.assertEqual(hitter["Last 10 Status"], "Unavailable")
+        self.assertEqual(hitter["Conference Status"], "Unavailable")
+        self.assertEqual(pitcher["IP"], "7.0")
+        self.assertEqual(pitcher["K/9"], "11.57")
+        self.assertEqual(source.source_collected_at.isoformat(), "2026-04-01T18:30:00+00:00")
 
     def test_dispatch_failure_releases_claim_for_bounded_retry(self):
         from roster_scout.artifacts import dispatch_pending_artifacts

@@ -672,10 +672,11 @@ def add_security_headers(response):
         "connect-src 'self'; "
         "font-src 'self' https://fonts.gstatic.com; "
         "form-action 'self'; "
+        "frame-src https://app.powerbi.com; "
         "frame-ancestors 'none'; "
         "img-src 'self' data: https://www.ncaa.com; "
         "object-src 'none'; "
-        "script-src 'self' 'unsafe-inline'; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     )
     if request.endpoint not in {
@@ -701,6 +702,7 @@ def _public_shell_context():
     account_email = None
     account_school_name = None
     account_logo_url = None
+    current_role = None
     cookie_value = request.cookies.get(SESSION_COOKIE_NAME, "")
     if cookie_value:
         try:
@@ -709,6 +711,7 @@ def _public_shell_context():
                     session,
                     cookie_value=cookie_value,
                 )
+                current_role = g.authorization_context.role
                 account = session.get(Account, g.authorization_context.account_id)
                 if account is not None and account.normalized_email:
                     account_email = account.normalized_email
@@ -726,6 +729,7 @@ def _public_shell_context():
         "account_email": account_email,
         "account_school_name": account_school_name,
         "account_logo_url": account_logo_url,
+        "current_role": current_role,
     }
 
 
