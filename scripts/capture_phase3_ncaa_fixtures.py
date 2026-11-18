@@ -1939,7 +1939,7 @@ def _bounded_player_batch_fetch(
                               );
                             }
                             """,
-                            [f"#game_log_{player}_player", expected_header],
+                            arg=[f"#game_log_{player}_player", expected_header],
                             timeout=allowance,
                         ),
                         deadline_monotonic,

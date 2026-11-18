@@ -605,6 +605,9 @@ class FixtureCaptureSafetyTests(unittest.TestCase):
         page.url = urls["batting"]
         page.content.side_effect = lambda: f"<html>{page.url}</html>"
         page.goto.side_effect = lambda url, **_kwargs: setattr(page, "url", url)
+        page.wait_for_function.side_effect = (
+            lambda _expression, *, arg, timeout: None
+        )
         browser = Mock()
         browser.contexts = [Mock(pages=[page])]
         playwright = Mock()
@@ -641,7 +644,7 @@ class FixtureCaptureSafetyTests(unittest.TestCase):
         self.assertEqual(page.goto.call_count, 2)
         self.assertEqual(page.wait_for_function.call_count, 3)
         self.assertEqual(
-            [call.args[1][1] for call in page.wait_for_function.call_args_list],
+            [call.kwargs["arg"][1] for call in page.wait_for_function.call_args_list],
             ["ab", "ip", "po"],
         )
 
