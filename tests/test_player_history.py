@@ -300,12 +300,14 @@ class CollectionBudgetTests(unittest.TestCase):
         self.assertEqual(defaults.navigation_concurrency, 2)
         self.assertEqual(defaults.live_page_budget, 200)
         self.assertEqual(defaults.navigation_timeout_seconds, 45)
+        self.assertEqual(defaults.history_wall_time_seconds, 3 * 60)
         self.assertEqual(defaults.wall_time_seconds, 18 * 60)
 
         overridden = load_phase3_collection_limits({
             "PHASE3_NAVIGATION_CONCURRENCY": "1",
             "PHASE3_LIVE_PAGE_BUDGET": "12",
             "PHASE3_NAVIGATION_TIMEOUT_SECONDS": "8",
+            "PHASE3_HISTORY_WALL_TIME_SECONDS": "60",
             "PHASE3_BUILD_WALL_TIME_SECONDS": "90",
         })
         self.assertEqual(
@@ -313,9 +315,10 @@ class CollectionBudgetTests(unittest.TestCase):
                 overridden.navigation_concurrency,
                 overridden.live_page_budget,
                 overridden.navigation_timeout_seconds,
+                overridden.history_wall_time_seconds,
                 overridden.wall_time_seconds,
             ),
-            (1, 12, 8, 90),
+            (1, 12, 8, 60, 90),
         )
 
         invalid = (
@@ -325,6 +328,8 @@ class CollectionBudgetTests(unittest.TestCase):
             ("PHASE3_LIVE_PAGE_BUDGET", "501"),
             ("PHASE3_NAVIGATION_TIMEOUT_SECONDS", "4"),
             ("PHASE3_NAVIGATION_TIMEOUT_SECONDS", "121"),
+            ("PHASE3_HISTORY_WALL_TIME_SECONDS", "29"),
+            ("PHASE3_HISTORY_WALL_TIME_SECONDS", "601"),
             ("PHASE3_BUILD_WALL_TIME_SECONDS", "59"),
             ("PHASE3_BUILD_WALL_TIME_SECONDS", "1801"),
             ("PHASE3_LIVE_PAGE_BUDGET", "email@example.edu"),
@@ -359,6 +364,18 @@ class CollectionBudgetTests(unittest.TestCase):
 
         self.assertEqual(result, (20, 10))
         self.assertEqual(maximum_active, 2)
+
+    def test_player_history_has_a_smaller_deadline_than_the_dashboard_build(self):
+        from roster_scout.jobs import _bounded_history_deadline
+
+        self.assertEqual(
+            _bounded_history_deadline(1_000, 180, now=100),
+            280,
+        )
+        self.assertEqual(
+            _bounded_history_deadline(200, 180, now=100),
+            200,
+        )
 
     def test_connection_loss_at_collection_wall_becomes_classified_timeout(self):
         from unittest.mock import patch

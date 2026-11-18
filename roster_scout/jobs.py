@@ -85,6 +85,12 @@ def _map_with_bounded_concurrency(items, worker, *, max_workers):
         return tuple(pool.map(worker, items))
 
 
+def _bounded_history_deadline(build_deadline, history_seconds, *, now=None):
+    """Reserve the remaining build allowance for team-level dashboard work."""
+    current = time.monotonic() if now is None else now
+    return min(build_deadline, current + history_seconds)
+
+
 def _reserve_until_deadline(reserve, *, deadline_monotonic):
     """Turn a connection loss at the hard wall into a classified timeout."""
     try:
@@ -123,6 +129,7 @@ class Phase3CollectionLimits:
     navigation_concurrency: int
     live_page_budget: int
     navigation_timeout_seconds: int
+    history_wall_time_seconds: int
     wall_time_seconds: int
 
 
@@ -149,6 +156,9 @@ def load_phase3_collection_limits(environment=None):
         ),
         navigation_timeout_seconds=_bounded_collection_integer(
             environment, "PHASE3_NAVIGATION_TIMEOUT_SECONDS", 45, 5, 120
+        ),
+        history_wall_time_seconds=_bounded_collection_integer(
+            environment, "PHASE3_HISTORY_WALL_TIME_SECONDS", 3 * 60, 30, 600
         ),
         wall_time_seconds=_bounded_collection_integer(
             environment, "PHASE3_BUILD_WALL_TIME_SECONDS", 18 * 60, 60, 1800
@@ -3584,7 +3594,7 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
                         navigation_timeout_seconds=(
                             limits.navigation_timeout_seconds
                         ),
-                        deadline_monotonic=deadline_monotonic,
+                        deadline_monotonic=history_deadline_monotonic,
                     )
                 except CollectionBudgetExceeded:
                     return "budget_exhausted", history_entries, None
@@ -3594,6 +3604,15 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
                     return "player_history_unavailable", history_entries, None
                 return "complete", history_entries, detail
 
+            # Career and per-player game logs are valuable, but they must not
+            # consume the entire detailed-build allowance before team splits
+            # can be collected and the immutable dashboard snapshot can be
+            # published. Any rows that do not finish inside this sub-budget
+            # remain explicitly partial.
+            history_deadline_monotonic = _bounded_history_deadline(
+                deadline_monotonic,
+                limits.history_wall_time_seconds,
+            )
             history_results = _map_with_bounded_concurrency(
                 history_requests,
                 collect_player_history,
