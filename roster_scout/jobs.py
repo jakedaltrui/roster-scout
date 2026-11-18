@@ -158,7 +158,7 @@ def load_phase3_collection_limits(environment=None):
             environment, "PHASE3_NAVIGATION_TIMEOUT_SECONDS", 45, 5, 120
         ),
         history_wall_time_seconds=_bounded_collection_integer(
-            environment, "PHASE3_HISTORY_WALL_TIME_SECONDS", 8 * 60, 30, 600
+            environment, "PHASE3_HISTORY_WALL_TIME_SECONDS", 10 * 60, 30, 600
         ),
         wall_time_seconds=_bounded_collection_integer(
             environment, "PHASE3_BUILD_WALL_TIME_SECONDS", 18 * 60, 60, 1800

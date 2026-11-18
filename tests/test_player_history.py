@@ -300,7 +300,7 @@ class CollectionBudgetTests(unittest.TestCase):
         self.assertEqual(defaults.navigation_concurrency, 2)
         self.assertEqual(defaults.live_page_budget, 200)
         self.assertEqual(defaults.navigation_timeout_seconds, 45)
-        self.assertEqual(defaults.history_wall_time_seconds, 8 * 60)
+        self.assertEqual(defaults.history_wall_time_seconds, 10 * 60)
         self.assertEqual(defaults.wall_time_seconds, 18 * 60)
 
         overridden = load_phase3_collection_limits({
