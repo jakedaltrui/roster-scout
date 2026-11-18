@@ -29,6 +29,7 @@ class WorkbookColumn:
     key: str
     kind: str = "text"
     width: float = 9
+    performance_direction: str | None = None
 
 
 PLAYER_COLUMNS = (
@@ -52,27 +53,27 @@ HITTER_COLUMNS = PLAYER_COLUMNS + (
     WorkbookColumn("Season Stats", "BB", "BB", "integer", 6),
     WorkbookColumn("Season Stats", "SO", "SO", "integer", 6),
     WorkbookColumn("Season Stats", "SB", "SB", "integer", 6),
-    WorkbookColumn("Season Stats", "AVG", "AVG", "three", 8),
-    WorkbookColumn("Season Stats", "OBP", "OBP", "three", 8),
-    WorkbookColumn("Season Stats", "SLG", "SLG", "three", 8),
-    WorkbookColumn("Season Stats", "OPS", "OPS", "three", 8),
-    WorkbookColumn("Season Stats", "ISO", "ISO", "three", 8),
-    WorkbookColumn("Season Stats", "BB%", "BB%", "percent", 8),
-    WorkbookColumn("Season Stats", "K%", "K%", "percent", 8),
-    WorkbookColumn("Season Stats", "BABIP", "BABIP", "three", 8),
-    WorkbookColumn("Season Stats", "wOBA", "wOBA", "three", 8),
+    WorkbookColumn("Season Stats", "AVG", "AVG", "three", 8, "higher"),
+    WorkbookColumn("Season Stats", "OBP", "OBP", "three", 8, "higher"),
+    WorkbookColumn("Season Stats", "SLG", "SLG", "three", 8, "higher"),
+    WorkbookColumn("Season Stats", "OPS", "OPS", "three", 8, "higher"),
+    WorkbookColumn("Season Stats", "ISO", "ISO", "three", 8, "higher"),
+    WorkbookColumn("Season Stats", "BB%", "BB%", "percent", 8, "higher"),
+    WorkbookColumn("Season Stats", "K%", "K%", "percent", 8, "lower"),
+    WorkbookColumn("Season Stats", "BABIP", "BABIP", "three", 8, "higher"),
+    WorkbookColumn("Season Stats", "wOBA", "wOBA", "three", 8, "higher"),
     WorkbookColumn("Last 10", "Games", "Last 10 G", "integer", 8),
     WorkbookColumn("Last 10", "PA", "Last 10 PA", "integer", 8),
     WorkbookColumn("Last 10", "AB", "Last 10 AB", "integer", 8),
-    WorkbookColumn("Last 10", "AVG", "Last 10 AVG", "three", 9),
-    WorkbookColumn("Last 10", "OPS", "Last 10 OPS", "three", 9),
-    WorkbookColumn("Last 10", "K%", "Last 10 K%", "percent", 9),
+    WorkbookColumn("Last 10", "AVG", "Last 10 AVG", "three", 9, "higher"),
+    WorkbookColumn("Last 10", "OPS", "Last 10 OPS", "three", 9, "higher"),
+    WorkbookColumn("Last 10", "K%", "Last 10 K%", "percent", 9, "lower"),
     WorkbookColumn("Conference Stats", "G", "Conference G", "integer", 8),
     WorkbookColumn("Conference Stats", "PA", "Conference PA", "integer", 9),
     WorkbookColumn("Conference Stats", "AB", "Conference AB", "integer", 9),
-    WorkbookColumn("Conference Stats", "AVG", "Conference AVG", "three", 10),
-    WorkbookColumn("Conference Stats", "OPS", "Conference OPS", "three", 10),
-    WorkbookColumn("Conference Stats", "K%", "Conference K%", "percent", 10),
+    WorkbookColumn("Conference Stats", "AVG", "Conference AVG", "three", 10, "higher"),
+    WorkbookColumn("Conference Stats", "OPS", "Conference OPS", "three", 10, "higher"),
+    WorkbookColumn("Conference Stats", "K%", "Conference K%", "percent", 10, "lower"),
 )
 
 PITCHER_COLUMNS = PLAYER_COLUMNS + (
@@ -88,27 +89,27 @@ PITCHER_COLUMNS = PLAYER_COLUMNS + (
     WorkbookColumn("Season Stats", "SO", "SO", "integer", 6),
     WorkbookColumn("Season Stats", "HR", "HR", "integer", 6),
     WorkbookColumn("Season Stats", "BF", "BF", "integer", 7),
-    WorkbookColumn("Season Stats", "ERA", "ERA", "two", 8),
-    WorkbookColumn("Season Stats", "WHIP", "WHIP", "two", 8),
-    WorkbookColumn("Season Stats", "K/9", "K/9", "two", 8),
-    WorkbookColumn("Season Stats", "BB/9", "BB/9", "two", 8),
-    WorkbookColumn("Season Stats", "H/9", "H/9", "two", 8),
-    WorkbookColumn("Season Stats", "HR/9", "HR/9", "two", 8),
-    WorkbookColumn("Season Stats", "K/BB", "K/BB", "two", 8),
-    WorkbookColumn("Season Stats", "K%", "K%", "percent", 8),
-    WorkbookColumn("Season Stats", "BB%", "BB%", "percent", 8),
-    WorkbookColumn("Season Stats", "BABIP", "BABIP", "three", 8),
-    WorkbookColumn("Season Stats", "FIP", "FIP", "two", 8),
+    WorkbookColumn("Season Stats", "ERA", "ERA", "two", 8, "lower"),
+    WorkbookColumn("Season Stats", "WHIP", "WHIP", "two", 8, "lower"),
+    WorkbookColumn("Season Stats", "K/9", "K/9", "two", 8, "higher"),
+    WorkbookColumn("Season Stats", "BB/9", "BB/9", "two", 8, "lower"),
+    WorkbookColumn("Season Stats", "H/9", "H/9", "two", 8, "lower"),
+    WorkbookColumn("Season Stats", "HR/9", "HR/9", "two", 8, "lower"),
+    WorkbookColumn("Season Stats", "K/BB", "K/BB", "two", 8, "higher"),
+    WorkbookColumn("Season Stats", "K%", "K%", "percent", 8, "higher"),
+    WorkbookColumn("Season Stats", "BB%", "BB%", "percent", 8, "lower"),
+    WorkbookColumn("Season Stats", "BABIP", "BABIP", "three", 8, "lower"),
+    WorkbookColumn("Season Stats", "FIP", "FIP", "two", 8, "lower"),
     WorkbookColumn("Last 10", "Games", "Last 10 G", "integer", 8),
     WorkbookColumn("Last 10", "IP", "Last 10 IP", width=8),
-    WorkbookColumn("Last 10", "ERA", "Last 10 ERA", "two", 9),
-    WorkbookColumn("Last 10", "WHIP", "Last 10 WHIP", "two", 10),
-    WorkbookColumn("Last 10", "K/9", "Last 10 K/9", "two", 9),
+    WorkbookColumn("Last 10", "ERA", "Last 10 ERA", "two", 9, "lower"),
+    WorkbookColumn("Last 10", "WHIP", "Last 10 WHIP", "two", 10, "lower"),
+    WorkbookColumn("Last 10", "K/9", "Last 10 K/9", "two", 9, "higher"),
     WorkbookColumn("Conference Stats", "G", "Conference G", "integer", 8),
     WorkbookColumn("Conference Stats", "IP", "Conference IP", width=9),
-    WorkbookColumn("Conference Stats", "ERA", "Conference ERA", "two", 10),
-    WorkbookColumn("Conference Stats", "WHIP", "Conference WHIP", "two", 11),
-    WorkbookColumn("Conference Stats", "K/9", "Conference K/9", "two", 10),
+    WorkbookColumn("Conference Stats", "ERA", "Conference ERA", "two", 10, "lower"),
+    WorkbookColumn("Conference Stats", "WHIP", "Conference WHIP", "two", 11, "lower"),
+    WorkbookColumn("Conference Stats", "K/9", "Conference K/9", "two", 10, "higher"),
 )
 
 
@@ -469,6 +470,26 @@ def _write_worksheet(workbook, title, rows, columns, branding=None):
             worksheet.write(
                 row_index, col_index, value,
                 formats[(kind, banded, column.key == "Name")],
+            )
+    if rows:
+        cold_color = "#FFC7CE"
+        neutral_color = "#FFF2CC"
+        hot_color = "#C6EFCE"
+        for col_index, column in enumerate(columns):
+            if column.performance_direction not in {"higher", "lower"}:
+                continue
+            higher_is_better = column.performance_direction == "higher"
+            worksheet.conditional_format(
+                first_data_row,
+                col_index,
+                first_data_row + len(rows) - 1,
+                col_index,
+                {
+                    "type": "3_color_scale",
+                    "min_color": cold_color if higher_is_better else hot_color,
+                    "mid_color": neutral_color,
+                    "max_color": hot_color if higher_is_better else cold_color,
+                },
             )
     last_row = first_header_row + max(len(rows), 1)
     worksheet.autofilter(

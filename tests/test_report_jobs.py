@@ -2988,7 +2988,7 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
             side_effect=AssertionError("quick build fetched schedule"),
         ), patch.object(
             scraper,
-            "collect_ncaa_player_detail_evidence",
+            "collect_ncaa_player_detail_batch_evidence",
             side_effect=AssertionError("quick build fetched player history"),
         ), patch.object(
             scraper,
@@ -3039,6 +3039,22 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
             for family in families:
                 request_reserver(family)
             return result
+
+        return collect
+
+    @staticmethod
+    def _reserving_history_batch_result(result):
+        def collect(
+            _season_team_id,
+            player_ids,
+            *,
+            request_reserver=None,
+            **_kwargs,
+        ):
+            for player_id in player_ids:
+                for stat_type in ("batting", "pitching", "fielding"):
+                    request_reserver(player_id, stat_type)
+            return {str(player_id): result for player_id in player_ids}
 
         return collect
 
@@ -3567,11 +3583,14 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
             request_reserver("schedule")
             return schedule_html
 
-        def fetch_player(_urls, _player_id, _limits, *, request_reserver=None, **_kwargs):
+        def fetch_player(player_urls, _limits, *, request_reserver=None, **_kwargs):
             transport_stages.append("player_detail")
-            for stat_type in ("batting", "pitching", "fielding"):
-                request_reserver(f"history:{stat_type}")
-            return player_pages
+            output = {}
+            for player_id in player_urls:
+                for stat_type in ("batting", "pitching", "fielding"):
+                    request_reserver(player_id, stat_type)
+                output[player_id] = player_pages
+            return output
 
         season_contract = {
             "season": "2026", "id": "17040",
@@ -3595,7 +3614,7 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
         ), patch.object(
             capture, "_bounded_schedule_fetch", side_effect=fetch_schedule
         ), patch.object(
-            capture, "_bounded_player_fetch", side_effect=fetch_player
+            capture, "_bounded_player_batch_fetch", side_effect=fetch_player
         ):
             snapshot = self._run_real_collector(job)
 
@@ -3791,10 +3810,8 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
             side_effect=self._reserving_collector_result(schedule, ("schedule",)),
         ), patch.object(
             scraper,
-            "collect_ncaa_player_detail_evidence",
-            side_effect=self._reserving_collector_result(
-                detail, ("history:batting", "history:pitching", "history:fielding")
-            ),
+            "collect_ncaa_player_detail_batch_evidence",
+            side_effect=self._reserving_history_batch_result(detail),
         ), patch.object(
             scraper,
             "collect_ncaa_split_results",
@@ -3897,10 +3914,8 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
             side_effect=self._reserving_collector_result(schedule, ("schedule",)),
         ), patch.object(
             scraper,
-            "collect_ncaa_player_detail_evidence",
-            side_effect=self._reserving_collector_result(
-                detail, ("history:batting", "history:pitching", "history:fielding")
-            ),
+            "collect_ncaa_player_detail_batch_evidence",
+            side_effect=self._reserving_history_batch_result(detail),
         ), patch.object(
             scraper,
             "collect_ncaa_split_results",
@@ -4089,10 +4104,8 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
             side_effect=self._reserving_collector_result(schedule, ("schedule",)),
         ), patch.object(
             scraper,
-            "collect_ncaa_player_detail_evidence",
-            side_effect=self._reserving_collector_result(
-                detail, ("history:batting", "history:pitching", "history:fielding")
-            ),
+            "collect_ncaa_player_detail_batch_evidence",
+            side_effect=self._reserving_history_batch_result(detail),
         ), patch.object(
             scraper,
             "collect_ncaa_split_results",
@@ -4198,7 +4211,9 @@ class SectionHeaderPublicationTests(PostgreSQLJobTestCase):
         ), patch.object(
             scraper, "collect_ncaa_schedule_evidence", return_value=schedule
         ), patch.object(
-            scraper, "collect_ncaa_player_detail_evidence", return_value=detail
+            scraper,
+            "collect_ncaa_player_detail_batch_evidence",
+            return_value={"9698671": detail},
         ), patch.object(
             scraper, "collect_ncaa_split_results",
             side_effect=scraper.NcaaAccessError("split unavailable"),

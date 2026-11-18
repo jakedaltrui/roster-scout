@@ -3402,6 +3402,95 @@ def collect_ncaa_player_detail_evidence(
     )
 
 
+def collect_ncaa_player_detail_batch_evidence(
+    season_team_id: str,
+    source_player_ids,
+    *,
+    division=None,
+    year: int | None = None,
+    request_reserver=None,
+    navigation_timeout_seconds=45,
+    deadline_monotonic=None,
+):
+    """Collect a bounded player batch while reusing one NCAA terms session."""
+    from scripts.capture_phase3_ncaa_fixtures import (
+        CaptureUnavailable,
+        CaptureLimits,
+        _bounded_player_batch_fetch,
+        sanitize_player_detail,
+    )
+    from roster_scout.ncaa_detail import (
+        build_player_detail_url,
+        parse_player_detail_fixture,
+    )
+
+    player_ids = tuple(dict.fromkeys(str(value or "") for value in source_player_ids))
+    if not player_ids or any(not value.isdigit() for value in player_ids):
+        raise ValueError("player detail requires stable numeric player IDs")
+    year = year or _current_ncaa_year()
+    team = _find_ncaa_team_by_season_id(
+        season_team_id, division=division, year=year
+    )
+    season = _find_ncaa_season(year)
+    season_id = str(team.get("season_id") or season["id"])
+    categories = {
+        "batting": str(season["batting_id"]),
+        "pitching": str(season["pitching_id"]),
+        "fielding": str(season.get("fielding_id") or ""),
+    }
+    if any(not value.isdigit() for value in categories.values()):
+        raise NcaaError("NCAA player-detail categories are incomplete.")
+    player_urls = {
+        player_id: {
+            stat_type: build_player_detail_url(player_id, category_id)
+            for stat_type, category_id in categories.items()
+        }
+        for player_id in player_ids
+    }
+    try:
+        rendered = _bounded_player_batch_fetch(
+            player_urls,
+            CaptureLimits(
+                max_pages=3,
+                timeout_seconds=navigation_timeout_seconds,
+            ),
+            request_reserver=request_reserver,
+            deadline_monotonic=deadline_monotonic,
+        )
+    except CaptureUnavailable as exc:
+        raise NcaaAccessError(
+            "NCAA player history collection unavailable."
+        ) from exc
+    captured_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace(
+        "+00:00", "Z"
+    )
+    details = {}
+    for player_id in player_ids:
+        try:
+            sanitized = sanitize_player_detail(
+                rendered[player_id],
+                player_id=player_id,
+                season_id=season_id,
+                season_team_id=str(team["season_team_id"]),
+                season_year=year,
+                division=str(team["division"]),
+                categories=categories,
+                captured_at=captured_at,
+            )
+        except (CaptureUnavailable, KeyError) as exc:
+            raise NcaaAccessError(
+                "NCAA player history collection unavailable."
+            ) from exc
+        details[player_id] = parse_player_detail_fixture(
+            sanitized,
+            expected_player_id=player_id,
+            expected_season_id=season_id,
+            expected_season_team_id=str(team["season_team_id"]),
+            expected_division=str(team["division"]),
+        )
+    return details
+
+
 def scrape_ncaa_by_name(
     team_name: str,
     division=None,

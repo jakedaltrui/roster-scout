@@ -158,7 +158,7 @@ def load_phase3_collection_limits(environment=None):
             environment, "PHASE3_NAVIGATION_TIMEOUT_SECONDS", 45, 5, 120
         ),
         history_wall_time_seconds=_bounded_collection_integer(
-            environment, "PHASE3_HISTORY_WALL_TIME_SECONDS", 3 * 60, 30, 600
+            environment, "PHASE3_HISTORY_WALL_TIME_SECONDS", 5 * 60, 30, 600
         ),
         wall_time_seconds=_bounded_collection_integer(
             environment, "PHASE3_BUILD_WALL_TIME_SECONDS", 18 * 60, 60, 1800
@@ -3023,7 +3023,7 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
         _NcaaFailureEvidenceError,
         _find_ncaa_season,
         collect_ncaa_by_id,
-        collect_ncaa_player_detail_evidence,
+        collect_ncaa_player_detail_batch_evidence,
         collect_ncaa_schedule_evidence,
         collect_ncaa_split_results,
     )
@@ -3582,27 +3582,51 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
                     continue
                 history_requests.append((player_id, history_entries))
 
-            def collect_player_history(request):
-                player_id, history_entries = request
+            from scripts.capture_phase3_ncaa_fixtures import (
+                PLAYER_HISTORY_BATCH_MAX_PLAYERS,
+            )
+
+            history_batches = tuple(
+                tuple(history_requests[index:index + PLAYER_HISTORY_BATCH_MAX_PLAYERS])
+                for index in range(
+                    0, len(history_requests), PLAYER_HISTORY_BATCH_MAX_PLAYERS
+                )
+            )
+
+            def collect_player_history_batch(requests):
+                entries_by_player = dict(requests)
+
+                def reserve(player_id, stat_type):
+                    request_reserver(entries_by_player[player_id])(
+                        f"history:{stat_type}"
+                    )
+
                 try:
-                    detail = collect_ncaa_player_detail_evidence(
+                    batch_details = collect_ncaa_player_detail_batch_evidence(
                         season_team_id,
-                        player_id,
+                        tuple(entries_by_player),
                         division=division,
                         year=year,
-                        request_reserver=request_reserver(history_entries),
+                        request_reserver=reserve,
                         navigation_timeout_seconds=(
                             limits.navigation_timeout_seconds
                         ),
                         deadline_monotonic=history_deadline_monotonic,
                     )
                 except CollectionBudgetExceeded:
-                    return "budget_exhausted", history_entries, None
+                    outcome = "budget_exhausted"
                 except CollectionDeadlineExceeded:
-                    return "collection_timeout", history_entries, None
+                    outcome = "collection_timeout"
                 except (NcaaAccessError, NcaaError, ValueError):
-                    return "player_history_unavailable", history_entries, None
-                return "complete", history_entries, detail
+                    outcome = "player_history_unavailable"
+                else:
+                    return tuple(
+                        ("complete", entries, batch_details[player_id])
+                        for player_id, entries in requests
+                    )
+                return tuple(
+                    (outcome, entries, None) for _, entries in requests
+                )
 
             # Career and per-player game logs are valuable, but they must not
             # consume the entire detailed-build allowance before team splits
@@ -3613,10 +3637,15 @@ def collect_ncaa_sections(session_factory, job_id, *, cached_sections=frozenset(
                 deadline_monotonic,
                 limits.history_wall_time_seconds,
             )
-            history_results = _map_with_bounded_concurrency(
-                history_requests,
-                collect_player_history,
+            batched_history_results = _map_with_bounded_concurrency(
+                history_batches,
+                collect_player_history_batch,
                 max_workers=limits.navigation_concurrency,
+            )
+            history_results = tuple(
+                result
+                for batch_results in batched_history_results
+                for result in batch_results
             )
             for outcome, history_entries, detail in history_results:
                 if outcome == "budget_exhausted":

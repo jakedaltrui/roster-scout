@@ -402,6 +402,34 @@ class ArtifactContractTests(unittest.TestCase):
         self.assertNotIn(b"Conference Status", shared_strings)
         self.assertNotIn(b"Conference G</t></si><si><t>0", shared_strings)
 
+    def test_rate_columns_use_direction_aware_hot_and_cold_scales(self):
+        from roster_scout.workbooks import (
+            HITTER_COLUMNS,
+            PITCHER_COLUMNS,
+            create_workbook,
+        )
+
+        hitter, pitcher = self._detailed_rows()
+        payload = create_workbook([hitter, {**hitter, "Name": "Second Hitter"}], [
+            pitcher,
+            {**pitcher, "Name": "Second Pitcher"},
+        ]).getvalue()
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            hitters_xml = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
+            pitchers_xml = archive.read("xl/worksheets/sheet2.xml").decode("utf-8")
+
+        hitter_directions = {column.key: column.performance_direction for column in HITTER_COLUMNS}
+        pitcher_directions = {column.key: column.performance_direction for column in PITCHER_COLUMNS}
+        self.assertEqual(hitter_directions["OPS"], "higher")
+        self.assertEqual(hitter_directions["K%"], "lower")
+        self.assertEqual(pitcher_directions["ERA"], "lower")
+        self.assertEqual(pitcher_directions["K/9"], "higher")
+        for worksheet_xml in (hitters_xml, pitchers_xml):
+            self.assertIn("<conditionalFormatting", worksheet_xml)
+            self.assertIn('rgb="FFFFC7CE"', worksheet_xml)
+            self.assertIn('rgb="FFFFF2CC"', worksheet_xml)
+            self.assertIn('rgb="FFC6EFCE"', worksheet_xml)
+
     def test_grouped_workbook_omits_wholly_empty_columns_but_keeps_zeroes(self):
         from roster_scout.workbooks import HITTER_COLUMNS, populated_columns
 

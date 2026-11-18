@@ -49,6 +49,8 @@ MAX_RAW_PAGE_BYTES = 2 * 1024 * 1024
 RESULT_CONTRACT_VERSION = "ncaa-split-result-v1"
 SCHEDULE_CONTRACT_VERSION = "ncaa-schedule-v1"
 PLAYER_DETAIL_CONTRACT_VERSION = "ncaa-player-detail-v1"
+PLAYER_HISTORY_BATCH_MAX_PLAYERS = 6
+PLAYER_HISTORY_SESSION_TIMEOUT_SECONDS = 120
 
 CANONICAL_LABELS = {
     "batting": (
@@ -1775,35 +1777,39 @@ def sanitize_player_detail(
     return output
 
 
-def _bounded_player_fetch(
-    urls: dict[str, str],
-    player_id: str,
+def _bounded_player_batch_fetch(
+    player_urls: dict[str, dict[str, str]],
     limits: CaptureLimits,
     *,
     request_reserver=None,
     deadline_monotonic=None,
 ):
-    """Fetch category pages in one configured Browserless session without #stat_grid."""
+    """Fetch a small player batch in one accepted Browserless session."""
     _validate_browserless_configuration()
-    if len(urls) > limits.max_pages:
-        raise ValueError("capture page count exceeds the validated limit")
-    player = _numeric(player_id, "player ID")
-    for url in urls.values():
-        parsed = urlparse(url)
-        if (
-            parsed.scheme != "https"
-            or parsed.netloc != "stats.ncaa.org"
-            or parsed.path != f"/players/{player}"
-            or set(parse_qs(parsed.query)) != {"year_stat_category_id"}
-        ):
-            raise ValueError("player source is not approved")
+    if not 1 <= len(player_urls) <= PLAYER_HISTORY_BATCH_MAX_PLAYERS:
+        raise ValueError("player batch size exceeds the validated limit")
+    validated = {}
+    for player_id, urls in player_urls.items():
+        player = _numeric(player_id, "player ID")
+        if not 1 <= len(urls) <= limits.max_pages:
+            raise ValueError("capture page count exceeds the validated limit")
+        for url in urls.values():
+            parsed = urlparse(url)
+            if (
+                parsed.scheme != "https"
+                or parsed.netloc != "stats.ncaa.org"
+                or parsed.path != f"/players/{player}"
+                or set(parse_qs(parsed.query)) != {"year_stat_category_id"}
+            ):
+                raise ValueError("player source is not approved")
+        validated[player] = urls
     token = os.environ["BROWSERLESS_TOKEN"]
     endpoint = os.environ.get(
         "BROWSERLESS_UNBLOCK_ENDPOINT",
         "https://production-sfo.browserless.io/chromium/unblock",
     )
     boundary_timeout_ms = remaining_timeout_milliseconds(
-        deadline_monotonic, limits.timeout_seconds
+        deadline_monotonic, PLAYER_HISTORY_SESSION_TIMEOUT_SECONDS
     )
     timeout_ms = min(boundary_timeout_ms, 120000)
     query = urlencode({
@@ -1817,16 +1823,17 @@ def _bounded_player_fetch(
     browser = None
     playwright = None
     try:
-        first_url = next(iter(urls.values()))
-        first_key = next(iter(urls))
+        first_player, first_urls = next(iter(validated.items()))
+        first_url = next(iter(first_urls.values()))
+        first_key = next(iter(first_urls))
         if request_reserver is not None:
-            request_reserver(f"history:{first_key}")
+            request_reserver(first_player, first_key)
         response = run_with_deadline(
             lambda allowance: requests.post(
                 f"{endpoint}?{query}",
                 json={
                     "url": first_url, "browserWSEndpoint": True, "cookies": True,
-                    "content": True, "screenshot": False, "ttl": 60000,
+                    "content": True, "screenshot": False, "ttl": timeout_ms,
                 },
                 timeout=allowance / 1000,
             ),
@@ -1840,7 +1847,7 @@ def _bounded_player_fetch(
         import roster_scraper as rs
         from usage_limits import browserless_slot
 
-        rendered = {}
+        rendered = {player: {} for player in validated}
         with browserless_slot():
             remaining_timeout_milliseconds(
                 deadline_monotonic, limits.timeout_seconds
@@ -1866,54 +1873,58 @@ def _bounded_player_fetch(
                 (candidate for candidate in pages if "stats.ncaa.org" in candidate.url),
                 pages[0],
             )
-            for key, source_url in urls.items():
-                current_timeout = remaining_timeout_seconds(
-                    deadline_monotonic, limits.timeout_seconds
-                )
-                if page.url != source_url:
-                    if request_reserver is not None:
-                        request_reserver(f"history:{key}")
+            for player, urls in validated.items():
+                for key, source_url in urls.items():
+                    current_timeout = remaining_timeout_seconds(
+                        deadline_monotonic, limits.timeout_seconds
+                    )
+                    if page.url != source_url:
+                        if request_reserver is not None:
+                            request_reserver(player, key)
+                        run_with_deadline(
+                            lambda allowance, source_url=source_url: page.goto(
+                                source_url,
+                                wait_until="domcontentloaded",
+                                timeout=allowance,
+                            ),
+                            deadline_monotonic,
+                            limits.timeout_seconds,
+                        )
+                    rs._accept_ncaa_terms(
+                        page,
+                        source_url,
+                        request_reserver=(
+                            (
+                                lambda player=player, key=key:
+                                request_reserver(player, key)
+                            )
+                            if request_reserver is not None else None
+                        ),
+                        timeout_seconds=current_timeout,
+                        deadline_monotonic=deadline_monotonic,
+                    )
                     run_with_deadline(
-                        lambda allowance: page.goto(
-                            source_url,
-                            wait_until="domcontentloaded",
+                        lambda allowance, player=player: page.wait_for_selector(
+                            f"#career_totals_{player}_player",
                             timeout=allowance,
                         ),
                         deadline_monotonic,
                         limits.timeout_seconds,
                     )
-                rs._accept_ncaa_terms(
-                    page,
-                    source_url,
-                    request_reserver=(
-                        (lambda key=key: request_reserver(f"history:{key}"))
-                        if request_reserver is not None else None
-                    ),
-                    timeout_seconds=current_timeout,
-                    deadline_monotonic=deadline_monotonic,
-                )
-                run_with_deadline(
-                    lambda allowance: page.wait_for_selector(
-                        f"#career_totals_{player}_player",
-                        timeout=allowance,
-                    ),
-                    deadline_monotonic,
-                    limits.timeout_seconds,
-                )
-                run_with_deadline(
-                    lambda allowance: page.wait_for_selector(
-                        f"#game_log_{player}_player",
-                        timeout=allowance,
-                    ),
-                    deadline_monotonic,
-                    limits.timeout_seconds,
-                )
-                rendered[key] = rs._bounded_playwright_action(
-                    page,
-                    page.content,
-                    deadline_monotonic,
-                    limits.timeout_seconds,
-                )
+                    run_with_deadline(
+                        lambda allowance, player=player: page.wait_for_selector(
+                            f"#game_log_{player}_player",
+                            timeout=allowance,
+                        ),
+                        deadline_monotonic,
+                        limits.timeout_seconds,
+                    )
+                    rendered[player][key] = rs._bounded_playwright_action(
+                        page,
+                        page.content,
+                        deadline_monotonic,
+                        limits.timeout_seconds,
+                    )
         return rendered
     except (
         CaptureUnavailable,
@@ -1930,6 +1941,30 @@ def _bounded_player_fetch(
         import roster_scraper as rs
 
         rs._close_browserless_session(browser, playwright)
+
+
+def _bounded_player_fetch(
+    urls: dict[str, str],
+    player_id: str,
+    limits: CaptureLimits,
+    *,
+    request_reserver=None,
+    deadline_monotonic=None,
+):
+    """Fetch one player's category pages through the shared batch transport."""
+    player = _numeric(player_id, "player ID")
+
+    def reserve(_player, stat_type):
+        if request_reserver is not None:
+            request_reserver(f"history:{stat_type}")
+
+    rendered = _bounded_player_batch_fetch(
+        {player: urls},
+        limits,
+        request_reserver=reserve if request_reserver is not None else None,
+        deadline_monotonic=deadline_monotonic,
+    )
+    return rendered[player]
 
 
 def capture_player_detail(

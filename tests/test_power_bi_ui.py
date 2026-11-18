@@ -178,7 +178,7 @@ class NativeDashboardUIContractTests(unittest.TestCase):
             template.index("Opponent dashboard"),
         )
         for phrase in (
-            "Season statistics are ready",
+            "Your latest roster and season statistics are ready to use.",
             "Recent run trend",
             "Hitting leaders",
             "Pitching leaders",

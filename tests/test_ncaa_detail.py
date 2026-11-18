@@ -640,6 +640,57 @@ class FixtureCaptureSafetyTests(unittest.TestCase):
         )
         self.assertEqual(page.goto.call_count, 2)
 
+    def test_player_batch_reuses_one_terms_session_across_players(self):
+        api = self.capture_api()
+        players = ("9698671", "9679575")
+        player_urls = {
+            player_id: {
+                "batting": api.build_player_url(player_id, "15867")
+            }
+            for player_id in players
+        }
+        page = Mock()
+        page.url = player_urls[players[0]]["batting"]
+        page.content.side_effect = lambda: f"<html>{page.url}</html>"
+        page.goto.side_effect = lambda url, **_kwargs: setattr(page, "url", url)
+        browser = Mock()
+        browser.contexts = [Mock(pages=[page])]
+        playwright = Mock()
+        playwright.chromium.connect_over_cdp.return_value = browser
+        starter = Mock()
+        starter.start.return_value = playwright
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            "browserWSEndpoint": "wss://example.test/browser"
+        }
+        post = Mock(return_value=response)
+        reserved = []
+
+        with patch.dict(os.environ, {
+            "BROWSERLESS_TOKEN": "test-only-token",
+            "NCAA_BROWSER_PROVIDER": "browserless",
+        }, clear=False), patch.object(
+            api.requests, "post", post
+        ), patch(
+            "patchright.sync_api.sync_playwright", return_value=starter
+        ):
+            pages = api._bounded_player_batch_fetch(
+                player_urls,
+                api.CaptureLimits(max_pages=1, timeout_seconds=5),
+                request_reserver=lambda player_id, stat_type: reserved.append(
+                    (player_id, stat_type)
+                ),
+                deadline_monotonic=time.monotonic() + 30,
+            )
+
+        self.assertEqual(set(pages), set(players))
+        self.assertEqual(
+            reserved,
+            [(players[0], "batting"), (players[1], "batting")],
+        )
+        self.assertEqual(page.goto.call_count, 1)
+        self.assertEqual(post.call_count, 1)
+
     def test_terms_dwell_stops_at_absolute_build_deadline(self):
         import roster_scraper as scraper
         from roster_scout.collection_control import CollectionDeadlineExceeded
