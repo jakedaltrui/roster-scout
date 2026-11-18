@@ -1233,10 +1233,21 @@ def _load_csv_rows(url: str, filename: str, required_columns: set[str]) -> list[
     path = _ncaa_cache_dir() / filename
     text = None
 
+    def has_required_schema(candidate: str | None) -> bool:
+        if not candidate:
+            return False
+        try:
+            header = next(csv.reader(candidate.splitlines()), [])
+        except (csv.Error, StopIteration):
+            return False
+        return required_columns.issubset(set(header))
+
     if _cache_fresh(path, ttl):
         try:
             text = path.read_text(encoding="utf-8")
         except OSError:
+            text = None
+        if not has_required_schema(text):
             text = None
 
     if text is None:
@@ -1244,15 +1255,20 @@ def _load_csv_rows(url: str, filename: str, required_columns: set[str]) -> list[
             response = requests.get(url, headers=HEADERS, timeout=20)
             response.raise_for_status()
             text = response.text
-            header = next(csv.reader(text.splitlines()), [])
-            if not required_columns.issubset(set(header)):
+            if not has_required_schema(text):
                 raise NcaaAccessError(f"Unexpected NCAA lookup schema from {url}")
             _atomic_write(path, text)
         except Exception as exc:
             # A stale lookup is safer than failing every request during a brief
-            # GitHub outage. It is only used for IDs and is revalidated later.
+            # GitHub outage, but only when it still satisfies today's contract.
             if path.is_file():
-                text = path.read_text(encoding="utf-8")
+                stale_text = path.read_text(encoding="utf-8")
+                if has_required_schema(stale_text):
+                    text = stale_text
+                else:
+                    raise NcaaAccessError(
+                        "Cached NCAA lookup has an unexpected schema."
+                    ) from exc
             else:
                 raise NcaaAccessError(f"Could not load NCAA team metadata: {exc}") from exc
 
@@ -1279,7 +1295,7 @@ def _load_ncaa_season_rows() -> list[dict]:
         _NCAA_SEASON_ROWS = _load_csv_rows(
             NCAA_SEASON_LOOKUP_URL,
             "ncaa-season-lookup.csv",
-            {"season", "id", "batting_id", "pitching_id"},
+            {"season", "id", "batting_id", "pitching_id", "fielding_id"},
         )
     return _NCAA_SEASON_ROWS
 
