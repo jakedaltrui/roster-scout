@@ -65,7 +65,10 @@ _LIVE_LABEL_PATTERNS = {
     "bases_empty": (r"\bbases?\s+empty\b", r"\bno\s+runners?\s+on\b"),
     "bases_loaded": (r"\bbases?\s+loaded\b",),
     "risp": (r"\brunners?\s+in\s+scoring\s+position\b", r"\brisp\b", r"\b(?:h|hits?)[- ]ab\s+scorepos\b"),
-    "two_outs": (r"\b(?:two|2)\s+outs?\b", r"\bw2outs?\b"),
+    "two_outs": (
+        r"\b(?:h|hits?)[- ]ab\b.*\b(?:two|2)\s+outs?\b",
+        r"\bw2outs?\b",
+    ),
 }
 _REQUIRED_HEADERS = ("player", "g", "gs", "po", "a", "e", "tc", "dp", "fpct")
 _OPTIONAL_HEADERS = ("pb", "sba", "csb")
@@ -1599,7 +1602,9 @@ def parse_fielding_page(
         if not any(values):
             continue
         name = re.sub(r"^x\s+", "", values[player_index], flags=re.IGNORECASE).strip()
-        if not name or _normalized(name) in {"team", "total", "totals", "team totals"}:
+        if not name or _normalized(name) in {
+            "team", "total", "totals", "team totals", "opponent totals",
+        }:
             if name:
                 continue
             raise FieldingParseError("schema_validation")

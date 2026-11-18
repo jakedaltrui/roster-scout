@@ -157,6 +157,18 @@ class FieldingTests(unittest.TestCase):
                 with self.assertRaises(fielding_api().FieldingParseError):
                     self.parse(html.replace("year_stat_category_id=15869", unsafe))
 
+    def test_live_opponent_totals_row_is_not_treated_as_a_player(self):
+        html = fixture("d1").replace(
+            "</tbody>",
+            "<tr><td>Opponent Totals</td><td>40</td><td>40</td>"
+            "<td>100</td><td>20</td><td>5</td><td>125</td><td>0</td>"
+            "<td>.960</td><td>0</td><td>0</td><td>0</td></tr></tbody>",
+        )
+
+        section = self.parse(html)
+
+        self.assertEqual(len(section.rows), len(self.parse(fixture("d1")).rows))
+
     def test_rejects_missing_duplicate_or_renamed_required_headers(self):
         valid = fixture("d2")
         cases = (
@@ -1186,6 +1198,25 @@ class SplitDiscoveryTests(unittest.TestCase):
             next(
                 item for item in unsafe_scopes if item.scope_code == "vs_lhp"
             ).source_identifier
+        )
+        two_out_html = """
+        <table id="stat_grid"><thead><tr><th>Player</th><th>AB</th><th>H</th></tr></thead></table>
+        <a data-sport-stat-id="1" href="javascript:toggleSituationalStat(1);">Hits-AB with 2 outs</a>
+        <a data-sport-stat-id="7" href="javascript:toggleSituationalStat(7);">Succ-Opp to drive in a runner from 3rd &lt; 2 outs.</a>
+        """
+        two_out_scopes = api.discover_live_split_controls(
+            two_out_html,
+            season_id="17040",
+            season_team_id="614606",
+            stat_type="batting",
+            source_stat_category_id="15867",
+        )
+        self.assertEqual(
+            next(
+                item for item in two_out_scopes
+                if item.scope_code == "two_outs"
+            ).source_identifier,
+            "1",
         )
         ambiguous = html.replace(
             'data-stat-seq="123"',
