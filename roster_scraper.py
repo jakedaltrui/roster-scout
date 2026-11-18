@@ -3116,15 +3116,17 @@ def collect_ncaa_split_results(
         stat_type: f"{base_url}?year_stat_category_id={category_id}"
         for stat_type, category_id in categories.items()
     }
-    controls = _fetch_ncaa_pages(
-        urls,
-        request_reserver=(
-            (lambda key: request_reserver(f"splits:{key}"))
-            if request_reserver is not None else None
-        ),
-        navigation_timeout_seconds=navigation_timeout_seconds,
-        deadline_monotonic=deadline_monotonic,
-    )
+    controls = {}
+    for stat_type in ("batting", "pitching"):
+        controls.update(_fetch_ncaa_pages(
+            {stat_type: urls[stat_type]},
+            request_reserver=(
+                (lambda key: request_reserver(f"splits:{key}"))
+                if request_reserver is not None else None
+            ),
+            navigation_timeout_seconds=navigation_timeout_seconds,
+            deadline_monotonic=deadline_monotonic,
+        ))
     collected_at = datetime.now(timezone.utc)
     discovered = tuple(
         scope
