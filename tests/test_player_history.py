@@ -184,6 +184,25 @@ class CareerAggregateTests(unittest.TestCase):
 
 
 class GameLogTests(unittest.TestCase):
+    def test_published_game_log_blanks_are_sourced_zeroes(self):
+        detail = parse("d3")
+        row = next(
+            item for item in detail.game_logs
+            if item.stat_type == "batting" and item.source_game_id == "6537130"
+        )
+        self.assertEqual(row.counts["at_bats"], 4)
+        self.assertEqual(row.counts["hits"], 1)
+        self.assertEqual(row.counts["home_runs"], 0)
+        self.assertEqual(row.counts["walks"], 0)
+        self.assertEqual(row.counts["hit_by_pitch"], 0)
+        self.assertEqual(row.counts["sacrifice_flies"], 0)
+
+        career = next(
+            item for item in detail.career_seasons
+            if item.stat_type == "batting" and item.season_label == "2022-23"
+        )
+        self.assertIsNone(career.counts["home_runs"])
+
     def test_only_active_season_logs_are_emitted_and_remain_typed(self):
         for division in REPRESENTATIVES:
             with self.subTest(division=division):

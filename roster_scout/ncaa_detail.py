@@ -466,10 +466,10 @@ def history_availability(source_player_id: str | None) -> HistoryAvailability:
     return HistoryAvailability("pending", None, 0)
 
 
-def _history_count(value: str) -> int | None:
+def _history_count(value: str, *, published_blank_zero: bool = False) -> int | None:
     text = str(value or "").strip()
     if text.casefold() in _EMPTY_VALUES:
-        return None
+        return 0 if published_blank_zero else None
     # Some NCAA game-log cells expose a truncated linked record (for example
     # ``1/``) instead of a count.  Treat it as unavailable rather than guessing.
     if re.fullmatch(r"\d+/", text):
@@ -492,7 +492,12 @@ def _history_decimal(value: str) -> Decimal | None:
     return parsed
 
 
-def _history_values(node, stat_type: str) -> tuple[MappingProxyType, MappingProxyType]:
+def _history_values(
+    node,
+    stat_type: str,
+    *,
+    published_blank_zero: bool = False,
+) -> tuple[MappingProxyType, MappingProxyType]:
     counts = {}
     rates = {}
     seen = set()
@@ -510,7 +515,10 @@ def _history_values(node, stat_type: str) -> tuple[MappingProxyType, MappingProx
             except ValueError as exc:
                 raise PlayerDetailContractError("schema_validation") from exc
         elif header in _HISTORY_COUNT_HEADERS[stat_type]:
-            counts[_HISTORY_COUNT_HEADERS[stat_type][header]] = _history_count(text)
+            counts[_HISTORY_COUNT_HEADERS[stat_type][header]] = _history_count(
+                text,
+                published_blank_zero=published_blank_zero,
+            )
         elif header in _HISTORY_RATE_HEADERS[stat_type]:
             rates[_HISTORY_RATE_HEADERS[stat_type][header]] = _history_decimal(text)
     return MappingProxyType(counts), MappingProxyType(rates)
@@ -652,7 +660,11 @@ def parse_player_detail_fixture(
             ):
                 raise PlayerDetailContractError("schema_validation")
             game_date = _history_date(date_label, active_year)
-            counts, rates = _history_values(row, stat_type)
+            counts, rates = _history_values(
+                row,
+                stat_type,
+                published_blank_zero=True,
+            )
             if not counts and not rates:
                 continue
             if all(value is None for value in (*counts.values(), *rates.values())):
