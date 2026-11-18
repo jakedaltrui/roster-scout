@@ -330,6 +330,24 @@ def _fielding_leaders(rows, players):
     return leaders[:12]
 
 
+def _has_offensive_participation(counts):
+    """Exclude NCAA's zero-opportunity pitcher placeholders from hitting UI."""
+    return bool(counts.get("plate_appearances") or any(
+        (counts.get(key) or 0) > 0
+        for key in (
+            "at_bats",
+            "hits",
+            "walks",
+            "hit_by_pitch",
+            "sacrifice_flies",
+            "sacrifice_hits",
+            "stolen_bases",
+            "runs",
+            "runs_batted_in",
+        )
+    ))
+
+
 def _player_cards(scope_rows, players):
     cards = {
         player_id: {
@@ -343,6 +361,8 @@ def _player_cards(scope_rows, players):
         for player_id, details in players.items()
     }
     for player_id, counts in scope_rows["batting"][0]:
+        if not _has_offensive_participation(counts):
+            continue
         cards[player_id]["batting"] = {
             "plateAppearances": counts.get("plate_appearances"),
             "average": _metric("avg", counts),

@@ -232,6 +232,44 @@ class NativeDashboardProjectionTests(unittest.TestCase):
         self.assertEqual(leaders[0]["name"], "Casey")
         self.assertEqual(leaders[0]["percentage"], 0.9677)
 
+    def test_player_view_hides_pitcher_batting_placeholder_but_keeps_two_way(self):
+        from roster_scout.native_dashboard import _player_cards
+
+        pitcher_id, two_way_id = uuid.uuid4(), uuid.uuid4()
+        players = {
+            pitcher_id: {"name": "Pitcher Only", "position": "P"},
+            two_way_id: {"name": "Two Way", "position": "P/OF"},
+        }
+        empty_batting = {
+            "plate_appearances": 0, "at_bats": 0, "hits": 0,
+            "walks": 0, "hit_by_pitch": 0, "sacrifice_flies": 0,
+            "sacrifice_hits": 0, "stolen_bases": 0, "runs": 0,
+            "runs_batted_in": 0,
+        }
+        active_batting = {**empty_batting, "plate_appearances": 1, "at_bats": 1}
+        pitching = {
+            "innings_outs": 9, "hits_allowed": 2, "walks": 1,
+            "strikeouts": 4, "earned_runs": 1,
+        }
+        rows = {
+            "batting": ((
+                (pitcher_id, empty_batting),
+                (two_way_id, active_batting),
+            ), "complete", None),
+            "pitching": ((
+                (pitcher_id, pitching),
+                (two_way_id, pitching),
+            ), "complete", None),
+            "fielding": ((), "unavailable", None),
+        }
+
+        cards = {item["name"]: item for item in _player_cards(rows, players)}
+
+        self.assertIsNone(cards["Pitcher Only"]["batting"])
+        self.assertIsNotNone(cards["Pitcher Only"]["pitching"])
+        self.assertIsNotNone(cards["Two Way"]["batting"])
+        self.assertIsNotNone(cards["Two Way"]["pitching"])
+
 
 if __name__ == "__main__":
     unittest.main()
